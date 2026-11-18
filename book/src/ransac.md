@@ -67,13 +67,16 @@ pub struct RansacOptions {
     pub max_iters: usize,      // Maximum iterations
     pub thresh: f64,           // Inlier distance threshold
     pub min_inliers: usize,    // Minimum consensus set size
+    pub min_inlier_fraction: f64, // Minimum share of all the data as inliers
     pub confidence: f64,       // Desired probability (0-1) for dynamic bound
     pub seed: u64,             // RNG seed for reproducibility
     pub refit_on_inliers: bool, // Refit model on full inlier set
 }
 ```
 
-**Choosing the threshold $\epsilon$**: There is no default threshold; construct the options with `RansacOptions::new(thresh)` (the other fields keep defaults, and `with_max_iters`, `with_min_inliers`, `with_confidence`, `with_seed` and `with_refit_on_inliers` override them, as in `RansacOptions::new(thresh).with_max_iters(500)`). A threshold that is not finite and positive is an error. The threshold should reflect the expected noise level, in the unit of the estimator's residual (see the table below). For pixel-space residuals, $\epsilon = 2\text{-}5$ pixels is typical. For the calibrated essential-matrix residual the unit is σ of the stated pixel noise (3.0 keeps about 99.7 % of Gaussian inliers). The residual is always a distance, never a squared distance.
+**Choosing the threshold $\epsilon$**: There is no default threshold; construct the options with `RansacOptions::new(thresh)` (the other fields keep defaults, and `with_max_iters`, `with_min_inliers`, `with_min_inlier_fraction`, `with_confidence`, `with_seed` and `with_refit_on_inliers` override them, as in `RansacOptions::new(thresh).with_max_iters(500)`). A threshold that is not finite and positive is an error. The threshold should reflect the expected noise level, in the unit of the estimator's residual (see the table below). For pixel-space residuals, $\epsilon = 2\text{-}5$ pixels is typical. For the calibrated essential-matrix residual the unit is σ of the stated pixel noise (3.0 keeps about 99.7 % of Gaussian inliers). The residual is always a distance, never a squared distance.
+
+**Accepting a model**: a model is accepted only when its inliers reach both `min_inliers` and `min_inlier_fraction` (a share in $[0, 1]$ of all the data, default 0), before and after the refit; when no model does, the estimator returns an error. The fraction states a policy over the whole data set, such as "at least 80 % of the laser points lie on the plane", without counting the data first.
 
 ## Result
 
@@ -97,6 +100,7 @@ RANSAC is used with several models in calibration-rs:
 | Fundamental matrix | 8 | Sampson distance, unit of the points | `fundamental_8point_ransac` |
 | Essential matrix | 5 | Covariance-weighted Sampson error on bearings, σ of the stated pixel noise | `mvg::robust::estimate_essential`, `recover_relative_pose_robust` |
 | PnP (DLT) | 6 | Reprojection error, pixels | `dlt_ransac` |
+| Plane | 3 | Point-to-plane distance, unit of the points | `LaserlinePlaneSolver::from_points_3d_ransac`, `from_views_ransac` |
 
 ## Deterministic Seeding
 

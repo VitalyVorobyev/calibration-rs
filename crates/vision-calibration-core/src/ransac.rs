@@ -42,6 +42,14 @@ pub struct RansacOptions {
     /// Minimum number of inliers required to accept a model, before and
     /// after the refit.
     pub min_inliers: usize,
+    /// Minimum fraction, in `[0, 1]`, of all the data that must be inliers
+    /// to accept a model, before and after the refit; checked together with
+    /// [`min_inliers`](Self::min_inliers), so the stricter of the two
+    /// decides. A model with `k` inliers out of `n` data passes when
+    /// `k / n >= min_inlier_fraction`. The default `0.0` leaves the count
+    /// alone in charge: whether a given share of outliers is acceptable is
+    /// a property of the data, which only the caller knows.
+    pub min_inlier_fraction: f64,
     /// Desired probability, strictly between 0 and 1, of drawing at least
     /// one all-inlier sample; it sets the adaptive iteration count.
     pub confidence: f64,
@@ -54,14 +62,15 @@ pub struct RansacOptions {
 impl RansacOptions {
     /// Options with the given inlier threshold (in the estimator's residual
     /// unit, see [`RansacOptions::thresh`]) and defaults for the rest:
-    /// `max_iters` 1000, `min_inliers` 12, `confidence` 0.99, a fixed `seed`
-    /// and `refit_on_inliers` `true`.
+    /// `max_iters` 1000, `min_inliers` 12, `min_inlier_fraction` 0,
+    /// `confidence` 0.99, a fixed `seed` and `refit_on_inliers` `true`.
     #[must_use]
     pub fn new(thresh: f64) -> Self {
         Self {
             max_iters: 1000,
             thresh,
             min_inliers: 12,
+            min_inlier_fraction: 0.0,
             confidence: 0.99,
             seed: 1_234_567,
             refit_on_inliers: true,
@@ -79,6 +88,13 @@ impl RansacOptions {
     #[must_use]
     pub fn with_min_inliers(mut self, min_inliers: usize) -> Self {
         self.min_inliers = min_inliers;
+        self
+    }
+
+    /// These options with `min_inlier_fraction` replaced.
+    #[must_use]
+    pub fn with_min_inlier_fraction(mut self, min_inlier_fraction: f64) -> Self {
+        self.min_inlier_fraction = min_inlier_fraction;
         self
     }
 
@@ -104,7 +120,8 @@ impl RansacOptions {
     }
 
     /// Check that the options are usable: `thresh` finite and positive,
-    /// `confidence` strictly between 0 and 1, and `max_iters` at least 1.
+    /// `confidence` strictly between 0 and 1, `min_inlier_fraction` in
+    /// `[0, 1]`, and `max_iters` at least 1.
     /// The estimators call this before any work and return the error
     /// instead of running with a threshold that rejects or accepts
     /// everything, or a confidence that ends the search after one model.
@@ -125,10 +142,26 @@ impl RansacOptions {
                 self.confidence
             )));
         }
+        if !(0.0..=1.0).contains(&self.min_inlier_fraction) {
+            return Err(Error::invalid_input(format!(
+                "RANSAC min_inlier_fraction must be in [0, 1], got {}",
+                self.min_inlier_fraction
+            )));
+        }
         if self.max_iters == 0 {
             return Err(Error::invalid_input("RANSAC max_iters must be at least 1"));
         }
         Ok(())
+    }
+
+    /// Whether `inliers` of `total` data meet both [`min_inliers`](Self::min_inliers)
+    /// and [`min_inlier_fraction`](Self::min_inlier_fraction). The fraction is
+    /// compared as the ratio `inliers / total`, which is exact at a boundary
+    /// such as 7 of 10 against 0.7 (where `0.7 * 10` rounds above 7).
+    fn accepts(&self, inliers: usize, total: usize) -> bool {
+        inliers >= self.min_inliers
+            && total > 0
+            && inliers as f64 / total as f64 >= self.min_inlier_fraction
     }
 }
 
@@ -327,7 +360,7 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
             }
         }
 
-        if inliers.len() < opts.min_inliers {
+        if !opts.accepts(inliers.len(), data.len()) {
             continue;
         }
 
@@ -349,10 +382,10 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
                         refined_residuals.push(r);
                     }
                 }
-                if refined_inliers.len() >= opts.min_inliers {
+                if opts.accepts(refined_inliers.len(), data.len()) {
                     model_refit = m2;
                 } else {
-                    // The refit lost the consensus `min_inliers` asks for:
+                    // The refit lost the consensus the options ask for:
                     // keep the sample's model and its inliers.
                     refined_inliers.clear();
                     refined_inliers.extend_from_slice(&inliers);
@@ -527,9 +560,28 @@ mod tests {
                 max_iters: 0,
                 ..RansacOptions::new(1.0)
             },
+            RansacOptions::new(1.0).with_min_inlier_fraction(-0.1),
+            RansacOptions::new(1.0).with_min_inlier_fraction(1.5),
+            RansacOptions::new(1.0).with_min_inlier_fraction(f64::NAN),
         ] {
             assert!(bad.validate().is_err(), "{bad:?}");
         }
+    }
+
+    /// Seven of ten points on a line, three far off it: the consensus is
+    /// exactly 0.7, so a 0.7 minimum fraction accepts it (the ratio, not
+    /// `0.7 * 10`, decides) and anything above rejects it.
+    #[test]
+    fn min_inlier_fraction_accepts_at_and_rejects_above_the_consensus() {
+        let mut data: Vec<(f64, f64)> = (0..7).map(|i| (i as f64, 2.0 * i as f64 + 1.0)).collect();
+        data.extend([(1.0, 40.0), (3.0, -30.0), (5.0, 70.0)]);
+        let opts = default_opts().with_min_inliers(2);
+        let at = ransac_fit::<LineEstimator>(&data, &opts.clone().with_min_inlier_fraction(0.7));
+        assert!(at.success);
+        assert_eq!(at.inliers, (0..7).collect::<Vec<_>>());
+        let above = ransac_fit::<LineEstimator>(&data, &opts.with_min_inlier_fraction(0.71));
+        assert!(!above.success);
+        assert!(above.model.is_none());
     }
 
     /// A line estimator whose refit lands far from the data, so the refit

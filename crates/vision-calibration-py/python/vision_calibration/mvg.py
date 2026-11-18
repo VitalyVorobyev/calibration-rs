@@ -186,6 +186,9 @@ class RansacOptions:
     """Most RANSAC iterations."""
     min_inliers: int = 12
     """Fewest inliers a model needs to be accepted."""
+    min_inlier_fraction: float = 0.0
+    """Smallest share in ``[0, 1]`` of all the data that must be inliers for a
+    model to be accepted, checked with ``min_inliers`` (the stricter decides)."""
     confidence: float = 0.99
     """Desired confidence in ``[0, 1]`` of finding a good model."""
     seed: int = 1_234_567
@@ -198,6 +201,7 @@ class RansacOptions:
             "thresh": float(self.thresh),
             "max_iters": int(self.max_iters),
             "min_inliers": int(self.min_inliers),
+            "min_inlier_fraction": float(self.min_inlier_fraction),
             "confidence": float(self.confidence),
             "seed": int(self.seed),
             "refit_on_inliers": bool(self.refit_on_inliers),
@@ -784,7 +788,8 @@ def estimate_essential(
         For a camera index out of range, fewer than 5 matches or a pixel with no
         finite viewing ray.
     RuntimeError
-        If no model reaches ``ransac.min_inliers``.
+        If no model reaches ``ransac.min_inliers`` and
+        ``ransac.min_inlier_fraction``.
     """
     payload = _native.mvg_estimate_essential(
         _export_of(result), list(cameras), _matches(matches), ransac.to_payload(), progress
@@ -807,7 +812,8 @@ def estimate_homography(
     ValueError
         For fewer than 4 correspondences, a wrong shape or an invalid threshold.
     RuntimeError
-        If no model reaches ``ransac.min_inliers``.
+        If no model reaches ``ransac.min_inliers`` and
+        ``ransac.min_inlier_fraction``.
     """
     array = np.ascontiguousarray(np.asarray(correspondences, dtype=np.float64))
     if array.ndim != 3 or array.shape[1:] != (2, 2):

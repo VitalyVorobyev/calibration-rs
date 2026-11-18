@@ -620,7 +620,9 @@ pub mod detect {
 /// `vision_calibration::mvg::dense::match_block`.
 pub mod mvg {
     /// RANSAC settings taken by the robust estimators in [`robust`] and
-    /// [`solvers`].
+    /// [`solvers`], by the PnP of [`init::pnp`](crate::init::pnp) and by the
+    /// robust laser-plane fits of
+    /// [`LaserlinePlaneSolver`](crate::init::LaserlinePlaneSolver).
     pub use vision_calibration_core::RansacOptions;
     pub use vision_mvg::{
         Error, bundle_adjust, dense, homography, laser, metrology, pose, pose_recovery,
@@ -724,7 +726,8 @@ pub mod init {
     pub use vision_calibration_linear::iterative_intrinsics::{
         IterativeIntrinsicsOptions, estimate_intrinsics_iterative,
     };
-    /// A plane through 3D points, such as laser points in the camera frame.
+    /// A plane through 3D points, such as laser points in the camera frame:
+    /// closed-form, or by seeded RANSAC for points with outliers.
     pub use vision_calibration_linear::laserline::{
         LaserlinePlaneSolver, LinearPlaneEstimate, PlaneFitView,
     };

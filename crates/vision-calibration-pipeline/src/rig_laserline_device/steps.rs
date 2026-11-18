@@ -16,8 +16,12 @@ use super::problem::RigLaserlineDeviceProblem;
 
 /// Options for the laser-plane initialization step.
 ///
-/// The plane fit has no per-call overrides yet; the struct keeps `step_init`
-/// in the same shape as every other step.
+/// The step's plane fit is the closed-form fit and has no per-call overrides
+/// yet; the struct keeps `step_init` in the same shape as every other step.
+/// For a robust fit with its own policy (threshold, iterations, minimum
+/// inlier fraction, refit, seed), fit each camera's plane with
+/// [`LaserlinePlaneSolver::from_views_ransac`] and pass the planes to
+/// [`step_init_with_seed`] as [`PlaneManualInit::laser_planes_cam`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]

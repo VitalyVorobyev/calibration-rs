@@ -510,7 +510,8 @@ pub(crate) fn bearing_pairs(
 /// [`Error::InsufficientData`] for fewer than 5 matches,
 /// [`Error::InvalidInput`] for a camera index out of range or a pixel with no
 /// finite viewing ray, [`Error::NoConsensus`] if no model reaches
-/// `opts.min_inliers`, and [`Error::Cancelled`] when `control`'s token is
+/// `opts.min_inliers` and `opts.min_inlier_fraction`, and
+/// [`Error::Cancelled`] when `control`'s token is
 /// cancelled.
 pub fn estimate_essential(
     rig: &CalibratedRig,
@@ -614,7 +615,8 @@ const FINAL_REFITS: usize = 5;
 ///
 /// [`Error::Core`] if `opts.thresh` is not finite and positive,
 /// [`Error::InsufficientData`] for fewer than 4 correspondences and
-/// [`Error::NoConsensus`] if no model reaches `opts.min_inliers`.
+/// [`Error::NoConsensus`] if no model reaches `opts.min_inliers` and
+/// `opts.min_inlier_fraction`.
 pub fn estimate_homography(
     corrs: &[Correspondence2D],
     opts: &RansacOptions,

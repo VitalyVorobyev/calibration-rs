@@ -56,6 +56,12 @@ pub enum Error {
     )]
     NoValidMotionPairs,
 
+    /// A robust (RANSAC) estimator found no model whose inliers reach the
+    /// options' `min_inliers` and `min_inlier_fraction` within its
+    /// iterations.
+    #[error("no consensus: robust estimation failed")]
+    NoConsensus,
+
     /// Forwarded error from `vision-calibration-core`.
     #[error(transparent)]
     Core(#[from] CoreError),
