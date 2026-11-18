@@ -447,7 +447,7 @@
         }
       },
       "notes": null,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "input": {
@@ -695,31 +695,31 @@
       "notes": "fx=801.0, fy=781.0, cx=512.1, cy=384.0 (auto: intrinsics, distortion, cam_se3_target)",
       "operation": "intrinsics_init",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "reproj_err=0.130px, cost=4.86e0",
       "operation": "intrinsics_optimize",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "gripper_se3_cam |t|=0.0978m (auto: gripper_se3_cam, base_se3_target)",
       "operation": "handeye_init",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "final_cost=5.00e0",
       "operation": "handeye_optimize",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "metadata": {
-    "created_at": 1794440808,
+    "created_at": 1795015261,
     "description": null,
-    "last_modified": 1794440808,
+    "last_modified": 1795015261,
     "problem_type": "single_cam_handeye_v2",
     "schema_version": 4
   },
@@ -840,7 +840,8 @@
     ],
     "report": {
       "final_cost": 5.004426394798665,
-      "num_iters": 1
+      "num_iters": 1,
+      "termination": "min_abs_decrease"
     },
     "robot_refinement": {
       "deltas": [

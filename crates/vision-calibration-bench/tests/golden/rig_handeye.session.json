@@ -587,7 +587,7 @@
         }
       },
       "notes": null,
-      "timestamp": 1794440808
+      "timestamp": 1795015262
     }
   ],
   "input": {
@@ -1020,31 +1020,31 @@
       "notes": "initialized 2 cameras (auto: per_cam_intrinsics, per_cam_distortion)",
       "operation": "intrinsics_init_all",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "avg_reproj_err=0.129px",
       "operation": "intrinsics_optimize_all",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "ref_cam=0, 8 views (auto: cam_se3_rig, rig_se3_target)",
       "operation": "rig_init",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "final_cost=9.89e0, mean_reproj_err=0.131px",
       "operation": "rig_optimize",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "metadata": {
-    "created_at": 1794440808,
+    "created_at": 1795015261,
     "description": null,
-    "last_modified": 1794440808,
+    "last_modified": 1795015262,
     "problem_type": "rig_handeye_v2",
     "schema_version": 3
   },
@@ -1202,7 +1202,8 @@
     ],
     "report": {
       "final_cost": 10.007875487791782,
-      "num_iters": 1
+      "num_iters": 1,
+      "termination": "min_abs_decrease"
     },
     "robot_refinement": {
       "deltas": [

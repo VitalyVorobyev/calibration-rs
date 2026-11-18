@@ -76,7 +76,7 @@ Every problem's `*Config` embeds the same small structs by stage:
 
 ## Optimization Backend Types
 
-`vision-calibration-optim` keeps the IR (`ProblemIR`, `ParamBlock`, `ResidualBlock`, `FactorKind`, `ManifoldKind`, ...), the backend dispatch and the `optimize_*` entry points internal; see [Backend-Agnostic IR Architecture](ir_architecture.md). Each estimate carries a `SolveReport` (`final_cost`, `num_iters`); a config's `SolverConfig` (`backend`, `max_iters`, `verbosity`) sets how each stage solves.
+`vision-calibration-optim` keeps the IR (`ProblemIR`, `ParamBlock`, `ResidualBlock`, `FactorKind`, `ManifoldKind`, ...), the backend dispatch and the `optimize_*` entry points internal; see [Backend-Agnostic IR Architecture](ir_architecture.md). Each estimate carries a `SolveReport` (`final_cost`, `num_iters`, and the `SolveTermination` that ended the solve); a config's `SolverConfig` (`backend`, `max_iters`, `verbosity`) sets how each stage solves.
 
 ## Hand-Eye Types
 

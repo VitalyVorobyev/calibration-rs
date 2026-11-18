@@ -7,7 +7,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraParams, Iso3};
-use vision_calibration_optim::HandeyeMode;
+use vision_calibration_optim::{HandeyeMode, SolveTermination};
 
 use crate::common::{
     HandeyeInitOptions, HandeyeOptimizeOptions, HandeyeOptimizeResult, HandeyeSolution,
@@ -110,6 +110,9 @@ pub struct IntrinsicsOptimizeResult {
     /// [`crate::device_seed::rig_layout_seed`]) should anchor on these, not
     /// on the coarser init-time poses.
     pub cam_se3_target: Vec<Vec<Option<Iso3>>>,
+    /// Per camera, why its solver stopped; `None` when that is unknown.
+    #[serde(default)]
+    pub per_cam_terminations: Vec<Option<SolveTermination>>,
 }
 
 /// Typed return value of [`step_rig_optimize`] for rig hand-eye calibration.
@@ -124,6 +127,9 @@ pub struct RigOptimizeResult {
     pub cam_se3_rig: Vec<Iso3>,
     /// Optimized per-view `T_R_T` — rig-from-target.
     pub rig_se3_target: Vec<Iso3>,
+    /// Why the solver stopped; `None` when that is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<SolveTermination>,
 }
 
 /// Typed return value of [`step_handeye_init`] / [`step_handeye_init_with_seed`].
@@ -203,6 +209,7 @@ pub fn step_intrinsics_optimize_all(
         cameras: estimate.cameras,
         per_cam_reproj_errors: estimate.per_cam_reproj_errors,
         cam_se3_target: estimate.cam_se3_target,
+        per_cam_terminations: estimate.per_cam_terminations,
     })
 }
 
@@ -265,6 +272,7 @@ pub fn step_rig_optimize(
         per_cam_reproj_errors: output.per_cam_reproj_errors,
         cam_se3_rig: cam_se3_rig.clone(),
         rig_se3_target: output.params.rig_se3_target.clone(),
+        termination: output.report.termination,
     };
     session.state.rig_ba_cam_se3_rig = Some(cam_se3_rig);
     session.state.rig_ba_rig_se3_target = Some(output.params.rig_se3_target);

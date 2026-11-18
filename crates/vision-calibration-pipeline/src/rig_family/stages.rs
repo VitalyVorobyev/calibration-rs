@@ -13,7 +13,7 @@ use vision_calibration_core::{
 use vision_calibration_linear::extrinsics::estimate_extrinsics_from_cam_target_poses;
 use vision_calibration_optim::{
     PlanarIntrinsicsParams, RigExtrinsicsEstimate, RigExtrinsicsParams, RigExtrinsicsSolveOptions,
-    optimize_rig_extrinsics,
+    SolveTermination, optimize_rig_extrinsics,
 };
 
 use super::tilted::TiltedRecovery;
@@ -201,6 +201,8 @@ pub(crate) struct RigCamerasEstimate {
     pub cameras: Vec<CameraParams>,
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per camera, why its solve stopped; `None` when that is unknown.
+    pub per_cam_terminations: Vec<Option<SolveTermination>>,
     /// Per-camera target poses refined alongside: `[view][cam]`.
     pub cam_se3_target: Vec<Vec<Option<Iso3>>>,
 }
@@ -307,6 +309,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
 
     let mut optimized_cameras = Vec::with_capacity(input.num_cameras);
     let mut per_cam_reproj_errors = Vec::with_capacity(input.num_cameras);
+    let mut per_cam_terminations = Vec::with_capacity(input.num_cameras);
     let mut tilted = TiltedRecovery::default();
 
     for (cam_idx, camera) in cameras.iter().enumerate() {
@@ -355,11 +358,13 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
         }
         optimized_cameras.push(result.params.camera);
         per_cam_reproj_errors.push(result.mean_reproj_error);
+        per_cam_terminations.push(result.report.termination);
     }
 
     tilted.recover(
         &mut optimized_cameras,
         &mut per_cam_reproj_errors,
+        &mut per_cam_terminations,
         &mut cam_se3_target,
         backend_opts,
         P::rig_config(config).reference_camera_idx,
@@ -384,6 +389,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
     Ok(RigCamerasEstimate {
         cameras: optimized_cameras,
         per_cam_reproj_errors,
+        per_cam_terminations,
         cam_se3_target,
     })
 }

@@ -20,8 +20,8 @@ from .models import (
     RigLaserlineDeviceExport,
     RigLaserlineDeviceInput,
 )
-from .session import CalibrationSession, _run_calibration, _payload, _seed_payload
-from .types import ProgressCallback
+from .session import CalibrationSession, _run_calibration, _payload, _seed_payload, _terminations
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "PlaneInitOptions",
@@ -90,6 +90,8 @@ class PlaneOptimizeResult:
     mean_reproj_error: float
     """Mean target reprojection error over the cameras, pixels."""
     per_cam_stats: list[LaserlineStats]
+    per_cam_terminations: list[SolveTermination | None]
+    """Per camera, why its solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> PlaneOptimizeResult:
@@ -101,6 +103,7 @@ class PlaneOptimizeResult:
                 LaserlineStats.from_payload(cast(Mapping[str, Any], v))
                 for v in payload["per_cam_stats"]
             ],
+            per_cam_terminations=_terminations(payload.get("per_cam_terminations")),
         )
 
 

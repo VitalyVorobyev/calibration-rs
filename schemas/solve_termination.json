@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Why a Levenberg–Marquardt solve stopped.\n\nEvery reason but [`MaxIters`](Self::MaxIters) is a stopping rule\n([`is_converged`](Self::is_converged)): the loop could not improve the\nsolution further, and only then is its covariance computed. A cancelled\nsolve, or one whose cost is not finite, returns an error instead of a\nsolution. The cost the thresholds are compared with is the robust\nobjective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's\n[`final_cost`](SolveReport::final_cost).",
+  "oneOf": [
+    {
+      "const": "relative_step",
+      "description": "The step became negligible next to the parameters,\n`‖dx‖ ≤ 10⁻⁸ (‖x‖ + 10⁻⁸)`: it can no longer change them.",
+      "type": "string"
+    },
+    {
+      "const": "min_error",
+      "description": "The cost fell below its floor, `min_error` (10⁻¹⁰).",
+      "type": "string"
+    },
+    {
+      "const": "min_abs_decrease",
+      "description": "An accepted step lowered the cost by less than `min_abs_decrease`\n(10⁻⁵).",
+      "type": "string"
+    },
+    {
+      "const": "min_rel_decrease",
+      "description": "An accepted step lowered the cost by less than `min_rel_decrease`\n(10⁻⁵) of the cost before it.",
+      "type": "string"
+    },
+    {
+      "const": "no_accepted_step",
+      "description": "No step lowered the cost, with the damping doubled on each of 32\ntries: a minimum to working precision, or a parameter held on its\nbound (the covariance then names it).",
+      "type": "string"
+    },
+    {
+      "const": "max_iters",
+      "description": "The iteration budget, `max_iters`, ran out before a stopping rule\nwas met; the solution has no covariance.",
+      "type": "string"
+    },
+    {
+      "const": "all_parameters_fixed",
+      "description": "Every parameter is fixed: no iteration ran.",
+      "type": "string"
+    }
+  ],
+  "title": "SolveTermination"
+}

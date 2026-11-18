@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its shared per-capture board poses, its laser planes and, as chosen, its
   cameras and extrinsics in one problem, on both solver backends, with the
   covariance. The book's "A Rig Without a Robot" shows the recipe.
+- Solve reports say why the solver stopped. `SolveReport` gains an optional
+  `termination`, a `SolveTermination`: the stopping rule that ended the
+  solve (`relative_step`, `min_error`, `min_abs_decrease`,
+  `min_rel_decrease`), `no_accepted_step`, `max_iters` when the iteration
+  budget ran out, or `all_parameters_fixed`; `SolveTermination::is_converged`
+  is false only for `max_iters`. It reaches every estimate, `problem::Solution`
+  and the bundle adjustment through their reports, and the step results that
+  run a solve as `termination` (`per_cam_terminations` for the per-camera
+  intrinsics stage of the rig workflows and the rig laser planes, whose
+  `RigLaserlineEstimate` gains `per_cam_reports`); Python's step results and
+  `BundleAdjustment` carry it as a string. A report saved without it reads
+  back as `None`, unknown, and is written as before.
+
 - Ring-grid targets on a rectangular lattice and plain ring-grid targets.
   The manifest's `ringgrid` target and `RinggridConfig` take an optional
   `lattice` (`"hex"`, the default, or `"rect"`) and an optional `coding`
@@ -84,6 +97,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A solve with every parameter fixed returns `Error::Cancelled` when its
+  token is cancelled, like any other cancelled solve; it returned a
+  solution on the tiny-solver backend. On the factrs backend such a solve
+  now runs no iteration (`num_iters` 0), as on tiny-solver, instead of one
+  that could not move anything; the solution is unchanged.
 - The book, the READMEs and the API-reference link now match the code: the
   manifold retractions (a pose step is `T·exp(ξ)`, the unit-sphere step is
   its exponential map), the six residual families and their parameter-block

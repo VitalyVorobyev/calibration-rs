@@ -36,8 +36,8 @@ use vision_calibration::mvg::{self, RansacOptions};
 use vision_calibration::nalgebra::{
     DMatrix, Matrix3, Matrix6, Rotation3, Translation3, UnitQuaternion,
 };
-use vision_calibration::optim::RobustLoss;
 use vision_calibration::optim::problem::Use;
+use vision_calibration::optim::{RobustLoss, SolveTermination};
 
 use crate::control::PyRunControl;
 use crate::runtime_err;
@@ -377,6 +377,7 @@ struct BundleAdjustmentPayload<'a> {
     uncertainty: &'a Uncertainty,
     final_cost: f64,
     num_iters: usize,
+    termination: Option<SolveTermination>,
     reprojection_rms_px: f64,
 }
 
@@ -425,6 +426,7 @@ pub(crate) fn mvg_bundle_adjust(
             uncertainty: &adjusted.uncertainty,
             final_cost: adjusted.report.final_cost,
             num_iters: adjusted.report.num_iters,
+            termination: adjusted.report.termination,
             reprojection_rms_px: adjusted.reprojection_rms_px,
         },
     )

@@ -7,6 +7,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::CameraParams;
+use vision_calibration_optim::SolveTermination;
 
 use crate::common::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigInitResult,
@@ -29,6 +30,9 @@ pub struct IntrinsicsOptimizeResult {
     pub cameras: Vec<CameraParams>,
     /// Per-camera mean reprojection error in pixels.
     pub per_cam_reproj_errors: Vec<f64>,
+    /// Per camera, why its solver stopped; `None` when that is unknown.
+    #[serde(default)]
+    pub per_cam_terminations: Vec<Option<SolveTermination>>,
 }
 
 /// Typed return value of [`step_rig_optimize`].
@@ -41,6 +45,9 @@ pub struct RigOptimizeResult {
     pub per_cam_reproj_errors: Vec<f64>,
     /// Per-camera parameters after rig BA.
     pub cameras: Vec<CameraParams>,
+    /// Why the solver stopped; `None` when that is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<SolveTermination>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +115,7 @@ pub fn step_intrinsics_optimize_all(
     Ok(IntrinsicsOptimizeResult {
         cameras: estimate.cameras,
         per_cam_reproj_errors: estimate.per_cam_reproj_errors,
+        per_cam_terminations: estimate.per_cam_terminations,
     })
 }
 
@@ -178,6 +186,7 @@ pub fn step_rig_optimize(
         mean_reproj_error: output.mean_reproj_error,
         per_cam_reproj_errors: output.per_cam_reproj_errors.clone(),
         cameras: output.params.cameras.clone(),
+        termination: output.report.termination,
     };
     session.state.rig_ba_final_cost = Some(output.report.final_cost);
     session.set_output(output);

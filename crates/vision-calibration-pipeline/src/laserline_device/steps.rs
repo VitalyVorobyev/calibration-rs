@@ -9,8 +9,8 @@ use vision_calibration_core::{
 };
 use vision_calibration_linear::laserline::{LaserlinePlaneSolver, PlaneFitView};
 use vision_calibration_optim::{
-    LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, RobustLoss, compute_laserline_stats,
-    optimize_laserline,
+    LaserlineParams, LaserlineStats, PlanarIntrinsicsParams, RobustLoss, SolveTermination,
+    compute_laserline_stats, optimize_laserline,
 };
 
 use crate::planar_family::{
@@ -118,6 +118,9 @@ pub struct DeviceOptimizeResult {
     pub per_view_reproj_errors: Vec<f64>,
     /// Per-view mean laser residuals.
     pub per_view_laser_errors: Vec<f64>,
+    /// Why the solver stopped; `None` when that is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<SolveTermination>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,6 +347,7 @@ pub fn step_optimize(
     let stats = compute_laserline_stats(input, &result.params, solve_opts.laser_residual_type)?;
 
     let final_cost = result.report.final_cost;
+    let termination = result.report.termination;
     update_state_with_stats(session, &stats, final_cost);
 
     let output = LaserlineDeviceEstimate {
@@ -366,6 +370,7 @@ pub fn step_optimize(
         mean_laser_error: stats.mean_laser_error,
         per_view_reproj_errors: stats.per_view_reproj_errors,
         per_view_laser_errors: stats.per_view_laser_errors,
+        termination,
     })
 }
 

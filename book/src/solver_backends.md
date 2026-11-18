@@ -89,17 +89,26 @@ where $\rho_i$ is the residual block's loss ($\rho(s) = s$ without one; see
    $\max(1/3,\, 1 - (2\varrho - 1)^3)$; a rejected one doubles $\lambda$ and
    retries, up to 32 times.
 
-The loop stops at the first of:
+The loop stops at the first of the rules below; the solve report names it
+as its `termination`:
 
-- the cost $2F$ falls below $10^{-10}$;
-- an accepted step decreases $2F$ by less than $10^{-5}$, in absolute terms
-  or relative to its previous value;
-- a step can no longer change the parameters
-  ($\lVert\boldsymbol{\delta}\rVert \le 10^{-8}(\lVert\mathbf{x}\rVert +
-  10^{-8})$);
-- no step is accepted after 32 retries, which is a minimum to working
-  precision;
-- `max_iters` iterations, the one threshold the solver settings set.
+| Rule | `termination` |
+|---|---|
+| a step can no longer change the parameters ($\lVert\boldsymbol{\delta}\rVert \le 10^{-8}(\lVert\mathbf{x}\rVert + 10^{-8})$) | `relative_step` |
+| no step is accepted after 32 retries: a minimum to working precision, or a parameter held on its bound | `no_accepted_step` |
+| after an accepted step, the cost $2F$ is below $10^{-10}$ | `min_error` |
+| an accepted step decreases $2F$ by less than $10^{-5}$ | `min_abs_decrease` |
+| an accepted step decreases $2F$ by less than $10^{-5}$ of its previous value | `min_rel_decrease` |
+| `max_iters` iterations ran without meeting a rule; the one threshold the solver settings set | `max_iters` |
+| every parameter is fixed, so no iteration runs | `all_parameters_fixed` |
+
+The three cost rules are checked in that order after each accepted step. A
+rule met on the last allowed iteration is convergence, not `max_iters`.
+Every reason but `max_iters` is convergence
+(`SolveTermination::is_converged`), and only a converged solve has a
+covariance; one stopped by its budget reports its uncertainty unavailable
+as not converged. A cancelled solve, or one whose initial cost is not
+finite, returns an error rather than a report.
 
 Parameters held fixed never move, and the same input gives bit-identical
 results run to run.
@@ -186,12 +195,30 @@ retries.
 pub struct SolveReport {
     pub final_cost: f64,
     pub num_iters: usize,
+    pub termination: Option<SolveTermination>,
 }
 ```
 
 `final_cost` is the robust objective $F$ at the solution, the same
 definition for both backends, so it is comparable between them.
-`num_iters` counts the LM iterations.
+`num_iters` counts the LM iterations. `termination` is the rule that ended
+the solve (the table above), in JSON its snake-case name. It is `None` when
+unknown: a report saved before the reason was recorded, or a result that no
+solve produced (a tilted camera taken from its best-scoring initial
+guess). Each step result that runs a solve carries it too, as
+`termination`, or `per_cam_terminations` for a stage that solves each
+camera on its own; in Python it is a string or `None`:
+
+```rust
+# use vision_calibration::optim::{SolveReport, SolveTermination};
+# fn check(report: &SolveReport) {
+match report.termination {
+    Some(t) if t.is_converged() => println!("converged: {t:?}"),
+    Some(_) => println!("stopped by its iteration budget"),
+    None => println!("not recorded"),
+}
+# }
+```
 
 ## Typical Convergence
 
@@ -199,7 +226,8 @@ For a well-initialized planar intrinsics problem:
 
 - **Final cost**: $\sim 10^{-2}$–$10^0$ (sub-pixel residuals)
 - **Iterations**: 5–50 (depends on problem size and initial quality)
-- **Termination**: usually the relative decrease falling below $10^{-5}$
+- **Termination**: usually `min_rel_decrease`, the relative decrease
+  falling below $10^{-5}$
 
 ## Error Handling
 

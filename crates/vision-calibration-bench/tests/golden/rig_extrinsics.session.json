@@ -501,7 +501,7 @@
         }
       },
       "notes": null,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "input": {
@@ -878,31 +878,31 @@
       "notes": "initialized 2 cameras (auto: per_cam_intrinsics, per_cam_distortion)",
       "operation": "intrinsics_init_all",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "avg_reproj_err=0.126px",
       "operation": "intrinsics_optimize_all",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "ref_cam=0, 8 views (auto: cam_se3_rig, rig_se3_target)",
       "operation": "rig_init",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "final_cost=9.50e0, mean_reproj_err=0.128px",
       "operation": "rig_optimize",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "metadata": {
-    "created_at": 1794440808,
+    "created_at": 1795015261,
     "description": null,
-    "last_modified": 1794440808,
+    "last_modified": 1795015261,
     "problem_type": "rig_extrinsics_v2",
     "schema_version": 2
   },
@@ -1046,7 +1046,8 @@
     ],
     "report": {
       "final_cost": 9.496869744555005,
-      "num_iters": 4
+      "num_iters": 4,
+      "termination": "min_rel_decrease"
     },
     "uncertainty": {
       "covariance": [

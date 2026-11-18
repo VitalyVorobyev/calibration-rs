@@ -8,10 +8,11 @@
 //!   schema-driven forms in the Run workspace; the defaults feed the app's
 //!   form round-trip tests.
 //! - The input, export and quality schemas — what a workflow reads and what
-//!   it returns — the progress report a long call streams and the device
-//!   specification's go to `schemas/<name>.json`, for tools that consume the
-//!   results. Inputs and thresholds describe what deserializes, exports and
-//!   reports what serializes.
+//!   it returns — the progress report a long call streams, the reason a
+//!   solve stopped and the device specification's go to
+//!   `schemas/<name>.json`, for tools that consume the results. Inputs and
+//!   thresholds describe what deserializes, exports and reports what
+//!   serializes.
 //! - The suite's observation, truth and external-result formats go to
 //!   `regression/schema/<name>.json`, for authors of comparison harnesses.
 //! - The dataset manifest's schema is rendered as the book's field reference,
@@ -35,7 +36,7 @@ use vision_calibration_bench::suite::compare::ExternalResult;
 use vision_calibration_bench::suite::{ObservationSet, Truth};
 use vision_calibration_core::Progress;
 use vision_calibration_dataset::{DatasetSpec, DeviceSpec};
-use vision_calibration_optim::ProjectionUncertainty;
+use vision_calibration_optim::{ProjectionUncertainty, SolveTermination};
 use vision_calibration_pipeline::analysis::{
     CandidateGrid, PredictedRigUncertainty, PredictedUncertainty, QualityReport, QualityThresholds,
     RankedCandidate, RankedRobotPose,
@@ -198,6 +199,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         writes::<PredictedRigUncertainty>("predicted_rig_uncertainty", "PredictedRigUncertainty"),
         writes::<RankedRobotPose>("ranked_robot_pose", "RankedRobotPose"),
         writes::<Progress>("progress", "Progress"),
+        writes::<SolveTermination>("solve_termination", "SolveTermination"),
         plain("device_spec", schema_value::<DeviceSpec>()),
     ];
     let suite = vec![

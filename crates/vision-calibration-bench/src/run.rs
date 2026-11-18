@@ -81,7 +81,7 @@ pub mod tier_b {
     use vision_calibration_optim::{
         BackendSolveOptions, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
         PlanarIntrinsicsSolveOptions, RigHandeyeLaserlinePerCamStats, RobustLoss, SolveReport,
-        SolverBackend, optimize_planar_intrinsics,
+        SolveTermination, SolverBackend, optimize_planar_intrinsics,
     };
     #[cfg(feature = "laser")]
     use vision_calibration_pipeline::dataset_runner::{
@@ -575,10 +575,11 @@ pub mod tier_b {
 
         let convergence = Convergence {
             init_ok,
-            // The planar solver does not expose an explicit convergence flag; a
-            // successful `step_optimize` that produced an export is treated as
-            // converged. `report` carries the underlying cost/iteration detail.
-            converged: true,
+            // A report without a termination (a Scheimpflug camera taken from a
+            // scored seed) produced an export, so it counts as converged.
+            converged: report
+                .termination
+                .is_none_or(SolveTermination::is_converged),
             report,
         };
 
@@ -834,7 +835,10 @@ pub mod tier_b {
 
         let convergence = Convergence {
             init_ok: true,
-            converged: true,
+            converged: solve
+                .report
+                .termination
+                .is_none_or(SolveTermination::is_converged),
             report: solve.report.clone(),
         };
         let total_ms = solve

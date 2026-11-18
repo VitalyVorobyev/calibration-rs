@@ -46,7 +46,7 @@ from . import _vision_calibration as _native
 from ._api import CalibrationResult
 from ._generated_types import RobustLoss
 from .models import CameraParams, ParameterCovariance, PinholeIntrinsics, PointCovariance
-from .types import ProgressCallback
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "BlockMatchOptions",
@@ -727,6 +727,8 @@ class BundleAdjustment:
     and points (``p{i}.x`` ... ``.z``), in the stated gauge."""
     final_cost: float
     num_iters: int
+    termination: SolveTermination | None
+    """Why the solver stopped; ``None`` when that is unknown."""
     reprojection_rms_px: float
     _joint: _Joint = field(repr=False, compare=False)
 
@@ -742,6 +744,7 @@ class BundleAdjustment:
             uncertainty=ParameterCovariance.from_payload(uncertainty),
             final_cost=float(payload["final_cost"]),
             num_iters=int(payload["num_iters"]),
+            termination=cast("SolveTermination | None", payload.get("termination")),
             reprojection_rms_px=float(payload["reprojection_rms_px"]),
             _joint=_Joint(uncertainty),
         )

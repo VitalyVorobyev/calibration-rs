@@ -26,8 +26,8 @@ use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobustLoss,
-    ScheimpflugStagedInitOptions, SolveReport, optimize_planar_intrinsics, optimize_rig_extrinsics,
-    optimize_scheimpflug_intrinsics_staged,
+    ScheimpflugStagedInitOptions, SolveReport, SolveTermination, optimize_planar_intrinsics,
+    optimize_rig_extrinsics, optimize_scheimpflug_intrinsics_staged,
 };
 
 use super::{rig_distortion, rig_tilt, tilted_planar_params};
@@ -113,12 +113,13 @@ impl TiltedRecovery {
     }
 
     /// Re-solve each kept camera that fits badly from a nominal seed of the
-    /// well-fitted ones, replacing its parameters, error and target poses
-    /// (`[view][cam]`) when the result fits better.
+    /// well-fitted ones, replacing its parameters, error, solve termination
+    /// and target poses (`[view][cam]`) when the result fits better.
     pub(super) fn recover(
         self,
         cameras: &mut [CameraParams],
         per_cam_reproj_errors: &mut [f64],
+        per_cam_terminations: &mut [Option<SolveTermination>],
         cam_se3_target: &mut [Vec<Option<Iso3>>],
         backend_opts: BackendSolveOptions,
         reference_camera_idx: usize,
@@ -130,6 +131,7 @@ impl TiltedRecovery {
             &self.work_items,
             cameras,
             per_cam_reproj_errors,
+            per_cam_terminations,
             cam_se3_target,
             backend_opts,
             reference_camera_idx,
@@ -262,6 +264,7 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
     work_items: &[ScheimpflugCameraWork],
     cameras: &mut [CameraParams],
     per_cam_reproj_errors: &mut [f64],
+    per_cam_terminations: &mut [Option<SolveTermination>],
     cam_se3_target: &mut [Vec<Option<Iso3>>],
     backend_opts: BackendSolveOptions,
     reference_camera_idx: usize,
@@ -307,6 +310,7 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
         {
             cameras[cam_idx] = candidate.params.camera.clone();
             per_cam_reproj_errors[cam_idx] = candidate.mean_reproj_error;
+            per_cam_terminations[cam_idx] = candidate.report.termination;
             for (local_idx, &global_idx) in item.valid_indices.iter().enumerate() {
                 cam_se3_target[global_idx][cam_idx] =
                     Some(candidate.params.cam_se3_target[local_idx]);

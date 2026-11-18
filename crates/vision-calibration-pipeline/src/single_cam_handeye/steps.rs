@@ -9,7 +9,7 @@
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{CameraParams, Iso3, NoMeta, PlanarDataset, View};
-use vision_calibration_optim::{HandeyeMode, PlanarIntrinsicsParams};
+use vision_calibration_optim::{HandeyeMode, PlanarIntrinsicsParams, SolveTermination};
 
 use crate::planar_family::{check_camera_model, init_camera_with_seed, optimize_camera};
 use crate::rig_family::{init_handeye, optimize_handeye_stage};
@@ -136,6 +136,9 @@ pub struct IntrinsicsOptimizeResult {
     pub cam_se3_target: Vec<Iso3>,
     /// Mean reprojection error in pixels after intrinsics optimization.
     pub mean_reproj_error: f64,
+    /// Why the solver stopped; `None` when that is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<SolveTermination>,
 }
 
 /// Typed return value of [`step_handeye_init`] / [`step_handeye_init_with_seed`].
@@ -298,6 +301,7 @@ pub fn step_intrinsics_optimize(
         camera,
         cam_se3_target,
         mean_reproj_error,
+        termination: result.report.termination,
     })
 }
 

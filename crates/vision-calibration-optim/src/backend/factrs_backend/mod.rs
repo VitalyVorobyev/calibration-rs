@@ -81,7 +81,7 @@ fn raw_from_engine(
     compiled: &Compiled,
     state: &Values,
 ) -> Option<RawLinearization> {
-    if engine.dim() == engine.fixed_columns.len() {
+    if engine.free_dim() == 0 {
         return None;
     }
     let (residual, jacobian) = engine.linearize(state);
@@ -138,8 +138,9 @@ impl<'c> FactrsEngine<'c> {
 impl LinearizationEngine for FactrsEngine<'_> {
     type State = Values;
 
-    fn dim(&self) -> usize {
-        self.order.dim()
+    fn free_dim(&self) -> usize {
+        // Fixed components keep their (zeroed) columns.
+        self.order.dim() - self.fixed_columns.len()
     }
 
     fn cost(&self, x: &Values) -> f64 {

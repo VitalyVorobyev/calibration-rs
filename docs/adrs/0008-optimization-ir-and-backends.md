@@ -74,14 +74,18 @@ validation arms, per-chain code or config types.
 Marquardt diagonal, gain ratio on the robust cost `Σρ`, damping retries,
 step and decrease stops) and assembles the normal equations once per solve
 (`backend/normal_equations.rs`). A backend implements the private
-`LinearizationEngine` (`cost`, `linearize`, `retract` with bounds, `norm`)
+`LinearizationEngine` (`free_dim`, `cost`, `linearize`, `retract` with
+bounds, `norm`)
 and is selected by `SolverBackend` (`TinySolver` default, `Factrs`) in
 `SolverConfig.backend`.
 
 A backend must allocate one parameter per block keyed by name, apply its
 manifold, fixed mask and bounds, evaluate every residual through the shared
 kernel set with its loss, drive the shared loop, and report
-`final_cost = ½ Σ ρ(‖r‖²)`. The kernel set is `backend/kernels.rs`: one
+`final_cost = ½ Σ ρ(‖r‖²)` with the loop's `SolveTermination`; the
+covariance is estimated only when that is a stopping rule, not the
+iteration budget. `free_dim` counts free coordinates only, so a problem with
+nothing free returns before the first iteration on every engine. The kernel set is `backend/kernels.rs`: one
 `Kernel` per built-in factor, generic over the scalar type, which each
 backend adapts to its own factor trait (tiny-solver implements its
 `Factor<T>` on it once; factrs has one residual type per variable layout,

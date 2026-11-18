@@ -505,6 +505,7 @@ class MvgTest(unittest.TestCase):
         np.testing.assert_allclose(adjusted.rig_se3_world[0], np.eye(4), atol=1e-12)
         self.assertLess(adjusted.reprojection_rms_px, 3.0 * scene.sigma * 2**0.5)
         self.assertGreater(adjusted.num_iters, 0)
+        self.assertNotIn(adjusted.termination, (None, "max_iters"))
         self.assertEqual(len(adjusted.cameras), 2)
         self.assertEqual(adjusted.cam_se3_rig.shape, (2, 4, 4))
         self.assertTrue(adjusted.uncertainty.available, adjusted.uncertainty.reason)

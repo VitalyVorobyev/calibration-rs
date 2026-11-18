@@ -16,7 +16,7 @@ use vision_calibration_core::{
 };
 use vision_calibration_optim::{
     BackendSolveOptions, CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
-    PlanarIntrinsicsSolveOptions, RobustLoss, ScheimpflugStagedInitOptions,
+    PlanarIntrinsicsSolveOptions, RobustLoss, ScheimpflugStagedInitOptions, SolveTermination,
     optimize_planar_intrinsics, optimize_scheimpflug_intrinsics_staged, with_leading_radial,
 };
 
@@ -87,6 +87,9 @@ pub struct IntrinsicsOptimizeResult {
     pub mean_reproj_error: f64,
     /// Number of solver iterations executed.
     pub iterations: usize,
+    /// Why the solver stopped; `None` when that is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<SolveTermination>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -293,6 +296,7 @@ pub fn step_optimize(
     let final_cost = result.report.final_cost;
     let mean_reproj_error = result.mean_reproj_error;
     let iterations = result.report.num_iters;
+    let termination = result.report.termination;
     session.state.final_cost = Some(final_cost);
     session.state.mean_reproj_error = Some(mean_reproj_error);
     session.state.iterations = Some(iterations);
@@ -310,6 +314,7 @@ pub fn step_optimize(
         final_cost,
         mean_reproj_error,
         iterations,
+        termination,
     })
 }
 
@@ -749,6 +754,40 @@ mod tests {
         let output = session.output().unwrap();
         // Synthetic data should have very low reprojection error
         assert!(output.mean_reproj_error < 1.0);
+    }
+
+    #[test]
+    fn step_optimize_reports_why_the_solve_stopped() {
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(make_test_dataset()).unwrap();
+        // Started off the true focal lengths, so the solve takes iterations.
+        let seed = IntrinsicsManualInit {
+            intrinsics: Some(FxFyCxCy {
+                fx: 840.0,
+                fy: 750.0,
+                cx: 640.0,
+                cy: 360.0,
+            }),
+            ..Default::default()
+        };
+        step_init_with_seed(&mut session, seed, None).unwrap();
+
+        let result = step_optimize(&mut session, None).unwrap();
+        let termination = result.termination.expect("a solve records its reason");
+        assert!(termination.is_converged(), "{termination:?}");
+        assert!(result.iterations >= 2, "{} iterations", result.iterations);
+        let report = &session.output().unwrap().report;
+        assert_eq!(report.termination, Some(termination));
+        assert_eq!(report.num_iters, result.iterations);
+
+        let short = IntrinsicsOptimizeOptions {
+            max_iters: Some(result.iterations - 1),
+            ..IntrinsicsOptimizeOptions::default()
+        };
+        let result = step_optimize(&mut session, Some(short)).unwrap();
+        assert_eq!(result.termination, Some(SolveTermination::MaxIters));
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["termination"], "max_iters");
     }
 
     #[test]

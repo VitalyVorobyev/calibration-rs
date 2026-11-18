@@ -463,14 +463,14 @@ pub struct Ident {
 
 /// Convergence outcome of the linear init followed by nonlinear optimization.
 ///
-/// Embeds [`SolveReport`] verbatim (final cost, iteration count).
+/// Embeds [`SolveReport`] verbatim (final cost, iteration count, termination).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Convergence {
     /// Whether the linear initialization succeeded.
     pub init_ok: bool,
     /// Whether the optimizer reported convergence.
     pub converged: bool,
-    /// The underlying solver report (final cost, iterations).
+    /// The underlying solver report (final cost, iterations, termination).
     pub report: SolveReport,
 }
 
