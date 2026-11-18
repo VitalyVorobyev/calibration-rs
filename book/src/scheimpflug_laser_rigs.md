@@ -187,6 +187,101 @@ When the rig and its hand-eye are already calibrated (a staged procedure that ch
 
 As in the single-camera laser problem, corner and laser residuals use separate robust losses (`joint_optimize.reprojection_loss`, `joint_optimize.laser_loss`). The embedded `handeye` and `laserline_init` configs keep their own stage losses (`handeye.intrinsics_optimize`, `handeye.rig`, `handeye.handeye_optimize`, `laserline_init.optimize.laser_loss`); the `solver` group holds the engine settings of the joint stage.
 
+## A Rig Without a Robot
+
+A rig that holds still while the board moves (or moves with no robot pose to read) has no hand-eye chain to close, and `RigLaserlineDevice` holds the board poses fixed. The joint solve is then a problem of your own ([Your Own Residual](custom_residual.md)) of the library's residuals alone: one board pose per capture shared by every camera that saw it, each camera's laser plane in its own frame, the cameras and their extrinsics free or held as you choose. Its residuals are the corner reprojections and the laser residual, `add_laser`, through the same chains; the board is the plane `z = 0` of its frame.
+
+- **The gauge.** A rig frame is a convention: make it one camera's frame. That reference camera reaches a board through the board pose alone (`PoseChain::Pose`); every other camera through its `cam_se3_rig` (`PoseChain::Rig`). Nothing else fixes the frame, so give no camera both.
+- **What is held.** `CameraFix` names each camera's held parameters (`tilt_y`, `k3`, …), `fix` holds a known extrinsic or board pose, `fix_plane` a known plane. A held block keeps its value exactly and leaves the covariance.
+- **Coverage.** A capture needs corners from at least one camera; a camera's laser line on a capture whose corners another camera saw still constrains its plane through the shared board pose. Each camera must share captures with the reference camera (directly or through others), and each plane needs laser lines on boards in at least two orientations. A camera that shares no capture leaves its extrinsic and its boards' poses free to trade off: the solve still runs, and its covariance is unavailable as `RankDeficient`.
+- **The residual.** `LaserlineResidualType::PointToPlane` is metric: the pixel's ray meets the board and the residual is that point's distance from the plane, in metres. `LineDistNormalized` is the pixel's distance from the imaged laser line, in pixels; a fisheye camera takes point-to-plane. Each kind's noise level is estimated from its residuals (`ResidualKind::LaserPlane`, metres; `LaserLine`, pixels). Since every residual's noise is estimated, the problem cannot also take a calibration added with `Use::Prior`.
+
+```rust,no_run
+use vision_calibration::core::{CalibratedRig, CameraFix, CameraParams, Iso3, LaserPlane, Pt2, Pt3};
+use vision_calibration::optim::problem::{
+    LaserNoise, PixelNoise, PoseChain, Problem, SolveOptions, TargetPoint, solve,
+};
+use vision_calibration::optim::{LaserlineResidualType, RobustLoss};
+# fn main() -> anyhow::Result<()> {
+# let cameras: Vec<CameraParams> = unimplemented!("the seeded cameras");
+# let cam_se3_rig: Vec<Iso3> = unimplemented!("each camera's seeded extrinsic; camera 0 is the rig");
+# let planes: Vec<LaserPlane> = unimplemented!("each camera's seeded laser plane, in its frame");
+# let rig_se3_target: Vec<Iso3> = unimplemented!("each capture's seeded board pose");
+# let corners: Vec<Vec<Option<Vec<(Pt3, Pt2)>>>> = unimplemented!("[capture][camera] corners");
+# let laser: Vec<Vec<Option<Vec<Pt2>>>> = unimplemented!("[capture][camera] laser pixels");
+
+let mut problem = Problem::new();
+// Camera 1 is tilted: hold its tilt_y, refine the rest.
+let mut tilted = CameraFix::default();
+tilted.sensor = Some(vec!["tilt_y".into()]);
+let fixes = [CameraFix::default(), tilted];
+let mut cams = Vec::new();
+let mut extrinsics = Vec::new();
+let mut lasers = Vec::new();
+for (i, camera) in cameras.iter().enumerate() {
+    cams.push(problem.add_camera(camera, &fixes[i])?);
+    // Camera 0 is the rig frame: no extrinsic block (the gauge).
+    extrinsics.push(if i == 0 {
+        None
+    } else {
+        Some(problem.add_pose(format!("cam{i}.cam_se3_rig"), &cam_se3_rig[i])?)
+    });
+    lasers.push(problem.add_plane(format!("cam{i}.plane"), &planes[i])?);
+}
+// A known extrinsic is held: problem.fix(extrinsics[1].unwrap())?;
+let mut boards = Vec::new();
+for (k, pose) in rig_se3_target.iter().enumerate() {
+    let board = problem.add_pose(format!("capture{k}.rig_se3_target"), pose)?;
+    for (i, &cam) in cams.iter().enumerate() {
+        let chain = match extrinsics[i] {
+            None => PoseChain::Pose(board),
+            Some(cam_se3_rig) => PoseChain::Rig { cam_se3_rig, rig_se3_target: board },
+        };
+        for (point, pixel) in corners[k][i].iter().flatten() {
+            problem.add_reprojection(
+                cam,
+                chain,
+                TargetPoint::Known(*point),
+                *pixel,
+                PixelNoise::Estimated,
+                RobustLoss::None,
+            )?;
+        }
+        for pixel in laser[k][i].iter().flatten() {
+            problem.add_laser(
+                cam,
+                chain,
+                lasers[i],
+                *pixel,
+                LaserlineResidualType::PointToPlane,
+                LaserNoise::Estimated,
+                RobustLoss::None,
+            )?;
+        }
+    }
+    boards.push(board);
+}
+
+let solution = solve(&problem, &SolveOptions::default())?;
+let cameras: Vec<CameraParams> = cams.iter().map(|&c| solution.camera(c).unwrap()).collect();
+let cam_se3_rig: Vec<Iso3> = extrinsics
+    .iter()
+    .map(|e| e.map_or(Iso3::identity(), |b| solution.pose(b).unwrap()))
+    .collect();
+let planes: Vec<Option<LaserPlane>> = lasers.iter().map(|&p| solution.plane(p)).collect();
+let boards: Vec<Iso3> = boards.iter().map(|&b| solution.pose(b).unwrap()).collect();
+// Labelled as the workflows' results, the covariance carries over to a
+// rig for laser measurements.
+let rig = CalibratedRig::new(cameras, cam_se3_rig, solution.uncertainty.clone())?
+    .with_laser_planes(planes)?;
+# Ok(())
+# }
+```
+
+`solution.noise` holds the reprojection noise in pixels and the laser noise in its unit, estimated from the residuals at the solution; recomputing them from the solved cameras, poses and planes gives the same values. The names `cam<i>.cam_se3_rig` and `cam<i>.plane` give the covariance the labels of the workflows' results (`cam1.cam_se3_rig.rx`, `cam1.plane.nx`, `cam1.fx`), which `CalibratedRig` reads; the reference camera has no extrinsic, which counts as exact.
+
+The solve is Rust-only, as the builder is; in Python, the rig laser workflows above cover a rig whose board poses come from a robot or from an earlier calibration.
+
 ## Examples
 
 - Rust: `cargo run -p vision-calibration --example laserline_device_session` (single-camera laser plane with a Scheimpflug-capable sensor) and `cargo run -p vision-calibration --example rig_handeye_synthetic` (the rig hand-eye stage that feeds the rig laser problems).

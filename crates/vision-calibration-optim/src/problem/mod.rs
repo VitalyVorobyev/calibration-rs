@@ -4,7 +4,9 @@
 //! A [`Problem`] holds parameter blocks and the residuals that read them:
 //! residuals you write (a [`Residual`]) and the library's own reprojection
 //! residual through a camera you add, of a known point or one being
-//! estimated, through one pose or a rig chain. A calibration enters with
+//! estimated, through one pose or a rig chain, and the library's laser
+//! residual against a laser plane you add ([`Problem::add_plane`],
+//! [`Problem::add_laser`]). A calibration enters with
 //! its uncertainty through [`Problem::add_calibrated_rig`]: held fixed with
 //! its covariance carried into the solution's ([`Use::Consider`]), or
 //! refined under a prior ([`Use::Prior`]). [`solve`] runs the Levenberg–Marquardt
@@ -66,9 +68,12 @@
 //! ```
 
 mod calibration;
+mod laser;
 mod residual;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_laser;
 #[cfg(test)]
 mod tests_measurement;
 
@@ -84,6 +89,7 @@ use vision_calibration_core::{
 };
 
 pub use calibration::{RigBlocks, Use};
+pub use laser::{LaserNoise, PlaneId};
 pub use residual::{Noise, Residual, se3, so3};
 
 use crate::Error;
@@ -165,6 +171,11 @@ enum Owner {
     Camera {
         camera: usize,
         slot: &'static str,
+    },
+    /// Laser plane `plane`'s normal (`distance` false) or distance block.
+    Plane {
+        plane: usize,
+        distance: bool,
     },
 }
 
@@ -273,6 +284,7 @@ pub struct Problem {
     id: u64,
     blocks: Vec<Block>,
     cameras: Vec<Camera>,
+    planes: Vec<laser::Plane>,
     residuals: Vec<Term>,
     calibration: Option<Calibration>,
 }
@@ -290,6 +302,7 @@ impl Problem {
             id: NEXT_PROBLEM.fetch_add(1, Ordering::Relaxed),
             blocks: Vec::new(),
             cameras: Vec::new(),
+            planes: Vec::new(),
             residuals: Vec::new(),
             calibration: None,
         }
@@ -797,7 +810,10 @@ impl Problem {
                 !matches!(sqrt_info, ReprojSqrtInfo::Stated { .. })
             }
             FactorKind::Custom(custom) => matches!(custom.noise, CustomNoise::Family(_)),
-            _ => false,
+            // A laser residual's noise is always its family's
+            // (`LaserNoise::Estimated`).
+            FactorKind::LaserPointToPlane { .. } | FactorKind::LaserLineDistance { .. } => true,
+            FactorKind::Se3TangentPrior { .. } => false,
         })
     }
 
@@ -810,7 +826,8 @@ impl Problem {
                 "block name {name:?} is empty or kept for cameras"
             )));
         }
-        if self.blocks.iter().any(|b| b.name == name) {
+        if self.blocks.iter().any(|b| b.name == name) || self.planes.iter().any(|p| p.name == name)
+        {
             return Err(Error::invalid_input(format!(
                 "block name {name:?} is already used"
             )));
@@ -960,6 +977,7 @@ impl Problem {
                     camera_block_labels(slot, self.cameras[camera].spec, prefix)
                         .expect("camera blocks have a camera slot name")
                 }
+                Owner::Plane { plane, distance } => self.planes[plane].block_labels(distance),
             })
             .collect()
     }
@@ -1011,6 +1029,7 @@ pub struct Solution {
     values: Vec<DVector<f64>>,
     manifolds: Vec<Manifold>,
     cameras: Vec<Camera>,
+    planes: Vec<laser::Plane>,
 }
 
 impl Solution {
@@ -1136,7 +1155,8 @@ pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Erro
         if problem.has_estimated_noise() {
             return Err(Error::invalid_input(
                 "a calibration added with Use::Prior is weighed by its covariance, so every \
-                 residual's noise is stated too (PixelNoise::Stated, Noise::Stated)",
+                 residual's noise is stated too (PixelNoise::Stated, Noise::Stated); a laser \
+                 residual's noise is estimated, so it cannot join such a problem",
             ));
         }
     }
@@ -1188,5 +1208,6 @@ pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Erro
         values,
         manifolds: problem.blocks.iter().map(|b| b.manifold).collect(),
         cameras: problem.cameras.clone(),
+        planes: problem.planes.clone(),
     })
 }

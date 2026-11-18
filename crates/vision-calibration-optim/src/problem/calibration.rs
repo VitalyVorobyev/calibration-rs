@@ -39,8 +39,9 @@ pub enum Use {
     /// The prior weighs in units of its covariance, so every residual's
     /// noise is stated too ([`PixelNoise::Stated`](super::PixelNoise::Stated),
     /// [`Noise::Stated`](super::Noise::Stated)): a residual of estimated noise
-    /// would weigh as if its σ were 1 in its unit. It runs on the
-    /// tiny-solver backend only.
+    /// would weigh as if its σ were 1 in its unit, so a problem with a
+    /// laser residual (whose noise is estimated) cannot use it. It runs on
+    /// the tiny-solver backend only.
     Prior,
 }
 

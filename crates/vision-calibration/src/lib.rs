@@ -676,8 +676,8 @@ pub mod optim {
     pub use vision_calibration_optim::SolverBackend;
     /// Your own least-squares problem: parameter blocks, residuals you
     /// write (generic over the scalar type, for exact Jacobians) and the
-    /// library's reprojection residual, solved with the covariance of the
-    /// result.
+    /// library's reprojection and laser residuals, solved with the
+    /// covariance of the result.
     pub use vision_calibration_optim::problem;
     /// Projection uncertainty of a calibrated camera: the type and the
     /// function that computes it from a camera and its parameter covariance

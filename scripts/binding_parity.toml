@@ -451,4 +451,4 @@
 "init::estimate_planar_pose_from_bearings" = "the closed-form initializers start a problem built with optim::problem, which is Rust-only; Python calibrates through the workflows, whose init steps run them"
 "init::pnp" = "the closed-form initializers start a problem built with optim::problem, which is Rust-only; Python calibrates through the workflows, whose init steps run them"
 "optim::SolveReport" = "the report of an optim::problem solve, which is Rust-only"
-"optim::problem" = "a residual's eval is generic over the scalar type so dual numbers give its exact Jacobian; a Python callback takes no dual numbers and would cost a call into Python per evaluation"
+"optim::problem" = "the builder is Rust-only as a whole: a residual's eval is generic over the scalar type so dual numbers give its exact Jacobian, which a Python callback cannot take (and would cost a call into Python per evaluation); a problem of the library's residuals alone (reprojection, laser) is built in Rust too, and Python calibrates through the workflows"

@@ -709,7 +709,7 @@ mod tests {
             "cam_se3_target" | "pose" => {
                 DVector::from_row_slice(&[0.051, -0.022, 0.041, 0.997_55, 0.41, 0.21, 0.92])
             }
-            "extrinsics" | "cam_se3_rig" => {
+            "extrinsics" | "cam_se3_rig" | "rig_se3_cam" => {
                 DVector::from_row_slice(&[0.021, 0.034, -0.012, 0.999_03, 0.12, -0.05, 0.83])
             }
             "handeye" => {

@@ -208,14 +208,21 @@ camera_residual! {
 }
 
 camera_residual! {
-    /// Laser, `[camera, cam_se3_rig, handeye, target_ref, plane]`.
+    /// Laser, `[camera, cam_se3_rig, rig_se3_target, plane]`.
+    LaserRig: Residual4 { residual4, residual4_values, residual4_jacobian },
+    out = 1,
+    chain = [V2 rig: SE3, V3 pose: SE3, V4 plane: PlaneVar]
+}
+
+camera_residual! {
+    /// Laser, `[camera, rig_se3_cam, handeye, target_ref, plane]`.
     LaserRigHandeye: Residual5 { residual5, residual5_values, residual5_jacobian },
     out = 1,
     chain = [V2 rig: SE3, V3 handeye: SE3, V4 target: SE3, V5 plane: PlaneVar]
 }
 
 camera_residual! {
-    /// Laser, `[camera, cam_se3_rig, handeye, target_ref, plane, robot_delta]`.
+    /// Laser, `[camera, rig_se3_cam, handeye, target_ref, plane, robot_delta]`.
     LaserRigHandeyeRobotDelta: Residual6 { residual6, residual6_values, residual6_jacobian },
     out = 1,
     chain = [
@@ -368,6 +375,15 @@ pub(super) fn build_factor(kernel: Kernel, keys: &[Key], loss: RobustLoss) -> Fa
                         keys[0],
                         keys[1],
                         keys[2],
+                    )
+                    .robust(robust)
+                    .build(),
+                    LaserChain::Rig => FactorBuilder::new4_unchecked(
+                        LaserRig::<N, { N + 15 }>::new(model, kernel),
+                        keys[0],
+                        keys[1],
+                        keys[2],
+                        keys[3],
                     )
                     .robust(robust)
                     .build(),
