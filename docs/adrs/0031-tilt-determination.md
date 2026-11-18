@@ -149,11 +149,11 @@ intrinsics seed is required, as the seeded route already asks.
   signal). A prior with `p1, p2` free removes it; `separable_sigma` shows
   when nothing can.
 - Python: `TiltPolicy`, `CameraPrior` and `tilt_determination` in
-  `types.py` and `__init__.pyi`; the book's Scheimpflug chapter (with
-  BOOK-TILT) states the frames and the procedure. Migration: none while
-  `Estimate` is the default; the default flip changes what a result means
-  (a camera may then report a zero tilt and a different frame), so it is a
-  major release with migration notes (AGENTS.md §8).
+  `types.py` and `__init__.pyi`; the book's Scheimpflug chapter states the
+  frames and the procedure next to what determines the tilt. Migration:
+  none while `Estimate` is the default; the default flip changes what a
+  result means (a camera may then report a zero tilt and a different
+  frame), so it is a major release with migration notes (AGENTS.md §8).
 - Gate before the default flips: on the private Scheimpflug rigs, the
   procedure's branch per camera, the held-out error against `Estimate`
   within 5 %, and the decentring seed reaching the seeded route's minimum.

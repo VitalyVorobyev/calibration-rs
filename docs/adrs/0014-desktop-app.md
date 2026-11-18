@@ -81,7 +81,9 @@ workspace.**
   schema-driven form renders every config, so a new config field appears
   without frontend code.
 - The TypeScript types of the export and command wire format are generated
-  too, with no hand-written mirrors. CI fails when any of them drift.
+  too, and CI fails when any of them drift. The target is no hand-written
+  mirror of a Rust type in `app/src`; the ones left are backlog
+  APP-WIRE-TYPES.
 
 How the shell, stores, commands and tests are built is in
 `app/DEVELOPING.md`.
@@ -89,7 +91,7 @@ How the shell, stores, commands and tests are built is in
 ## Consequences
 
 - The app cannot drift silently from the library's configs or exports, and
-  pre-1.0 config churn costs no UI work beyond hand-written presets.
+  a config change costs no UI work beyond hand-written presets.
 - Configs stay free of foreign types (no `nalgebra` in a config tree), so
   their schemas need no shims.
 - A project moved together with its dataset keeps working. One whose dataset

@@ -1,17 +1,14 @@
 # Backlog
 
 Open (`[ ]`) and parked (`[~]`) tasks only. Finishing a task deletes its entry
-(AGENTS.md §11); the CHANGELOG and git history record what landed. The
-[ROADMAP](ROADMAP.md) gives the phases and gates these serve. Track headings
-match the ROADMAP; each says its phase. Dependencies are named as
-`Needs: <ID>`.
+(AGENTS.md §11); the CHANGELOG and git history record what landed. Each
+heading is a track of the [ROADMAP](ROADMAP.md), which gives its goal, gate
+and phase; the last heading is the release. A parked entry says what reopens
+it. Dependencies are named as `Needs: <ID>`.
 
 ## Parameter uncertainty (Phase 2)
 
-Every result carries the covariance of its estimated parameters, computed
-from measured feature noise, and a quality verdict built on it. Design:
-ADR 0026; evidence: `notes/uncertainty.md`. Items that change results
-need their measurement first and stay opt-in until it is in.
+Design: ADR 0026; evidence: `notes/uncertainty.md`.
 
 - [~] UQ-RINGGRID-COV - The ring-grid detector reports the ellipse-centre
   covariance (cross-repo, ringgrid). Parked: the real-data study advises
@@ -53,14 +50,19 @@ need their measurement first and stay opt-in until it is in.
   below the robot's error. Moving the default changes `kuka_1`'s reference.
 - [ ] UQ-CROSS-FRAME - Projection uncertainty across the reference-frame
   shift (the mrcal method). Needs the intrinsics–pose cross-covariance,
-  which results do not carry.
-- [ ] UQ-TARGET-FLATNESS - Target manufacturing and flatness error in the
-  covariance. With CAL-TARGET-OFFSETS, the measured offset table's own σ
-  enters as consider parameters; flatness itself is not worth a term
-  (`notes/display-target-residual.md`: a shared shape of 0.2 mm
-  peak-to-valley changes held-out views by 0.002 px).
+  which results do not carry. Done when: results carry that
+  cross-covariance and the projection σ across the frame shift agrees with
+  Monte-Carlo.
 
-## Datasets and the runner (alongside)
+## Datasets and the regression suite (alongside)
+
+A versioned public suite for regression and for comparison with other
+libraries. Image-free observations live in the repository and gate every PR.
+Real-image entries are fetched from their publishers, not archived by us:
+`kuka_1` (RWHE-Calib), `stereo` (Kaggle) and the OpenCV fisheye set
+(`opencv_extra`) state no licence; DS8 is U.S. public domain. Synthetic
+entries need no images. Comparison tools must run on Linux, macOS and
+Windows. `stereo_charuco` stays local-only, as do the private sets.
 
 - [ ] DATA-VIEW-IDENTITY - A rig laser run matches its upstream rig
   hand-eye export to its views by position or by a numeric pairing token
@@ -75,6 +77,18 @@ need their measurement first and stay opt-in until it is in.
   match a typed error. Gate: a rig laser run whose upstream dropped a
   different view than it did fails; the matching cases give bit-identical
   results.
+- [~] DATA-LICENCE-KUKA - The `kuka_1` images (RWHE-Calib, published
+  without a licence) are committed through LFS. Parked on the maintainer
+  asking the RWHE-Calib authors for a licence. Reopens when they answer: on
+  one that does not allow redistribution, drop the images from the
+  repository and LFS (they are fetchable with `suite fetch --only kuka_1`;
+  the `planar_real`/`handeye_session` examples and the LFS-image unit tests
+  then name the fetch command).
+- [ ] DATA-MORE - More public entries, each after a licence check: the other
+  RWHE-Calib sets (`kuka_2`, `kuka_3`) and Tabb's DS1–DS7 (U.S. public
+  domain, same record as DS8). Done when: every listed set is a suite entry
+  fetched from its publisher with checksums, or is named here as failing
+  the licence check.
 
 ## Bindings and internals (alongside)
 
@@ -94,7 +108,9 @@ need their measurement first and stay opt-in until it is in.
   `mvg.py` parses it back into hand-written dataclasses. Derive `Serialize`
   and `JsonSchema` on the `vision-mvg` result types (or binding-side wire
   structs), publish their schemas and generate the Python types. Needs:
-  PY-MODELS-GEN.
+  PY-MODELS-GEN. Done when: `mvg.rs` builds no JSON by hand, the MVG result
+  schemas are under `cargo xtask emit-schemas --check`, and the Python MVG
+  types are generated from them.
 - [ ] OPTIM-FIXED-ON-BUILDER - The fixed problems of `optim::problems`
   build their IR by hand, beside the public `optim::problem` builder that
   produces the same IR for reprojection (`add_reprojection`, `lower`); only
@@ -109,98 +125,66 @@ need their measurement first and stay opt-in until it is in.
   on `t.z`; `geometry/src/pnp/planar.rs`, unguarded and signed on `h₃.z`)
   differ in arithmetic. Keep one of each in the lowest crate (the guarded
   ones), and measure what moves: the hand-eye initializers and planar PnP.
+  Done when: one of each remains and the change in the hand-eye
+  initializers and planar PnP is measured on both backends.
 - [ ] CI-PRIVATE-EXAMPLES - `vision-calibration-examples-private` is built
   by no CI job, because it path-depends on the sibling `vision-metrology`
   checkout; an example there stopped compiling unnoticed. Check it in CI
   with that repository checked out beside this one, or move the laser
-  extraction it needs behind a feature so the rest checks alone.
-
-## Regression suite (alongside)
-
-A versioned public suite for regression and for comparison with other
-libraries. Image-free observations live in the repository and gate every PR.
-Real-image entries are fetched from their publishers, not archived by us:
-`kuka_1` (RWHE-Calib), `stereo` (Kaggle) and the OpenCV fisheye set
-(`opencv_extra`) state no licence; DS8 is U.S. public domain. Synthetic
-entries need no images. Comparison tools must run on Linux, macOS and
-Windows. `stereo_charuco` stays local-only, as do the private sets.
-
-- [~] DATA-LICENCE-KUKA - The `kuka_1` images (RWHE-Calib, published
-  without a licence) are committed through LFS. Parked on the maintainer
-  asking the RWHE-Calib authors for a licence. Reopens when they answer: on
-  one that does not allow redistribution, drop the images from the
-  repository and LFS (they are fetchable with `suite fetch --only kuka_1`;
-  the `planar_real`/`handeye_session` examples and the LFS-image unit tests
-  then name the fetch command).
-- [ ] DATA-MORE - More public entries, each after a licence check: the other
-  RWHE-Calib sets (`kuka_2`, `kuka_3`) and Tabb's DS1–DS7 (U.S. public
-  domain, same record as DS8).
+  extraction it needs behind a feature so the rest checks alone. Done when:
+  a CI job on every PR builds the crate (all of it, or all but the
+  feature-gated laser extraction).
 
 ## Camera models (Phase 2)
 
-Each model ships with:
-- a math note;
-- a synthetic matrix test across every problem type;
-- the Python class;
-- a book chapter with a demo.
-
-Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
+Each model follows AGENTS.md §10 (a camera model).
 
 - [ ] CAM-EUCM-DS - Enhanced unified (EUCM) and double-sphere projections,
-  with their closed-form unprojection and validity regions.
+  with their closed-form unprojection and validity regions. Done when: both
+  are `ProjectionKind` variants with everything §10 lists, the synthetic
+  matrix test passing in every problem type.
 - [ ] CAM-TELECENTRIC - Telecentric (affine/orthographic) projection for
   metrology lenses: affine-factorization init, and the gauge of ADR 0005
-  (held axial depth, the per-view reflection ambiguity).
+  (held axial depth, the per-view reflection ambiguity). Done when: it is a
+  `ProjectionKind` variant with everything §10 lists, and the matrix test
+  covers the held depth and the reflection ambiguity.
 - [ ] CAM-SELECT - Model selection: compare candidate models by residual
   structure, an information criterion and held-out views. It extends the
-  distortion-model-selection tutorial.
+  distortion-model-selection tutorial. Done when: the library ranks
+  candidate camera models of one dataset by those three measures, and the
+  tutorial uses it.
 - [~] CAM-RESIDUAL-FIELD - An optional camera-fixed displacement field on
-  top of any camera model, designed in ADR 0030: a bicubic B-spline over
-  the image, evaluated at the model's own projection, orthogonal to the
-  free camera parameters and a common rotation, clamped outside the image,
-  a penalty chosen on held-out folds. **Parked**: on the captures that
-  motivated it, most of what the field removes is coupled to defocus and
-  depth (`notes/parametric-residual-term.md`): a defocus- and depth-coupled
-  displacement beats the image-fixed field on held-out views (ring-grid
-  0.083 against 0.104 px; with both, the 0.073 floor), moves 37–44 % of it,
-  and carries over to the second detector; the display moves at most 16 %;
-  no lens term derived from decentred optics carries it. A camera slot
-  fitted on one capture would bake a capture-dependent average into the
-  camera. A held-fixed implementation exists under the tag `archive/cam-field-core`,
+  top of any camera model, designed in ADR 0030. Parked: on the captures
+  that motivated it most of the field is coupled to defocus and depth, so a
+  slot fitted on one capture would bake a capture-dependent average into
+  the camera (ADR 0030, Consequences; `notes/parametric-residual-term.md`).
+  A held-fixed implementation exists under the tag `archive/cam-field-core`,
   unmerged. Reopens with CAM-FIELD-ORIGIN: a field that stays put with the
   aperture and through focus.
 - [ ] CAM-FIELD-ORIGIN - Decide whether the defocus-coupled part of the
-  Scheimpflug residual is optical or the detector's
-  (`notes/parametric-residual-term.md`, *What is undetermined*). Without
-  new data: render ring-grid and corner markers blurred with a measured,
-  not Gaussian, defocus PSF and pass them through the detectors to size
-  the detector's centre bias against blur. With a capture (the maintainer):
-  the same poses at two apertures (a chief-ray term does not change, a
-  defocus-coupled one scales with the blur) and at two focus settings, and
-  the rig against a printed board. Views through focus at one image
-  position do not decide it: signed defocus is affine in inverse depth
-  there, and on the ring-grid capture it is indistinguishable from the
-  depth term next to an image field (`notes/tilt-from-focus.md`). The
-  harness is the bench example's `--parts field` and `--parts centroid`.
-  The same aperture capture also fixes the coupling's image-fixed part,
-  which decides how far it biases the distortion-derived tilt
-  (`notes/tilt-bias.md`: 13–51 % of the focus–distortion gap, by the
-  assumed law).
+  Scheimpflug residual is optical or the detector's. What decides it, with
+  and without a new capture, is `notes/parametric-residual-term.md`, *What
+  is undetermined*; views through focus at one image position do not
+  (`notes/tilt-from-focus.md`). The harness is the bench example's `--parts
+  field` and `--parts centroid`. The same aperture capture also fixes the
+  coupling's image-fixed part, which decides how far it biases the
+  distortion-derived tilt (`notes/tilt-bias.md`: 13–51 % of the
+  focus–distortion gap, by the assumed law).
 
 ## Calibration problems (Phase 2)
 
 - [ ] CAL-TARGET-OFFSETS - A non-ideal target: per-point in-plane offsets of
-  the board geometry, opt-in. Evidence (`notes/display-target-residual.md`,
-  a PuzzleBoard on an e-ink display, six cameras): offsets estimated on
-  training captures take the held-out residual from 0.315 to 0.269 px
-  RMS (0.270 to 0.221 on top of an image field), 34 µm RMS, stable over
-  folds, shared by the cameras in the board frame; a board shape and a
+  the board geometry, opt-in. Evidence (`notes/display-target-residual.md`):
+  on a displayed PuzzleBoard, offsets of 34 µm RMS shared by six cameras
+  take the held-out residual from 0.315 to 0.269 px; a board shape and a
   cover layer gain nothing and are left out. Design: a target geometry
   value in core (nominal points plus an offset per point id, board frame,
   metres) that every planar workflow reads instead of the bare points,
   so the offsets reach all problem types without solver changes; two
   sources, (a) a table measured once per target and display setting,
-  applied as fixed (its σ as consider parameters, UQ-TARGET-FLATNESS), and
+  applied as fixed, its σ entering the covariance as consider parameters
+  (flatness itself is not worth a term: a shared shape of 0.2 mm
+  peak-to-valley changes held-out views by 0.002 px), and
   (b) an estimate: free target points in a joint multi-view, multi-camera
   solve, gauge a planar similarity (hold two points, or four linear
   constraints), a point free only with enough observations, exported with
@@ -212,18 +196,67 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   with known offsets recovered on both backends, intrinsics σ against
   Monte-Carlo with the offsets free, and the held-out gain on
   `scheimpflug_rig_ref_cam0..5`.
-
+- [ ] CAL-TILT-DETERMINE - A Scheimpflug tilt is estimated only when the
+  data determine it, the result says why, and a small σ alone does not
+  count as determined. Three parts, one design:
+  - **The procedure** (ADR 0031, proposed; evidence
+    `notes/tilt-determination.md`): `TiltPolicy::{Estimate, Determine {
+    max_sigma }}` on `CameraConfig` (Scheimpflug only), the procedure in
+    `planar_family::optimize_camera`, the `tilt_determination` record
+    (source, frame, statistic) in the export with a schema bump, the
+    `TiltDetermination` quality check; opt-in (`Estimate` stays the
+    default) until the real-data gate. Needs CAM-PARAM-PRIOR for its prior
+    branch. Gate: the study's tables reproduced through the library on both
+    backends; on the private Scheimpflug rigs the branch per camera,
+    held-out error within 5 % of `Estimate`, the decentring seed reaching
+    the seeded route's minimum; `calib-bench accept` unchanged under
+    `Estimate`.
+  - **The systematics safeguard** (evidence `notes/tilt-bias.md`: a smooth
+    unmodelled displacement of 0.10 px biases the tilt by 3.5–15 noise σ,
+    more views raising the bias in σ). Design: (1) a sensitivity term, the
+    tilt's shift when the camera is refitted with a nuisance displacement
+    law (depth `z̄/z − 1` × image monomials of degree 1–4 for any detector;
+    unsigned blur `|g|` × degree 0–3 when the detector reports a blur), as
+    `σ_sys`, and "determined" read from `√(σ² + σ_sys²)`; a signed-defocus
+    law cannot be the nuisance (it leaves the tilt unidentified); (2) the
+    nuisance law's held-out gain as a residual-systematics statistic; (3)
+    with blur, the focus-direction check of CAL-TILT-FOCUS (no metric
+    datum); (4) the export carries the tilt's σ, `σ_sys` with its law, the
+    statistic, the view-jackknife scale and a determination status with
+    "determined, systematics dominate" beside "determined" and "not
+    determined". Gates: the synthetic map of the bench example (`--parts
+    tiltsweep`) on both backends, null (no displacement: `σ_sys` within its
+    noise), a known displacement (`σ_sys` covers the bias), and the six
+    ring-grid cameras.
+  - **The quality message** (evidence `notes/tilt-identifiability.md`: the
+    tilt is determined only through lens distortion, and
+    `ParameterCorrelation` already flags the bad cells pairwise with a
+    generic message). Design: in `analysis::quality`, when a flagged pair
+    joins a Scheimpflug tilt with a principal-point coordinate, a
+    tangential or a thin-prism term, name the cause (weak or unobserved
+    distortion: cover the image corners, or hold the tilt at a known mount
+    angle; tangential or prism terms free with the tilt: hold them) and add
+    the tilt's σ inflation by its correlations, `1/√(1 − R²)` from the
+    camera block, as the measured value; additive, no threshold change.
+    Gate: the weak-distortion, narrow-field and `p`-free cells of the study
+    get the named message, the baseline cell none, on both backends.
+- [ ] CAM-PARAM-PRIOR - Gaussian priors on camera parameters, designed in
+  ADR 0031 (*Priors on camera parameters*); the tilt is the first user. The
+  solve must reach the posterior, which the raw coordinates do not
+  (`notes/tilt-determination.md`, C0): run it in the gauge-aligned
+  coordinates or with SOLVER-VALLEY-STOP. Gate: posterior σ against the
+  analytic `√(1/(σ⁻² + σₚ⁻²))` within 5 %, the C1 table through the
+  library, JSON round-trips, typed errors for a prior on a fixed parameter
+  or a non-positive σ.
 - [ ] CAL-TILT-FOCUS - Per-feature blur as an observation, and a focus
   term that ties the Scheimpflug tilt to the plane of sharp focus
   (`notes/tilt-from-focus.md`). Evidence: on six ring-grid cameras a
   5-parameter focus model (plane `π`, blur scale `κ`, in-focus blur `σ0`)
-  explains 91–96 % of the blur variance, the PoF's sign agrees with the
-  distortion tilt on all six, and the implied `pitch/m_p` is 4.75–6.14 µm
-  (11 % spread, beyond the folds): a ±0.5° unit-to-unit disagreement with
-  the distortion route that neither model explains; refitting the route
-  jointly with a defocus/depth law (`notes/tilt-bias.md`) moves each tilt
-  towards the focus tilt but closes only 13–51 % of the τx gap and none of
-  the direction gap. Design: (1) a
+  explains 91–96 % of the blur variance and the PoF's sign agrees with the
+  distortion tilt on all six, but the two routes disagree by ±0.5° per unit,
+  which neither model explains (a defocus/depth law in the distortion route
+  closes 13–51 % of the `τx` gap and none of the direction gap,
+  `notes/tilt-bias.md`). Design: (1) a
   detector-agnostic optional blur σ (px) per feature next to the 2D point
   (ring-grid photometric fits have it; corners could report an edge
   width), carried through the dataset types and the detection cache;
@@ -241,57 +274,25 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   curvature detected; the six-camera comparison. Reopen the factor step
   with the datasheet values (pitch, focal length, f-number, pupil
   magnification) or a capture at two focus settings.
-- [ ] CAL-TILT-SYSTEMATIC - A safeguard for the rule that estimates the
-  Scheimpflug tilt only when the data determine it: a small σ is not
-  enough. Evidence (`notes/tilt-bias.md`): a smooth unmodelled
-  displacement whose visible part is 0.10 px (the defocus-coupled one of
-  the ring-grid capture) biases the plain route's tilt by a median 3.5–15
-  noise σ in every regime of a synthetic sweep (tilt 0–15°, distortion,
-  field of view, depth range, views; 0.06–0.17° for the measured form at a
-  2–15° tilt, 0.4–1.8° with weak distortion); more views raise the bias in
-  σ, and the covariance's view-jackknife scale covers only part (2–3
-  stated σ left). On the capture the coupling moves the tilt by up to
-  0.008 rad against a stated 0.0018. Design: (1) a sensitivity term, the
-  tilt's shift when the camera is refitted with a nuisance displacement
-  law (depth `z̄/z − 1` × image monomials of degree 1–4 for any detector;
-  unsigned blur `|g|` × degree 0–3 when the detector reports a blur), as
-  `σ_sys`, and "determined" read from `√(σ² + σ_sys²)`; a signed-defocus
-  law cannot be the nuisance (it leaves the tilt unidentified); (2) the
-  nuisance law's held-out gain as a residual-systematics statistic; (3)
-  with blur, the focus-direction check of CAL-TILT-FOCUS (no metric
-  datum); (4) the export carries the tilt's σ, `σ_sys` with its law, the
-  statistic, the view-jackknife scale and a determination status with
-  "determined, systematics dominate" beside "determined" and "not
-  determined". Gates: the synthetic map of the bench example (`--parts
-  tiltsweep`) on both backends, null (no displacement: `σ_sys` within its
-  noise), a known displacement (`σ_sys` covers the bias), and the six
-  ring-grid cameras. Belongs with the tilt-determination design.
-- [ ] CAL-MULTI-TARGET - Several targets with unknown relative poses in one
-  scene, estimated jointly.
 - [ ] CAL-TILT-SEED-INIT - A tilt seed without an intrinsics seed fits the
   intrinsics at the seeded tilt (`planar_family::bootstrap_camera`, every
   workflow), but only from the candidates the linear Scheimpflug init builds
   around that tilt: the seed with the untilted Zhang `K` as reference, and
   the homography-decomposition fits started there, whose tilt drifts before
-  the seed replaces it. When those fit badly the start is degenerate: one
-  Monte-Carlo draw in 20 at `k1 = -0.30` and 0.087 rad tilt (linear `fx`
-  half the truth), and one of the 12 private Scheimpflug cameras (linear
-  reprojection 20 px, the solve ends on the tilt bound), where the full
-  sweep found the basin. Evaluate every candidate reference `K` of the
+  the seed replaces it. When those fit badly the start is degenerate (one
+  Monte-Carlo draw in 20 at `k1 = -0.30` and 0.087 rad tilt; one of the 12
+  private Scheimpflug cameras ends on the tilt bound) where the full sweep
+  found the basin. Evaluate every candidate reference `K` of the
   full sweep (grid, decomposition, refinement) at the seeded tilt and keep
   the best, a fixed-tilt mode of `estimate_scheimpflug_intrinsics_iterative`.
   Gate: those draws and that camera reach the full-seed result, no other
   result moves; measured on both backends.
 - [ ] CAL-TILT-BOUNDS - The seeded Scheimpflug route's basin is set by its
-  joint-solve bounds, not by the problem. Evidence
-  (`notes/tilt-identifiability.md`, table B, synthetic, 7 cells × 16
-  starts): from seeds 25–50 % off in focal length, 7.5–15° in tilt and
-  100–200 px in principal point the route reaches the minimum in 4–5 of
-  16 starts per cell (10–11 end on a bound, a few in an unflagged local
-  minimum), while the unbounded joint solve from the same linear init
-  reaches it in 16 of 16 in every cell; from seeds up to 30 %, 10°, 100 px
-  both reach it always. The bounds (`fx` within [0.75, 1.5]× the seed,
-  principal point ±0.15·f, tilt ±0.35 rad) were set as a runaway guard.
+  joint-solve bounds, not by the problem (`notes/tilt-identifiability.md`,
+  table B: from bad seeds the bounded route reaches the minimum in 4–5 of
+  16 starts per cell, the unbounded joint solve from the same linear init
+  in 16 of 16). The bounds (`fx` within [0.75, 1.5]× the seed, principal
+  point ±0.15·f, tilt ±0.35 rad) were set as a runaway guard.
   Design: solve the joint stage unbounded and fall back to the bounded
   solve only on a runaway (focal length outside [0.3, 3]× the seed, tilt
   beyond 45°, principal point outside the image), or widen the window to
@@ -299,58 +300,9 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
   backends, the real-data `calib-bench basin` (its ×0.5 and ×2 focal
   cells, which fail today) and `calib-bench accept` unchanged; the
   strong-distortion `k1` trap (`scheimpflug-intrinsics.md`) still avoided.
-- [ ] CAL-TILT-QUALITY - A tilted camera's quality report says why its
-  tilt is or is not determined. Evidence (`notes/tilt-identifiability.md`,
-  synthetic sweep): the tilt is the offset of the distortion centre from
-  the projective principal point, determined only through lens distortion
-  (exactly unobservable without it), so σ(tilt) runs from 0.006° to beyond
-  5° over field of view × distortion with the same views, and the existing
-  `ParameterCorrelation` check already flags the bad cells pairwise
-  (`corr(cy, tilt_x)` 0.98–1.000 wherever σ(tilt) > 0.1°; `corr(tilt, p1)`
-  −0.95 … −1.000 when `p1, p2` are freed with the tilt), but its message is
-  generic. Design: in `analysis::quality`, when a flagged pair joins a
-  Scheimpflug tilt with a principal-point coordinate, a tangential or a
-  thin-prism term, name the cause (weak or unobserved distortion: cover
-  the image corners, or hold the tilt at a known mount angle; tangential
-  or prism terms free with the tilt: hold them) and add the tilt's σ
-  inflation by its correlations, `1/√(1 − R²)` from the camera block, as
-  the measured value; additive, no threshold change. Gate: the
-  weak-distortion, narrow-field and `p`-free cells of the study get the
-  named message, the baseline cell none, on both backends.
-- [ ] CAL-TILT-DETERMINE - A Scheimpflug tilt is estimated only when the
-  data determine it (ADR 0031, proposed). Evidence
-  (`notes/tilt-determination.md`, synthetic sweep of 100 cameras × 2 view
-  designs × 2 noise levels, 1600 draws, plus 512 end-to-end draws): the
-  view-scatter-scaled σ of the tilt decides (the unscaled one calls 40 %
-  of undetermined tilts determined under per-view errors); the fixed branch
-  must free `p1, p2` (with them held it costs a median 2× and up to 31× the
-  noise floor downstream; freed, a median 0.29×, and its frame is the sensor
-  normal); a likelihood-ratio guard keeps the tilted fit where the data
-  reject the plain camera; the decentring seed `τ = atan(∓p/k1)` reached
-  the reference minimum in 512 of 512 draws. Design: `TiltPolicy::{Estimate,
-  Determine { max_sigma }}` on `CameraConfig` (Scheimpflug only), the
-  procedure in `planar_family::optimize_camera`, the `tilt_determination`
-  record (source, frame, statistic) in the export with a schema bump, the
-  `TiltDetermination` quality check; opt-in (`Estimate` stays the default)
-  until the real-data gate. Needs CAM-PARAM-PRIOR for its prior branch.
-  Gate: the study's tables reproduced through the library on both backends;
-  on the private Scheimpflug rigs the branch per camera, held-out error
-  within 5 % of `Estimate`, the decentring seed reaching the seeded route's
-  minimum; `calib-bench accept` unchanged under `Estimate`.
-- [ ] CAM-PARAM-PRIOR - Gaussian priors on camera parameters, named per slot
-  like the fix lists (`CameraConfig.prior`), one library residual weighed
-  against the measured pixel σ̂ by one re-solve as robot-pose priors are
-  (ADR 0026), counted as known information in the covariance; `DeviceSpec`
-  gains `tilt_sigma_deg`. First user: the tilt (ADR 0031). Evidence
-  (`notes/tilt-determination.md`, C): with `p1, p2` free under a tilt
-  prior the decentring is measured instead of reported as tilt (0.18° bias
-  → −0.024°) and a wrong prior moves predictions ≤ 1.6× unless flagged; the
-  solve must reach the posterior, which the raw coordinates do not (C0, a
-  σ short): run it in the gauge-aligned coordinates or with
-  SOLVER-VALLEY-STOP. Gate: posterior σ against the analytic
-  `√(1/(σ⁻² + σₚ⁻²))` within 5 %, the C1 table through the library, JSON
-  round-trips, typed errors for a prior on a fixed parameter or a
-  non-positive σ.
+- [ ] CAL-MULTI-TARGET - Several targets with unknown relative poses in one
+  scene, estimated jointly. Done when: a synthetic scene with two or more
+  targets recovers their relative poses and the cameras on both backends.
 - [ ] REPORT-SECTIONS - The HTML report (`analysis::html_report`, shared by
   `vcal` and the app) renders the quality checks and one section per
   camera. A hand-eye export shows no hand-eye (the pose, its σ, the robot
@@ -360,19 +312,7 @@ Each slots into the camera spec every workflow takes (ADRs 0005, 0013).
 
 ## Multiple-view geometry (Phase 2)
 
-Measurements from a calibrated system with error bars, designed in ADR
-0028: MVG takes a `CalibratedRig`, refines through `optim::problem` only,
-and propagates the calibration's covariance as consider parameters. Today
-MVG takes a `CalibratedRig` and pixels in its closed-form steps, and the
-two-view functions take matches with their stated noise (`PixelMatch`), and
-triangulation refines the points and returns their covariance, the
-calibration's share included, and bundle adjustment refines capture poses
-and points through the builder (Consider or Prior, robust losses, an explicit
-gauge, covariance). The robust two-view functions refine through the builder
-and return the covariance of `E` and of the relative pose from the stated
-pixel noise (the cameras as exact). Rectification takes a `CalibratedRig`;
-`StereoRectification::triangulate` and `StereoRectification::dense_cloud`
-carry the calibration's share.
+Design: ADR 0028; what each σ promises: `notes/mvg-measurements.md`.
 
 - [~] MVG-METROLOGY-XREPO - `../vision-metrology` adopts `mvg::metrology`
   (a cross-repo change). Parked by the maintainer (2026-11-06): it would give
@@ -399,12 +339,16 @@ carry the calibration's share.
   - LO-RANSAC/MSAC with an adaptive iteration count;
   - P3P/EPnP inside RANSAC.
 
+  Done when: each item is in `vision-mvg` with a synthetic ground-truth
+  test, and every new covariance agrees with Monte-Carlo.
+
 ## Book (alongside)
 
 - [ ] BOOK-WASM - A `vision-calibration-wasm` crate (wasm-bindgen over the
   facade, `publish = false` at first), built by `publish-docs.yml` with a
   bun bundle loaded through mdBook `additional-js`. The app can use the
-  same build for per-frame math.
+  same build for per-frame math. Done when: the published book loads the
+  wasm build and a page calls into it.
 - [ ] BOOK-DEMOS - Interactive pages running the library in the browser,
   first:
   - triangulation σ against baseline, from a calibration's covariance;
@@ -414,27 +358,16 @@ carry the calibration's share.
 
   Then: how view placement changes σ, DLT with and without normalization,
   epipolar geometry, Scheimpflug tilt, hand-eye rotation diversity, robust
-  losses. Needs: BOOK-WASM.
-- [ ] BOOK-TILT - State in the Scheimpflug chapter (and the rustdoc of
-  `CameraModelSpec::default_fix`) what a tilted calibration can and cannot
-  tell, from `notes/tilt-identifiability.md`: the tilt is observable only
-  through lens distortion; the views must reach the image corners (depth
-  range, board roll and board tilt do not help the tilt; board tilt is
-  still needed for the focal length); `p1, p2` and the thin-prism terms
-  are held under a tilt because a decentred lens is a tilt to first order,
-  so a real decentring `p1` is reported as a tilt of `−p1/k1` and a
-  principal-point shift of `fy·(−p1/k1)` (measured 0.19° and 4.5 px for
-  `p1 = 5e-4`, `k1 = −0.15`, six times the stated σ). Docs only.
+  losses. Needs: BOOK-WASM. Done when: the first three pages run in the
+  published book.
 - [ ] BOOK-RESULTS - A results page generated from the regression suite:
-  the OpenCV comparison and solver timings.
+  the OpenCV comparison and solver timings. Done when: the book has the
+  page and it is regenerated from the suite's results by a command, not
+  edited by hand.
 
 ## App (alongside)
 
-The app runs on the `@vitavision/workbench` shell with project folders and
-asset-protocol images (ADR 0014); the five workspaces are ported as they
-were. Its viewers also run in a browser over one run (`calib-viewer`, the
-app's HTTP back end). What is left reorganizes them around the project and
-grows the report viewer.
+Design: ADR 0014; developer guide: `app/DEVELOPING.md`.
 
 - [ ] APP-IA - Organize the app as Project → Dataset → Detect → Calibrate →
   Diagnose → Use.
@@ -488,29 +421,30 @@ grows the report viewer.
 
 ## Solver backends and performance (Phase 2)
 
-- [ ] SOLVER-VALLEY-STOP - A stopping rule in units of the estimate's σ.
-  The loop stops on a 1e-5 relative cost decrease, which in a long, flat
-  valley is reached before the minimum. Evidence
-  (`notes/tilt-identifiability.md`, a tilted camera with weak distortion):
-  started at the truth, the estimates scatter only 0.69–0.82 of their
-  stated σ (the solve keeps memory of its start) against 1.04–1.15 when run
-  to a 1e-14 decrease; from a seed the default stops up to 0.66σ short.
-  Where the valley is short the two agree to 0.001σ, so nothing else
-  moves. Design: stop when the undamped Gauss-Newton step's predicted
-  decrease `½·ΔᵀJᵀJΔ` is below `ε²·σ̂²/2`, `σ̂² = 2·cost/(m − n)`, i.e. the
-  remaining step is under `ε` standard deviations in the Fisher metric
-  (`ε = 0.01`), next to the existing rules; opt-in, then the default once
-  measured. Gate: the weak-distortion Monte-Carlo ratio within 10 % of 1;
-  `calib-bench suite check` and the solver benchmark's iteration counts,
-  both backends.
-
+- [ ] SOLVER-VALLEY-STOP - A stopping rule in units of the estimate's σ. The
+  loop stops on a 1e-5 relative cost decrease, which in a long, flat valley
+  is reached before the minimum: on a tilted camera with weak distortion the
+  default stops up to 0.66σ short, and where the valley is short nothing
+  moves (`notes/tilt-identifiability.md`). Design: stop when the undamped
+  Gauss-Newton step's predicted decrease `½·ΔᵀJᵀJΔ` is below `ε²·σ̂²/2`,
+  `σ̂² = 2·cost/(m − n)`, i.e. the remaining step is under `ε` standard
+  deviations in the Fisher metric (`ε = 0.01`), next to the existing rules;
+  opt-in, then the default once measured. Gate: the weak-distortion
+  Monte-Carlo ratio within 10 % of 1; `calib-bench suite check` and the
+  solver benchmark's iteration counts, both backends.
 - [ ] TS-UPSTREAM - Propose the remaining tiny-solver fork branches upstream
   (0.19.0 carries the rest): a sphere manifold; the nalgebra 0.35 / faer
   0.24 bump; the sort-free symbolic structure (Jacobian pattern by counting
   sort, values scattered in place — `Problem::build_symbolic_structure`
-  still argsorts the triplets). On release: replace `backend/s2.rs` with the
-  upstream sphere manifold, rerun `calib-bench solver` for the symbolic
-  structure, and see NALGEBRA-035.
+  still argsorts the triplets); and a true SE(3) exponential map. Its
+  `SE3Manifold` retracts with a "fake exp" (rotation and translation
+  stepped separately, `x·(Exp(ω), v)`, no `V(ω)`), while factrs 0.3 uses
+  the true SE(3) exp, so the two backends agree only to first order; the
+  true exp makes them agree to second order. On release: replace
+  `backend/s2.rs` with the upstream sphere manifold, rerun `calib-bench
+  solver` for the symbolic structure, and see NALGEBRA-035; adopting the
+  true SE(3) exp changes results slightly, so measure it on both backends
+  (`calib-bench suite check`, the solver benchmark) first.
 - [~] O-FACTRS-PARALLEL - Parallel linearization for factrs: rpl-cmu/fact-rs
   #56 is merged but unreleased (the release is breaking, so 0.4.0). Expected
   ~3.9× over serial factrs on 12 threads, bit-identical.
@@ -523,44 +457,43 @@ grows the report viewer.
   same solve without it (two weighted solves plus covariance; measured in
   `vision-calibration/tests/handeye_init_comparison.rs`). Profile it and cut
   the repeated work; results stay bit-identical.
-- [ ] PERF-ANALYTIC - Close the gap to Ceres. Planar intrinsics against Ceres
-  2.2 at matched tolerances measured 7–9× slower on 12 threads and about 21×
-  on one with tiny-solver 0.18. tiny-solver 0.19 makes the planar solve 2.1×
-  (12 threads) and 3.2× (one thread) faster in `calib-bench solver`, which
-  puts the gap at an estimated 3–4× and ~7× (not re-measured against Ceres;
-  the fork with the counting-sort pattern measured 2.6× and 4.5×). What
-  remains is linearization: per-block library overhead, num-dual against
+- [ ] PERF-ANALYTIC - Close the gap to Ceres. Planar intrinsics are an
+  estimated 3–4× (12 threads) and ~7× (one thread) slower than Ceres 2.2 at
+  matched tolerances (measured against tiny-solver 0.18, scaled by 0.19's
+  speed-up in `calib-bench solver`, not re-measured). What remains is
+  linearization: per-block library overhead, num-dual against
   Ceres' `Jet`, and differentiation through the SE(3) retraction. Next
   lever: an analytic `ReprojPoint` Jacobian, checked against autodiff in
-  tests.
+  tests. Done when: the analytic Jacobian matches autodiff in tests, and
+  the gap is re-measured against Ceres with the new `calib-bench solver`
+  numbers committed.
 - [ ] BENCH-COMPARE - Extend the external comparisons: the OpenCV harness to
   stereo rectification; `camera-intrinsic-calibration`
   (Rust, cross-platform) for the KB4 and EUCM models on the same
   observations; PoseLib and pycolmap for MVG; a Ceres timing harness where
-  it builds on all three platforms.
+  it builds on all three platforms. Done when: each comparison runs from
+  the bench on Linux, macOS and Windows and its numbers are published
+  (BOOK-RESULTS).
+- [~] P2-BA-DENSITY - Corner budget for the joint rig + hand-eye BA
+  (spatially distributed subsample, or per-stage decimation). Parked:
+  reopen when the acceptance run of the six-camera `scheimpflug_rig`
+  dataset exceeds about 5 min.
 - [~] NALGEBRA-035 - Move to `nalgebra` 0.35 / `faer` 0.24 / `faer-ext`
-  0.8. Parked: optim passes these types across both backend boundaries
-  (AGENTS.md §7), so the bump waits for a tiny-solver release (the bump is
-  a fork branch, TS-UPSTREAM) and a factrs release on them. factrs `main` is
-  on faer 0.24 / faer-ext 0.8 but still nalgebra 0.34; the shared LM reads
-  its Jacobian only as pattern and values (`backend/normal_equations.rs`),
-  so that side needs a zero-copy faer view, not a redesign. Decided: 1.0
-  ships on nalgebra 0.34 and does not wait for the backends; the bump is a
-  2.0 change, to batch with other breaks. Reopen when both backends release
-  on nalgebra 0.35.
+  0.8, a major release (AGENTS.md §7). Parked: the bump waits for a
+  tiny-solver release (the bump is a fork branch, TS-UPSTREAM) and a factrs
+  release on them. factrs `main` is on faer 0.24 / faer-ext 0.8 but still
+  nalgebra 0.34; the shared LM reads its Jacobian only as pattern and
+  values (`backend/normal_equations.rs`), so that side needs a zero-copy
+  faer view, not a redesign. Batch it with other breaks. Reopen when both
+  backends release on nalgebra 0.35.
 
-## v1.0
+## v1.0 release
 
-- [ ] D4-RELEASE - Cut `1.0.0-rc.1` once the ROADMAP exit criteria hold,
-  then 1.0 after an rc series with no breaking change. Needs: every Phase
-  1b track.
-
-## Deferred and parked
-
-- [ ] P2-BA-DENSITY - Corner budget for the joint rig + hand-eye BA
-  (spatially distributed subsample, or per-stage decimation). Schedule only
-  if the acceptance run for the six-camera `scheimpflug_rig` dataset exceeds ~5 min.
-- [~] V7-SCHEIMPFLUG-RIG-INTRINSICS-FLOOR - Drive the scheimpflug_rig from-scratch reprojection
-  floor below 0.4 px. The blocking term is in the detector/target/model,
-  not the rig chain; seeded init is the official route. Parked by the
-  maintainer; reopen only on their request.
+- [ ] D4-RELEASE - Tag and publish `1.0.0-rc.1` by `docs/RELEASE-RUNBOOK.md`.
+  The version sources already say `1.0.0-rc.1`; fold `[Unreleased]` into
+  the rc.1 section of the CHANGELOG. `vision-calibration-cli` has never been
+  published, so `release.yml` skips it: publish it by hand right after the
+  tag and register its Trusted Publisher (runbook §4), so the next release
+  publishes it. Then 1.0.0 after an rc series with no breaking change; the
+  `semver-rc` CI job checks every PR from the first `v1.0.0-rc.*` tag on.
+  Done when: `v1.0.0` is tagged and on crates.io and PyPI.

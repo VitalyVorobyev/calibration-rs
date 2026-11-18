@@ -107,7 +107,7 @@ denominator).
 `min Σ e²` as a relative pose, `E = [t]× R` over an `So3` block (`R`,
 right perturbation) and a `UnitVector` block (`t`, the gauge `|t| = 1`),
 with `e` evaluated generically so autodiff differentiates the denominator
-too, `Noise::Known(1)` (already whitened). The inliers are re-selected at
+too, `Noise::Stated(1)` (already whitened). The inliers are re-selected at
 the refined `E` and refined again from the previous fit (≤ 5 refinements;
 a shrinking set stops the rounds and keeps the fit of the set before it), so
 `inliers` are the matches the estimate is fitted to. The covariance is the

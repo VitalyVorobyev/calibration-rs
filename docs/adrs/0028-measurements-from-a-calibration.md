@@ -341,9 +341,8 @@ the joint `rig_handeye_laserline` export carries it, and the staged route
 gains it when a use needs it (the upstream would list the hand-eye with its
 cross terms to the planes).
 
-The pipeline's `pixel_to_gripper_point` (a point without σ, from a hand-eye
-export and planes in the rig frame) is deleted: `triangulate_laser` with
-`Captures` replaces it.
+A laser point in the gripper or base frame comes from `triangulate_laser`
+with `Captures`; the pipeline has no σ-free shortcut beside it.
 
 ### What the σ promises
 
@@ -351,28 +350,27 @@ Each propagated σ is gated by Monte-Carlo, redrawing both the calibration
 images and the measurement images, as in "Compose Your Own Pipeline". The
 calibration's share is only as good as the calibration's own stated
 covariance, which is why that one is scaled by the view scatter on real
-images (ADR 0026); MVG-DEMO checks the whole chain against known lengths
-on real data.
+images (ADR 0026); the regression suite's board measurement checks the
+whole chain against known lengths on real data
+([`notes/mvg-measurements.md`](../notes/mvg-measurements.md)).
 
 ## Consequences
 
-- New DAG edge `vision-mvg → vision-calibration-optim`; `vision-mvg`
-  loses its `refine` feature and its tiny-solver dependency (ADR 0006
-  amended).
-- `optim::problem` gains:
+- `vision-mvg` depends on `vision-calibration-optim` (ADR 0006) and has no
+  solver dependency or `refine` feature of its own.
+- `optim::problem` has the chains ADR 0027 leaves to a shown need:
   - `add_calibrated_rig` with `Use::{Consider, Prior}`;
   - point-block and rig-chain reprojection;
-  - whitened reprojection.
-- ADR 0027's "more chains are added when a need is shown" is that need.
-- Core gains `CalibratedRig` and `LaserPlane` (moved from optim), and the
-  robot vocabulary `Handeye`, `RobotPose`, `RobotFrame`; the pipeline's
-  `CalibratedCameras` gains `calibrated_rig` and, for the laser exports,
-  `laser_planes_cam`, for the hand-eye exports `handeye`.
+  - whitened reprojection;
+  - `add_rig_pose`.
+- Core holds `CalibratedRig` and `LaserPlane` and the robot vocabulary
+  `Handeye`, `RobotPose`, `RobotFrame`; the pipeline's `CalibratedCameras`
+  carries `calibrated_rig` and, for the laser exports, `laser_planes_cam`,
+  for the hand-eye exports `handeye`.
 - `triangulate` and `triangulate_laser` take `Captures` (the frame of the
-  measurement); `LaserObservation` names its capture. `optim::problem` gains
-  `add_rig_pose`.
-- Every MVG function that takes `K` changes signature to take a
-  `CalibratedRig`: a breaking release.
+  measurement); `LaserObservation` names its capture.
+- No MVG function takes a bare `K`: one that needs a camera takes a
+  `CalibratedRig`.
 - MVG results carry covariances. Bundle adjustment needs an explicit
   scale anchor for a single camera.
-- Python gets the MVG surface with the `CalibratedRig` from an export.
+- Python has the MVG surface, with the `CalibratedRig` from an export.

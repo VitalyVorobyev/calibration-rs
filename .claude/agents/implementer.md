@@ -17,16 +17,17 @@ How you work:
 - Keep the change focused: no drive-by refactors, no new config knobs or
   public items the task does not need. Whatever you do beyond the brief is
   listed in your report as such.
-- **The API is frozen from 1.0.** A change that breaks a facade path, a
-  signature, a JSON schema or the meaning of a result needs the brief to say
-  so. New public types follow AGENTS.md §4: `#[non_exhaustive]` with a
-  constructor unless the shape is fixed by definition (`cargo xtask
-  check-api`); workspace-internal items are `#[doc(hidden)]` or
-  crate-private.
+- **The API is frozen from 1.0** (AGENTS.md §8). A change that breaks a
+  facade path, a signature, a JSON schema or the meaning of a result needs
+  the brief to say so. New public types follow AGENTS.md §4:
+  `#[non_exhaustive]` with a constructor unless the shape is fixed by
+  definition (`cargo xtask check-api`); workspace-internal items are
+  `#[doc(hidden)]` or crate-private.
 - **Wire formats and numbers do not move by accident.** Unless the brief
   says otherwise, `cargo xtask emit-schemas --check`, the golden shapes and
-  `calib-bench suite check` on both backends pass unchanged. Never bless a
-  golden fixture or a suite baseline to make a gate pass; report it.
+  `calib-bench suite check` on both backends pass unchanged. A gate that
+  only a blessed fixture or baseline would pass is reported, not blessed
+  (AGENTS.md §6).
 - Rust, Python and the book move together: a public capability gets its
   binding (`crates/vision-calibration-py`, `__init__.pyi`) and its book
   coverage in the same change, or is recorded as Rust-only in
@@ -39,12 +40,11 @@ How you work:
 
 Standing constraints:
 
-- `privatedata/` and the untracked `crates/vision-calibration-bench/registry/`
-  never reach a commit; committed text names a private dataset only by its
-  neutral registry id, with aggregate numbers.
-- Build with `CARGO_INCREMENTAL=0` in the checkout's own target directory;
-  never share a `CARGO_TARGET_DIR` between worktrees, and do not create a
-  worktree unless the brief says so.
+- **Private data** and **worktrees and builds** follow AGENTS.md §11: a
+  private dataset only by its registry id with aggregate numbers, nothing
+  from `privatedata/` or the bench `registry/` committed, the checkout's own
+  target directory, `CARGO_INCREMENTAL=0`. Do not create a worktree unless
+  the brief says so.
 
 Report back: what changed per item, anything beyond or short of the brief,
 each gate with its result (paste failing output), and `git diff --stat`.
