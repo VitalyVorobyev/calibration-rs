@@ -25,7 +25,8 @@ from typing import Any, cast
 
 from ._generated_types import HandeyeMethod
 from .models import CameraParams, Distortion, PinholeIntrinsics, Pose, ScheimpflugSensor
-from .session import _cameras, _optional_pose, _poses, _seed_payload
+from .session import _cameras, _optional_pose, _poses, _seed_payload, _termination
+from .types import SolveTermination
 
 __all__ = [
     "HandeyeInitOptions",
@@ -251,10 +252,13 @@ class HandeyeOptimizeResult:
     mean_reproj_error: float
     """Mean reprojection error, pixels."""
     final_cost: float
+    termination: SolveTermination | None
+    """Why the solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> HandeyeOptimizeResult:
         return cls(
             mean_reproj_error=float(payload["mean_reproj_error"]),
             final_cost=float(payload["final_cost"]),
+            termination=_termination(payload.get("termination")),
         )

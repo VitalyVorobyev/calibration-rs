@@ -889,7 +889,7 @@
         }
       },
       "notes": null,
-      "timestamp": 1794440809
+      "timestamp": 1795015262
     }
   ],
   "input": {
@@ -1457,13 +1457,13 @@
       "notes": "mean_reproj=0.134px, final_cost=1.026e1",
       "operation": "joint_optimize",
       "success": true,
-      "timestamp": 1794440809
+      "timestamp": 1795015262
     }
   ],
   "metadata": {
-    "created_at": 1794440808,
+    "created_at": 1795015261,
     "description": null,
-    "last_modified": 1794440809,
+    "last_modified": 1795015262,
     "problem_type": "rig_handeye_laserline_v1",
     "schema_version": 2
   },
@@ -1657,7 +1657,8 @@
     ],
     "report": {
       "final_cost": 10.259471316365973,
-      "num_iters": 1
+      "num_iters": 1,
+      "termination": "min_abs_decrease"
     },
     "robot_refinement": {
       "deltas": [

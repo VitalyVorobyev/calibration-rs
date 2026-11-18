@@ -598,7 +598,7 @@
         }
       },
       "notes": null,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "input": {
@@ -1255,19 +1255,19 @@
       "notes": "initial planes set (auto: linear fit)",
       "operation": "init",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "2 planes calibrated, mean_reproj=0.132px",
       "operation": "optimize",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "metadata": {
-    "created_at": 1794440808,
+    "created_at": 1795015261,
     "description": null,
-    "last_modified": 1794440808,
+    "last_modified": 1795015261,
     "problem_type": "rig_laserline_device_v1",
     "schema_version": 2
   },
@@ -1306,6 +1306,18 @@
           0.41039800809668114,
           0.9119065055909589
         ]
+      }
+    ],
+    "per_cam_reports": [
+      {
+        "final_cost": 6.882659179030464,
+        "num_iters": 1,
+        "termination": "relative_step"
+      },
+      {
+        "final_cost": 6.434677378654515,
+        "num_iters": 2,
+        "termination": "relative_step"
       }
     ],
     "per_cam_stats": [

@@ -810,10 +810,7 @@ mod tests {
                 DVector::from_row_slice(&[0.0, 0.0, 0.0, 1.0, 0.1, 0.0, 0.0]),
             )]
             .into(),
-            solve_report: SolveReport {
-                final_cost: 0.0,
-                num_iters: 0,
-            },
+            solve_report: SolveReport::new(0.0, 0),
             noise: Vec::new(),
             uncertainty: ParamUncertainty::Unavailable(UnavailableReason::NotConverged),
         };

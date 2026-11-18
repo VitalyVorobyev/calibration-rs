@@ -65,6 +65,10 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         self.assertAlmostEqual(init.camera.intrinsics.fx, 800.0, delta=8.0)
         optimized = session.step_optimize()
         self.assertLess(optimized.mean_reproj_error, 1e-6)
+        self.assertIn(
+            optimized.termination,
+            ("relative_step", "min_error", "min_abs_decrease", "min_rel_decrease"),
+        )
         result = session.export()
         reference = vc.planar_intrinsics.run_calibration(self.dataset)
         self.assertEqual(result.camera, reference.camera)
@@ -98,6 +102,7 @@ class PlanarIntrinsicsSessionTest(unittest.TestCase):
         session.step_init(vc.IntrinsicsInitOptions(iterations=1))
         capped = session.step_optimize(vc.IntrinsicsOptimizeOptions(max_iters=1))
         self.assertLessEqual(capped.iterations, 1)
+        self.assertIsNotNone(capped.termination)
 
     def test_seeded_init_takes_the_seed(self) -> None:
         session = vc.PlanarIntrinsicsSession()
@@ -319,9 +324,12 @@ class RigHandeyeSessionTest(unittest.TestCase):
         session.step_intrinsics_init_all()
         intrinsics = session.step_intrinsics_optimize_all()
         self.assertEqual(len(intrinsics.per_cam_reproj_errors), 2)
+        self.assertEqual(len(intrinsics.per_cam_terminations), 2)
+        self.assertTrue(all(t is not None for t in intrinsics.per_cam_terminations))
         session.step_rig_init()
         rig = session.step_rig_optimize()
         self.assertEqual(len(rig.cam_se3_rig), 2)
+        self.assertIsNotNone(rig.termination)
         handeye = session.step_handeye_init()
         self.assertIsInstance(handeye.handeye, vc.RigEyeInHand)
         reseeded = session.step_handeye_init_with_seed(
@@ -335,6 +343,7 @@ class RigHandeyeSessionTest(unittest.TestCase):
             session.step_handeye_init_with_seed(rig_handeye.EyeToHandManualInit())
         refined = session.step_handeye_optimize()
         self.assertGreater(refined.final_cost, 0.0)
+        self.assertNotIn(refined.termination, (None, "max_iters"))
         result = session.export()
         self.assertIsInstance(result.handeye, vc.RigEyeInHand)
         self.assertLess(result.mean_reproj_error, 1.0)

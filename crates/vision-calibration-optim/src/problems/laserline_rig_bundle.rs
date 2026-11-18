@@ -27,7 +27,7 @@
 //! time.
 
 use crate::Error;
-use crate::backend::BackendSolveOptions;
+use crate::backend::{BackendSolveOptions, SolveReport};
 use crate::ir::HandeyeMode;
 use crate::params::camera::camera_spec;
 use crate::problems::laserline_bundle::{
@@ -273,6 +273,10 @@ pub struct RigLaserlineEstimate {
     pub laser_planes_cam: Vec<LaserPlane>,
     /// Per-camera stats (mean reprojection + laser residual).
     pub per_cam_stats: Vec<LaserlineStats>,
+    /// The report of each camera's plane solve; empty in a result written
+    /// before the reports were recorded.
+    #[serde(default)]
+    pub per_cam_reports: Vec<SolveReport>,
     /// Covariance of the laser planes in their camera frames
     /// (`cam<i>.plane.nx … cam<i>.plane.d`). With an upstream covariance it
     /// carries the upstream's share (consider parameters) and lists the
@@ -343,6 +347,7 @@ pub fn optimize_rig_laserline(
     let mut laser_planes_cam = Vec::with_capacity(n);
     let mut laser_planes_rig = Vec::with_capacity(n);
     let mut per_cam_stats = Vec::with_capacity(n);
+    let mut per_cam_reports = Vec::with_capacity(n);
     let mut per_camera_uncertainty = Vec::with_capacity(n);
     let mut share = upstream
         .uncertainty
@@ -434,6 +439,7 @@ pub fn optimize_rig_laserline(
         laser_planes_cam.push(plane_cam);
         laser_planes_rig.push(plane_rig);
         per_cam_stats.push(stats);
+        per_cam_reports.push(est.report);
         per_camera_uncertainty.push(est.uncertainty);
     }
 
@@ -454,6 +460,7 @@ pub fn optimize_rig_laserline(
         laser_planes_rig,
         laser_planes_cam,
         per_cam_stats,
+        per_cam_reports,
         uncertainty,
     })
 }

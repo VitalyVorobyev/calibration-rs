@@ -25,8 +25,17 @@ from .models import (
     Pose,
     ScheimpflugSensor,
 )
-from .session import CalibrationSession, _run_calibration, _camera, _floats, _payload, _poses, _seed_payload
-from .types import ProgressCallback
+from .session import (
+    CalibrationSession,
+    _run_calibration,
+    _camera,
+    _floats,
+    _payload,
+    _poses,
+    _seed_payload,
+    _termination,
+)
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "DeviceInitOptions",
@@ -120,6 +129,8 @@ class DeviceOptimizeResult:
     """Mean laser residual, in the configured residual's unit."""
     per_view_reproj_errors: list[float]
     per_view_laser_errors: list[float]
+    termination: SolveTermination | None
+    """Why the solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> DeviceOptimizeResult:
@@ -129,6 +140,7 @@ class DeviceOptimizeResult:
             mean_laser_error=float(payload["mean_laser_error"]),
             per_view_reproj_errors=_floats(payload["per_view_reproj_errors"]),
             per_view_laser_errors=_floats(payload["per_view_laser_errors"]),
+            termination=_termination(payload.get("termination")),
         )
 
 

@@ -416,7 +416,7 @@
         }
       },
       "notes": null,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "input": {
@@ -608,19 +608,19 @@
       "notes": "fx=1001.6, fy=992.7, cx=636.8, cy=481.3 (auto: intrinsics, distortion, cam_se3_target)",
       "operation": "init",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "cost=4.76e0, reproj_err=0.127px",
       "operation": "optimize",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "metadata": {
-    "created_at": 1794440808,
+    "created_at": 1795015261,
     "description": null,
-    "last_modified": 1794440808,
+    "last_modified": 1795015261,
     "problem_type": "planar_intrinsics_v2",
     "schema_version": 2
   },
@@ -707,7 +707,8 @@
     },
     "report": {
       "final_cost": 4.761880492852651,
-      "num_iters": 5
+      "num_iters": 5,
+      "termination": "min_rel_decrease"
     },
     "uncertainty": {
       "covariance": [

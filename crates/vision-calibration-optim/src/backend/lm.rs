@@ -6,8 +6,8 @@
 //! Marquardt diagonal, the Ceres gain ratio, damping retries and the stopping
 //! rules — is written once, so backends differ only in how they linearize.
 
-use crate::backend::BackendSolveOptions;
 use crate::backend::normal_equations::{NormalEquations, jacobi_scaling, unscale};
+use crate::backend::{BackendSolveOptions, SolveTermination};
 use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 use vision_calibration_core::Progress;
@@ -34,8 +34,9 @@ pub(crate) trait LinearizationEngine {
     /// Parameter values.
     type State: Clone;
 
-    /// Number of Jacobian columns (the free tangent dimension).
-    fn dim(&self) -> usize;
+    /// The free tangent dimension: the Jacobian's columns less any held
+    /// fixed. Zero leaves nothing to solve.
+    fn free_dim(&self) -> usize;
 
     /// The robust objective `Σᵢ ρᵢ(‖rᵢ‖²)` at `x`.
     fn cost(&self, x: &Self::State) -> f64;
@@ -73,17 +74,17 @@ pub(crate) struct LmSolution<S> {
     pub cost: f64,
     /// Outer iterations executed.
     pub num_iters: usize,
-    /// Whether a stopping rule ended the loop, rather than the iteration
-    /// budget.
-    pub converged: bool,
+    /// The stopping rule that ended the loop, or the iteration budget.
+    pub termination: SolveTermination,
 }
 
 /// Minimize `engine.cost` from `x0`.
 ///
-/// `opts.control` is polled before every outer iteration and before the
-/// solution is returned (one atomic load each), and told each finished
-/// iteration; neither touches the arithmetic, so a solve with a control is
-/// bit-identical to one without.
+/// `opts.control` is polled before anything is evaluated (so a cancelled
+/// solve fails even with nothing to solve), before every outer iteration and
+/// before the solution is returned, one atomic load each; it is told each
+/// finished iteration. Neither touches the arithmetic, so a solve with a
+/// control is bit-identical to one without.
 ///
 /// # Errors
 ///
@@ -102,15 +103,17 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     let min_rel_decrease = opts.min_rel_decrease.unwrap_or(DEFAULT_MIN_REL_DECREASE);
     let min_error = opts.min_error.unwrap_or(DEFAULT_MIN_ERROR);
 
+    if control.is_cancelled() {
+        return Err(LmFailure::Cancelled);
+    }
     let mut x = x0;
     let mut current_cost = engine.cost(&x);
-    let dim = engine.dim();
-    if dim == 0 {
+    if engine.free_dim() == 0 {
         return Ok(LmSolution {
             state: x,
             cost: current_cost,
             num_iters: 0,
-            converged: true,
+            termination: SolveTermination::AllParametersFixed,
         });
     }
     if !current_cost.is_finite() {
@@ -122,7 +125,8 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     let mut damping = 1.0 / LM_INITIAL_TRUST_REGION_RADIUS;
 
     let mut num_iters = 0usize;
-    let mut converged = false;
+    // A stopping rule met on the last allowed iteration replaces this.
+    let mut termination = SolveTermination::MaxIters;
     for outer_iter in 0..max_iters {
         if control.is_cancelled() {
             return Err(LmFailure::Cancelled);
@@ -189,7 +193,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
             if verbosity > 0 {
                 println!("lm stopped: relative step below tolerance");
             }
-            converged = true;
+            termination = SolveTermination::RelativeStep;
             break;
         }
         if !accepted {
@@ -200,16 +204,22 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
                     "lm stopped: no accepted step after {LM_MAX_STEP_ATTEMPTS} damping retries"
                 );
             }
-            converged = true;
+            termination = SolveTermination::NoAcceptedStep;
             break;
         }
 
         let abs_decrease = (last_cost - current_cost).abs();
-        if current_cost < min_error
-            || abs_decrease < min_abs_decrease
-            || (last_cost > 0.0 && abs_decrease / last_cost < min_rel_decrease)
-        {
-            converged = true;
+        let stop = if current_cost < min_error {
+            Some(SolveTermination::MinError)
+        } else if abs_decrease < min_abs_decrease {
+            Some(SolveTermination::MinAbsDecrease)
+        } else if last_cost > 0.0 && abs_decrease / last_cost < min_rel_decrease {
+            Some(SolveTermination::MinRelDecrease)
+        } else {
+            None
+        };
+        if let Some(stop) = stop {
+            termination = stop;
             break;
         }
     }
@@ -223,6 +233,188 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         state: x,
         cost: current_cost,
         num_iters,
-        converged,
+        termination,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! Each stopping rule, on a residual `x − a` whose every quantity is
+    //! known: each test sets the thresholds so that one rule, and only it,
+    //! is met.
+
+    use super::*;
+    use faer::sparse::Triplet;
+
+    /// `r(x) = x − target` in one coordinate; with `finite_only_at` set, the
+    /// cost anywhere else is NaN, so no step is ever accepted.
+    struct Shift {
+        target: f64,
+        finite_only_at: Option<f64>,
+        dim: usize,
+    }
+
+    impl Shift {
+        fn to(target: f64) -> Self {
+            Self {
+                target,
+                finite_only_at: None,
+                dim: 1,
+            }
+        }
+    }
+
+    impl LinearizationEngine for Shift {
+        type State = DVector<f64>;
+
+        fn free_dim(&self) -> usize {
+            self.dim
+        }
+        fn cost(&self, x: &DVector<f64>) -> f64 {
+            match self.finite_only_at {
+                Some(at) if x[0] != at => f64::NAN,
+                _ => (x[0] - self.target).powi(2),
+            }
+        }
+        fn linearize(&self, x: &DVector<f64>) -> (faer::Mat<f64>, SparseColMat<usize, f64>) {
+            let r = faer::Mat::from_fn(1, 1, |_, _| x[0] - self.target);
+            let j = SparseColMat::try_new_from_triplets(1, 1, &[Triplet::new(0, 0, 1.0)])
+                .expect("a 1×1 Jacobian");
+            (r, j)
+        }
+        fn retract(&self, x: &DVector<f64>, dx: &DVector<f64>) -> DVector<f64> {
+            x + dx
+        }
+        fn norm(&self, x: &DVector<f64>) -> f64 {
+            x.norm()
+        }
+    }
+
+    /// Options with every threshold off (`0`) unless set.
+    fn options(max_iters: usize) -> BackendSolveOptions {
+        BackendSolveOptions {
+            max_iters,
+            min_abs_decrease: Some(0.0),
+            min_rel_decrease: Some(0.0),
+            min_error: Some(0.0),
+            ..BackendSolveOptions::default()
+        }
+    }
+
+    fn stop(engine: &Shift, x0: f64, opts: &BackendSolveOptions) -> (SolveTermination, usize) {
+        let solution = levenberg_marquardt(engine, DVector::from_element(1, x0), opts)
+            .unwrap_or_else(|_| panic!("the solve fails"));
+        (solution.termination, solution.num_iters)
+    }
+
+    #[test]
+    fn each_threshold_names_itself() {
+        let engine = Shift::to(1.0);
+        // The first step lands within ~1e-4 of the target: cost ~1e-8.
+        let min_error = BackendSolveOptions {
+            min_error: Some(1e-6),
+            ..options(10)
+        };
+        assert_eq!(
+            stop(&engine, 0.0, &min_error),
+            (SolveTermination::MinError, 1)
+        );
+        let min_abs = BackendSolveOptions {
+            min_abs_decrease: Some(f64::INFINITY),
+            ..options(10)
+        };
+        assert_eq!(
+            stop(&engine, 0.0, &min_abs),
+            (SolveTermination::MinAbsDecrease, 1)
+        );
+        // A decrease is at most the whole cost: below twice it always.
+        let min_rel = BackendSolveOptions {
+            min_rel_decrease: Some(2.0),
+            ..options(10)
+        };
+        assert_eq!(
+            stop(&engine, 0.0, &min_rel),
+            (SolveTermination::MinRelDecrease, 1)
+        );
+        // The error rule is checked first when several are met.
+        let all = BackendSolveOptions {
+            min_error: Some(1e-6),
+            min_abs_decrease: Some(f64::INFINITY),
+            min_rel_decrease: Some(2.0),
+            ..options(10)
+        };
+        assert_eq!(stop(&engine, 0.0, &all), (SolveTermination::MinError, 1));
+    }
+
+    #[test]
+    fn a_zero_step_is_a_relative_step_stop() {
+        // At the minimum the Gauss-Newton step is exactly zero.
+        assert_eq!(
+            stop(&Shift::to(1.0), 1.0, &options(10)),
+            (SolveTermination::RelativeStep, 1)
+        );
+    }
+
+    #[test]
+    fn the_budget_runs_out_without_a_rule() {
+        let engine = Shift::to(1.0);
+        assert_eq!(
+            stop(&engine, 0.0, &options(1)),
+            (SolveTermination::MaxIters, 1)
+        );
+        assert_eq!(
+            stop(&engine, 0.0, &options(0)),
+            (SolveTermination::MaxIters, 0)
+        );
+    }
+
+    #[test]
+    fn a_rule_met_on_the_last_iteration_is_convergence() {
+        let engine = Shift::to(1.0);
+        let opts = BackendSolveOptions {
+            min_error: Some(1e-6),
+            ..options(1)
+        };
+        assert_eq!(stop(&engine, 0.0, &opts), (SolveTermination::MinError, 1));
+    }
+
+    #[test]
+    fn no_finite_cost_off_the_start_is_no_accepted_step() {
+        let engine = Shift {
+            finite_only_at: Some(0.0),
+            ..Shift::to(1.0)
+        };
+        assert_eq!(
+            stop(&engine, 0.0, &options(10)),
+            (SolveTermination::NoAcceptedStep, 1)
+        );
+    }
+
+    #[test]
+    fn nothing_free_is_all_parameters_fixed() {
+        let engine = Shift {
+            dim: 0,
+            ..Shift::to(1.0)
+        };
+        assert_eq!(
+            stop(&engine, 0.0, &options(10)),
+            (SolveTermination::AllParametersFixed, 0)
+        );
+    }
+
+    #[test]
+    fn only_the_budget_is_not_convergence() {
+        use SolveTermination::*;
+        for t in [
+            RelativeStep,
+            MinError,
+            MinAbsDecrease,
+            MinRelDecrease,
+            NoAcceptedStep,
+            AllParametersFixed,
+        ] {
+            assert!(t.is_converged(), "{t:?}");
+        }
+        assert!(!MaxIters.is_converged());
+    }
 }

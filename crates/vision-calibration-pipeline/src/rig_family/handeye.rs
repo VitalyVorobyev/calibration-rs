@@ -16,7 +16,7 @@ use vision_calibration_linear::handeye::{
 };
 use vision_calibration_optim::{
     HandeyeDataset, HandeyeEstimate, HandeyeMode, HandeyeParams, HandeyeSolveOptions, RobustLoss,
-    optimize_handeye,
+    SolveTermination, optimize_handeye,
 };
 
 use crate::Error;
@@ -34,6 +34,9 @@ pub struct HandeyeOptimizeResult {
     pub mean_reproj_error: f64,
     /// Final solver cost of the hand-eye bundle adjustment.
     pub final_cost: f64,
+    /// Why the solver stopped; `None` when that is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<SolveTermination>,
 }
 
 /// A hand-eye solution of one mode: the hand-eye pose and the target pose
@@ -317,6 +320,7 @@ pub(crate) fn optimize_handeye_stage<P: HandeyeStages>(
     };
 
     let final_cost = output.report.final_cost;
+    let termination = output.report.termination;
     let mean_reproj_error = output.mean_reproj_error;
     P::record_handeye_optimize(&mut session.state, final_cost, mean_reproj_error);
     session.set_output(output);
@@ -325,6 +329,7 @@ pub(crate) fn optimize_handeye_stage<P: HandeyeStages>(
     Ok(HandeyeOptimizeResult {
         mean_reproj_error,
         final_cost,
+        termination,
     })
 }
 

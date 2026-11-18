@@ -385,7 +385,7 @@ impl<'p> TinySolverEngine<'p> {
 impl LinearizationEngine for TinySolverEngine<'_> {
     type State = HashMap<String, ParameterBlock>;
 
-    fn dim(&self) -> usize {
+    fn free_dim(&self) -> usize {
         self.dim
     }
 

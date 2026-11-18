@@ -37,8 +37,10 @@ from .session import (
     _cameras,
     _floats,
     _payload,
+    _termination,
+    _terminations,
 )
-from .types import ProgressCallback
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "IntrinsicsInitOptions",
@@ -64,12 +66,15 @@ class IntrinsicsOptimizeResult:
     cameras: list[CameraParams]
     per_cam_reproj_errors: list[float]
     """Mean reprojection error per camera, pixels."""
+    per_cam_terminations: list[SolveTermination | None]
+    """Per camera, why its solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsOptimizeResult:
         return cls(
             cameras=_cameras(payload["cameras"]),
             per_cam_reproj_errors=_floats(payload["per_cam_reproj_errors"]),
+            per_cam_terminations=_terminations(payload.get("per_cam_terminations")),
         )
 
 
@@ -81,6 +86,8 @@ class RigOptimizeResult:
     """Mean reprojection error over the rig, pixels."""
     per_cam_reproj_errors: list[float]
     cameras: list[CameraParams]
+    termination: SolveTermination | None
+    """Why the solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> RigOptimizeResult:
@@ -88,6 +95,7 @@ class RigOptimizeResult:
             mean_reproj_error=float(payload["mean_reproj_error"]),
             per_cam_reproj_errors=_floats(payload["per_cam_reproj_errors"]),
             cameras=_cameras(payload["cameras"]),
+            termination=_termination(payload.get("termination")),
         )
 
 

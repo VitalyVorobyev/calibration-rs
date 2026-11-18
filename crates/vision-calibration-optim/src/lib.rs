@@ -73,7 +73,7 @@ pub use error::Error;
 // builders establish, so a hand-built IR panics inside the solve loop rather
 // than failing to compile. Callers reach for the `optimize_*` entry points
 // below, which is what every consumer in this workspace does.
-pub use crate::backend::{SolveReport, SolverBackend};
+pub use crate::backend::{SolveReport, SolveTermination, SolverBackend};
 pub use crate::ir::{DistortionKind, HandeyeMode, RobustLoss};
 pub use crate::problems::{RobotPoseSigma, RobotRefinement, RobotSigmaParts};
 pub use crate::projection::{ProjectionUncertainty, camera_parameters, projection_uncertainty};

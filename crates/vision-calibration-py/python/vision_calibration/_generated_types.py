@@ -3429,6 +3429,41 @@ class SingleCamHandeyeView(TypedDict):
     """2D-3D correspondences observed in this view."""
 
 
+SolveTermination: TypeAlias = Literal[
+    "relative_step",
+    "min_error",
+    "min_abs_decrease",
+    "min_rel_decrease",
+    "no_accepted_step",
+    "max_iters",
+    "all_parameters_fixed",
+]
+"""Why a Levenberg–Marquardt solve stopped.
+
+Every reason but `MaxIters` is a stopping rule
+(`is_converged`): the loop could not improve the
+solution further, and only then is its covariance computed. A cancelled
+solve, or one whose cost is not finite, returns an error instead of a
+solution. The cost the thresholds are compared with is the robust
+objective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's
+`final_cost`.
+
+- ``"relative_step"``: The step became negligible next to the parameters,
+  `‖dx‖ ≤ 10⁻⁸ (‖x‖ + 10⁻⁸)`: it can no longer change them.
+- ``"min_error"``: The cost fell below its floor, `min_error` (10⁻¹⁰).
+- ``"min_abs_decrease"``: An accepted step lowered the cost by less than `min_abs_decrease`
+  (10⁻⁵).
+- ``"min_rel_decrease"``: An accepted step lowered the cost by less than `min_rel_decrease`
+  (10⁻⁵) of the cost before it.
+- ``"no_accepted_step"``: No step lowered the cost, with the damping doubled on each of 32
+  tries: a minimum to working precision, or a parameter held on its
+  bound (the covariance then names it).
+- ``"max_iters"``: The iteration budget, `max_iters`, ran out before a stopping rule
+  was met; the solution has no covariance.
+- ``"all_parameters_fixed"``: Every parameter is fixed: no iteration ran.
+"""
+
+
 SolverBackend: TypeAlias = Literal["tiny_solver", "factrs"]
 """Which engine linearizes the problem.
 
@@ -3998,6 +4033,7 @@ __all__ = [
     "SingleCamHandeyeSolution_EyeInHand",
     "SingleCamHandeyeSolution_EyeToHand",
     "SingleCamHandeyeView",
+    "SolveTermination",
     "SolverBackend",
     "SolverConfig",
     "TargetFeatureResidual",

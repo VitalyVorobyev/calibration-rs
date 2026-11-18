@@ -52,8 +52,10 @@ from .session import (
     _payload,
     _poses,
     _seed_payload,
+    _termination,
+    _terminations,
 )
-from .types import ProgressCallback
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "EyeInHandManualInit",
@@ -144,6 +146,8 @@ class IntrinsicsOptimizeResult:
     cam_se3_target: list[list[Pose | None]]
     """``[view][camera]`` camera-from-target; ``None`` where the camera did
     not see the target."""
+    per_cam_terminations: list[SolveTermination | None]
+    """Per camera, why its solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsOptimizeResult:
@@ -151,6 +155,7 @@ class IntrinsicsOptimizeResult:
             cameras=_cameras(payload["cameras"]),
             per_cam_reproj_errors=_floats(payload["per_cam_reproj_errors"]),
             cam_se3_target=_target_poses(payload["cam_se3_target"]),
+            per_cam_terminations=_terminations(payload.get("per_cam_terminations")),
         )
 
 
@@ -163,6 +168,8 @@ class RigOptimizeResult:
     per_cam_reproj_errors: list[float]
     cam_se3_rig: list[Pose]
     rig_se3_target: list[Pose]
+    termination: SolveTermination | None
+    """Why the solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> RigOptimizeResult:
@@ -171,6 +178,7 @@ class RigOptimizeResult:
             per_cam_reproj_errors=_floats(payload["per_cam_reproj_errors"]),
             cam_se3_rig=_poses(payload["cam_se3_rig"]),
             rig_se3_target=_poses(payload["rig_se3_target"]),
+            termination=_termination(payload.get("termination")),
         )
 
 

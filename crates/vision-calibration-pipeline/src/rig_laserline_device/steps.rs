@@ -6,7 +6,7 @@ use vision_calibration_core::LaserPlane;
 use vision_calibration_linear::laserline::{LaserlinePlaneSolver, PlaneFitView};
 use vision_calibration_optim::{
     LaserlineSolveOptions, LaserlineStats, RigLaserlineSolveOptions, RigLaserlineUpstream,
-    optimize_rig_laserline,
+    SolveTermination, optimize_rig_laserline,
 };
 
 use crate::rig_family::inverse_poses;
@@ -84,6 +84,9 @@ pub struct PlaneOptimizeResult {
     pub mean_reproj_error: f64,
     /// Per-camera mean reprojection error and laser residual.
     pub per_cam_stats: Vec<LaserlineStats>,
+    /// Per camera, why its solver stopped; `None` when that is unknown.
+    #[serde(default)]
+    pub per_cam_terminations: Vec<Option<SolveTermination>>,
 }
 
 /// Initialize per-camera laser planes from any combination of manual seeds and
@@ -290,6 +293,11 @@ pub fn step_optimize(
         laser_planes_cam: estimate.laser_planes_cam,
         mean_reproj_error: mean_reproj,
         per_cam_stats: estimate.per_cam_stats,
+        per_cam_terminations: estimate
+            .per_cam_reports
+            .iter()
+            .map(|report| report.termination)
+            .collect(),
     })
 }
 

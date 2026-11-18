@@ -27,8 +27,15 @@ from .models import (
     PlanarIntrinsicsInput,
     Pose,
 )
-from .session import CalibrationSession, _run_calibration, _camera, _payload, _poses
-from .types import ProgressCallback
+from .session import (
+    CalibrationSession,
+    _run_calibration,
+    _camera,
+    _payload,
+    _poses,
+    _termination,
+)
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "IntrinsicsFilterOptions",
@@ -77,6 +84,8 @@ class IntrinsicsOptimizeResult:
     mean_reproj_error: float
     """Mean reprojection error, pixels."""
     iterations: int
+    termination: SolveTermination | None
+    """Why the solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsOptimizeResult:
@@ -84,6 +93,7 @@ class IntrinsicsOptimizeResult:
             final_cost=float(payload["final_cost"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
             iterations=int(payload["iterations"]),
+            termination=_termination(payload.get("termination")),
         )
 
 

@@ -616,7 +616,7 @@
         }
       },
       "notes": null,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "input": {
@@ -884,19 +884,19 @@
       "notes": "fx=899.8, fy=899.8, plane_rmse=0.0000 (auto: intrinsics, distortion, cam_se3_target, laser_plane)",
       "operation": "init",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     },
     {
       "notes": "mean reproj=0.128px, mean laser=0.078",
       "operation": "optimize",
       "success": true,
-      "timestamp": 1794440808
+      "timestamp": 1795015261
     }
   ],
   "metadata": {
-    "created_at": 1794440808,
+    "created_at": 1795015261,
     "description": null,
-    "last_modified": 1794440808,
+    "last_modified": 1795015261,
     "problem_type": "laserline_device_v1",
     "schema_version": 3
   },
@@ -991,7 +991,8 @@
       },
       "report": {
         "final_cost": 6.22838887442722,
-        "num_iters": 5
+        "num_iters": 5,
+        "termination": "min_abs_decrease"
       },
       "uncertainty": {
         "covariance": [

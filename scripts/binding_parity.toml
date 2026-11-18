@@ -225,6 +225,7 @@
 "optim::ProjectionUncertainty" = "ProjectionUncertainty"
 "common::RobotPoseMeta" = "types.RobotPoseMeta"
 "optim::RobustLoss" = ["robust_none", "robust_huber", "robust_cauchy", "robust_arctan", "types.RobustLoss"]
+"optim::SolveTermination" = "types.SolveTermination"
 "optim::SolverBackend" = "types.SolverBackend"
 "optim::projection_uncertainty" = "projection_uncertainty"
 "planar_intrinsics::IntrinsicsFilterOptions" = "IntrinsicsFilterOptions"

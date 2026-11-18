@@ -669,8 +669,11 @@ pub mod optim {
     pub use vision_calibration_optim::LaserlineResidualType;
     /// Robust loss (M-estimator) selector for optimization.
     pub use vision_calibration_optim::RobustLoss;
-    /// A solve's final cost and iteration count.
+    /// A solve's final cost, iteration count and why it stopped.
     pub use vision_calibration_optim::SolveReport;
+    /// Why a solve stopped: the stopping rule that ended it, its iteration
+    /// budget, or nothing to solve.
+    pub use vision_calibration_optim::SolveTermination;
     /// Solver backend selector — the `backend` field of
     /// [`common::config::SolverConfig`](crate::common::config::SolverConfig).
     pub use vision_calibration_optim::SolverBackend;

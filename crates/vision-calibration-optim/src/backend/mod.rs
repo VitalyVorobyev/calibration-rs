@@ -83,6 +83,51 @@ impl Default for BackendSolveOptions {
     }
 }
 
+/// Why a Levenberg–Marquardt solve stopped.
+///
+/// Every reason but [`MaxIters`](Self::MaxIters) is a stopping rule
+/// ([`is_converged`](Self::is_converged)): the loop could not improve the
+/// solution further, and only then is its covariance computed. A cancelled
+/// solve, or one whose cost is not finite, returns an error instead of a
+/// solution. The cost the thresholds are compared with is the robust
+/// objective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's
+/// [`final_cost`](SolveReport::final_cost).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SolveTermination {
+    /// The step became negligible next to the parameters,
+    /// `‖dx‖ ≤ 10⁻⁸ (‖x‖ + 10⁻⁸)`: it can no longer change them.
+    RelativeStep,
+    /// The cost fell below its floor, `min_error` (10⁻¹⁰).
+    MinError,
+    /// An accepted step lowered the cost by less than `min_abs_decrease`
+    /// (10⁻⁵).
+    MinAbsDecrease,
+    /// An accepted step lowered the cost by less than `min_rel_decrease`
+    /// (10⁻⁵) of the cost before it.
+    MinRelDecrease,
+    /// No step lowered the cost, with the damping doubled on each of 32
+    /// tries: a minimum to working precision, or a parameter held on its
+    /// bound (the covariance then names it).
+    NoAcceptedStep,
+    /// The iteration budget, `max_iters`, ran out before a stopping rule
+    /// was met; the solution has no covariance.
+    MaxIters,
+    /// Every parameter is fixed: no iteration ran.
+    AllParametersFixed,
+}
+
+impl SolveTermination {
+    /// Whether a stopping rule ended the solve, rather than its iteration
+    /// budget: every reason but [`MaxIters`](Self::MaxIters). The
+    /// covariance of a solution is computed only then.
+    pub fn is_converged(self) -> bool {
+        !matches!(self, Self::MaxIters)
+    }
+}
+
 /// Summary of backend solve outcome.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -95,13 +140,20 @@ pub struct SolveReport {
     /// Number of outer solver iterations executed.
     #[serde(default)]
     pub num_iters: usize,
+    /// Why the solve stopped. `None` when that is unknown: a report written
+    /// before the reason was recorded, or one that no solve produced (a
+    /// result taken from a scored initial guess).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<SolveTermination>,
 }
 impl SolveReport {
-    /// A [`SolveReport`] with the given fields.
+    /// A [`SolveReport`] with the given fields and no
+    /// [`termination`](Self::termination).
     pub fn new(final_cost: f64, num_iters: usize) -> Self {
         Self {
             final_cost,
             num_iters,
+            termination: None,
         }
     }
 }
@@ -169,7 +221,7 @@ fn solve_on<E: SolveEngine>(
         state,
         cost,
         num_iters,
-        converged,
+        termination,
     } = lm::levenberg_marquardt(engine, x0, opts).map_err(|failure| match failure {
         lm::LmFailure::Failed => Error::numerical(format!("{} failed to converge", E::NAME)),
         lm::LmFailure::Cancelled => Error::Cancelled,
@@ -184,11 +236,18 @@ fn solve_on<E: SolveEngine>(
     };
     Ok(BackendSolution {
         noise: covariance::noise(ir, raw.as_ref()),
-        uncertainty: covariance::estimate(ir, &params, raw, converged, second_order),
+        uncertainty: covariance::estimate(
+            ir,
+            &params,
+            raw,
+            termination.is_converged(),
+            second_order,
+        ),
         params,
         solve_report: SolveReport {
             final_cost: 0.5 * cost,
             num_iters,
+            termination: Some(termination),
         },
     })
 }

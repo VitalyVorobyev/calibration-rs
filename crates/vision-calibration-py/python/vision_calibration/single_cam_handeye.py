@@ -39,8 +39,9 @@ from .session import (
     _payload,
     _poses,
     _seed_payload,
+    _termination,
 )
-from .types import ProgressCallback
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "EyeInHandManualInit",
@@ -135,6 +136,8 @@ class IntrinsicsOptimizeResult:
     cam_se3_target: list[Pose]
     mean_reproj_error: float
     """Mean reprojection error, pixels."""
+    termination: SolveTermination | None
+    """Why the solver stopped; ``None`` when that is unknown."""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> IntrinsicsOptimizeResult:
@@ -142,6 +145,7 @@ class IntrinsicsOptimizeResult:
             camera=_camera(payload["camera"]),
             cam_se3_target=_poses(payload["cam_se3_target"]),
             mean_reproj_error=float(payload["mean_reproj_error"]),
+            termination=_termination(payload.get("termination")),
         )
 
 

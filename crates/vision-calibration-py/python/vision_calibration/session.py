@@ -29,7 +29,7 @@ from .models import (
     _camera_from_payload,
     _distortion_to_payload,
 )
-from .types import ProgressCallback
+from .types import ProgressCallback, SolveTermination
 
 __all__ = [
     "CalibrationSession",
@@ -157,6 +157,15 @@ def _cameras(values: Any) -> list[CameraParams]:
 
 def _floats(values: Any) -> list[float]:
     return [float(v) for v in cast(Sequence[Any], values)]
+
+
+def _termination(value: Any) -> SolveTermination | None:
+    """A step result's ``termination``; ``None`` when absent (unknown)."""
+    return None if value is None else cast(SolveTermination, str(value))
+
+
+def _terminations(values: Any) -> list[SolveTermination | None]:
+    return [_termination(v) for v in cast(Sequence[Any], values or [])]
 
 
 def _run_calibration(
