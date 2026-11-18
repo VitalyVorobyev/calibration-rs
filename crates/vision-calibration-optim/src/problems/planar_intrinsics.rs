@@ -22,9 +22,9 @@ use crate::uncertainty;
 use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    BrownConrady5, CameraFix, CameraModel, CameraParams, FixedParams, FxFyCxCy, Iso3,
-    PinholeCamera, PlanarDataset, Real, TargetPose, Uncertainty, View, compute_mean_reproj_error,
-    make_pinhole_camera, pinhole_camera_params,
+    BrownConrady5, CameraFix, CameraModel, CameraParams, CorrespondenceView, FixedParams, FxFyCxCy,
+    Iso3, PinholeCamera, PlanarDataset, Real, Uncertainty, compute_mean_reproj_error,
+    make_pinhole_camera, mean_finite_reproj_error, pinhole_camera_params,
 };
 
 /// Optimization result for planar intrinsics.
@@ -319,12 +319,13 @@ pub fn optimize_planar_intrinsics(
     let camera_model = camera
         .build()
         .expect("identity and Scheimpflug sensors are invertible");
-    // A tilted sensor's multi-start ranks candidates by the finite mean
-    // (`finite_mean_reproj_error`).
+    // A tilted sensor is solved as a multi-start whose stages rank
+    // candidates by the mean of the finite errors.
     let mean_reproj_error = if spec.sensor == SensorKind::Identity {
-        mean_reproj_error(&camera_model, dataset, &poses)?
+        compute_mean_reproj_error(&camera_model, posed_views(dataset, &poses))?
     } else {
-        finite_mean_reproj_error(&camera_model, dataset, &poses)
+        mean_finite_reproj_error(&camera_model, posed_views(dataset, &poses))
+            .unwrap_or(f64::INFINITY)
     };
     // The ranking above scores a candidate whose points all fail to project
     // as infinitely bad; a result is not allowed to be that candidate.
@@ -348,49 +349,16 @@ pub fn optimize_planar_intrinsics(
     })
 }
 
-/// Mean reprojection error over every projectable point; an error when no
-/// point projects.
-fn mean_reproj_error(
-    camera: &CameraModel,
-    dataset: &PlanarDataset,
-    poses: &[Iso3],
-) -> Result<f64, Error> {
-    let views: Vec<View<TargetPose>> = dataset
+/// The posed views of `dataset`, each with its solved `cam_se3_target`.
+fn posed_views<'a>(
+    dataset: &'a PlanarDataset,
+    poses: &'a [Iso3],
+) -> impl Iterator<Item = (&'a CorrespondenceView, Iso3)> {
+    dataset
         .views
         .iter()
-        .zip(poses.iter().cloned())
-        .map(|(view, cam_se3_target)| View::new(view.obs.clone(), TargetPose { cam_se3_target }))
-        .collect();
-    Ok(compute_mean_reproj_error(camera, &views)?)
-}
-
-/// Mean reprojection error over the points that project to a finite pixel;
-/// `INFINITY` when none does.
-///
-/// A tilted sensor is solved as a multi-start whose stages rank candidates
-/// by this value, so a stage that sends a few points to a non-finite pixel
-/// is still scored on the rest rather than dropped.
-fn finite_mean_reproj_error(camera: &CameraModel, dataset: &PlanarDataset, poses: &[Iso3]) -> f64 {
-    let mut sum = 0.0;
-    let mut count = 0usize;
-    for (view, pose) in dataset.views.iter().zip(poses.iter()) {
-        for (p3d, p2d) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
-            let p_cam = pose.transform_point(p3d);
-            let Some(projected) = camera.project_point(&p_cam) else {
-                continue;
-            };
-            let err = (projected - *p2d).norm();
-            if err.is_finite() {
-                sum += err;
-                count += 1;
-            }
-        }
-    }
-    if count == 0 {
-        f64::INFINITY
-    } else {
-        sum / count as f64
-    }
+        .zip(poses.iter())
+        .map(|(view, pose)| (&view.obs, *pose))
 }
 
 #[cfg(test)]

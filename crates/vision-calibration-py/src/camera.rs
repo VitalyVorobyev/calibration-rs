@@ -1,12 +1,12 @@
 //! `CameraModel`: a calibrated camera built from its `CameraParams`, with
 //! vectorized projection over numpy arrays.
 
-use numpy::{PyArray2, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArray2, PyArrayMethods, PyReadonlyArray2};
 use pyo3::prelude::*;
 use pythonize::pythonize;
 use vision_calibration::core::{CameraModel, CameraParams, Pt2, Vec3};
 
-use crate::validation::{reject_non_finite, value_err};
+use crate::validation::{array_rows, reject_non_finite, value_err};
 use crate::{parse_payload, runtime_err};
 
 /// Arrays at least this long are processed with the GIL released; shorter
@@ -52,7 +52,7 @@ impl PyCameraModel {
         py: Python<'py>,
         points: PyReadonlyArray2<'py, f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let n = rows(&points, 3, "points_3d")?;
+        let n = array_rows(&points, 3, "points_3d")?;
         let input = points.as_slice()?;
         let mut out = vec![0.0; n * 2];
         run(py, n, || project_points(&self.model, input, &mut out));
@@ -67,7 +67,7 @@ impl PyCameraModel {
         py: Python<'py>,
         pixels: PyReadonlyArray2<'py, f64>,
     ) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>)> {
-        let n = rows(&pixels, 2, "pixels")?;
+        let n = array_rows(&pixels, 2, "pixels")?;
         let input = pixels.as_slice()?;
         let mut origins = vec![0.0; n * 3];
         let mut directions = vec![0.0; n * 3];
@@ -88,24 +88,12 @@ impl PyCameraModel {
         py: Python<'py>,
         pixels: PyReadonlyArray2<'py, f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let n = rows(&pixels, 2, "pixels")?;
+        let n = array_rows(&pixels, 2, "pixels")?;
         let input = pixels.as_slice()?;
         let mut out = vec![0.0; n * 2];
         run(py, n, || undistort_pixels(&self.model, input, &mut out));
         to_array(py, out, n, 2)
     }
-}
-
-/// Row count of an `(N, cols)` array, or a `ValueError` naming `name`.
-fn rows(array: &PyReadonlyArray2<'_, f64>, cols: usize, name: &str) -> PyResult<usize> {
-    let shape = array.shape();
-    if shape[1] != cols {
-        return Err(value_err(format!(
-            "{name} must have shape (N, {cols}), got ({}, {})",
-            shape[0], shape[1]
-        )));
-    }
-    Ok(shape[0])
 }
 
 /// Run `work` over `n` items, releasing the GIL when `n` is large.

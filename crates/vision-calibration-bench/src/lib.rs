@@ -14,4 +14,5 @@ pub mod registry;
 pub mod ringgrid_bias;
 pub mod run;
 pub mod solver;
+mod stats;
 pub mod suite;

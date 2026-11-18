@@ -594,14 +594,6 @@ fn pose_from_matrix_values(
     })
 }
 
-/// Build a rotation from the file's parameterisation.
-///
-/// Euler conventions are *intrinsic*, composed left-to-right in the
-/// order the name states: `EulerXyz` = `Rx(a) · Ry(b) · Rz(c)`,
-/// `EulerZyx` = `Rz(a) · Ry(b) · Rx(c)`. Note nalgebra's
-/// `from_euler_angles(r, p, y)` builds `Rz(y) · Ry(p) · Rx(r)` —
-/// equivalent to our `EulerZyx` with reversed argument order — so we
-/// compose from axis-angles explicitly to keep both orders honest.
 /// How far an exported rotation may be from a unit quaternion or an
 /// orthonormal matrix and still count as one with float noise (printed
 /// poses carry about six digits). Beyond it the values are not a rotation,
@@ -619,6 +611,14 @@ fn unit_quaternion(q: Quaternion<f64>) -> Result<UnitQuaternion<f64>, String> {
     Ok(UnitQuaternion::from_quaternion(q))
 }
 
+/// Build a rotation from the file's parameterisation.
+///
+/// Euler conventions are *intrinsic*, composed left-to-right in the
+/// order the name states: `EulerXyz` = `Rx(a) · Ry(b) · Rz(c)`,
+/// `EulerZyx` = `Rz(a) · Ry(b) · Rx(c)`. Note nalgebra's
+/// `from_euler_angles(r, p, y)` builds `Rz(y) · Ry(p) · Rx(r)` —
+/// equivalent to our `EulerZyx` with reversed argument order — so we
+/// compose from axis-angles explicitly to keep both orders honest.
 fn rotation_from_values(
     format: RotationFormat,
     values: &[f64],

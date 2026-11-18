@@ -1,8 +1,8 @@
 //! [`ProblemType`] implementation for single laserline device calibration.
 
 use crate::Error;
+use crate::planar_family::validate_planar_views;
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{CameraFix, SensorKind};
 use vision_calibration_core::{
     CameraParams, Iso3, LaserPlane, Uncertainty, build_feature_histogram,
@@ -20,7 +20,7 @@ use crate::common::{
     ExportDiagnostics, ProblemKind, VersionedExport, one_camera_target_residuals,
     read_schema_version,
 };
-use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
+use crate::session::{ProblemState, ProblemType};
 
 use super::state::LaserlineDeviceState;
 
@@ -287,25 +287,15 @@ impl ProblemType for LaserlineDeviceProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
-        stated_covariance(input.views.iter().map(|v| &v.obs))?;
-        if input.num_views() < 3 {
-            return Err(Error::InsufficientData {
-                need: 3,
-                got: input.num_views(),
-            });
-        }
+        validate_planar_views(input.views.iter().map(|v| &v.obs))?;
         // The per-view checks of `LaserlineDataset::new`, for an input that
         // was deserialized rather than constructed.
         input.validate().map_err(Error::from_optim_input)
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.solver.max_iters == 0 {
-            return Err(Error::invalid_input("max_iters must be positive"));
-        }
-        if config.intrinsics_init.iterations == 0 {
-            return Err(Error::invalid_input("init.iterations must be positive"));
-        }
+        config.solver.validate()?;
+        config.intrinsics_init.validate()?;
         if config.optimize.reprojection_weight <= 0.0 {
             return Err(Error::invalid_input("reprojection_weight must be positive"));
         }
@@ -318,10 +308,6 @@ impl ProblemType for LaserlineDeviceProblem {
             config.camera.model,
             "optimize.laser_residual_type",
         )
-    }
-
-    fn on_input_change() -> InvalidationPolicy {
-        InvalidationPolicy::CLEAR_COMPUTED
     }
 
     fn export(

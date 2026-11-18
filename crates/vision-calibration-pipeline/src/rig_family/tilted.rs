@@ -14,10 +14,10 @@ use crate::Error;
 use crate::common::config::{CameraConfig, IntrinsicsInitConfig};
 use crate::planar_family::{camera_solve_opts, embed_distortion};
 use vision_calibration_core::{
-    BrownConrady5, CameraFix, CameraModel, CameraModelSpec, CameraParams, CorrespondenceView,
-    DistortionKind, DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3, NoMeta, PlanarDataset, Pt2,
-    RigDataset, RigView, RigViewObs, ScheimpflugParams, SensorKind, SensorModel, SensorParams,
-    Uncertainty,
+    BrownConrady5, CameraFix, CameraModelSpec, CameraParams, CorrespondenceView, DistortionKind,
+    DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3, NoMeta, PlanarDataset, Pt2, RigDataset,
+    RigView, RigViewObs, ScheimpflugParams, SensorKind, SensorModel, SensorParams, Uncertainty,
+    mean_finite_reproj_error,
 };
 use vision_calibration_linear::extrinsics::{
     average_isometries, estimate_extrinsics_from_cam_target_poses,
@@ -578,7 +578,7 @@ fn score_bad_scheimpflug_seed_against_good_rig(
                 cam_from_rig * context.rig_se3_target[global_idx],
             )
         });
-    mean_reprojection(&camera, views)
+    mean_finite_reproj_error(&camera, views)
 }
 
 fn optimize_bad_scheimpflug_camera_against_good_rig(
@@ -865,32 +865,7 @@ fn mean_scheimpflug_reproj(dataset: &PlanarDataset, params: &PlanarIntrinsicsPar
         .iter()
         .zip(params.cam_se3_target.iter())
         .map(|(view, pose)| (&view.obs, *pose));
-    mean_reprojection(&camera, views).unwrap_or(f64::INFINITY)
-}
-
-/// The mean of the finite reprojection errors (px) of `camera` over the
-/// points of each view at its pose (`cam_se3_target`); `None` without
-/// one.
-fn mean_reprojection<'a>(
-    camera: &CameraModel,
-    views: impl Iterator<Item = (&'a CorrespondenceView, Iso3)>,
-) -> Option<f64> {
-    let mut sum = 0.0;
-    let mut count = 0usize;
-    for (obs, pose) in views {
-        for (p3d, p2d) in obs.points_3d.iter().zip(obs.points_2d.iter()) {
-            let p_cam = pose.transform_point(p3d);
-            let Some(projected) = camera.project_point(&p_cam) else {
-                continue;
-            };
-            let err = (projected - *p2d).norm();
-            if err.is_finite() {
-                sum += err;
-                count += 1;
-            }
-        }
-    }
-    (count > 0).then_some(sum / count as f64)
+    mean_finite_reproj_error(&camera, views).unwrap_or(f64::INFINITY)
 }
 
 fn recover_scheimpflug_poses_for_seed(

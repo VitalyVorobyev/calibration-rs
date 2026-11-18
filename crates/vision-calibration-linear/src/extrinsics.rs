@@ -225,13 +225,7 @@ pub fn estimate_extrinsics_from_cam_target_poses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Isometry3, Rotation3, Translation3};
-
-    fn make_iso(angles: (Real, Real, Real), t: (Real, Real, Real)) -> Iso3 {
-        let rot = Rotation3::from_euler_angles(angles.0, angles.1, angles.2);
-        let tr = Translation3::new(t.0, t.1, t.2);
-        Isometry3::from_parts(tr, rot.into())
-    }
+    use vision_calibration_core::synthetic::poses::make_iso;
 
     #[test]
     fn extrinsics_from_cam_target_poses_two_cameras() {

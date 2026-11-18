@@ -4,8 +4,8 @@
 //! the session API's `ProblemType` trait.
 
 use crate::Error;
+use crate::planar_family::{validate_planar_views, validate_view_points};
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::stated_covariance;
 use vision_calibration_core::{
     CameraParams, Iso3, PlanarDataset, SensorKind, Uncertainty, compute_planar_target_residuals,
 };
@@ -18,7 +18,7 @@ use crate::common::{
     ExportDiagnostics, ProblemKind, VersionedExport, one_camera_target_residuals,
     read_schema_version,
 };
-use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
+use crate::session::{ProblemState, ProblemType};
 
 use super::state::PlanarState;
 
@@ -240,45 +240,14 @@ impl ProblemType for PlanarIntrinsicsProblem {
     }
 
     fn validate_input(input: &Self::Input) -> Result<(), Error> {
-        stated_covariance(input.views.iter().map(|v| &v.obs))?;
-        if input.num_views() < 3 {
-            return Err(Error::InsufficientData {
-                need: 3,
-                got: input.num_views(),
-            });
-        }
-
-        for (i, view) in input.views.iter().enumerate() {
-            if view.obs.len() < MIN_VIEW_POINTS {
-                return Err(Error::invalid_input(format!(
-                    "view {} has too few points (need >= {MIN_VIEW_POINTS} for homography, got {})",
-                    i,
-                    view.obs.len()
-                )));
-            }
-        }
-
-        Ok(())
+        validate_planar_views(input.views.iter().map(|v| &v.obs))?;
+        validate_view_points(input.views.iter().map(|v| &v.obs))
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.solver.max_iters == 0 {
-            return Err(Error::invalid_input("max_iters must be positive"));
-        }
-        if config.intrinsics_init.iterations == 0 {
-            return Err(Error::invalid_input("init.iterations must be positive"));
-        }
+        config.solver.validate()?;
+        config.intrinsics_init.validate()?;
         config.camera.validate_single_camera()
-    }
-
-    fn on_input_change() -> InvalidationPolicy {
-        // When input changes, clear state and output
-        InvalidationPolicy::CLEAR_COMPUTED
-    }
-
-    fn on_config_change() -> InvalidationPolicy {
-        // Config changes don't auto-invalidate (allow experimentation)
-        InvalidationPolicy::KEEP_ALL
     }
 
     fn export(

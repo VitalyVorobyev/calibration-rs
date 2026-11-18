@@ -25,7 +25,7 @@ use vision_calibration_core::linalg::null_space;
 use vision_calibration_core::{
     BrownConrady5, Camera, CorrespondenceView, DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3,
     Mat3, NoMeta, Pinhole, PinholeCamera, PlanarDataset, Pt2, Real, ScheimpflugParams, SensorModel,
-    View,
+    View, mean_finite_reproj_error,
 };
 use vision_geometry::homography::dlt_homography;
 
@@ -678,26 +678,12 @@ fn mean_reproj_error(
     poses: &[Iso3],
 ) -> Real {
     let camera = Camera::new(Pinhole, camera.dist, sensor.compile(), camera.k);
-    let mut sum = 0.0;
-    let mut count = 0usize;
-    for (view, pose) in dataset.views.iter().zip(poses.iter()) {
-        for (p3, p2) in view.obs.points_3d.iter().zip(view.obs.points_2d.iter()) {
-            let p_cam = pose.transform_point(p3);
-            let Some(projected) = camera.project_point(&p_cam) else {
-                continue;
-            };
-            let err = (projected - *p2).norm();
-            if err.is_finite() {
-                sum += err;
-                count += 1;
-            }
-        }
-    }
-    if count == 0 {
-        Real::INFINITY
-    } else {
-        sum / count as Real
-    }
+    let views = dataset
+        .views
+        .iter()
+        .zip(poses.iter())
+        .map(|(view, pose)| (&view.obs, *pose));
+    mean_finite_reproj_error(&camera, views).unwrap_or(Real::INFINITY)
 }
 
 fn is_better(candidate: &Candidate, current: Option<&Candidate>) -> bool {

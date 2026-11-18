@@ -21,6 +21,7 @@ use super::significance::{
 };
 use super::truth::{Truth, truth_errors};
 use super::{ReferenceResult, Suite, SuiteEntry, load_truth};
+use crate::stats::median;
 
 /// A result another library produced for a suite entry.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -193,7 +194,7 @@ pub fn render_markdown(comparisons: &[Comparison]) -> String {
          |---|---|---|---|---|---|---|---|\n",
     );
     for c in comparisons {
-        let z: Vec<f64> = c.differences.iter().map(|d| d.z().abs()).collect();
+        let mut z: Vec<f64> = c.differences.iter().map(|d| d.z().abs()).collect();
         let worst = c
             .differences
             .iter()
@@ -221,23 +222,10 @@ pub fn render_markdown(comparisons: &[Comparison]) -> String {
             c.id,
             c.external.producer,
             z.len(),
-            median(z).map_or("—".to_string(), |m| format!("{m:.2}σ")),
+            median(&mut z).map_or("—".to_string(), |m| format!("{m:.2}σ")),
         ));
     }
     out
-}
-
-fn median(mut v: Vec<f64>) -> Option<f64> {
-    if v.is_empty() {
-        return None;
-    }
-    v.sort_by(f64::total_cmp);
-    let n = v.len();
-    Some(if n % 2 == 1 {
-        v[n / 2]
-    } else {
-        0.5 * (v[n / 2 - 1] + v[n / 2])
-    })
 }
 
 #[cfg(test)]
@@ -273,12 +261,5 @@ mod tests {
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[0].z(), 2.0);
         assert!((changes[1].z() - 0.003).abs() < 1e-12);
-    }
-
-    #[test]
-    fn median_of_even_and_odd_lists() {
-        assert_eq!(median(vec![3.0, 1.0, 2.0]), Some(2.0));
-        assert_eq!(median(vec![4.0, 1.0, 2.0, 3.0]), Some(2.5));
-        assert_eq!(median(Vec::new()), None);
     }
 }

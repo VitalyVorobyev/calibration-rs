@@ -77,8 +77,15 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         ));
     }
 
-    let mut f = mat3_from_vec(&ns.vector);
+    let f = enforce_rank2(&mat3_from_vec(&ns.vector))?;
 
+    // De-normalize: F_raw = T2^T * F_norm * T1
+    Ok(t2.transpose() * f * t1)
+}
+
+/// The closest rank-2 matrix to `f` (Frobenius norm): its smallest singular
+/// value set to zero.
+fn enforce_rank2(f: &Mat3) -> Result<Mat3> {
     let svd_f = f.svd(true, true);
     let u = svd_f
         .u
@@ -89,12 +96,7 @@ pub fn fundamental_8point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Mat3> {
         .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
     s[2] = 0.0;
     let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
-    f = u * s_mat * v_t;
-
-    // De-normalize: F_raw = T2^T * F_norm * T1
-    f = t2.transpose() * f * t1;
-
-    Ok(f)
+    Ok(u * s_mat * v_t)
 }
 
 /// 7-point algorithm for the fundamental matrix (minimal solver).
@@ -204,22 +206,8 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
 
     let mut solutions = Vec::new();
     for lambda in roots {
-        let mut f = f2 + lambda * f1;
-
-        let svd_f = f.svd(true, true);
-        let u = svd_f
-            .u
-            .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
-        let mut s = svd_f.singular_values;
-        let v_t = svd_f
-            .v_t
-            .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
-        s[2] = 0.0;
-        let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&s);
-        f = u * s_mat * v_t;
-
-        f = t2.transpose() * f * t1;
-        solutions.push((lambda, f));
+        let f = enforce_rank2(&(f2 + lambda * f1))?;
+        solutions.push((lambda, t2.transpose() * f * t1));
     }
 
     solutions.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));

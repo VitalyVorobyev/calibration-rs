@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Config validation errors name the full path of the field they reject:
+  `solver.max_iters`, `intrinsics_init.iterations` and
+  `handeye_init.min_motion_angle_deg`, the same in every problem type. In
+  Python, a feature or laser-extractor array with the wrong number of
+  columns is reported as `<name> must have shape (N, cols)`, like every
+  other array argument, and a feature array with the wrong number of rows
+  names that array. The checks themselves are unchanged.
 - The chessboard, ChArUco and PuzzleBoard detector is `calib-targets` 0.16.3.
   A grid cell next to a missing corner no longer discards the connected
   patch of the board around it, so partly occluded boards keep more corners.

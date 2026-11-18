@@ -16,7 +16,7 @@ use vision_calibration_optim::{
 use crate::common::config::{SolverConfig, check_laser_residual};
 use crate::common::{ExportDiagnostics, ProblemKind, VersionedExport, read_schema_version};
 use crate::rig_family::{add_rig_laser_residuals, rig_target_residuals};
-use crate::session::{InvalidationPolicy, ProblemState, ProblemType};
+use crate::session::{ProblemState, ProblemType};
 
 use super::state::RigLaserlineDeviceState;
 
@@ -329,10 +329,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        if config.solver.max_iters == 0 {
-            return Err(Error::invalid_input("max_iters must be positive"));
-        }
-        Ok(())
+        config.solver.validate()
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
@@ -346,14 +343,6 @@ impl ProblemType for RigLaserlineDeviceProblem {
             }
         }
         Ok(())
-    }
-
-    fn on_input_change() -> InvalidationPolicy {
-        InvalidationPolicy::CLEAR_COMPUTED
-    }
-
-    fn on_config_change() -> InvalidationPolicy {
-        InvalidationPolicy::KEEP_ALL
     }
 
     fn export(

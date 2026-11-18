@@ -111,10 +111,10 @@ pub use models::{
 #[doc(hidden)]
 pub use models::INTRINSICS_PARAM_NAMES;
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
-// Workspace-internal: the per-view pose meta of the optimizer's mean
-// reprojection error. Hidden from the docs and outside the semver promise.
+// Workspace-internal: the mean reprojection error of a camera over posed
+// views. Hidden from the docs and outside the semver promise.
 #[doc(hidden)]
-pub use residuals::{TargetPose, compute_mean_reproj_error};
+pub use residuals::{compute_mean_reproj_error, mean_finite_reproj_error};
 // Workspace-internal: the residual tables and statistics the problem types
 // fill their exports with. Hidden from the docs and outside the semver promise.
 #[doc(hidden)]
