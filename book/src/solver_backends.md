@@ -236,4 +236,7 @@ A solve fails with an error for:
 - a missing or wrongly sized initial value for a parameter block;
 - an invalid IR (for example a non-positive robust-loss scale);
 - an IR the selected backend cannot map (see above);
-- a non-finite initial cost.
+- a non-finite initial cost;
+- a residual or Jacobian that is not finite where the solver linearizes,
+  at the start, after a step or at the solution: a residual that is not
+  differentiable there, which no step could be computed from.

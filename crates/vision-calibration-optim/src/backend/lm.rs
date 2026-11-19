@@ -59,8 +59,15 @@ pub(crate) trait LinearizationEngine {
 /// Why a solve returned no solution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LmFailure {
-    /// The initial cost is not finite, or the normal equations cannot be
-    /// allocated.
+    /// The cost at the initial parameters is not finite.
+    NonFiniteCost,
+    /// The residual or its Jacobian has a non-finite entry at the parameters
+    /// of this (1-based) iteration: a residual is not differentiable there.
+    NonFiniteLinearization {
+        /// The iteration that linearized.
+        iteration: usize,
+    },
+    /// The normal equations cannot be allocated.
     Failed,
     /// The run control's token was cancelled.
     Cancelled,
@@ -88,8 +95,11 @@ pub(crate) struct LmSolution<S> {
 ///
 /// # Errors
 ///
-/// [`LmFailure::Failed`] when there is something to optimize but the initial
-/// cost is not finite, or the normal equations cannot be allocated;
+/// When there is something to optimize: [`LmFailure::NonFiniteCost`] when the
+/// initial cost is not finite, [`LmFailure::NonFiniteLinearization`] when a
+/// linearization is (no step can be scaled or solved from it, so the loop
+/// would stop at the parameters and call them a minimum), and
+/// [`LmFailure::Failed`] when the normal equations cannot be allocated;
 /// [`LmFailure::Cancelled`] when the control's token is cancelled.
 pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
     engine: &E,
@@ -117,7 +127,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         });
     }
     if !current_cost.is_finite() {
-        return Err(LmFailure::Failed);
+        return Err(LmFailure::NonFiniteCost);
     }
 
     let mut scaling: Option<Vec<f64>> = None;
@@ -134,6 +144,16 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         num_iters = outer_iter + 1;
         let last_cost = current_cost;
         let (residuals, jac) = engine.linearize(&x);
+        if !residuals
+            .col(0)
+            .iter()
+            .chain(jac.val())
+            .all(|v| v.is_finite())
+        {
+            return Err(LmFailure::NonFiniteLinearization {
+                iteration: num_iters,
+            });
+        }
 
         let scaling = scaling.get_or_insert_with(|| jacobi_scaling(jac.as_ref()));
         let normal = match &mut normal {
@@ -252,6 +272,10 @@ mod tests {
         target: f64,
         finite_only_at: Option<f64>,
         dim: usize,
+        /// The Jacobian's one entry, `1` but for a non-finite derivative.
+        slope: f64,
+        /// With this set, the slope is NaN anywhere but here.
+        differentiable_only_at: Option<f64>,
     }
 
     impl Shift {
@@ -260,6 +284,8 @@ mod tests {
                 target,
                 finite_only_at: None,
                 dim: 1,
+                slope: 1.0,
+                differentiable_only_at: None,
             }
         }
     }
@@ -278,7 +304,11 @@ mod tests {
         }
         fn linearize(&self, x: &DVector<f64>) -> (faer::Mat<f64>, SparseColMat<usize, f64>) {
             let r = faer::Mat::from_fn(1, 1, |_, _| x[0] - self.target);
-            let j = SparseColMat::try_new_from_triplets(1, 1, &[Triplet::new(0, 0, 1.0)])
+            let slope = match self.differentiable_only_at {
+                Some(at) if x[0] != at => f64::NAN,
+                _ => self.slope,
+            };
+            let j = SparseColMat::try_new_from_triplets(1, 1, &[Triplet::new(0, 0, slope)])
                 .expect("a 1×1 Jacobian");
             (r, j)
         }
@@ -416,5 +446,42 @@ mod tests {
             assert!(t.is_converged(), "{t:?}");
         }
         assert!(!MaxIters.is_converged());
+    }
+
+    #[test]
+    fn a_linearization_that_is_not_finite_is_an_error() {
+        for slope in [f64::NAN, f64::INFINITY] {
+            let engine = Shift {
+                slope,
+                ..Shift::to(1.0)
+            };
+            let failure = levenberg_marquardt(
+                &engine,
+                DVector::from_element(1, 0.0),
+                &BackendSolveOptions::default(),
+            )
+            .err();
+            assert_eq!(
+                failure,
+                Some(LmFailure::NonFiniteLinearization { iteration: 1 }),
+                "slope {slope}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_linearization_that_turns_non_finite_after_a_step_is_an_error() {
+        // The first step is accepted; the second linearization is at a point
+        // without a derivative.
+        let engine = Shift {
+            differentiable_only_at: Some(0.0),
+            ..Shift::to(1.0)
+        };
+        let failure =
+            levenberg_marquardt(&engine, DVector::from_element(1, 0.0), &options(10)).err();
+        assert_eq!(
+            failure,
+            Some(LmFailure::NonFiniteLinearization { iteration: 2 })
+        );
     }
 }

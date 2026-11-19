@@ -9,7 +9,8 @@ use faer::sparse::SparseColMat;
 use nalgebra::DVector;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tiny_solver::factors::{DualStride, Factor};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tiny_solver::factors::{DualStride, Factor, FactorImpl, STRIDE};
 use tiny_solver::loss_functions::{ArctanLoss, CauchyLoss, HuberLoss, Loss};
 use tiny_solver::manifold::Manifold;
 use tiny_solver::manifold::se3::SE3Manifold;
@@ -27,11 +28,12 @@ impl TinySolverBackend {
         &self,
         ir: &ProblemIR,
         initial: &HashMap<String, DVector<f64>>,
-    ) -> Result<Problem, Error> {
+    ) -> Result<Compiled, Error> {
         ir.validate()?;
         ir.check_initial(initial)?;
 
         let mut problem = Problem::new();
+        let non_finite = Arc::new(AtomicBool::new(false));
 
         for param in &ir.params {
             let manifold: Option<Arc<dyn Manifold + Sync + Send>> = match param.manifold {
@@ -65,6 +67,10 @@ impl TinySolverBackend {
 
         for residual in &ir.residuals {
             let (factor, loss) = compile_factor(residual);
+            let factor = Box::new(Watched {
+                factor,
+                non_finite: Arc::clone(&non_finite),
+            });
             let param_names: Vec<&str> = residual
                 .params
                 .iter()
@@ -73,7 +79,55 @@ impl TinySolverBackend {
             problem.add_residual_block(residual.residual_dim, &param_names, factor, loss);
         }
 
-        Ok(problem)
+        Ok(Compiled {
+            problem,
+            non_finite,
+        })
+    }
+}
+
+/// A compiled problem and the flag its factors raise on a non-finite
+/// derivative ([`Watched`]).
+struct Compiled {
+    problem: Problem,
+    non_finite: Arc<AtomicBool>,
+}
+
+/// A factor that raises `non_finite` when a derivative of its residual is
+/// not finite. tiny-solver replaces such a Jacobian entry with 0 (and logs a
+/// warning), so a solve would stop where a residual is not differentiable
+/// and report a minimum; [`TinySolverEngine::linearize`] reports it instead.
+///
+/// Every lane is checked, a fixed coordinate's too: forward-mode duals scale
+/// all lanes of an operand by the same derivative, so a non-finite one
+/// reaches the free coordinates' lanes as well (`0 · ∞` is NaN), as it does
+/// on factrs.
+struct Watched {
+    factor: Box<dyn FactorImpl + Send>,
+    non_finite: Arc<AtomicBool>,
+}
+
+impl Factor<f64> for Watched {
+    fn residual_func(&self, params: &[DVector<f64>]) -> DVector<f64> {
+        self.factor.residual_func_f64(params)
+    }
+}
+
+impl Factor<DualStride> for Watched {
+    fn residual_func(&self, params: &[DVector<DualStride>]) -> DVector<DualStride> {
+        let residual = self.factor.residual_func_dual(params);
+        let finite = residual.iter().all(|value| {
+            value
+                .eps
+                .unwrap_generic(nalgebra::Const::<STRIDE>, nalgebra::Const::<1>)
+                .iter()
+                .all(|d| d.is_finite())
+        });
+        if !finite {
+            // Read after the linearization's evaluations have joined.
+            self.non_finite.store(true, Ordering::Relaxed);
+        }
+        residual
     }
 }
 
@@ -98,9 +152,9 @@ impl TinySolverBackend {
         opts: &BackendSolveOptions,
         second_order: bool,
     ) -> Result<BackendSolution, Error> {
-        let problem = self.compile(ir, initial)?;
-        let blocks = problem.initialize_parameter_blocks(initial);
-        let engine = TinySolverEngine::new(&problem, &blocks);
+        let compiled = self.compile(ir, initial)?;
+        let blocks = compiled.problem.initialize_parameter_blocks(initial);
+        let engine = TinySolverEngine::new(&compiled.problem, &compiled.non_finite, &blocks);
         solve_on(ir, &engine, blocks, opts, second_order)
     }
 }
@@ -113,9 +167,9 @@ impl TinySolverBackend {
         ir: &ProblemIR,
         params: &HashMap<String, DVector<f64>>,
     ) -> Result<Option<RawLinearization>, Error> {
-        let problem = self.compile(&ir.without_losses(), params)?;
-        let blocks = problem.initialize_parameter_blocks(params);
-        let engine = TinySolverEngine::new(&problem, &blocks);
+        let compiled = self.compile(&ir.without_losses(), params)?;
+        let blocks = compiled.problem.initialize_parameter_blocks(params);
+        let engine = TinySolverEngine::new(&compiled.problem, &compiled.non_finite, &blocks);
         Ok(raw_from_engine(ir, &engine, &blocks))
     }
 }
@@ -155,7 +209,9 @@ impl<'ir> ResidualProbe<'ir> {
         ir: &'ir ProblemIR,
         params: &HashMap<String, DVector<f64>>,
     ) -> Result<Self, Error> {
-        let problem = TinySolverBackend.compile(&ir.without_losses(), params)?;
+        let problem = TinySolverBackend
+            .compile(&ir.without_losses(), params)?
+            .problem;
         let mut by_name = problem.initialize_parameter_blocks(params);
         let blocks = ir
             .params
@@ -356,6 +412,8 @@ fn block_columns(block: &ParamBlock, start: Option<usize>) -> Vec<Option<usize>>
 /// indices and bounds.
 struct TinySolverEngine<'p> {
     problem: &'p Problem,
+    /// Raised by the problem's factors on a non-finite derivative.
+    non_finite: &'p AtomicBool,
     col_idx: HashMap<String, usize>,
     /// `None` when every parameter is fixed.
     symbolic: Option<SymbolicStructure>,
@@ -366,7 +424,11 @@ struct TinySolverEngine<'p> {
 }
 
 impl<'p> TinySolverEngine<'p> {
-    fn new(problem: &'p Problem, blocks: &HashMap<String, ParameterBlock>) -> Self {
+    fn new(
+        problem: &'p Problem,
+        non_finite: &'p AtomicBool,
+        blocks: &HashMap<String, ParameterBlock>,
+    ) -> Self {
         let col_idx = problem.get_variable_name_to_col_idx_dict(blocks);
         let dim = total_variable_dimension(blocks, &col_idx);
         let symbolic = (dim > 0).then(|| problem.build_symbolic_structure(blocks, dim, &col_idx));
@@ -374,6 +436,7 @@ impl<'p> TinySolverEngine<'p> {
         block_names.sort_unstable();
         Self {
             problem,
+            non_finite,
             col_idx,
             symbolic,
             dim,
@@ -398,8 +461,15 @@ impl LinearizationEngine for TinySolverEngine<'_> {
             .symbolic
             .as_ref()
             .expect("linearize is only called with free parameters");
-        self.problem
-            .compute_residual_and_jacobian(x, &self.col_idx, symbolic)
+        self.non_finite.store(false, Ordering::Relaxed);
+        let (mut residual, jacobian) =
+            self.problem
+                .compute_residual_and_jacobian(x, &self.col_idx, symbolic);
+        if self.non_finite.load(Ordering::Relaxed) {
+            // tiny-solver zeroed the entry; the residual carries it.
+            residual[(0, 0)] = f64::NAN;
+        }
+        (residual, jacobian)
     }
 
     /// tiny-solver's own step, the inverse of the column layout of
@@ -450,9 +520,9 @@ pub(super) fn linearize_at(
     initial: &HashMap<String, DVector<f64>>,
 ) -> (DVector<f64>, nalgebra::DMatrix<f64>, f64) {
     use faer_ext::IntoNalgebra;
-    let problem = TinySolverBackend.compile(ir, initial).expect("compile IR");
-    let blocks = problem.initialize_parameter_blocks(initial);
-    let engine = TinySolverEngine::new(&problem, &blocks);
+    let compiled = TinySolverBackend.compile(ir, initial).expect("compile IR");
+    let blocks = compiled.problem.initialize_parameter_blocks(initial);
+    let engine = TinySolverEngine::new(&compiled.problem, &compiled.non_finite, &blocks);
     let (r, j) = engine.linearize(&blocks);
     (
         r.as_ref().into_nalgebra().column(0).clone_owned(),
@@ -561,7 +631,8 @@ mod tests {
         opts: &BackendSolveOptions,
     ) -> Option<(HashMap<String, DVector<f64>>, usize)> {
         let blocks = problem.initialize_parameter_blocks(initial);
-        let engine = TinySolverEngine::new(problem, &blocks);
+        let non_finite = AtomicBool::new(false);
+        let engine = TinySolverEngine::new(problem, &non_finite, &blocks);
         lm::levenberg_marquardt(&engine, blocks, opts)
             .ok()
             .map(|s| (params_from_blocks(&s.state), s.num_iters))
@@ -695,7 +766,7 @@ mod tests {
     /// parameter values.
     fn eval_residuals(ir: &ProblemIR, initial: &HashMap<String, DVector<f64>>) -> DVector<f64> {
         let backend = TinySolverBackend;
-        let problem = backend.compile(ir, initial).expect("compile IR");
+        let problem = backend.compile(ir, initial).expect("compile IR").problem;
         let blocks = problem.initialize_parameter_blocks(initial);
         let residuals = problem.compute_residuals(&blocks, true);
         residuals.as_ref().into_nalgebra().column(0).clone_owned()
