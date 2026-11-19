@@ -103,8 +103,7 @@ exempt. `release.yml` runs the same command before publishing and stops the
 release on a break.
 
 ```bash
-cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py \
-  --exclude vision-calibration-cli   # until its first release
+cargo semver-checks --workspace --exclude vision-calibration-bench --exclude vision-calibration-py
 ```
 
 A crate not yet on crates.io has no baseline; exclude it here and in
@@ -136,7 +135,7 @@ Workflows fired by the tag push:
 
 | Workflow | Produces |
 |---|---|
-| `release.yml` | fmt / clippy / test gates, then publishes the §2 crates to crates.io in order, then a GitHub release with generated notes |
+| `release.yml` | fmt / clippy / test gates, then publishes the §2 crates to crates.io in order, then a GitHub release with generated notes (a pre-release for a tag with a pre-release part, such as `-rc.N`) |
 | `release-pypi.yml` | tag/version check, Python runtime tests, wheels (Linux, macOS, Windows; abi3-py310) and sdist, then PyPI upload |
 | `app-bundle.yml` | unsigned macOS (`.app`/`.dmg`) and Linux (AppImage/`.deb`) desktop bundles as workflow-run artifacts only (not attached to the release) |
 | `publish-docs.yml` | rebuilds and deploys the docs site |

@@ -497,10 +497,7 @@ Design: ADR 0014; developer guide: `app/DEVELOPING.md`.
 ## v1.0 release
 
 - [ ] D4-RELEASE - Release 1.0.0 after the `1.0.0-rc` series. `v1.0.0-rc.1`
-  is tagged; `vision-calibration-cli` was never published, so `release.yml`
-  skipped it: publish it by hand at `1.0.0-rc.1` and register its Trusted
-  Publisher (runbook §4), then drop its `--exclude` from the semver checks
-  in `release.yml`, `ci.yml` (`semver-rc`) and the runbook. The `semver-rc`
-  CI job checks every PR against the latest rc tag; 1.0.0 follows an rc
-  that needed no break (runbook §1.1 for the snippets and classifier).
+  is out, every crate of the runbook's §2 included; the `semver-rc` CI job
+  checks every PR against the latest rc tag. 1.0.0 follows an rc that
+  needed no break (runbook §1.1 for the snippets and classifier).
   Done when: `v1.0.0` is tagged and on crates.io and PyPI.
