@@ -146,7 +146,6 @@ jobs:
           --baseline-rev "${{ steps.baseline.outputs.tag }}"
           --exclude vision-calibration-bench
           --exclude vision-calibration-py
-          --exclude vision-calibration-cli
 
   wasm32:
     name: wasm32 build (core + dataset)

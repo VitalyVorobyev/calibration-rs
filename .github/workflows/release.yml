@@ -53,7 +53,6 @@ jobs:
           cargo semver-checks --workspace
           --exclude vision-calibration-bench
           --exclude vision-calibration-py
-          --exclude vision-calibration-cli
 
   publish-crates:
     name: Publish crates.io
@@ -143,3 +142,5 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          # A tag with a pre-release part (`v1.0.0-rc.2`) is a GitHub pre-release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
