@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A solve that meets a residual whose Jacobian is not finite where it
+  linearizes (a residual not differentiable there, such as `sqrt` at 0)
+  fails with `Error::Numerical`, at the start, after a step or at the
+  solution, on both solver backends. Before, both stopped at the first such
+  point and reported it as converged: the tiny-solver backend set the
+  derivative to 0 (`relative_step`, the parameter reported unobservable),
+  the factrs backend found no step (`no_accepted_step`). The other solver
+  errors name their cause: a cost that is
+  not finite at the initial parameters, or normal equations that cannot be
+  allocated.
+
 ## [1.0.0-rc.1] - 2026-11-18
 
 ### Migration

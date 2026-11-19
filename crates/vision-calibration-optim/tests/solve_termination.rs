@@ -1,11 +1,13 @@
 //! Why a solve stopped, through the public result of `problem::solve`, on
 //! both linearization engines: convergence by a stopping rule, the same
 //! rule met on the last allowed iteration, the iteration budget, no
-//! accepted step and nothing to solve. A cancelled solve is still an error,
-//! and a report written without the reason reads back as unknown.
+//! accepted step and nothing to solve. A cancelled solve and a residual
+//! that is not differentiable at the parameters are still errors, and a
+//! report written without the reason reads back as unknown.
 
 #![allow(missing_docs)]
 
+use nalgebra::{DVector, RealField};
 use vision_calibration_core::synthetic::planar::grid_points;
 use vision_calibration_core::synthetic::poses::{seeded_tilts, tilted_board_poses};
 use vision_calibration_core::{
@@ -13,7 +15,8 @@ use vision_calibration_core::{
     ProjectionParams, Pt2, Pt3, RunControl, SensorParams, Uncertainty, UncertaintyUnavailable,
 };
 use vision_calibration_optim::problem::{
-    Manifold, PixelNoise, PoseChain, Problem, Solution, SolveOptions, TargetPoint, solve,
+    Manifold, Noise, PixelNoise, PoseChain, Problem, Residual, Solution, SolveOptions, TargetPoint,
+    solve,
 };
 use vision_calibration_optim::{Error, RobustLoss, SolveReport, SolveTermination, SolverBackend};
 
@@ -263,4 +266,37 @@ fn a_cancelled_solve_with_nothing_free_is_an_error() {
         let err = solve(&problem, &options).unwrap_err();
         assert!(matches!(err, Error::Cancelled), "{backend:?}: {err:?}");
     }
+}
+
+/// `√x − 1`, started at `x = 0`: the residual is finite there, its
+/// derivative `1 / (2√x)` is not.
+struct SqrtShift;
+
+impl Residual for SqrtShift {
+    fn dim(&self) -> usize {
+        1
+    }
+    fn block_dims(&self) -> Vec<usize> {
+        vec![1]
+    }
+    fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+        DVector::from_element(1, blocks[0][0].clone().sqrt() - T::one())
+    }
+}
+
+/// On tiny-solver, which zeroes a Jacobian entry that is not finite; factrs
+/// passes it on to the shared loop, which rejects it, and runs only the
+/// library's residuals.
+#[test]
+fn a_residual_not_differentiable_at_the_start_is_an_error() {
+    let mut problem = Problem::new();
+    let x = problem.add_block("x", &[0.0], Manifold::Euclidean).unwrap();
+    problem
+        .add_residual(SqrtShift, &[x], RobustLoss::None, Noise::Stated(1.0))
+        .unwrap();
+    let err = solve(&problem, &SolveOptions::default()).unwrap_err();
+    assert!(
+        matches!(&err, Error::Numerical(message) if message.contains("not differentiable")),
+        "{err:?}"
+    );
 }

@@ -1142,7 +1142,9 @@ fn add_consider_share(
 /// # Errors
 ///
 /// [`Error::InvalidInput`] for a problem with a residual you wrote and the
-/// factrs backend; [`Error::Numerical`] when the solve fails;
+/// factrs backend; [`Error::Numerical`] when the solve fails, among others
+/// when a residual or its Jacobian is not finite where the solver
+/// linearizes (a residual not differentiable there);
 /// [`Error::Cancelled`] when `options.control`'s token is cancelled.
 pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Error> {
     let calibration = problem.calibration.as_ref();

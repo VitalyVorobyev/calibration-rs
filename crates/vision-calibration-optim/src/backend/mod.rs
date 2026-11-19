@@ -223,7 +223,19 @@ fn solve_on<E: SolveEngine>(
         num_iters,
         termination,
     } = lm::levenberg_marquardt(engine, x0, opts).map_err(|failure| match failure {
-        lm::LmFailure::Failed => Error::numerical(format!("{} failed to converge", E::NAME)),
+        lm::LmFailure::NonFiniteCost => Error::numerical(format!(
+            "{}: the cost at the initial parameters is not finite",
+            E::NAME
+        )),
+        lm::LmFailure::NonFiniteLinearization { iteration } => Error::numerical(format!(
+            "{}: a residual or its Jacobian is not finite at the parameters of iteration \
+             {iteration}; a residual is not differentiable there",
+            E::NAME
+        )),
+        lm::LmFailure::Failed => Error::numerical(format!(
+            "{}: the normal equations cannot be allocated",
+            E::NAME
+        )),
         lm::LmFailure::Cancelled => Error::Cancelled,
     })?;
 
@@ -234,6 +246,20 @@ fn solve_on<E: SolveEngine>(
     } else {
         engine.raw_at(ir, &state)
     };
+    if let Some(raw) = &raw
+        && !raw
+            .residual
+            .col(0)
+            .iter()
+            .chain(raw.jacobian.val())
+            .all(|v| v.is_finite())
+    {
+        return Err(Error::numerical(format!(
+            "{}: a residual or its Jacobian is not finite at the solution; a residual is \
+             not differentiable there",
+            E::NAME
+        )));
+    }
     Ok(BackendSolution {
         noise: covariance::noise(ir, raw.as_ref()),
         uncertainty: covariance::estimate(

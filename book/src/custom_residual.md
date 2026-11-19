@@ -63,7 +63,9 @@ pose's `[qx, qy, qz, qw, tx, ty, tz]` (`se3` turns it into an
 `Isometry3<T>`), a unit vector's `[x, y, z]`, a rotation's `[qx, qy, qz,
 qw]` (`Manifold::So3`; `so3` turns it into a `UnitQuaternion<T>`). `eval` must return `dim`
 values and must not panic. A value that is not finite makes the solver
-reject that step, as for any residual.
+reject that step, as for any residual; a derivative that is not finite
+(`sqrt` or `acos` at the edge of its domain, normalizing a zero vector)
+fails the solve with a numerical error naming where.
 
 ## Building the problem
 
