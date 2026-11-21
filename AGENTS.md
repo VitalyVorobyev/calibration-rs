@@ -67,9 +67,12 @@ python3 scripts/check_binding_parity.py --check    # when a public capability ch
 CI (`.github/workflows/ci.yml`) also runs heavier jobs; run the ones your
 change touches locally: the MSRV check (`--locked` on the `rust-version`
 toolchain), the `semver-rc` check (§8), the `wasm32` build of core and
-dataset, the LFS image tests, the regression suite (`calib-bench suite check`
-on both backends, `suite compare`) and the suite images' checksums, the
-uncertainty gates (release-mode `--ignored` tests: Monte-Carlo, rig laser
+dataset, the KUKA detector tests (fetch `data/kuka_1/01.png` with Git LFS or
+use the pinned publisher download in CI, then run
+`cargo test -p vision-calibration-detect --lib -- --ignored`), the regression
+suite (`calib-bench suite check` on both backends, `suite compare`) and the
+suite images' checksums, the uncertainty gates (release-mode `--ignored`
+tests: Monte-Carlo, rig laser
 points, dense cloud, second-order error, tilted rig, robot-frame points,
 robot-error estimate, next-view prediction, feature covariance; the
 `uncertainty-gates` job lists the commands), the install smoke test (the
