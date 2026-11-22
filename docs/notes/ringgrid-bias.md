@@ -274,10 +274,13 @@ kind of e-ink display, anti-aliased rendering:
 | `rtv3s_rg_small_cam0..2` | ring grid | 1.00088 / 1.00083 / 1.00137 | 0.03 |
 | `rtv3s_rg_large_cam0..2` | ring grid | 1.00095 / 1.00061 / 1.00140 | 0.03 |
 | `rtv3s_pb_b_cam0..2` | PuzzleBoard | 1.00085 / 1.00096 / 1.00160 | — |
-| `ipgs_cam1` | precision print | 1.00011 | 0.034 |
+| `imx226_pb_cam0` | PuzzleBoard on the display, another camera | 0.99970 | — |
+| `ipgs_cam1`, `ipgs_cam2` | precision print | 1.00011, 0.99981 | 0.034 |
 
-Each camera repeats across the three display captures to about 3e-4, and
-the camera on the precision print is square to 1e-4. So the display's x/y
+Each camera repeats across the three display captures to about 3e-4, the
+cameras on the precision print are square to 2e-4, and a fourth camera on
+the display is square to 3e-4, so the three-camera device's +0.1 % is
+mostly its own. So the display's x/y
 scale, together with those cameras' own aspect, is at most +0.06 … +0.16 %:
 it cannot carry the +0.74 … +0.95 % of the tilted cameras. About 0.6–0.85 %
 is left to the tilted devices themselves, which leaves two candidates:
