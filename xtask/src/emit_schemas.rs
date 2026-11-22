@@ -38,8 +38,8 @@ use vision_calibration_core::Progress;
 use vision_calibration_dataset::{DatasetSpec, DeviceSpec};
 use vision_calibration_optim::{ProjectionUncertainty, SolveTermination};
 use vision_calibration_pipeline::analysis::{
-    CandidateGrid, PredictedRigUncertainty, PredictedUncertainty, QualityReport, QualityThresholds,
-    RankedCandidate, RankedRobotPose,
+    CandidateGrid, CrossValidationOptions, ModelComparison, PredictedRigUncertainty,
+    PredictedUncertainty, QualityReport, QualityThresholds, RankedCandidate, RankedRobotPose,
 };
 use vision_calibration_pipeline::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
@@ -198,6 +198,14 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         writes::<RankedCandidate>("ranked_candidate", "RankedCandidate"),
         writes::<PredictedRigUncertainty>("predicted_rig_uncertainty", "PredictedRigUncertainty"),
         writes::<RankedRobotPose>("ranked_robot_pose", "RankedRobotPose"),
+        reads::<CrossValidationOptions>("cross_validation_options", "CrossValidationOptions", &[]),
+        // The written `CameraConfig` always carries `fix`, so its schema
+        // differs from the config's (where `fix` may be left out).
+        writes_renamed::<ModelComparison>(
+            "model_comparison",
+            "ModelComparison",
+            &[("CameraConfig", "CandidateCameraConfig")],
+        ),
         writes::<Progress>("progress", "Progress"),
         writes::<SolveTermination>("solve_termination", "SolveTermination"),
         plain("device_spec", schema_value::<DeviceSpec>()),
@@ -331,6 +339,17 @@ fn reads<T: JsonSchema>(
 /// The schema of a type a workflow returns: what serializes, so a field that
 /// is always written is required.
 fn writes<T: JsonSchema>(name: &'static str, root: &'static str) -> Emitted {
+    writes_renamed::<T>(name, root, &[])
+}
+
+/// [`writes`], with `$defs` names replaced in Python: a type whose written
+/// schema differs from its read one (a field with a default is always
+/// written) needs its own Python name.
+fn writes_renamed<T: JsonSchema>(
+    name: &'static str,
+    root: &'static str,
+    renames: &'static [(&'static str, &'static str)],
+) -> Emitted {
     let schema = SchemaSettings::draft2020_12()
         .for_serialize()
         .into_generator()
@@ -339,7 +358,7 @@ fn writes<T: JsonSchema>(name: &'static str, root: &'static str) -> Emitted {
         name,
         schema: serde_json::to_value(schema).expect("JsonSchema serialization is infallible"),
         default: None,
-        python: Some(Python { root, renames: &[] }),
+        python: Some(Python { root, renames }),
     }
 }
 

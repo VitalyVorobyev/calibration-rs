@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `analysis::compare_camera_models` compares candidate camera
+  configurations of a planar intrinsics calibration on views each fit did
+  not see. The views are split into folds (`CrossValidationOptions`:
+  five by default, assigned by a seeded shuffle that gives the same folds
+  on every platform); each candidate is calibrated on all folds but one,
+  and every held-out view is scored with that fit's camera held fixed. The
+  `ModelComparison` gives each candidate's training and held-out
+  reprojection error, per fold and per view, its free parameter count, its
+  difference from the best with a fold-paired standard error, and a
+  ranking by held-out error; a candidate that cannot be fitted is reported
+  as failed without stopping the others. Python:
+  `vision_calibration.compare_camera_models`. The JSON schemas are
+  `schemas/cross_validation_options.json` and
+  `schemas/model_comparison.json`. `ReprojectionStats` gains a JSON
+  schema.
+
 ### Documentation
 
 - The book's sensor chapter states what an estimated Scheimpflug tilt is:

@@ -37,6 +37,7 @@ from ._api import (
     assess,
     html_report,
     candidate_poses,
+    compare_camera_models,
     predict_with_robot_poses,
     predict_with_views,
     rank_candidates,
@@ -286,6 +287,7 @@ __all__ = [
     "rank_candidates",
     "rank_robot_poses",
     "candidate_poses",
+    "compare_camera_models",
     # Sessions
     "CalibrationSession",
     "ExportRecord",

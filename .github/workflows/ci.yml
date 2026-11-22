@@ -311,6 +311,11 @@ jobs:
           cargo test --release --locked -p vision-calibration-pipeline
           --lib analysis::next_view -- --ignored
 
+      - name: Held-out model comparison gate
+        run: >-
+          cargo test --release --locked -p vision-calibration-pipeline
+          --lib analysis::cross_validation -- --ignored
+
       # The whitened covariance of a feature-weighted solve agrees with the
       # scatter of Monte-Carlo solves, single camera and rig (about 70 s).
       - name: Feature-covariance gate

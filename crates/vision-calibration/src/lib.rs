@@ -778,6 +778,14 @@ pub mod synthetic {
 ///   [`predict_with_robot_poses`](analysis::predict_with_robot_poses),
 ///   [`rank_candidates`](analysis::rank_candidates) and
 ///   [`rank_robot_poses`](analysis::rank_robot_poses).
+/// - Camera-model comparison on held-out views:
+///   [`compare_camera_models`](analysis::compare_camera_models) with
+///   [`CrossValidationOptions`](analysis::CrossValidationOptions), returning
+///   a [`ModelComparison`](analysis::ModelComparison) of
+///   [`ModelScore`](analysis::ModelScore)s
+///   ([`ModelOutcome`](analysis::ModelOutcome),
+///   [`HeldOutScore`](analysis::HeldOutScore),
+///   [`FoldScore`](analysis::FoldScore)).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
@@ -788,10 +796,12 @@ pub mod synthetic {
 ///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram).
 pub mod analysis {
     pub use vision_calibration_pipeline::analysis::{
-        CandidateGrid, CheckKind, CheckStatus, Measurement, PredictedRigUncertainty,
+        CandidateGrid, CheckKind, CheckStatus, CrossValidationOptions, FoldScore, HeldOutScore,
+        Measurement, ModelComparison, ModelOutcome, ModelScore, PredictedRigUncertainty,
         PredictedUncertainty, QualityCheck, QualityReport, QualityThresholds, RankedCandidate,
-        RankedRobotPose, ReportOptions, Unit, Verdict, assess, candidate_poses, html_report,
-        predict_with_robot_poses, predict_with_views, rank_candidates, rank_robot_poses,
+        RankedRobotPose, ReportOptions, Unit, Verdict, assess, candidate_poses,
+        compare_camera_models, html_report, predict_with_robot_poses, predict_with_views,
+        rank_candidates, rank_robot_poses,
     };
 
     pub use vision_calibration_core::{

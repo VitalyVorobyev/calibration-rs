@@ -300,6 +300,31 @@ fn types_in_facade_signatures_are_nameable() {
 }
 
 #[test]
+fn model_comparison_surface_compiles() {
+    use analysis::{
+        CrossValidationOptions, FoldScore, HeldOutScore, ModelComparison, ModelOutcome, ModelScore,
+    };
+
+    type Compare = fn(
+        &planar_intrinsics::PlanarIntrinsicsInput,
+        &planar_intrinsics::PlanarIntrinsicsConfig,
+        &[common::config::CameraConfig],
+        &CrossValidationOptions,
+        &control::RunControl,
+    ) -> Result<ModelComparison, Error>;
+    let _compare: Compare = analysis::compare_camera_models;
+    let opts = CrossValidationOptions::new(5, 0);
+    assert_eq!(opts, CrossValidationOptions::default());
+    let _: Option<ModelScore> = None;
+    let _: Option<HeldOutScore> = None;
+    let _: Option<FoldScore> = None;
+    let outcome: Option<ModelOutcome> = None;
+    if let Some(ModelOutcome::Failed { fold, reason }) = outcome {
+        let _: (Option<usize>, String) = (fold, reason);
+    }
+}
+
+#[test]
 fn mvg_module_surface_compiles() {
     use vision_calibration::mvg;
 
