@@ -522,6 +522,83 @@ fn candidate_poses(
     Ok(output.unbind())
 }
 
+/// Candidate camera configurations of a planar calibration, scored on views
+/// each fit did not see (K-fold over views) and ranked by held-out
+/// reprojection error.
+///
+/// Parameters
+/// ----------
+/// input:
+///     Serde payload of `PlanarIntrinsicsInput`.
+/// alternatives:
+///     Serde payloads of `CameraConfig`, the candidates after the config's
+///     own camera.
+/// config:
+///     Serde payload of `PlanarIntrinsicsConfig` (the estimator; its
+///     `camera` is candidate 0); `None` for the default.
+/// folds:
+///     Number of folds, at least 2.
+/// seed:
+///     Seed of the shuffle that assigns views to folds.
+/// progress:
+///     Called with each progress report of the fits; raising stops the run.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `ModelComparison`.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If `folds` is below 2, there are too few views for the folds, a
+///     candidate is invalid or repeated, `config.optimize.fix_poses` is not
+///     empty, or the input fails the planar checks.
+/// TypeError
+///     If a payload has the wrong shape.
+#[pyfunction(signature = (input, alternatives, config=None, folds=5, seed=0, progress=None))]
+fn compare_camera_models(
+    py: Python<'_>,
+    input: &Bound<'_, PyAny>,
+    alternatives: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+    folds: usize,
+    seed: u64,
+    progress: Option<Py<PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::analysis::CrossValidationOptions;
+    use vision_calibration::common::config::CameraConfig;
+    use vision_calibration::planar_intrinsics::{PlanarIntrinsicsConfig, PlanarIntrinsicsInput};
+
+    let input: PlanarIntrinsicsInput = session::parse_checked(input, "input")?;
+    let alternatives: Vec<CameraConfig> = session::parse_checked(alternatives, "alternatives")?;
+    let config: PlanarIntrinsicsConfig =
+        session::parse_optional_checked(config, "config")?.unwrap_or_default();
+    let opts = CrossValidationOptions::new(folds, seed);
+    let control = control::PyRunControl::new(progress);
+    let run = control.control();
+    let result = py.detach(|| {
+        vision_calibration::analysis::compare_camera_models(
+            &input,
+            &config,
+            &alternatives,
+            &opts,
+            run,
+        )
+    });
+    let comparison = control.finish(result, |err| match err {
+        // Normally replaced by the exception the progress callable raised or
+        // the Ctrl-C that cancelled the token.
+        vision_calibration::Error::Cancelled => {
+            pyo3::exceptions::PyKeyboardInterrupt::new_err("cancelled")
+        }
+        // Only the input checks raise a core error.
+        err @ vision_calibration::Error::Core(_) => value_err(format!("invalid input: {err}")),
+        err => errors::calib_err("model comparison failed", err),
+    })?;
+    session::to_py(py, &comparison)
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -539,6 +616,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(predict_with_robot_poses, m)?)?;
     m.add_function(wrap_pyfunction!(rank_robot_poses, m)?)?;
     m.add_function(wrap_pyfunction!(candidate_poses, m)?)?;
+    m.add_function(wrap_pyfunction!(compare_camera_models, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;

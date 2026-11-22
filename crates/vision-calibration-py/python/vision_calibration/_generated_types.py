@@ -161,6 +161,34 @@ class CameraSource(_CameraSourceRequired, total=False):
     """
 
 
+class CandidateCameraConfig(TypedDict):
+    """The camera model a workflow calibrates, and which of its parameters stay
+    fixed.
+
+    The model names one kind per slot — projection, distortion and sensor —
+    so a tilted (Scheimpflug) sensor is a value of `model.sensor`, not a
+    separate workflow. Behaviour that depends on the sensor (default fix
+    lists, the linear stage's tangential terms, the tilt multi-start) follows
+    from the model.
+    """
+
+    fix: CameraFix
+    """Parameters held fixed during the non-linear solve, named per slot
+    (`{"intrinsics": ["cx", "cy"], "distortion": ["k3"], "sensor":
+    ["tilt_y"]}`). A slot left out keeps the model's default: `k3` for
+    Brown-Conrady, and everything but the low-order radial terms (`k1`,
+    `k2`; the division model's `lambda`) under a Scheimpflug sensor,
+    because tangential and higher-order terms trade off against the tilt.
+    An unknown name is a configuration error.
+    """
+
+    model: CameraModelSpec
+    """The camera model, one kind per slot. Default: pinhole projection,
+    Brown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity
+    (untilted) sensor — the model every workflow accepts.
+    """
+
+
 class CandidateGrid(TypedDict):
     """A deterministic set of candidate target poses: the target's centroid on
     the ray through the centre of each region of an image grid, at a given
@@ -364,6 +392,30 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
     """The covariance of each image point, px², one per point; absent or
     empty when not stated. Within one calibration input either every
     view states them or none does.
+    """
+
+
+class CrossValidationOptions(TypedDict, total=False):
+    """How `compare_camera_models` splits the views into folds.
+
+    The views are shuffled by a seeded generator whose sequence is fixed by
+    this library, not by a dependency, so a seed gives the same folds on
+    every platform and release; the `i`-th shuffled view goes to fold
+    `i mod folds`, so fold sizes differ by at most one.
+    """
+
+    folds: int
+    """Number of folds `K`, at least 2 and at most the number of views
+    (`K` equal to the number of views is leave-one-view-out). Each fit
+    sees about `(K − 1)/K` of the views and must keep at least three.
+    Default 5: each fit keeps 80 % of the views, and five fits per
+    candidate keep the cost moderate.
+    """
+
+    seed: int
+    """Seed of the shuffle that assigns views to folds, any value. Default
+    0. Another seed gives another partition; a ranking that changes with
+    the seed is not a reliable one.
     """
 
 
@@ -721,6 +773,24 @@ class FeatureResidualHistogram(TypedDict):
     """Mean error (pixels). `0.0` when `count == 0`."""
 
 
+class FoldScore(TypedDict):
+    """One fold of a candidate's score."""
+
+    converged: bool
+    """Whether every solve of the fold (the fit and each held-out pose)
+    stopped by a convergence rule rather than at its iteration budget.
+    """
+
+    held_out_points: int
+    """Held-out points that project, the count behind `held_out_rms_px`."""
+
+    held_out_rms_px: float
+    """The RMS of the fold's held-out views, pixels."""
+
+    training_rms_px: float
+    """The RMS of the fold's fit on its own training views, pixels."""
+
+
 FrameKind: TypeAlias = Literal["target", "laser"]
 """What a frame depicts, distinguishing target images from laser-on images.
 
@@ -934,6 +1004,55 @@ internally tagged by `mode`:
 {"mode": "eye_in_hand", "gripper_se3_rig": {…}, "base_se3_target": {…}}
 ```
 """
+
+
+class HeldOutScore(TypedDict):
+    """A candidate's reprojection error on the views it was fitted to and on
+    the views it was not. All errors are Euclidean pixel distances.
+    """
+
+    delta_se_px: float
+    """The standard error of `delta_vs_best_px`, paired by fold: the sample
+    standard deviation over the folds of this candidate's held-out RMS
+    minus the best's, divided by `√K`, pixels (≥ 0). The candidates see
+    the same folds, so the shared view-to-view variation cancels.
+    """
+
+    delta_vs_best_px: float
+    """This candidate's pooled held-out RMS minus that of the best ranked
+    candidate (`ranking[0]`), pixels; 0 for the best itself and when no
+    candidate is ranked.
+    """
+
+    fold_scatter_px: float
+    """The sample standard deviation of the folds' held-out RMS, pixels
+    (≥ 0): how much the score moves with the views a fit sees.
+    """
+
+    folds: list[FoldScore]
+    """One entry per fold, in fold order."""
+
+    held_out: ReprojectionStats
+    """Pooled over the folds: each view scored once, by the fit of the fold
+    that held it out, pixels. `count` excludes points that do not
+    project.
+    """
+
+    per_view_rms_px: list[float]
+    """The held-out RMS of each view, pixels, by view index; 0 for a view
+    none of whose points project.
+    """
+
+    training: ReprojectionStats
+    """The fit to all views, on those views (in-sample), pixels. It only
+    falls as the model grows; it does not rank models.
+    """
+
+    unprojected_points: int
+    """Held-out points that do not project through the fold's camera at
+    the solved pose. A candidate with any is listed but not ranked: its
+    score covers fewer points than the others'.
+    """
 
 
 class ImageManifest(TypedDict):
@@ -1375,6 +1494,114 @@ class Measurement(TypedDict):
     """The measured value; for a check over several items (views, parameter
     pairs), the worst one.
     """
+
+
+class ModelComparison(TypedDict):
+    """The candidates of `compare_camera_models`, each scored on held-out
+    views, and their ranking.
+    """
+
+    candidates: list[ModelScore]
+    """One score per candidate, in input order: the config's camera first,
+    then the alternatives.
+    """
+
+    folds: list[list[int]]
+    """The held-out view indices of each fold, ascending within a fold.
+    Every view is in exactly one fold.
+    """
+
+    ranking: list[int]
+    """Indices into `candidates` of the comparable ones (scored, with every
+    held-out point projected), by pooled held-out RMS, lowest first;
+    ties go to fewer free parameters, then to the earlier candidate.
+    Empty when no candidate is comparable.
+    """
+
+
+class ModelOutcome_Failed(TypedDict):
+    """A fit or a held-out pose solve failed; the other candidates are still
+    scored.
+    """
+
+    fold: int | None
+    """The fold whose fit or held-out view failed; `None` for the fit to
+    all views.
+    """
+
+    reason: str
+    """The error, as text."""
+
+    status: Literal["failed"]
+
+
+class ModelOutcome_Scored(TypedDict):
+    """Every fit and every held-out pose solve succeeded."""
+
+    delta_se_px: float
+    """The standard error of `delta_vs_best_px`, paired by fold: the sample
+    standard deviation over the folds of this candidate's held-out RMS
+    minus the best's, divided by `√K`, pixels (≥ 0). The candidates see
+    the same folds, so the shared view-to-view variation cancels.
+    """
+
+    delta_vs_best_px: float
+    """This candidate's pooled held-out RMS minus that of the best ranked
+    candidate (`ranking[0]`), pixels; 0 for the best itself and when no
+    candidate is ranked.
+    """
+
+    fold_scatter_px: float
+    """The sample standard deviation of the folds' held-out RMS, pixels
+    (≥ 0): how much the score moves with the views a fit sees.
+    """
+
+    folds: list[FoldScore]
+    """One entry per fold, in fold order."""
+
+    held_out: ReprojectionStats
+    """Pooled over the folds: each view scored once, by the fit of the fold
+    that held it out, pixels. `count` excludes points that do not
+    project.
+    """
+
+    per_view_rms_px: list[float]
+    """The held-out RMS of each view, pixels, by view index; 0 for a view
+    none of whose points project.
+    """
+
+    status: Literal["scored"]
+    training: ReprojectionStats
+    """The fit to all views, on those views (in-sample), pixels. It only
+    falls as the model grows; it does not rank models.
+    """
+
+    unprojected_points: int
+    """Held-out points that do not project through the fold's camera at
+    the solved pose. A candidate with any is listed but not ranked: its
+    score covers fewer points than the others'.
+    """
+
+
+ModelOutcome: TypeAlias = ModelOutcome_Scored | ModelOutcome_Failed
+"""Whether a candidate was scored."""
+
+
+class ModelScore(TypedDict):
+    """One candidate camera configuration and how it scored."""
+
+    camera: CandidateCameraConfig
+    """The candidate: the camera model and its fixed parameters."""
+
+    free_parameters: int
+    """The camera parameters the candidate's fit estimates: its intrinsics,
+    projection, distortion and sensor parameters minus those its fix
+    lists (or the model's default fix list) hold fixed. Not the model's
+    slot count: Brown-Conrady with `k3` fixed has 8.
+    """
+
+    outcome: ModelOutcome
+    """The held-out score, or why the candidate could not be scored."""
 
 
 NoMeta: TypeAlias = None
@@ -2114,6 +2341,22 @@ class RankedRobotPose(TypedDict):
     """Per camera, the target points that land in its image. A camera that
     sees fewer than four adds no information.
     """
+
+
+class ReprojectionStats(TypedDict):
+    """Summary statistics for reprojection errors."""
+
+    count: int
+    """Number of points evaluated."""
+
+    max: float
+    """Maximum reprojection error in pixels."""
+
+    mean: float
+    """Mean reprojection error in pixels."""
+
+    rms: float
+    """Root mean square error in pixels."""
 
 
 class ResidualKind_Custom(TypedDict):
@@ -3885,6 +4128,7 @@ __all__ = [
     "CameraOverride",
     "CameraParams",
     "CameraSource",
+    "CandidateCameraConfig",
     "CandidateGrid",
     "CheckKind",
     "CheckStatus",
@@ -3893,6 +4137,7 @@ __all__ = [
     "CornerCovarianceSpec",
     "CornerStrategySpec",
     "CorrespondenceView",
+    "CrossValidationOptions",
     "DatasetSpec",
     "DetectorSpec",
     "DeviceOptimizeConfig",
@@ -3906,6 +4151,7 @@ __all__ = [
     "DistortionParams_ThinPrism",
     "ExportDiagnostics",
     "FeatureResidualHistogram",
+    "FoldScore",
     "FrameKind",
     "FrameRef",
     "FxFyCxCy",
@@ -3916,6 +4162,7 @@ __all__ = [
     "HandeyeSolution",
     "HandeyeSolution_EyeInHand",
     "HandeyeSolution_EyeToHand",
+    "HeldOutScore",
     "ImageManifest",
     "ImageNoiseSpec",
     "ImageNoiseSpec_Stated",
@@ -3939,6 +4186,11 @@ __all__ = [
     "LaserlineStats",
     "LaserlineView",
     "Measurement",
+    "ModelComparison",
+    "ModelOutcome",
+    "ModelOutcome_Failed",
+    "ModelOutcome_Scored",
+    "ModelScore",
     "NoMeta",
     "ParameterCovariance",
     "PerFeatureResiduals",
@@ -3973,6 +4225,7 @@ __all__ = [
     "QualityThresholds",
     "RankedCandidate",
     "RankedRobotPose",
+    "ReprojectionStats",
     "ResidualKind",
     "ResidualKind_Custom",
     "ResidualNoise",

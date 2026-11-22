@@ -122,20 +122,118 @@ The linear stage always produces Brown-Conrady coefficients; they are embedded i
 
 ## Does a Richer Model Help?
 
-Under a Scheimpflug sensor, selecting a richer distortion model is not on its own a change to what is optimized, and that surprises people. Mean reprojection error was measured under each model on two six-camera Scheimpflug rigs. **Under the radial-only fix list** (`k1`, `k2` free), the configuration the shipped baselines use, **the model choice alone does not move the floor**:
+The reprojection error of a calibration is measured on the views it was fitted to, and a richer model always lowers it: a model with more free coefficients contains the simpler one, so it fits the same points at least as well, signal or noise. That number cannot say whether the extra terms describe the lens. The views the fit did *not* see can.
 
-- Rig A: `BrownConrady5 = Rational8 = ThinPrism9 = 0.3316 px` median mean reprojection error (the extra `k4`-`k6` and `s1`-`s4` coefficients stay at their zero seed under the radial-only list and never move); `Division1 = 0.3358 px` (stable, but its worst camera sits alone at `0.838 px`).
-- Rig B: `0.4739 px` for the three polynomial models, `0.4745 px` for `Division1`.
+`analysis::compare_camera_models` splits the views into folds (five by default, assigned by a seeded shuffle), fits each candidate camera to all folds but one, and scores the held-out fold: each held-out view's board pose is solved with the fold's camera held fixed, and every point's pixel error counts. Every view is held out exactly once, so each candidate's pooled held-out RMS covers the same points. The candidates are `CameraConfig`s (model and fix list); the rest of the config, the initialization, the solver and the robust loss, is the same for all of them.
 
-This is expected: the radial-only list frees only `k1` and `k2` (or `lambda`), so `Rational8` and `ThinPrism9` are Brown-Conrady in everything but name.
+Below, the lens has only `k1` and `k2`. Three candidates: `k1` alone (under-modelled), the default Brown-Conrady with `k3` fixed, and `Rational8` with all eight coefficients free.
 
-Freeing *every* coefficient does move the numbers, in both directions. On one rig it improved the hardest camera slightly (`0.5008 -> 0.4988 px`); on the other it **diverged** on the two cameras with the thinnest data. An all-free configuration needs a per-camera warm start to be safe, which is why it is not the default.
+```rust
+use vision_calibration::analysis::{CrossValidationOptions, ModelOutcome, compare_camera_models};
+use vision_calibration::common::config::CameraConfig;
+use vision_calibration::control::RunControl;
+use vision_calibration::core::{CameraModelSpec, DistortionKind, SensorKind};
+use vision_calibration::planar_intrinsics::PlanarIntrinsicsConfig;
+# use vision_calibration::core::{BrownConrady5, FxFyCxCy, PlanarDataset, View, make_pinhole_camera};
+# use vision_calibration::synthetic::{noise::UniformPixelNoise, planar, poses};
+# fn main() -> anyhow::Result<()> {
+# let lens = make_pinhole_camera(
+#     FxFyCxCy { fx: 800.0, fy: 790.0, cx: 640.0, cy: 480.0 },
+#     BrownConrady5 { k1: -0.25, k2: 0.08, ..BrownConrady5::default() },
+# );
+# let board = planar::grid_points(9, 7, 0.03);
+# let specs = poses::seeded_board_pose_specs(12, 0.45, 11);
+# let mut board_poses = poses::centered_board_poses(&specs, (0.12, 0.09), 0.5);
+# for (i, pose) in board_poses.iter_mut().enumerate() {
+#     pose.translation.vector.x += [-0.12, 0.0, 0.12][i % 3];
+#     pose.translation.vector.y += [-0.1, 0.0, 0.1][(i / 3) % 3];
+# }
+# // Uniform noise of ±0.52 px: 0.3 px standard deviation per axis.
+# let noise = UniformPixelNoise { seed: 5, max_abs_px: 0.52 };
+# let views = planar::project_views_noisy(&lens, &board, &board_poses, &noise)?;
+# let dataset = PlanarDataset::new(views.into_iter().map(View::without_meta).collect())?;
+
+let brown_conrady = CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Identity);
+let mut k1_only = CameraConfig::new(brown_conrady);
+k1_only.fix.distortion = Some(vec!["k2".into(), "k3".into(), "p1".into(), "p2".into()]);
+let rational = CameraConfig::new(CameraModelSpec::pinhole(
+    DistortionKind::Rational8,
+    SensorKind::Identity,
+));
+
+// The config's own camera (Brown-Conrady, k3 fixed) is candidate 0.
+let config = PlanarIntrinsicsConfig::default();
+let comparison = compare_camera_models(
+    &dataset,
+    &config,
+    &[k1_only, rational],
+    &CrossValidationOptions::new(4, 0),
+    &RunControl::default(),
+)?;
+
+for score in &comparison.candidates {
+    if let ModelOutcome::Scored(s) = &score.outcome {
+        println!(
+            "{:?}, {} free: training {:.3} px, held-out {:.3} px ({:+.4} ± {:.4} vs best)",
+            score.camera.model.distortion,
+            score.free_parameters,
+            s.training.rms,
+            s.held_out.rms,
+            s.delta_vs_best_px,
+            s.delta_se_px,
+        );
+    }
+}
+
+// Prefer the fewest free parameters among the candidates within about two
+// standard errors of the best.
+let chosen = comparison
+    .ranking
+    .iter()
+    .copied()
+    .filter(|&i| match &comparison.candidates[i].outcome {
+        ModelOutcome::Scored(s) => s.delta_vs_best_px <= 2.0 * s.delta_se_px,
+        _ => false,
+    })
+    .min_by_key(|&i| comparison.candidates[i].free_parameters)
+    .expect("the best candidate qualifies");
+assert_eq!(chosen, 0); // the default model
+# let training = |i: usize| match &comparison.candidates[i].outcome {
+#     ModelOutcome::Scored(s) => s.training.rms,
+#     _ => unreachable!("every candidate is scored"),
+# };
+# assert!(training(2) <= training(0) && training(0) <= training(1));
+# assert_eq!(comparison.ranking.last(), Some(&1));
+# Ok(())
+# }
+```
+
+On this scene the training error falls with every added coefficient (`Rational8` lowest), while on held-out views `k1` alone is clearly worse and `Rational8` is no better than the default: its extra terms fit the noise of the views they saw. The same comparison from Python:
+
+```python
+k1_only = vc.CameraConfig(fix=vc.CameraFix(distortion=["k2", "k3", "p1", "p2"]))
+rational = vc.CameraConfig(model=vc.CameraModelSpec(distortion="rational8"))
+comparison = vc.compare_camera_models(dataset, [k1_only, rational], folds=4)
+for candidate in comparison["candidates"]:
+    outcome = candidate["outcome"]
+    if outcome["status"] == "scored":
+        print(candidate["free_parameters"], outcome["held_out"]["rms"], outcome["delta_se_px"])
+```
+
+### Reading the Comparison
+
+- **Rank by held-out error, not training error.** `ranking` orders the comparable candidates by pooled held-out RMS. The training figure (`training`) is there to show the gap, not to choose.
+- **Prefer the fewest free parameters within about two standard errors of the best.** `delta_vs_best_px` is a candidate's held-out RMS minus the best's, and `delta_se_px` its standard error, paired by fold so the variation the candidates share cancels. A difference inside two standard errors is not evidence; fewer parameters then extrapolate better beyond the image regions the views covered.
+- **`free_parameters` shows what a candidate actually estimates.** It counts the parameters the fix lists leave free, not the model's slots. Under a Scheimpflug sensor the default fix list keeps only `k1` and `k2` (or `lambda`) free whatever the distortion model, so `Rational8` or `ThinPrism9` there has the same count as `BrownConrady5`: selecting the model alone changes nothing that is optimized. Free the extra coefficients through `camera.fix.distortion` to compare them.
+- **A candidate that could not be fitted** is `ModelOutcome::Failed` with the fold and the error; the others are still scored. A candidate whose camera does not project some held-out points is listed but not ranked.
+- The held-out board pose is re-solved for each view, so a camera term that a pose can partly imitate (a principal-point shift, for one) is partly forgiven. The comparison is sharpest for distortion terms, which no rigid pose of a plane can imitate.
 
 ### Practical Guidance
 
-- **Default to `BrownConrady5` with `k3` fixed** (or, under a Scheimpflug sensor, the radial-only list) unless you have concrete evidence of higher-order distortion, such as a very wide field of view or a fisheye-adjacent lens. Every committed benchmark baseline stays on `BrownConrady5` because, under the production mask, switching the model is a no-op.
-- If you reach for an extended model, **free its new coefficients deliberately** via `camera.fix.distortion` when the sensor's default holds them. Under a Scheimpflug sensor, selecting the model alone does not unlock any new degrees of freedom.
-- Freeing every extra coefficient is experimental: it needs a per-camera warm start to avoid diverging on thin-data views. Reproduce the comparison above on your own dataset before doing it on production data.
+- **Default to `BrownConrady5` with `k3` fixed** (or, under a Scheimpflug sensor, the radial-only list) and move to a richer configuration when the held-out comparison says it helps, typically for a very wide field of view or a fisheye-adjacent lens.
+- If you reach for an extended model, **free its new coefficients deliberately** via `camera.fix.distortion` when the sensor's default holds them.
+- Freeing every coefficient of an extended model can diverge on cameras with few or poorly spread views; such a candidate shows up as failed in the comparison rather than stopping it.
+
 
 ## Special Cases
 

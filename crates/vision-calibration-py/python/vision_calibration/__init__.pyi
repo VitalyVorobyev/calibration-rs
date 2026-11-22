@@ -93,6 +93,7 @@ from .models import (
     SingleCamHandeyeExport,
     SingleCamHandeyeView,
 )
+from ._generated_types import ModelComparison as _ModelComparison
 from ._generated_types import RobustLoss as _RobustLoss
 from .types import ProgressCallback as _ProgressCallback
 from . import common as common
@@ -269,6 +270,16 @@ def candidate_poses(
     image_size: tuple[int, int],
     grid: CandidateGrid,
 ) -> list[Pose]: ...
+
+
+def compare_camera_models(
+    input: PlanarIntrinsicsInput | Mapping[str, Any],
+    alternatives: Sequence[CameraConfig | Mapping[str, Any]],
+    config: PlanarIntrinsicsConfig | Mapping[str, Any] | None = None,
+    folds: int = 5,
+    seed: int = 0,
+    progress: _ProgressCallback | None = None,
+) -> _ModelComparison: ...
 
 
 __all__: list[str]

@@ -23,6 +23,13 @@
 //! reduce the largest projection σ, and [`candidate_poses`] generates a
 //! deterministic set of them ([`CandidateGrid`]).
 //!
+//! # Camera-model comparison
+//!
+//! [`compare_camera_models`] scores candidate camera configurations of a
+//! planar calibration on views each fit did not see (K-fold over views,
+//! [`CrossValidationOptions`]) and ranks them by held-out reprojection
+//! error ([`ModelComparison`]).
+//!
 //! # Reprojection report
 //!
 //! A single reprojection number per calibration (e.g. "kuka_1 hand-eye =
@@ -78,6 +85,11 @@ use vision_calibration_core::{
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_bearings;
 use vision_geometry::pnp;
 
+mod cross_validation;
+pub use cross_validation::{
+    CrossValidationOptions, FoldScore, HeldOutScore, ModelComparison, ModelOutcome, ModelScore,
+    compare_camera_models,
+};
 mod next_view;
 pub use next_view::{
     CandidateGrid, PredictedRigUncertainty, PredictedUncertainty, RankedCandidate, RankedRobotPose,
@@ -589,25 +601,36 @@ fn intrinsic_floor_view<C>(
 where
     C: FloorCamera,
 {
+    let seed = seed_view_pose(camera, k, obs_3d, obs_2d)?;
+    Some(refine_pose_only(camera, &seed, obs_3d, obs_2d))
+}
+
+/// A linear seed of the board pose `cam_se3_target` (`T_C_W`) of one view,
+/// from `camera` alone: no other pose enters it.
+///
+/// Calibration targets are planar (Z = 0 in the board frame), and for
+/// coplanar points EPnP's control-point construction is degenerate — so for
+/// a planar target the seed comes from the bearings of the pixels
+/// back-projected through the full camera (any central projection, rays
+/// beyond 90° included). EPnP with the pinhole intrinsics `k` is kept as the
+/// fallback for a rare non-planar target.
+///
+/// Returns `None` when there are fewer than four corners or the seed fails.
+fn seed_view_pose<C>(camera: &C, k: &FxFyCxCy<f64>, obs_3d: &[Pt3], obs_2d: &[Pt2]) -> Option<Iso3>
+where
+    C: FloorCamera,
+{
     if obs_3d.len() < 4 || obs_3d.len() != obs_2d.len() {
         return None;
     }
-    // Seed the pose. Calibration targets are planar (Z = 0 in the board frame),
-    // and for coplanar points EPnP's control-point construction is degenerate —
-    // so for a planar target the seed comes from the bearings of the pixels
-    // back-projected through the full camera (any central projection, rays
-    // beyond 90° included). EPnP is kept as the fallback for a rare
-    // non-planar target. Either seed is then polished by the pose-only
-    // refinement below.
     let max_z = obs_3d.iter().fold(0.0_f64, |m, p| m.max(p.z.abs()));
-    let seed = if max_z < 1e-6 {
+    if max_z < 1e-6 {
         let world2d: Vec<Pt2> = obs_3d.iter().map(|p| Pt2::new(p.x, p.y)).collect();
         let bearings: Vec<Vector3<f64>> = obs_2d.iter().map(|p| camera.bearing(p)).collect();
-        estimate_planar_pose_from_bearings(&world2d, &bearings).ok()?
+        estimate_planar_pose_from_bearings(&world2d, &bearings).ok()
     } else {
-        pnp::epnp(obs_3d, obs_2d, k).ok()?
-    };
-    Some(refine_pose_only(camera, &seed, obs_3d, obs_2d))
+        pnp::epnp(obs_3d, obs_2d, k).ok()
+    }
 }
 
 /// A camera the intrinsic floor can seed a pose with: it projects and

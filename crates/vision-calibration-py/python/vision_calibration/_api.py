@@ -11,10 +11,13 @@ from typing import Any, Mapping, Sequence, cast
 
 from . import _vision_calibration as _native
 from .models import (
+    CameraConfig,
     CameraParams,
     CandidateGrid,
     LaserlineDeviceExport,
+    PlanarIntrinsicsConfig,
     PlanarIntrinsicsExport,
+    PlanarIntrinsicsInput,
     Pose,
     PredictedRigUncertainty,
     PredictedUncertainty,
@@ -30,7 +33,8 @@ from .models import (
     RigUpstreamCalibration,
     SingleCamHandeyeExport,
 )
-from ._generated_types import RobustLoss
+from ._generated_types import ModelComparison, RobustLoss
+from .types import ProgressCallback
 
 
 def robust_none() -> RobustLoss:
@@ -458,3 +462,82 @@ def candidate_poses(
         ),
     )
     return [Pose.from_payload(cast(Mapping[str, Any], p)) for p in payload]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Camera-model comparison
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _dataclass_payload(value: Any) -> Any:
+    """A dataclass's payload; a mapping or ``None`` passes through."""
+    if value is None or isinstance(value, Mapping):
+        return None if value is None else dict(value)
+    return value.to_payload()
+
+
+def compare_camera_models(
+    input: PlanarIntrinsicsInput | Mapping[str, Any],
+    alternatives: Sequence[CameraConfig | Mapping[str, Any]],
+    config: PlanarIntrinsicsConfig | Mapping[str, Any] | None = None,
+    folds: int = 5,
+    seed: int = 0,
+    progress: ProgressCallback | None = None,
+) -> ModelComparison:
+    """Candidate camera configurations of a planar calibration, scored on views
+    each fit did not see and ranked by held-out reprojection error.
+
+    The views are split into ``folds`` folds by a seeded shuffle. For each
+    candidate and each fold the calibration is fitted to the other folds'
+    views; each held-out view's pose is then solved with that fit's camera held
+    fixed, and every point's pixel error counts. A richer model always lowers
+    the training error; the held-out error says whether it predicts new views
+    better. Prefer the candidate with the fewest ``free_parameters`` among
+    those within about two ``delta_se_px`` of the best.
+
+    Parameters
+    ----------
+    input:
+        The views of the planar target.
+    alternatives:
+        Camera configurations to compare with ``config``'s camera, which is
+        candidate 0.
+    config:
+        The estimator: initialization, refinement and solver settings for
+        every fit; ``None`` for the defaults (Brown-Conrady, ``k3`` fixed).
+    folds:
+        Number of folds, at least 2.
+    seed:
+        Seed of the shuffle that assigns views to folds.
+    progress:
+        Called with each progress report of the fits; raising stops the run.
+
+    Returns
+    -------
+    ModelComparison
+        The folds, one score per candidate in input order (``outcome.status``
+        is ``"scored"`` or ``"failed"``), and ``ranking``, the comparable
+        candidates' indices, best first.
+
+    Raises
+    ------
+    ValueError
+        If ``folds`` is below 2, there are too few views for the folds, a
+        candidate is invalid or repeated, ``config.optimize.fix_poses`` is not
+        empty, or the input fails the planar checks.
+
+    Example
+    -------
+    >>> rational = vc.CameraConfig(model=vc.CameraModelSpec(distortion="rational8"))
+    >>> comparison = vc.compare_camera_models(dataset, [rational])
+    >>> best = comparison["candidates"][comparison["ranking"][0]]
+    """
+    payload = _native.compare_camera_models(
+        _dataclass_payload(input),
+        [_dataclass_payload(camera) for camera in alternatives],
+        _dataclass_payload(config),
+        folds,
+        seed,
+        progress,
+    )
+    return cast(ModelComparison, payload)

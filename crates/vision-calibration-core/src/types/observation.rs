@@ -354,6 +354,7 @@ pub fn stated_covariance<'a>(
 
 /// Summary statistics for reprojection errors.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ReprojectionStats {
     /// Mean reprojection error in pixels.

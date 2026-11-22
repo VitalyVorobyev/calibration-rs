@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "How [`compare_camera_models`] splits the views into folds.\n\nThe views are shuffled by a seeded generator whose sequence is fixed by\nthis library, not by a dependency, so a seed gives the same folds on\nevery platform and release; the `i`-th shuffled view goes to fold\n`i mod folds`, so fold sizes differ by at most one.",
+  "properties": {
+    "folds": {
+      "default": 5,
+      "description": "Number of folds `K`, at least 2 and at most the number of views\n(`K` equal to the number of views is leave-one-view-out). Each fit\nsees about `(K − 1)/K` of the views and must keep at least three.\nDefault 5: each fit keeps 80 % of the views, and five fits per\ncandidate keep the cost moderate.",
+      "format": "uint",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "seed": {
+      "default": 0,
+      "description": "Seed of the shuffle that assigns views to folds, any value. Default\n0. Another seed gives another partition; a ranking that changes with\nthe seed is not a reliable one.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "title": "CrossValidationOptions",
+  "type": "object"
+}

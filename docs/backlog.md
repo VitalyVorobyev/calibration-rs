@@ -152,11 +152,15 @@ Each model follows AGENTS.md §10 (a camera model).
   for an image-side telecentric tilt the scale, the tilt and its azimuth
   are not unique even with distortion, the untilted-to-tilted map being
   affine (Steger 2017, Prop. 6; `notes/scheimpflug-literature.md`).
-- [ ] CAM-SELECT - Model selection: compare candidate models by residual
-  structure, an information criterion and held-out views. It extends the
-  distortion-model-selection tutorial. Done when: the library ranks
-  candidate camera models of one dataset by those three measures, and the
-  tutorial uses it.
+- [ ] CAM-SELECT - Model selection. Held-out comparison exists for planar
+  intrinsics (`analysis::compare_camera_models`, ADR 0032), and the
+  distortion-model-selection tutorial uses it. Remaining: sibling functions
+  for the rig and hand-eye problems (folds over rig views and robot poses);
+  an information criterion, after comparing its ranking with the held-out
+  one on the regression suite; a residual-structure measure; a `vcal`
+  command. Done when: the library ranks candidate camera models of every
+  intrinsics-estimating problem by held-out error, with the criterion and
+  the residual measure decided on the suite evidence.
 - [~] CAM-RESIDUAL-FIELD - An optional camera-fixed displacement field on
   top of any camera model, designed in ADR 0030. Parked: on the captures
   that motivated it most of the field is coupled to defocus and depth, so a
