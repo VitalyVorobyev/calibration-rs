@@ -223,6 +223,15 @@ All published crates and the PyPI package share one version.
   `ignore` only for a type or signature excerpt that is not a program; a
   diagram or output is ```` ```text ````. `cargo xtask check-docs` fails on a
   chapter missing from the include list and on a bare fence.
+* **The book has one bibliography.** `book/src/references.md` lists every
+  work the book cites, once, each entry under a key
+  (`<a id="author-year"></a>`). A chapter cites by a link to that entry
+  (`[Zhang (2000)](references.md#zhang-2000)`) and carries no bibliographic
+  entry of its own. A chapter that introduces a published method or dataset
+  adds its entry in the same PR; check the title, authors and venue against
+  the source, not from memory. `cargo xtask check-docs` fails on a link
+  without an entry, an entry no chapter cites, and an entry outside the
+  bibliography.
 * **User-facing docs never cite internal material.** The READMEs, `book/src`,
   the CHANGELOG, published rustdoc and the Python package do not mention ADRs,
   `docs/` paths, backlog IDs, PR numbers, private datasets or agent files, and

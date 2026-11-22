@@ -126,5 +126,5 @@ Among the closed-form epipolar solvers, the 8-point fundamental matrix solver is
 
 ## References
 
-- Nister, D. (2004). "An Efficient Solution to the Five-Point Relative Pose Problem." *IEEE TPAMI*, 26(6), 756-770.
-- Hartley, R.I. (1997). "In Defense of the Eight-Point Algorithm." *IEEE TPAMI*, 19(6), 580-593.
+- [Nister (2004)](references.md#nister-2004): the 5-point solver.
+- [Hartley (1997)](references.md#hartley-1997): the normalized 8-point algorithm.

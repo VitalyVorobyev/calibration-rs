@@ -16,6 +16,8 @@ where $\mathbf{r}_i$ is a residual block (a reprojection's 2D pixel error, say) 
 
 ### Huber Loss
 
+[Huber (1964)](references.md#huber-1964).
+
 $$\rho(s) = \begin{cases} s & \text{if } s \leq c^2 \\ 2c\sqrt{s} - c^2 & \text{if } s > c^2 \end{cases}$$
 
 **Properties**:
@@ -120,7 +122,7 @@ The backend applies the loss function during residual evaluation, modifying both
 
 The Levenberg–Marquardt loop always measures progress with $F$ itself. To build each step's linear model, a backend folds the loss into the residual block and its Jacobian:
 
-- **tiny-solver** uses the Triggs correction, which matches $\rho$ to second order.
+- **tiny-solver** uses the Triggs correction ([Triggs et al., 2000](references.md#triggs-2000)), which matches $\rho$ to second order.
 - **factrs** uses iterative reweighting: the block and its Jacobian are scaled by $\sqrt{\rho'(s_i)}$.
 
 Both models have the same first-order change as $F$, so both converge to the same minimum; see [Solver Backends](solver_backends.md).

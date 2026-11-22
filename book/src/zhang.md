@@ -153,4 +153,4 @@ Returns `FxFyCxCy` with the estimated intrinsics. Typically followed by distorti
 
 ## Reference
 
-Zhang, Z. (2000). "A Flexible New Technique for Camera Calibration." *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 22(11), 1330-1334.
+[Zhang (2000)](references.md#zhang-2000).

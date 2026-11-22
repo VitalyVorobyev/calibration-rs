@@ -13,7 +13,10 @@
 //! The check also keeps install snippets (`name = "X.Y"`) on the workspace's
 //! current minor version, and keeps the book compiling: every chapter with a
 //! Rust block is a doctest of the facade crate, and no chapter has a bare
-//! code fence (rustdoc compiles a bare fence as Rust).
+//! code fence (rustdoc compiles a bare fence as Rust). The book has one
+//! bibliography, `book/src/references.md`: a chapter cites a work by a link
+//! to its entry there, every such link resolves, every entry is cited, and
+//! no chapter carries a bibliographic entry of its own.
 
 use anyhow::{Context, Result, bail};
 use regex::Regex;
@@ -131,6 +134,7 @@ pub fn run(root: &Path) -> Result<()> {
 
     findings.extend(check_install_versions(root, &files)?);
     findings.extend(check_book_doctests(root)?);
+    findings.extend(check_book_references(root)?);
 
     if findings.is_empty() {
         println!("check-docs: {} user-facing files clean", files.len());
@@ -379,6 +383,85 @@ fn check_book_doctests(root: &Path) -> Result<Vec<String>> {
     Ok(findings)
 }
 
+/// The book's bibliography, relative to the repository root.
+const BOOK_REFERENCES: &str = "book/src/references.md";
+
+/// The book has one bibliography: every `references.md#key` link of a
+/// chapter resolves to an entry (`<a id="key"></a>`) of it, every entry is
+/// cited by some chapter, and no chapter carries a bibliographic entry.
+fn check_book_references(root: &Path) -> Result<Vec<String>> {
+    let book = root.join("book/src");
+    let bibliography = root.join(BOOK_REFERENCES);
+    let entries = reference_ids(
+        &fs::read_to_string(&bibliography).with_context(|| format!("reading {BOOK_REFERENCES}"))?,
+    );
+    let mut findings = Vec::new();
+    for (idx, id) in entries.iter().enumerate() {
+        if entries[..idx].contains(id) {
+            findings.push(format!(
+                "{BOOK_REFERENCES}: [duplicate reference] `{id}` is defined twice"
+            ));
+        }
+    }
+    let mut cited = Vec::new();
+    for path in walk(&book, &["md"])? {
+        if path == bibliography {
+            continue;
+        }
+        let text = fs::read_to_string(&path)?;
+        for (idx, line) in text.lines().enumerate() {
+            for id in cited_reference_ids(line) {
+                if !entries.contains(&id) {
+                    findings.push(format!(
+                        "{}:{}: [unknown reference] `{id}` has no entry in {BOOK_REFERENCES}",
+                        rel(root, &path),
+                        idx + 1
+                    ));
+                }
+                cited.push(id);
+            }
+            if is_bibliographic_entry(line) {
+                findings.push(format!(
+                    "{}:{}: [reference outside the bibliography] move the entry to {BOOK_REFERENCES} and link it",
+                    rel(root, &path),
+                    idx + 1
+                ));
+            }
+        }
+    }
+    for id in &entries {
+        if !cited.contains(id) {
+            findings.push(format!(
+                "{BOOK_REFERENCES}: [uncited reference] no chapter links `{id}`"
+            ));
+        }
+    }
+    Ok(findings)
+}
+
+/// The entry keys of the bibliography, in order.
+fn reference_ids(text: &str) -> Vec<String> {
+    let anchor = Regex::new(r#"<a id="([^"]+)"></a>"#).expect("static regex");
+    anchor
+        .captures_iter(text)
+        .map(|c| c[1].to_string())
+        .collect()
+}
+
+/// The bibliography keys a chapter line links to.
+fn cited_reference_ids(line: &str) -> Vec<String> {
+    let link = Regex::new(r"\]\(references\.md#([^)\s]+)\)").expect("static regex");
+    link.captures_iter(line).map(|c| c[1].to_string()).collect()
+}
+
+/// Whether a line is a bibliographic entry: an author list, a year in
+/// parentheses, then a quoted or emphasized title.
+fn is_bibliographic_entry(line: &str) -> bool {
+    Regex::new(r#"\((1[89]|20)\d{2}[a-z]?\)\.\s+["“*]"#)
+        .expect("static regex")
+        .is_match(line)
+}
+
 pub(crate) fn rel(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
@@ -461,6 +544,35 @@ mod tests {
             .map(|r| r.name)
             .collect();
         assert_eq!(skipped, ["history narration"]);
+    }
+
+    #[test]
+    fn bibliography_links_and_entries_are_read() {
+        assert_eq!(
+            reference_ids(r#"- <a id="zhang-2000"></a>**Zhang, Z.** (2000). "A""#),
+            vec!["zhang-2000"]
+        );
+        assert_eq!(
+            cited_reference_ids(
+                "see [Zhang (2000)](references.md#zhang-2000) and [x](references.md#y-1999)."
+            ),
+            vec!["zhang-2000", "y-1999"]
+        );
+        assert!(cited_reference_ids("the [References](references.md) page").is_empty());
+    }
+
+    #[test]
+    fn a_bibliographic_entry_in_a_chapter_is_flagged() {
+        assert!(is_bibliographic_entry(
+            r#"- Nister, D. (2004). "An Efficient Solution." *IEEE TPAMI*."#
+        ));
+        assert!(is_bibliographic_entry(
+            "Hartley & Zisserman (2004). *Multiple View Geometry*."
+        ));
+        assert!(!is_bibliographic_entry(
+            "Algorithm 4.2 of [Hartley & Zisserman (2004)](references.md#hz)."
+        ));
+        assert!(!is_bibliographic_entry("released (2026). See below."));
     }
 
     #[test]

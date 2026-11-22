@@ -61,6 +61,4 @@ Hartley normalization is applied in every DLT-based solver in calibration-rs:
 
 ## Reference
 
-Hartley, R.I. (1997). "In Defense of the Eight-Point Algorithm." *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 19(6), 580-593.
-
-The normalization technique is described in Algorithm 4.2 of Hartley & Zisserman (2004).
+[Hartley (1997)](references.md#hartley-1997). The normalization technique is Algorithm 4.2 of [Hartley & Zisserman (2004)](references.md#hartley-zisserman-2004).

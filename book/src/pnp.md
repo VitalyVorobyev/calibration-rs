@@ -126,4 +126,4 @@ These solvers take pixels and a pinhole $K$ and return a pose without an uncerta
 
 ## References
 
-- Kneip, L., Scaramuzza, D., & Siegwart, R. (2011). "A Novel Parametrization of the Perspective-Three-Point Problem for a Direct Computation of Absolute Camera Position and Orientation." *CVPR*.
+- [Kneip, Scaramuzza & Siegwart (2011)](references.md#kneip-2011): the P3P solver.

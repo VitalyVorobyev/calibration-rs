@@ -21,7 +21,7 @@ Engineers and researchers in machine vision, robotics and 3D reconstruction who 
 - calibrate laser triangulation devices (camera + laser plane);
 - understand the mathematics behind calibration algorithms.
 
-Running a calibration needs no mathematical background. The theory chapters assume familiarity with linear algebra (SVD, eigendecomposition, least squares) and basic projective geometry (homogeneous coordinates, projection matrices), and introduce Lie group theory (SO(3), SE(3)) when needed.
+Running a calibration needs no mathematical background. The theory chapters assume familiarity with linear algebra (SVD, eigendecomposition, least squares) and basic projective geometry (homogeneous coordinates, projection matrices), and introduce Lie group theory (SO(3), SE(3)) when needed. The works the book cites are listed in the [References](references.md).
 
 ## What calibration-rs Provides
 

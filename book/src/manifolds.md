@@ -1,6 +1,6 @@
 # Manifold Optimization
 
-Camera poses are elements of the Lie group $\text{SE}(3)$, which is a 6-dimensional smooth manifold — not a Euclidean space. Laser plane normals live on the unit sphere $S^2$. Optimizing these parameters with standard Euclidean updates (adding $\boldsymbol{\delta}$ to the parameter vector) would violate the manifold constraints: rotations would become non-orthogonal, quaternions would lose unit norm, and normals would lose unit length.
+Camera poses are elements of the Lie group $\text{SE}(3)$, which is a 6-dimensional smooth manifold — not a Euclidean space ([Sola et al., 2018](references.md#sola-2018); [Ma et al., 2004](references.md#ma-2004)). Laser plane normals live on the unit sphere $S^2$. Optimizing these parameters with standard Euclidean updates (adding $\boldsymbol{\delta}$ to the parameter vector) would violate the manifold constraints: rotations would become non-orthogonal, quaternions would lose unit norm, and normals would lose unit length.
 
 **Manifold optimization** solves this by computing updates in the **tangent space** and then retracting back to the manifold.
 

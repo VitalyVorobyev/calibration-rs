@@ -149,8 +149,8 @@ $1 - \cos\tau_s / \cos\tau$). Only the reading of $\tau$ as a
 mechanical angle needs $m_p$, from the lens's data sheet.
 
 Both statements of this section are published. That the tilt cannot be
-estimated from point correspondences without lens distortion is in Kumar &
-Ahuja (2014) and, in general form, in Steger (2017), who shows that every
+estimated from point correspondences without lens distortion is in [Kumar & Ahuja (2014)](references.md#kumar-ahuja-2014) and, in general form, in
+[Steger (2017)](references.md#steger-2017), who shows that every
 projective camera is some tilt camera. Steger's model has a separate
 image-side distance for the tilted sensor; holding it equal to the
 principal distance, as this model and OpenCV's do, gives the relation
