@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs git-lfs data/kuka_1; run with --ignored"]
+    #[ignore = "needs the actual data/kuka_1/01.png image; run with --ignored"]
     fn keeps_every_corner_of_a_landscape_board() {
         let cfg = json!({ "rows": 17, "cols": 28, "square_size_m": 0.02 });
         let features = run(&kuka_view(), &cfg).unwrap();
@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs git-lfs data/kuka_1; run with --ignored"]
+    #[ignore = "needs the actual data/kuka_1/01.png image; run with --ignored"]
     fn radon_strategy_detects_the_board() {
         let cfg = json!({
             "rows": 17,

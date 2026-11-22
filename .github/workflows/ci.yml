@@ -48,6 +48,21 @@ jobs:
       - name: Cargo test
         run: cargo test --workspace --all-features
 
+      # Both real-image detector tests use the same KUKA view.
+      - name: Test detectors with the KUKA image
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          fixture=$(mktemp)
+          trap 'rm -- "$fixture"' EXIT
+          curl --fail --silent --show-error --location --retry 3 --max-time 60 \
+            --output "$fixture" \
+            https://raw.githubusercontent.com/ihtishamaliktk/RWHE-Calib/610a412fdfe32850cc619359f121a2b063563a3e/Datasets/kuka_1/01.png
+          sha256sum < "$fixture" | awk '{print $1}' |
+            diff -u <(awk '$2 == "01.png" {print $1}' regression/fetch/kuka_1.sha256) -
+          cp "$fixture" data/kuka_1/01.png
+          cargo test -p vision-calibration-detect --lib -- --ignored
+
       # The app's schema-driven config forms, the input/export schemas in
       # `schemas/` and the Python package's TypedDicts are all generated from
       # the Rust types. Without this gate a struct change silently leaves them
@@ -163,32 +178,6 @@ jobs:
       # crates building for the browser without a `getrandom` JS backend.
       - name: Cargo build (wasm32-unknown-unknown)
         run: cargo build -p vision-calibration-core -p vision-calibration-dataset --target wasm32-unknown-unknown --locked
-
-  # Unit tests that read the committed LFS images (kuka_1). The public
-  # datasets' calibrations are gated by the regression suite below; the
-  # image-based acceptance run (`calib-bench accept`) is for the private
-  # registry, locally.
-  lfs-images:
-    name: LFS-image tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout (with LFS data)
-        uses: actions/checkout@v7
-        with:
-          lfs: true
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          # The cache key does not see Cargo profile changes; bump on one.
-          prefix-key: v1-rust
-
-      # Unit tests that read LFS images are `#[ignore]`d in the build jobs,
-      # which check out LFS pointers only.
-      - name: LFS-image unit tests
-        run: cargo test -p vision-calibration-detect --lib -- --ignored
 
   # The public regression suite: every entry of `regression/suite.toml`
   # calibrated from its checksummed observations and compared with its
