@@ -286,8 +286,10 @@ sensor (Merklinger's PTF plane); its intersection with the PoF is the
 hinge line, about which the view-camera literature's depth-of-field wedge
 opens (Merklinger, *Focusing the View Camera*; Evens, tilt and depth of
 field — pointers, the near/far formulas were not retrieved). The fitted
-`π, κ, σ0` therefore give the wedge with no further model; exporting it is
-part of CAL-TILT-FOCUS.
+`π, κ, σ0` therefore give the wedge with no further model;
+`analysis::fit_focus` reports it (`DepthOfField`), the planes with their
+covariance, `σ_max` the measured blur including the pixel term
+(`ε = √(σ_max² − σ0² − 1/12)/κ`).
 
 Per-feature blur by target: ring grids give σ and the PSF anisotropy
 (ringgrid's photometric fit); PuzzleBoard and chessboard corners an

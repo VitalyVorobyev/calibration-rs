@@ -132,6 +132,8 @@ With photometric centres, each marker also reports the blur the fit measured, in
 - **Accuracy.** For a Gaussian PSF of 0.7 to 3 px on markers of outer radius 17 px or more, σ is within about ±0.5 % of the true edge width; on smaller markers, plain thin rings or displayed targets, within a few percent. Under a non-Gaussian PSF (a defocus disc, a halo) it is the width of the best-matching Gaussian edge, not the PSF's second moment.
 - **Missing values.** A marker has no blur when the fit's width exceeds a quarter of its outer radius in pixels, where the ring's own edges blur together. Edge-based centres (`"ellipse"`) report none.
 
+[Focus and Depth of Field](focus.md) fits the plane of sharp focus to it.
+
 In Python, `Features.blur_psf_px` `(N, 3)` and `Features.blur_cov` `(N, 3, 3)` hold it (NaN rows for a marker without one, `None` when no marker has one), and `Features.to_observation()` carries it into `Observation.blur` as `PointBlur` values.
 
 ## Corner Detector Overrides

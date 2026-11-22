@@ -599,6 +599,56 @@ fn compare_camera_models(
     session::to_py(py, &comparison)
 }
 
+/// The plane of sharp focus and the depth of field, fitted to the per-point
+/// blur of a calibrated planar dataset with the camera and the poses held.
+///
+/// Parameters
+/// ----------
+/// input:
+///     Serde payload of `PlanarIntrinsicsInput` (views with blur).
+/// camera:
+///     Serde payload of `CameraParams`, the calibrated camera.
+/// cam_se3_target:
+///     Serde payloads of the calibrated `cam_se3_target` poses, one per view.
+/// blur_limit_px:
+///     The largest acceptable blur σ for the depth of field, px; `None` for
+///     none.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `FocusDiagnostic`.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the pose count differs from the view count, the projection is not
+///     a pinhole, the sensor faces away, a blur point does not project or
+///     the blur limit is not finite and positive.
+/// TypeError
+///     If a payload has the wrong shape.
+#[pyfunction(signature = (input, camera, cam_se3_target, blur_limit_px=None))]
+fn fit_focus(
+    py: Python<'_>,
+    input: &Bound<'_, PyAny>,
+    camera: &Bound<'_, PyAny>,
+    cam_se3_target: &Bound<'_, PyAny>,
+    blur_limit_px: Option<f64>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::analysis::FocusOptions;
+    use vision_calibration::core::{CameraParams, Iso3};
+    use vision_calibration::planar_intrinsics::PlanarIntrinsicsInput;
+
+    let input: PlanarIntrinsicsInput = session::parse_checked(input, "input")?;
+    let camera: CameraParams = parse_payload(camera, "camera")?;
+    let poses: Vec<Iso3> = parse_payload(cam_se3_target, "cam_se3_target")?;
+    let opts = FocusOptions::new(blur_limit_px);
+    let diagnostic = py
+        .detach(|| vision_calibration::analysis::fit_focus(&input, &camera, &poses, &opts))
+        .map_err(|err| value_err(format!("invalid input: {err}")))?;
+    session::to_py(py, &diagnostic)
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -617,6 +667,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rank_robot_poses, m)?)?;
     m.add_function(wrap_pyfunction!(candidate_poses, m)?)?;
     m.add_function(wrap_pyfunction!(compare_camera_models, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_focus, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;

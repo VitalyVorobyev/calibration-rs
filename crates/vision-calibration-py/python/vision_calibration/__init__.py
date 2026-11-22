@@ -38,6 +38,7 @@ from ._api import (
     html_report,
     candidate_poses,
     compare_camera_models,
+    fit_focus,
     predict_with_robot_poses,
     predict_with_views,
     rank_candidates,
@@ -290,6 +291,7 @@ __all__ = [
     "rank_robot_poses",
     "candidate_poses",
     "compare_camera_models",
+    "fit_focus",
     # Sessions
     "CalibrationSession",
     "ExportRecord",

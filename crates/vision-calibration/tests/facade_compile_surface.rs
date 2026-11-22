@@ -325,6 +325,30 @@ fn model_comparison_surface_compiles() {
 }
 
 #[test]
+fn focus_surface_compiles() {
+    use analysis::{
+        DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine, FocusOptions, FocusViewStats,
+    };
+
+    type Fit = fn(
+        &planar_intrinsics::PlanarIntrinsicsInput,
+        &core::CameraParams,
+        &[core::Iso3],
+        &FocusOptions,
+    ) -> Result<FocusDiagnostic, Error>;
+    let _fit: Fit = analysis::fit_focus;
+    assert_eq!(FocusOptions::new(None), FocusOptions::default());
+    let _: Option<FocusFit> = None;
+    let _: Option<FocusImageLine> = None;
+    let _: Option<DepthOfField> = None;
+    let _: Option<FocusViewStats> = None;
+    let diagnostic: Option<FocusDiagnostic> = None;
+    if let Some(FocusDiagnostic::TooFewPoints { need, got }) = diagnostic {
+        let _: (usize, usize) = (need, got);
+    }
+}
+
+#[test]
 fn mvg_module_surface_compiles() {
     use vision_calibration::mvg;
 

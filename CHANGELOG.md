@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `analysis::fit_focus` fits the plane of sharp focus to the per-point blur
+  of a calibrated planar dataset, with the camera and target poses held: the
+  blur `σ` is predicted as `√(σ0² + 1/12 + (κ·s·d)²)` plus one offset per
+  image (the offsets summing to zero), `d` the defocus from the plane `π·X = 1` along the sensor normal
+  and `s` the camera's local image scale. `FocusDiagnostic` is the
+  `FocusFit` (the plane, the blur scale and the in-focus blur with their
+  covariance; the image line where the focus reaches infinity with its
+  covariance; the depth-of-field wedge for a blur limit set in
+  `FocusOptions`, its near and far planes with their covariances; the
+  noise scale and per-image residuals and offsets) or why there is none:
+  no blur, too few points, no image crossing the plane, or views that do
+  not determine it. A pinhole projection is required; a lens tilt is not
+  derived (it needs the pixel pitch and the pupil magnification). Nothing
+  reads the result: it is asked for. Python:
+  `vision_calibration.fit_focus`. The JSON schemas are
+  `schemas/focus_options.json` and `schemas/focus_diagnostic.json`.
 - `analysis::compare_camera_models` compares candidate camera
   configurations of a planar intrinsics calibration on views each fit did
   not see. The views are split into folds (`CrossValidationOptions`:

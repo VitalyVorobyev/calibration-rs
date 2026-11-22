@@ -420,4 +420,25 @@ still settle:
    target's scale), the image corners (the distortion that determines the
    tilt), at least 24 views per camera for four folds.
 
-Library sketch: backlog `CAL-TILT-FOCUS`.
+**In the library** (2026-11-22): `analysis::fit_focus` is this note's
+5-parameter model as a diagnostic, with three changes from the harness's
+fit: one blur offset per image, summing to zero (the detector's
+covariance holds only within an image; a free common level trades with
+`σ0²` through the in-focus shape alone, measured: σ(σ0²) 10× and σ(κ)
+2.7× larger in the Monte-Carlo below, and on the ring-grid units `σ0²`
+up to 3.2 px² with all offsets near −0.9 px), the pixel term `1/12` in the prediction, and the
+calibrated camera's local image scale `s` in the defocus term (1 without
+distortion, so the harness's model is the `s = 1` case). Weighted least
+squares by the stated blur covariance, not a robust fit. It reports `π`,
+`κ`, `σ0²` with covariance, the image line where the focus reaches
+infinity and the depth-of-field wedge (*Depth of field* in
+[scheimpflug-literature.md](scheimpflug-literature.md)); not the tilt,
+which needs `v0` and `m_p`. Pinned by its tests: the exact thick lens
+(`m_p` 1 and 0.8, noise-free, `|Δπ|/|π|` ≤ 0.12 %, `κ` +0.2 … +0.3 %,
+`σ0²` within 0.001 px², offsets within 0.002 px), the local scale against
+a closed-form `k1` camera, and Monte-Carlo σ of every reported quantity
+(scatter/stated 0.94–1.07 over 1000 draws, with and without injected
+offsets). With
+per-image offsets the plane's axial position comes only from images that
+cross it (`NotCrossed` otherwise). What is left of the backlog entry is
+the tilt check and the factor, both needing `m_p`.

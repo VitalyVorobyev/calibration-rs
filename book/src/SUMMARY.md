@@ -43,6 +43,7 @@
 # Data and Detection
 
 - [Calibration Targets and Detection](detection.md)
+- [Focus and Depth of Field](focus.md)
 - [The Dataset Manifest](manifest.md)
 - [Laser Datasets](manifest_laser.md)
 - [Manifest Field Reference](manifest_reference.md)
