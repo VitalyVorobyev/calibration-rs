@@ -151,7 +151,9 @@ for 8 of 20 cameras, all strongly distorting, so nearly every
 Scheimpflug lens would be "undetermined"; F1 below); the likelihood ratio
 alone (F1: up to 20× the correct model's error, because it has no power at
 a small tilt with a moderate lens while the fix still costs downstream);
-the σ inflation `1/√(1 − R²)` (scales with `f·√N/σ_px`, not a precision).
+the σ inflation `1/√(1 − R²)` (a ratio that does not change with the
+pixel noise or with repeated views, so it is not a precision: it says why
+a σ is large, not whether it is).
 
 ## B. What fixing the tilt costs
 
