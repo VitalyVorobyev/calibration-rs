@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check warns, never fails; thresholds written without the new field read
   its default. Python: `QualityThresholds.max_sigma_inflation`.
 
+### Changed
+
+- Ring-grid detection runs on `ringgrid` 0.18. It finds more markers on
+  dark, low-contrast and blurred images and on large rings, so ring-grid
+  feature counts, and the calibrations made from them, change. Cached
+  ring-grid detections are recomputed on first use.
+
 ### Documentation
 
 - The book's sensor chapter states what an estimated Scheimpflug tilt is:

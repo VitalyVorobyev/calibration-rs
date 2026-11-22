@@ -1,4 +1,4 @@
-//! Per-marker fitted blur: the ring-grid detector's photometric diagnostics
+//! Per-marker fitted blur: the ring-grid detector's photometric blur estimate
 //! for every image of a dataset, keyed by the marker's image position.
 
 use std::collections::BTreeMap;
@@ -65,12 +65,12 @@ pub fn blur_map(entry: &BenchEntry) -> Result<BTreeMap<(i64, i64), f64>> {
             Some([x, y, w, h]) => image::imageops::crop_imm(&img, x, y, w, h).to_image(),
             None => img,
         };
-        let (res, diag) = detector
-            .detect_adaptive_with_diagnostics(&img)
+        let res = detector
+            .detect_adaptive(&img)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        for (m, d) in res.detected_markers.iter().zip(&diag.markers) {
-            if let Some(blur) = d.photometric.as_ref().and_then(|p| p.blur_sigma_px) {
-                map.insert(key(m.center), blur);
+        for m in &res.detected_markers {
+            if let Some(blur) = m.blur {
+                map.insert(key(m.center), blur.sigma_px);
             }
         }
     }
