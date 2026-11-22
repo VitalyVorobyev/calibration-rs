@@ -5,7 +5,9 @@ Family: single-camera intrinsics on a tilted sensor (the planar route of
 tilted fit stable, does it need a change of variables, and how do the tilt
 and the tangential (and thin-prism) terms trade off? Everything here is
 synthetic, over a sweep of camera, lens, tilt and view design, so no claim
-rests on one dataset.
+rests on one dataset. The gauge is published (Kumar & Ahuja 2014; Steger
+2017, Theorem 2), with Steger's degeneracies that remain under distortion:
+[scheimpflug-literature.md](scheimpflug-literature.md).
 
 Harness: `crates/vision-calibration-bench/examples/tilt_identifiability/`
 (`scene.rs` cameras and view designs, `model.rs` the camera in four

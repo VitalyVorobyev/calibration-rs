@@ -5,7 +5,9 @@ worth downstream (rig extrinsics, hand-eye). Builds on
 [tilt-identifiability.md](tilt-identifiability.md): the tilt is a gauge
 without lens distortion (`K·H(τ) = K'·R(τ)`) and to first order a
 decentring of the distortion with it (`p1 ≈ −k1·tan τx`, `p2 ≈ k1·tan τy`).
-Design: [ADR 0031](../adrs/0031-tilt-determination.md) (proposed).
+Design: [ADR 0031](../adrs/0031-tilt-determination.md) (proposed). The
+published counterparts (none decides from the data) are in
+[scheimpflug-literature.md](scheimpflug-literature.md).
 
 Question: the maintainer's procedure — fit the plain camera, decide from the
 data whether the tilt is determined, estimate it if so, otherwise use a

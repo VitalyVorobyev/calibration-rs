@@ -89,6 +89,11 @@ evidence behind ADR 0011.
   the coupling explains, which laws leave the tilt identified, the
   synthetic bias map of an unmodelled displacement, and safeguards for
   deciding when the data determine the tilt.
+- [Scheimpflug literature](scheimpflug-literature.md) — the published
+  statements of the tilt gauge and Steger's degeneracies, Steger's `d` as
+  the pupil magnification, the ring-centre blur-gradient bias as a near
+  gauge of `cy`, `fy` and the poses, blur as a calibration signal, and the
+  depth-of-field wedge from the focus model.
 - [Display target residual](display-target-residual.md) — a PuzzleBoard on
   an e-ink display, six cameras fitted jointly on held-out captures:
   per-point in-plane offsets, board shape, cover-layer refraction and a

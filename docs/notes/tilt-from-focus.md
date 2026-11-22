@@ -9,7 +9,10 @@ is tied to the lens axis too. This note derives what the blur of each
 marker says about the lens, tests it on exact synthetic optics and on the
 six ring-grid cameras (an e-ink display target, per-marker blur from the
 photometric centre fit), and asks whether it can check, constrain or
-replace the distortion route. Dev-facing; aggregate numbers only.
+replace the distortion route. Dev-facing; aggregate numbers only. The
+published precedents, Steger's `d` as a geometric route to `m_p`, and the
+depth-of-field wedge this model implies are in
+[scheimpflug-literature.md](scheimpflug-literature.md).
 
 **Derived** marks algebra (pinned by a test where it says so),
 **measured** a number the harness prints, **hypothesis** what neither
