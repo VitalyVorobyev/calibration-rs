@@ -38,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or too little observed to tell the tilt from the principal point. The
   check warns, never fails; thresholds written without the new field read
   its default. Python: `QualityThresholds.max_sigma_inflation`.
+- **A confidence floor for ring-grid detection.** `RinggridConfig::min_confidence`
+  and the manifest's `target.min_confidence` (optional, in `[0, 1]`) raise
+  the detector's floor on a reported marker's confidence; left out, the
+  detector's own floor of 0.03 applies and nothing changes. The confidence
+  is a product of factors in `[0, 1]` (decode and outer-fit quality, rim
+  coverage, inner-edge agreement, edge sharpness, distance to the border),
+  so a floor `c` also keeps only markers whose outer edge is at most
+  `3 · √(1/c − 1)` px wide (0.17: 6.6 px). An out-of-range value is
+  rejected before detection.
 - **Measured blur per corner.** Chessboard and PuzzleBoard targets measure
   the blur at each corner on request: `measure_blur` on `ChessboardConfig`
   and `PuzzleboardConfig` and on the manifest's chessboard and PuzzleBoard

@@ -732,6 +732,14 @@
               "format": "double",
               "type": "number"
             },
+            "min_confidence": {
+              "description": "Floor on the detector's per-marker confidence, in `[0, 1]`.\nOmitted keeps the detector's floor of 0.03. The confidence is a\nproduct of factors in `[0, 1]`, one of them the edge sharpness\n`1 / (1 + (w / 3 px)²)`, so a floor `c` keeps only markers whose\nouter edge width `w` is at most `3 · √(1/c − 1)` px (0.17: 6.6 px).",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
             "pitch_m": {
               "description": "Center-to-center spacing between adjacent markers in metres. On a\nrectangular lattice it is both the row and the column step.",
               "format": "double",

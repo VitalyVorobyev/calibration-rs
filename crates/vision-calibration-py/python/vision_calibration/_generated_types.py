@@ -4021,6 +4021,14 @@ class TargetSpec_Ringgrid(_TargetSpec_RinggridRequired, total=False):
     them.
     """
 
+    min_confidence: float | None
+    """Floor on the detector's per-marker confidence, in `[0, 1]`.
+    Omitted keeps the detector's floor of 0.03. The confidence is a
+    product of factors in `[0, 1]`, one of them the edge sharpness
+    `1 / (1 + (w / 3 px)²)`, so a floor `c` keeps only markers whose
+    outer edge width `w` is at most `3 · √(1/c − 1)` px (0.17: 6.6 px).
+    """
+
 
 TargetSpec: TypeAlias = (
     TargetSpec_Chessboard
