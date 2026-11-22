@@ -655,9 +655,17 @@ fn detector_config(
             center_method,
             lattice,
             coding,
+            min_confidence,
             ..
         } => {
             refuse_chess_override("ringgrid")?;
+            if let Some(c) = min_confidence
+                && !(c.is_finite() && (0.0..=1.0).contains(c))
+            {
+                return Err(RunError::InvalidTargetConfig {
+                    message: format!("target.min_confidence must be finite and in [0, 1], got {c}"),
+                });
+            }
             let center_method = match center_method {
                 RinggridCenterSpec::Ellipse => RinggridCenterMethod::Ellipse,
                 RinggridCenterSpec::Photometric => RinggridCenterMethod::Photometric,
@@ -710,6 +718,7 @@ fn detector_config(
             config.center_method = center_method;
             config.lattice = lattice;
             config.coding = coding;
+            config.min_confidence = *min_confidence;
             Ok(DetectorConfig::Ringgrid(config))
         }
         other => Err(RunError::UnsupportedTarget {
@@ -1416,6 +1425,32 @@ mod tests {
         assert_eq!(config.marker_outer_radius_m, 0.006);
         assert_eq!(config.lattice, RinggridLattice::Hex);
         assert_eq!(config.coding, RinggridCoding::Coded);
+        assert_eq!(config.min_confidence, None);
+    }
+
+    /// The target's confidence floor reaches the detector config; one out of
+    /// `[0, 1]` is refused before any detection.
+    #[test]
+    fn ringgrid_min_confidence_maps_and_is_checked() {
+        let with = |c: f64| {
+            let mut target = TargetSpec::ringgrid(0.02, 5, 5, 0.006, 0.003, 0.001);
+            if let TargetSpec::Ringgrid { min_confidence, .. } = &mut target {
+                *min_confidence = Some(c);
+            }
+            target_to_detector_config(&spec_for_target(target))
+        };
+        let Ok(DetectorConfig::Ringgrid(config)) = with(0.17) else {
+            panic!("a ringgrid target lowers to the ringgrid detector");
+        };
+        assert_eq!(config.min_confidence, Some(0.17));
+        for bad in [-0.5, 1.2, f64::INFINITY] {
+            match with(bad) {
+                Err(RunError::InvalidTargetConfig { message }) => {
+                    assert!(message.contains("min_confidence"), "{message}");
+                }
+                other => panic!("expected InvalidTargetConfig, got {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -1646,6 +1681,7 @@ mod tests {
                 "marker_outer_radius_m",
                 "marker_ring_width_m",
                 "marker_size_m",
+                "min_confidence",
                 "origin_dots",
                 "pitch_m",
                 "plain",

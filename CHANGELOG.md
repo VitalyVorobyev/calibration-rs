@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or too little observed to tell the tilt from the principal point. The
   check warns, never fails; thresholds written without the new field read
   its default. Python: `QualityThresholds.max_sigma_inflation`.
+- **A confidence floor for ring-grid detection.** `RinggridConfig::min_confidence`
+  and the manifest's `target.min_confidence` (optional, in `[0, 1]`) raise
+  the detector's floor on a reported marker's confidence; left out, the
+  detector's own floor of 0.03 applies and nothing changes. For photometric
+  centres a floor `c` keeps markers whose predicted centre error per axis
+  is at most `0.03 · (1/c − 1)` px when the other confidence factors are 1
+  (0.17: 0.15 px). An out-of-range value is rejected before detection.
+
 - **Measured blur per feature.** Ring-grid markers with photometric
   centres report the blur the fit measured: `Feature::blur`
   (`detect::FeatureBlur`), the covariance `Σ` of the Gaussian point-spread

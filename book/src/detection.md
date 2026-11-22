@@ -28,7 +28,7 @@ The target is chosen by the manifest's `[target]` table, `kind` being one of the
 | `chessboard` | `rows`, `cols` (interior corners), `square_size_m` | Saddle corners of a plain checkerboard |
 | `charuco` | `rows`, `cols` (squares), `square_size_m`, `marker_size_m`, `dictionary` | Chessboard corners identified by embedded ArUco markers |
 | `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Saddles of a self-identifying chessboard variant |
-| `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` (coded markers), optional `lattice`, `coding`, `center_method` | Centres of ring markers on a hexagonal or rectangular lattice, coded or plain with origin dots |
+| `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` (coded markers), optional `lattice`, `coding`, `center_method`, `min_confidence` | Centres of ring markers on a hexagonal or rectangular lattice, coded or plain with origin dots |
 
 ### Chessboard
 
@@ -105,6 +105,21 @@ marker_outer_radius_m = 0.0024
 marker_inner_radius_m = 0.0012
 marker_ring_width_m = 0.0004
 center_method = "photometric"
+```
+
+The optional `min_confidence` (in `[0, 1]`) raises the detector's floor on the confidence of a reported marker; left out, the detector's own floor of 0.03 applies. The confidence is a product of factors in `[0, 1]`:
+
+- **Photometric centres.** The factor that varies is the centre's precision `1 / (1 + σ_c / 0.03 px)`, with `σ_c` the predicted centre error per axis: the fit's covariance plus the bias that a blur gradient across the marker leaves uncorrected. With the other factors at 1, a floor `c` keeps markers with `σ_c ≤ 0.03 · (1/c − 1)` px: 0.17 keeps `σ_c ≤ 0.15` px, 0.23 keeps `σ_c ≤ 0.10` px, 0.38 keeps `σ_c ≤ 0.05` px.
+- **Edge-fitted centres (`"ellipse"`).** The factors are the decode and outer-fit quality, the rim coverage, the inner-edge agreement, the edge sharpness and the distance to the image border.
+
+A floor trades markers for centre accuracy, and the trade depends on the images: where focus varies across the field, the defocused markers have larger predicted errors and so lower confidence, while on a sharp capture a floor of this size may remove nothing. A floor is part of the detection-cache key, and an out-of-range value is rejected before detection.
+
+```toml
+[target]
+kind = "ringgrid"
+# ... geometry as above
+center_method = "photometric"
+min_confidence = 0.17
 ```
 
 ### Measured blur

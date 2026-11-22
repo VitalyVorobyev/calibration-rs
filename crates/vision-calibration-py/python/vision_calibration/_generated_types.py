@@ -3991,6 +3991,14 @@ class TargetSpec_Ringgrid(_TargetSpec_RinggridRequired, total=False):
     them.
     """
 
+    min_confidence: float | None
+    """Floor on the detector's per-marker confidence, in `[0, 1]`.
+    Omitted keeps the detector's floor of 0.03. For photometric
+    centres a floor `c` keeps markers whose predicted centre error is
+    at most `0.03 · (1/c − 1)` px per axis (0.17: 0.15 px), the other
+    confidence factors being 1.
+    """
+
 
 TargetSpec: TypeAlias = (
     TargetSpec_Chessboard

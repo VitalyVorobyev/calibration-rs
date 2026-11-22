@@ -724,6 +724,14 @@
               "format": "double",
               "type": "number"
             },
+            "min_confidence": {
+              "description": "Floor on the detector's per-marker confidence, in `[0, 1]`.\nOmitted keeps the detector's floor of 0.03. For photometric\ncentres a floor `c` keeps markers whose predicted centre error is\nat most `0.03 · (1/c − 1)` px per axis (0.17: 0.15 px), the other\nconfidence factors being 1.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
             "pitch_m": {
               "description": "Center-to-center spacing between adjacent markers in metres. On a\nrectangular lattice it is both the row and the column step.",
               "format": "double",

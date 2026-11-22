@@ -139,7 +139,8 @@ impl RinggridCoding {
 /// positions. A marker is reported only with a perspective-corrected centre
 /// (or, with [`RinggridCenterMethod::Photometric`], a photometric one) and a
 /// confidence of at least 0.03, the `ringgrid` detector's default floor on
-/// its centre-accuracy score, which this wrapper keeps.
+/// its centre-accuracy score, unless [`min_confidence`](Self::min_confidence)
+/// raises it.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -175,6 +176,30 @@ pub struct RinggridConfig {
     /// left out when serializing, like `center_method`'s.
     #[serde(default, skip_serializing_if = "RinggridCoding::is_default")]
     pub coding: RinggridCoding,
+    /// Floor on the detector's confidence of a reported marker, in `[0, 1]`.
+    /// `None` (the default) keeps the detector's own floor of 0.03; an
+    /// omitted key keeps it, and `None` is left out when serializing, so
+    /// existing configs keep their meaning and detection-cache key.
+    ///
+    /// The confidence is a product of factors in `[0, 1]`. For a
+    /// photometric centre ([`RinggridCenterMethod::Photometric`]) the factor
+    /// that varies is its precision `1 / (1 + σ_c / 0.03 px)`, `σ_c` the
+    /// predicted centre error per axis: the fit's covariance plus the bias a
+    /// blur gradient across the marker leaves uncorrected. With the decode
+    /// and outer-fit factors at 1 and the marker away from the border, a
+    /// floor `c` keeps markers with `σ_c ≤ 0.03 · (1/c − 1)` px: 0.17 keeps
+    /// `σ_c ≤ 0.15` px, 0.23 keeps `σ_c ≤ 0.10` px, 0.38 keeps
+    /// `σ_c ≤ 0.05` px. For an edge-fitted centre
+    /// ([`RinggridCenterMethod::Ellipse`]) the factors are the decode and
+    /// outer-fit quality, rim coverage, inner-edge agreement, edge
+    /// sharpness and the distance to the image border.
+    ///
+    /// The floor trades markers for centre accuracy; a marker below it is
+    /// not reported (it still helps the detector label the board). A value
+    /// that is not finite or lies outside `[0, 1]` is rejected before
+    /// detection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_confidence: Option<f64>,
 }
 
 impl RinggridConfig {
@@ -201,6 +226,19 @@ impl RinggridConfig {
             center_method: RinggridCenterMethod::default(),
             lattice: RinggridLattice::default(),
             coding: RinggridCoding::default(),
+            min_confidence: None,
+        }
+    }
+
+    /// The detector's confidence floor this config sets, checked: `None`
+    /// for the detector's default.
+    fn confidence_floor(&self) -> Result<Option<f32>, DetectError> {
+        match self.min_confidence {
+            None => Ok(None),
+            Some(c) if c.is_finite() && (0.0..=1.0).contains(&c) => Ok(Some(c as f32)),
+            Some(c) => Err(DetectError::InvalidConfig(format!(
+                "ringgrid min_confidence must be finite and in [0, 1], got {c}"
+            ))),
         }
     }
 
@@ -248,9 +286,13 @@ pub(crate) fn detect(
     luma: &image::GrayImage,
 ) -> Result<Vec<Feature>, DetectError> {
     let board = cfg.board_layout()?;
+    let floor = cfg.confidence_floor()?;
     let mut detector = RinggridDetectorImpl::new(board);
     if cfg.center_method == RinggridCenterMethod::Photometric {
         detector.config_mut().circle_refinement = CircleRefinementMethod::Photometric;
+    }
+    if let Some(floor) = floor {
+        detector.config_mut().min_confidence = floor;
     }
 
     // No `ringgrid::DetectError` means "no board in this frame" — an empty
@@ -797,6 +839,70 @@ mod tests {
         assert!(median.abs() < 0.005, "median relative error {median}");
     }
 
+    /// A confidence floor drops the low-confidence markers: on a blurred
+    /// render, a floor at the median confidence drops about half the
+    /// markers, every marker well below it among them, and leaves the kept
+    /// centres where they were.
+    #[test]
+    fn a_confidence_floor_drops_low_confidence_markers() {
+        let mut cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
+        cfg.center_method = RinggridCenterMethod::Photometric;
+        let img = camera_render(&cfg, 100.0, 1.5, 40);
+
+        // The detector's own confidences, without a floor of ours.
+        let mut detector = RinggridDetectorImpl::new(cfg.board_layout().unwrap());
+        detector.config_mut().circle_refinement = CircleRefinementMethod::Photometric;
+        let confidence: Vec<([i64; 3], f64)> = detector
+            .detect_adaptive(&img)
+            .unwrap()
+            .detected_markers
+            .iter()
+            .filter(|m| m.center_source == CenterSource::Photometric)
+            .filter_map(|m| {
+                let b = m.board_xy_mm?;
+                let c = [(b[0] * 1e3).round() as i64, (b[1] * 1e3).round() as i64, 0];
+                Some((c, f64::from(m.confidence)))
+            })
+            .collect();
+        let mut sorted: Vec<f64> = confidence.iter().map(|c| c.1).collect();
+        sorted.sort_by(f64::total_cmp);
+        let floor = sorted[sorted.len() / 2];
+        let cell = |f: &Feature| f.world_xyz.map(|v| (v * 1e6).round() as i64);
+
+        let all = detect(&cfg, &img).unwrap();
+        cfg.min_confidence = Some(floor);
+        let kept = detect(&cfg, &img).unwrap();
+        // The detector applies the floor to its result after a refit of the
+        // board homography, so a marker within a few hundredths of the floor
+        // can fall on either side; the bounds leave room for that.
+        assert!(
+            kept.len() < all.len() && 2 * kept.len() <= all.len() + 4,
+            "{} of {}",
+            kept.len(),
+            all.len()
+        );
+        for (c, conf) in &confidence {
+            if *conf < floor - 0.05 {
+                assert!(kept.iter().all(|f| cell(f) != *c), "{c:?} at {conf} kept");
+            }
+        }
+        for f in &kept {
+            let same = all
+                .iter()
+                .find(|g| cell(g) == cell(f))
+                .expect("kept without the floor");
+            let shift = (same.image_xy[0] - f.image_xy[0]).hypot(same.image_xy[1] - f.image_xy[1]);
+            assert!(shift < 1e-3, "the floor moved a centre by {shift} px");
+        }
+
+        // Out-of-range floors are refused before detection.
+        for bad in [-0.1, 1.5, f64::NAN] {
+            cfg.min_confidence = Some(bad);
+            let err = detect(&cfg, &image::GrayImage::new(8, 8)).unwrap_err();
+            assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
+        }
+    }
+
     // ── The other lattice × coding combinations ─────────────────────────────
 
     /// A frontal render of the board `cfg` describes at `dpi`, blurred by a
@@ -1127,6 +1233,7 @@ mod cache_tests {
             center_method: RinggridCenterMethod::Ellipse,
             lattice: RinggridLattice::Hex,
             coding: RinggridCoding::Coded,
+            min_confidence: None,
         };
         let photometric = RinggridConfig {
             center_method: RinggridCenterMethod::Photometric,
@@ -1151,6 +1258,22 @@ mod cache_tests {
             serde_json::to_string(&crate::DetectorConfig::Ringgrid(base())).unwrap(),
             r#"{"detector":"ringgrid","pitch_m":0.02,"rows":5,"long_row_cols":5,"marker_outer_radius_m":0.006,"marker_inner_radius_m":0.003,"marker_ring_width_m":0.001}"#
         );
+    }
+
+    /// Leaving the floor out keeps the config's JSON, and so its cache key;
+    /// setting it changes the key and round-trips.
+    #[test]
+    fn min_confidence_is_optional_in_json_and_the_cache_key() {
+        let json = serde_json::to_string(&base()).unwrap();
+        assert!(!json.contains("min_confidence"), "{json}");
+        let floored = RinggridConfig {
+            min_confidence: Some(0.17),
+            ..base()
+        };
+        assert_ne!(key(base()), key(floored));
+        let back: RinggridConfig =
+            serde_json::from_str(&serde_json::to_string(&floored).unwrap()).unwrap();
+        assert_eq!(back, floored);
     }
 
     #[test]

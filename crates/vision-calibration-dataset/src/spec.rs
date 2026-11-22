@@ -330,6 +330,13 @@ pub enum TargetSpec {
         /// How the markers are told apart. Omitted keeps `"coded"`.
         #[serde(default, skip_serializing_if = "RinggridCodingSpec::is_default")]
         coding: RinggridCodingSpec,
+        /// Floor on the detector's per-marker confidence, in `[0, 1]`.
+        /// Omitted keeps the detector's floor of 0.03. For photometric
+        /// centres a floor `c` keeps markers whose predicted centre error is
+        /// at most `0.03 · (1/c − 1)` px per axis (0.17: 0.15 px), the other
+        /// confidence factors being 1.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_confidence: Option<f64>,
     },
 }
 
@@ -393,6 +400,7 @@ impl TargetSpec {
             center_method: RinggridCenterSpec::default(),
             lattice: RinggridLatticeSpec::default(),
             coding: RinggridCodingSpec::default(),
+            min_confidence: None,
         }
     }
 
@@ -417,6 +425,7 @@ impl TargetSpec {
             center_method: RinggridCenterSpec::default(),
             lattice: RinggridLatticeSpec::Rect,
             coding: RinggridCodingSpec::default(),
+            min_confidence: None,
         }
     }
 
@@ -442,6 +451,7 @@ impl TargetSpec {
             center_method: RinggridCenterSpec::default(),
             lattice,
             coding: RinggridCodingSpec::Plain { origin_dots: true },
+            min_confidence: None,
         }
     }
 }
@@ -992,6 +1002,23 @@ mod tests {
         assert_eq!(serde_json::to_value(&spec).unwrap(), old);
         let built = TargetSpec::ringgrid(0.02, 5, 5, 0.006, 0.003, 0.001);
         assert_eq!(serde_json::to_value(&built).unwrap(), old);
+    }
+
+    #[test]
+    fn ringgrid_min_confidence_roundtrips() {
+        let spec: TargetSpec =
+            serde_json::from_str(&format!(r#"{RINGGRID},"min_confidence":0.17}}"#)).unwrap();
+        let TargetSpec::Ringgrid { min_confidence, .. } = &spec else {
+            panic!("ringgrid target");
+        };
+        assert_eq!(*min_confidence, Some(0.17));
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(json.contains(r#""min_confidence":0.17"#), "{json}");
+        let plain: TargetSpec = serde_json::from_str(&format!("{RINGGRID}}}")).unwrap();
+        let TargetSpec::Ringgrid { min_confidence, .. } = &plain else {
+            panic!("ringgrid target");
+        };
+        assert_eq!(*min_confidence, None);
     }
 
     #[test]

@@ -83,6 +83,11 @@ class DetectTargetTest(unittest.TestCase):
         with self.assertRaises(vc.RunError) as ctx:
             vc.detect_target(blank, no_dots)
         self.assertEqual(ctx.exception.kind, "invalid_target_config")
+        # A confidence floor is a target option, checked before detection.
+        self.assertEqual(len(vc.detect_target(blank, {**target, "min_confidence": 0.17})), 0)
+        with self.assertRaises(vc.RunError) as ctx:
+            vc.detect_target(blank, {**target, "min_confidence": 1.5})
+        self.assertEqual(ctx.exception.kind, "invalid_target_config")
 
     def test_features_feed_a_session(self) -> None:
         views = []

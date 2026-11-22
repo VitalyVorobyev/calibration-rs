@@ -104,6 +104,7 @@ A plain chessboard has no markers: each view is labelled from the detection's ow
 | `coding` | [RinggridCodingSpec](#ringgridcodingspec) | no | | How the markers are told apart. Omitted keeps `"coded"`. |
 | `lattice` | [RinggridLatticeSpec](#ringgridlatticespec) | no | | The marker lattice. Omitted keeps `"hex"`. |
 | `marker_ring_width_m` | number | no | `0.0` | Width of each ring band in metres. Coded markers need it, greater than zero; plain markers ignore it, so it may be left out for them. |
+| `min_confidence` | number | no | | Floor on the detector's per-marker confidence, in `[0, 1]`. Omitted keeps the detector's floor of 0.03. For photometric centres a floor `c` keeps markers whose predicted centre error is at most `0.03 · (1/c − 1)` px per axis (0.17: 0.15 px), the other confidence factors being 1. |
 
 ## RinggridCenterSpec
 
