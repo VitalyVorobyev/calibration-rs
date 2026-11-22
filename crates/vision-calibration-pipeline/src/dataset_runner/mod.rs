@@ -56,7 +56,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use vision_calibration_core::{
-    Cancelled, CorrespondenceView, NoMeta, PointCovariance, Progress, Pt2, Pt3, RunControl, View,
+    Cancelled, CorrespondenceView, NoMeta, PointBlur, PointCovariance, Progress, Pt2, Pt3,
+    RunControl, View,
 };
 use vision_calibration_dataset::{
     ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
@@ -595,9 +596,11 @@ fn detector_config(
             rows,
             cols,
             square_size_m,
+            measure_blur,
             ..
         } => {
-            let mut config = ChessboardConfig::new(*rows, *cols, *square_size_m);
+            let mut config = ChessboardConfig::new(*rows, *cols, *square_size_m)
+                .with_measure_blur(*measure_blur);
             config.chess_corners = chess_corners;
             Ok(DetectorConfig::Chessboard(config))
         }
@@ -630,6 +633,7 @@ fn detector_config(
         TargetSpec::Puzzleboard {
             layout,
             cell_size_m,
+            measure_blur,
             ..
         } => {
             refuse_chess_override("puzzleboard")?;
@@ -638,11 +642,9 @@ fn detector_config(
             // fails before any image I/O.
             let (rows, cols) = parse_puzzleboard_layout(layout)
                 .map_err(|message| RunError::InvalidTargetConfig { message })?;
-            Ok(DetectorConfig::Puzzleboard(PuzzleboardConfig::new(
-                rows,
-                cols,
-                *cell_size_m,
-            )))
+            Ok(DetectorConfig::Puzzleboard(
+                PuzzleboardConfig::new(rows, cols, *cell_size_m).with_measure_blur(*measure_blur),
+            ))
         }
         TargetSpec::Ringgrid {
             pitch_m,
@@ -926,7 +928,8 @@ fn pattern_repr(p: &ImagePattern) -> String {
 ///
 /// Returns the features plus whether they came from the cache. When the
 /// detector config requests corner covariance, cached and fresh features
-/// alike are checked by [`check_corner_covariances`].
+/// alike are checked by [`check_corner_covariances`]; a feature's measured
+/// blur, when it has one, by [`check_feature_blur`].
 fn detect_features(
     config: &DetectorConfig,
     roi: Option<[u32; 4]>,
@@ -937,7 +940,32 @@ fn detect_features(
     if config.requests_covariance() {
         check_corner_covariances(&features, config.name(), image_path)?;
     }
+    check_feature_blur(&features, config.name(), image_path)?;
     Ok((features, cache_hit))
+}
+
+/// Every blur a feature carries must be one the observations can hold
+/// ([`PointBlur::new`]). The detectors only report valid ones, so this
+/// catches a cache entry written by other means; such an entry fails the
+/// image rather than losing its blur silently.
+fn check_feature_blur(
+    features: &[Feature],
+    detector: &'static str,
+    image_path: &Path,
+) -> Result<(), RunError> {
+    for (i, f) in features.iter().enumerate() {
+        if let Some(blur) = f.blur {
+            PointBlur::new(blur.psf_px, blur.cov).map_err(|e| RunError::Detection {
+                detector: detector.to_string(),
+                path: image_path.to_path_buf(),
+                source: vision_calibration_detect::DetectError::Backend {
+                    detector,
+                    message: format!("feature {i}: {e}"),
+                },
+            })?;
+        }
+    }
+    Ok(())
 }
 
 /// Every corner of an image must carry a covariance that the calibration can
@@ -1128,11 +1156,12 @@ fn features_to_view(features: &[Feature]) -> Result<View<NoMeta>, RunError> {
 }
 
 /// The 2D-3D correspondences of one view, with each point's covariance when
-/// the features carry them.
+/// the features carry them, and each point's measured blur.
 ///
 /// Covariances are all-or-none per view: [`detect_features`] rejects an image
 /// where a requested covariance is missing or unusable, so the features here
-/// either all carry a valid one or (the default) none does.
+/// either all carry a valid one or (the default) none does. Blur is per
+/// feature, and [`detect_features`] has checked each one.
 fn features_to_obs(features: &[Feature]) -> CorrespondenceView {
     let mut points_3d = Vec::with_capacity(features.len());
     let mut points_2d = Vec::with_capacity(features.len());
@@ -1150,15 +1179,24 @@ fn features_to_obs(features: &[Feature]) -> CorrespondenceView {
             })
         })
         .collect();
+    let blur: Vec<Option<PointBlur>> = features
+        .iter()
+        .map(|f| {
+            f.blur.map(|b| {
+                PointBlur::new(b.psf_px, b.cov)
+                    .expect("blurs are validated by check_feature_blur in detect_features")
+            })
+        })
+        .collect();
     let view = match covariances {
         Some(cov) if !cov.is_empty() => {
             CorrespondenceView::new_with_covariances(points_3d, points_2d, cov)
         }
         _ => CorrespondenceView::new(points_3d, points_2d),
     };
-    view.expect(
+    view.and_then(|v| v.with_blur(blur)).expect(
         "Feature vectors are non-empty and equal-length by construction; \
-         CorrespondenceView::new only fails on mismatched lengths.",
+         CorrespondenceView::new and with_blur only fail on mismatched lengths.",
     )
 }
 
@@ -1191,6 +1229,38 @@ mod tests {
         };
         assert_eq!(config.dictionary, "DICT_4X4_100");
         assert_eq!(config.marker_size_m, 0.015);
+    }
+
+    /// The targets' `measure_blur` reaches the chessboard and PuzzleBoard
+    /// detector configs, and is off when left out.
+    #[test]
+    fn measure_blur_maps_to_the_detector_config() {
+        let lower = |target: TargetSpec| target_to_detector_config(&spec_for_target(target));
+        let mut chessboard = TargetSpec::chessboard(5, 7, 0.03);
+        let Ok(DetectorConfig::Chessboard(config)) = lower(chessboard.clone()) else {
+            panic!("a chessboard target lowers to the chessboard detector");
+        };
+        assert!(!config.measure_blur);
+        if let TargetSpec::Chessboard { measure_blur, .. } = &mut chessboard {
+            *measure_blur = true;
+        }
+        let Ok(DetectorConfig::Chessboard(config)) = lower(chessboard) else {
+            panic!("a chessboard target lowers to the chessboard detector");
+        };
+        assert!(config.measure_blur);
+
+        let mut puzzle = TargetSpec::puzzleboard("puzzle_12x12", 0.012);
+        let Ok(DetectorConfig::Puzzleboard(config)) = lower(puzzle.clone()) else {
+            panic!("a puzzleboard target lowers to the puzzleboard detector");
+        };
+        assert!(!config.measure_blur);
+        if let TargetSpec::Puzzleboard { measure_blur, .. } = &mut puzzle {
+            *measure_blur = true;
+        }
+        let Ok(DetectorConfig::Puzzleboard(config)) = lower(puzzle) else {
+            panic!("a puzzleboard target lowers to the puzzleboard detector");
+        };
+        assert!(config.measure_blur);
     }
 
     /// A synthetic chessboard: `squares_x` × `squares_y` squares of `px`
@@ -1609,6 +1679,7 @@ mod tests {
                 "marker_outer_radius_m",
                 "marker_ring_width_m",
                 "marker_size_m",
+                "measure_blur",
                 "origin_dots",
                 "pitch_m",
                 "plain",

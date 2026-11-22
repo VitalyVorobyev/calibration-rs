@@ -12,6 +12,7 @@
 //! and `FixedBoard` search (the board dimensions are known from the
 //! manifest, so we never search for an unknown sub-board).
 
+use calib_targets::blur::puzzleboard_blur;
 use calib_targets::detect;
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
 use image::imageops::FilterType;
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
+use crate::corner_blur::feature_blurs;
 use crate::{DetectError, Feature};
 
 /// Upscale factor applied before detection. PuzzleBoard saddle decoding
@@ -48,6 +50,19 @@ pub struct PuzzleboardConfig {
     /// Edge length of one cell in metres. Lifts each decoded saddle to a
     /// metric target point and bounds the in-board filter.
     pub cell_size_m: f64,
+    /// Measure the blur at each saddle ([`Feature::blur`]): the covariance
+    /// `Σ` (px², image axes, including the pixel aperture) of the Gaussian
+    /// kernel that best blurs the printed squares and dots around the saddle
+    /// into the image, with the covariance of that estimate. It is measured
+    /// on the image as given, not on the upscaled copy detection runs on,
+    /// at the reported `image_xy`. A saddle the estimate declines (blur too
+    /// wide for the cells, sharper than a pixel, too few labelled
+    /// neighbours) has none. It costs a few milliseconds per saddle,
+    /// single-threaded (476 saddles in view add about 1–2 s per
+    /// image), hence the default `false`. Saddle positions are the same
+    /// with or without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub measure_blur: bool,
 }
 
 impl PuzzleboardConfig {
@@ -57,8 +72,22 @@ impl PuzzleboardConfig {
             rows,
             cols,
             cell_size_m,
+            measure_blur: false,
         }
     }
+
+    /// The same config with [`measure_blur`](Self::measure_blur) set.
+    pub fn with_measure_blur(mut self, measure_blur: bool) -> Self {
+        self.measure_blur = measure_blur;
+        self
+    }
+}
+
+/// A corner coordinate in the upscaled detection image, in the original
+/// image's pixels. Division by a power of two is exact, so the features and
+/// the blur measurement see the same positions.
+fn to_original(coordinate: f32) -> f32 {
+    coordinate / DETECT_UPSCALE as f32
 }
 
 /// Detect the PuzzleBoard `cfg` describes in `luma`.
@@ -96,21 +125,32 @@ pub(crate) fn detect(
     let max_x_mm = cfg.cols.saturating_sub(1) as f64 * cell_size_mm;
     let max_y_mm = cfg.rows.saturating_sub(1) as f64 * cell_size_mm;
 
+    // The blur is measured on the original image (resampling blurs it), so
+    // the corners are mapped back first, by the map the features use.
+    let mut blurs = if cfg.measure_blur {
+        let mut original = detection.clone();
+        for corner in &mut original.corners {
+            corner.position.x = to_original(corner.position.x);
+            corner.position.y = to_original(corner.position.y);
+        }
+        feature_blurs(puzzleboard_blur(luma, &original))
+    } else {
+        Vec::new()
+    };
+    blurs.resize(detection.corners.len(), None);
+
     let mut features = Vec::with_capacity(detection.corners.len());
-    for corner in &detection.corners {
+    for (corner, blur) in detection.corners.iter().zip(blurs) {
         let x_mm = corner.target_position.x as f64;
         let y_mm = corner.target_position.y as f64;
         if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
             continue;
         }
-        features.push(Feature {
-            image_xy: [
-                corner.position.x as f64 / DETECT_UPSCALE as f64,
-                corner.position.y as f64 / DETECT_UPSCALE as f64,
-            ],
-            world_xyz: [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0],
-            cov_px: None,
-        });
+        let image_xy = [
+            f64::from(to_original(corner.position.x)),
+            f64::from(to_original(corner.position.y)),
+        ];
+        features.push(Feature::new(image_xy, [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0]).with_blur(blur));
     }
     Ok(crate::reject_ambiguous_detection(features))
 }
@@ -172,6 +212,34 @@ mod tests {
         }
     }
 
+    /// A board seen through a lens of Gaussian blur σ reports the rendered
+    /// `tr Σ / 2` (the lens's `σ²` plus the pixel aperture's term) within
+    /// its stated standard errors. The blur is measured on the image as
+    /// given, at the saddles mapped back from the upscaled detection, and
+    /// measuring it moves no saddle.
+    #[test]
+    fn measured_blur_matches_the_rendered_blur() {
+        use crate::corner_blur::known_blur::{assert_matches_render, camera_image};
+        // 10 × 10 cells of 24 px: σ = 2 px is 0.08 of a cell, well inside
+        // the estimator's range (it declines beyond 0.3).
+        let document = calib_targets::generate::puzzleboard_document(10, 10, 25.4);
+        let cfg = PuzzleboardConfig::new(10, 10, 0.0254);
+        for sigma in [1.0, 2.0] {
+            let img = camera_image(document.clone(), 24, 275.0, sigma, 1.0, 7);
+            let plain = detect(&cfg, &img).unwrap();
+            assert_eq!(plain.len(), 81, "every saddle of the board");
+            assert!(plain.iter().all(|f| f.blur.is_none()));
+
+            let with = detect(&cfg.with_measure_blur(true), &img).unwrap();
+            assert_eq!(with.len(), plain.len());
+            for (a, b) in with.iter().zip(&plain) {
+                assert_eq!(a.image_xy, b.image_xy);
+                assert_eq!(a.world_xyz, b.world_xyz);
+            }
+            assert_matches_render(&with, sigma);
+        }
+    }
+
     #[test]
     fn blank_image_returns_no_features() {
         let img = image::DynamicImage::new_luma8(64, 64);
@@ -185,5 +253,20 @@ mod tests {
         let back: PuzzleboardConfig =
             serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
         assert_eq!(cfg, back);
+        // `measure_blur` reads as off when left out, is not written when
+        // off, and round-trips when on.
+        assert!(!cfg.measure_blur);
+        assert!(
+            !serde_json::to_string(&cfg)
+                .unwrap()
+                .contains("measure_blur")
+        );
+        let with = cfg.with_measure_blur(true);
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains(r#""measure_blur":true"#), "{json}");
+        assert_eq!(
+            serde_json::from_str::<PuzzleboardConfig>(&json).unwrap(),
+            with
+        );
     }
 }

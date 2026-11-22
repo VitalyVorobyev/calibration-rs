@@ -161,6 +161,7 @@ pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
         rows: 0,
         cols: 0,
         square_size_m: 0.0,
+        measure_blur: false,
     };
     unresolved.push("target".to_string());
 

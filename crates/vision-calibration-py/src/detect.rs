@@ -2,17 +2,22 @@
 //!
 //! Features cross as arrays: `image_xy` `(N, 2)` pixels, `world_xyz` `(N, 3)`
 //! target points in metres and, when the detector reported them, `cov_px`
-//! `(N, 3)` corner covariances `[xx, xy, yy]` in px² (`None` otherwise).
+//! `(N, 3)` corner covariances `[xx, xy, yy]` in px² (`None` otherwise), and
+//! the measured blur as `blur_psf_px` `(N, 3)` PSF covariances `[xx, xy, yy]`
+//! in px² with `blur_cov` `(N, 9)` their row-major 3×3 covariances in px⁴
+//! (`None` when no feature has a blur; a feature without one is a row of
+//! NaN in both).
 
 use std::path::PathBuf;
 
 use numpy::{PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use vision_calibration::core::PointBlur;
 use vision_calibration::dataset::{DetectorSpec, TargetSpec};
 use vision_calibration::detect::{
-    CacheKey, CachedFeatures, DetectionCache, Feature, FsDetectionCache, GrayImageView,
-    reject_ambiguous_detection as rust_reject,
+    CacheKey, CachedFeatures, DetectionCache, Feature, FeatureBlur, FsDetectionCache,
+    GrayImageView, reject_ambiguous_detection as rust_reject,
 };
 
 use crate::errors::run_err;
@@ -23,10 +28,13 @@ type FeatureArrays<'py> = (
     Bound<'py, PyArray2<f64>>,
     Bound<'py, PyArray2<f64>>,
     Option<Bound<'py, PyArray2<f64>>>,
+    Option<Bound<'py, PyArray2<f64>>>,
+    Option<Bound<'py, PyArray2<f64>>>,
 );
 
-/// Features as `(image_xy, world_xyz, cov_px)` arrays. `cov_px` is present
-/// only when every feature carries a covariance.
+/// Features as `(image_xy, world_xyz, cov_px, blur_psf_px, blur_cov)`
+/// arrays. `cov_px` is present only when every feature carries a covariance,
+/// the blur arrays when any feature carries a blur (NaN rows for the others).
 fn to_arrays<'py>(py: Python<'py>, features: &[Feature]) -> PyResult<FeatureArrays<'py>> {
     let n = features.len();
     let image_xy: Vec<f64> = features.iter().flat_map(|f| f.image_xy).collect();
@@ -40,19 +48,89 @@ fn to_arrays<'py>(py: Python<'py>, features: &[Feature]) -> PyResult<FeatureArra
     } else {
         None
     };
+    let (blur_psf_px, blur_cov) = if features.iter().any(|f| f.blur.is_some()) {
+        let psf: Vec<f64> = features
+            .iter()
+            .flat_map(|f| f.blur.map_or([f64::NAN; 3], |b| b.psf_px))
+            .collect();
+        let cov: Vec<f64> = features
+            .iter()
+            .flat_map(|f| {
+                f.blur.map_or([f64::NAN; 9], |b| {
+                    std::array::from_fn(|k| b.cov[k / 3][k % 3])
+                })
+            })
+            .collect();
+        (
+            Some(PyArray1::from_vec(py, psf).reshape([n, 3])?),
+            Some(PyArray1::from_vec(py, cov).reshape([n, 9])?),
+        )
+    } else {
+        (None, None)
+    };
     Ok((
         PyArray1::from_vec(py, image_xy).reshape([n, 2])?,
         PyArray1::from_vec(py, world_xyz).reshape([n, 3])?,
         cov_px,
+        blur_psf_px,
+        blur_cov,
     ))
 }
 
-/// Features from `(N, 2)` pixel, `(N, 3)` target-point and optional `(N, 3)`
-/// covariance arrays.
+/// The measured blur of each feature from `(N, 3)` PSF-covariance and
+/// `(N, 9)` covariance arrays given together: a row of NaN in both is a
+/// feature without one, any other row must be a valid blur.
+fn blurs_from_arrays(
+    n: usize,
+    psf_px: Option<&PyReadonlyArray2<'_, f64>>,
+    cov: Option<&PyReadonlyArray2<'_, f64>>,
+) -> PyResult<Vec<Option<FeatureBlur>>> {
+    let (psf_px, cov) = match (psf_px, cov) {
+        (None, None) => return Ok(vec![None; n]),
+        (Some(psf_px), Some(cov)) => (psf_px, cov),
+        _ => {
+            return Err(value_err(
+                "blur_psf_px and blur_cov are given together or not at all",
+            ));
+        }
+    };
+    for (rows, name) in [
+        (array_rows(psf_px, 3, "blur_psf_px")?, "blur_psf_px"),
+        (array_rows(cov, 9, "blur_cov")?, "blur_cov"),
+    ] {
+        if rows != n {
+            return Err(value_err(format!(
+                "{name} must have one row per image_xy row ({n}), got {rows}"
+            )));
+        }
+    }
+    psf_px
+        .as_slice()?
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(cov.as_slice()?.as_chunks::<9>().0)
+        .enumerate()
+        .map(|(i, (&psf, c))| {
+            if psf.iter().chain(c).all(|v| v.is_nan()) {
+                return Ok(None);
+            }
+            let c = [[c[0], c[1], c[2]], [c[3], c[4], c[5]], [c[6], c[7], c[8]]];
+            PointBlur::new(psf, c)
+                .map(|_| Some(FeatureBlur::new(psf, c)))
+                .map_err(|e| value_err(format!("blur of feature {i}: {e}")))
+        })
+        .collect()
+}
+
+/// Features from `(N, 2)` pixel, `(N, 3)` target-point, optional `(N, 3)`
+/// covariance and optional blur arrays.
 fn from_arrays(
     image_xy: &PyReadonlyArray2<'_, f64>,
     world_xyz: &PyReadonlyArray2<'_, f64>,
     cov_px: Option<&PyReadonlyArray2<'_, f64>>,
+    blur_psf_px: Option<&PyReadonlyArray2<'_, f64>>,
+    blur_cov: Option<&PyReadonlyArray2<'_, f64>>,
 ) -> PyResult<Vec<Feature>> {
     let n = array_rows(image_xy, 2, "image_xy")?;
     let same_rows = |rows: usize, name: &str| {
@@ -77,6 +155,7 @@ fn from_arrays(
                 .collect()
         }
     };
+    let blurs = blurs_from_arrays(n, blur_psf_px, blur_cov)?;
     Ok(image_xy
         .as_slice()?
         .as_chunks::<2>()
@@ -84,8 +163,11 @@ fn from_arrays(
         .iter()
         .zip(world_xyz.as_slice()?.as_chunks::<3>().0)
         .zip(covariances)
-        .map(|((&image_xy, &world_xyz), cov_px)| {
-            Feature::new(image_xy, world_xyz).with_cov_px(cov_px)
+        .zip(blurs)
+        .map(|(((&image_xy, &world_xyz), cov_px), blur)| {
+            Feature::new(image_xy, world_xyz)
+                .with_cov_px(cov_px)
+                .with_blur(blur)
         })
         .collect())
 }
@@ -121,14 +203,22 @@ pub(crate) fn detect_target<'py>(
 
 /// Drop a detection whose image points are not distinct (all or nothing).
 #[pyfunction]
-#[pyo3(signature = (image_xy, world_xyz, cov_px=None))]
+#[pyo3(signature = (image_xy, world_xyz, cov_px=None, blur_psf_px=None, blur_cov=None))]
 pub(crate) fn reject_ambiguous_detection<'py>(
     py: Python<'py>,
     image_xy: PyReadonlyArray2<'py, f64>,
     world_xyz: PyReadonlyArray2<'py, f64>,
     cov_px: Option<PyReadonlyArray2<'py, f64>>,
+    blur_psf_px: Option<PyReadonlyArray2<'py, f64>>,
+    blur_cov: Option<PyReadonlyArray2<'py, f64>>,
 ) -> PyResult<FeatureArrays<'py>> {
-    let features = from_arrays(&image_xy, &world_xyz, cov_px.as_ref())?;
+    let features = from_arrays(
+        &image_xy,
+        &world_xyz,
+        cov_px.as_ref(),
+        blur_psf_px.as_ref(),
+        blur_cov.as_ref(),
+    )?;
     to_arrays(py, &rust_reject(features))
 }
 
@@ -196,16 +286,24 @@ impl PyFsDetectionCache {
     }
 
     /// Store features under `key`.
-    #[pyo3(signature = (key, image_xy, world_xyz, cov_px=None))]
+    #[pyo3(signature = (key, image_xy, world_xyz, cov_px=None, blur_psf_px=None, blur_cov=None))]
     fn put(
         &self,
         key: &Bound<'_, PyAny>,
         image_xy: PyReadonlyArray2<'_, f64>,
         world_xyz: PyReadonlyArray2<'_, f64>,
         cov_px: Option<PyReadonlyArray2<'_, f64>>,
+        blur_psf_px: Option<PyReadonlyArray2<'_, f64>>,
+        blur_cov: Option<PyReadonlyArray2<'_, f64>>,
     ) -> PyResult<()> {
         let key: CacheKey = parse_checked(key, "key")?;
-        let features = from_arrays(&image_xy, &world_xyz, cov_px.as_ref())?;
+        let features = from_arrays(
+            &image_xy,
+            &world_xyz,
+            cov_px.as_ref(),
+            blur_psf_px.as_ref(),
+            blur_cov.as_ref(),
+        )?;
         self.inner
             .put(&key, &CachedFeatures::new(features))
             .map_err(cache_err)

@@ -73,6 +73,7 @@ A plain chessboard has no markers: each view is labelled from the detection's ow
 | `cols` | integer | yes | Number of interior corners across the board (the image's columns axis when the board is seen as declared). |
 | `rows` | integer | yes | Number of interior corners down the board (the image's rows axis when the board is seen as declared). |
 | `square_size_m` | number | yes | Edge length of one square in metres. |
+| `measure_blur` | boolean | no | Measure the blur at each corner: the covariance `Σ` (px², image axes, including the pixel aperture) of the Gaussian kernel that best blurs the printed pattern around the corner into the image, with the covariance of that estimate, carried into each observation. A corner the estimate declines has none. It costs a few milliseconds per corner, single-threaded (a 476-corner board adds about 1–2 s per image), hence the default `false`. Corner positions are the same with or without it. |
 
 **`kind = "charuco"`**: ChArUco board. Marker IDs and dictionary live here so detection is fully deterministic from the manifest.
 
@@ -90,6 +91,7 @@ A plain chessboard has no markers: each view is labelled from the detection's ow
 |---|---|---|---|
 | `cell_size_m` | number | yes | Edge length of one cell in metres. |
 | `layout` | string | yes | Board dimensions as `puzzle_<rows>x<cols>` (e.g. `"puzzle_12x12"`; the `puzzle_` prefix is optional). |
+| `measure_blur` | boolean | no | Measure the blur at each corner: the covariance `Σ` (px², image axes, including the pixel aperture) of the Gaussian kernel that best blurs the printed pattern around the corner into the image, with the covariance of that estimate, carried into each observation. A corner the estimate declines has none. It costs a few milliseconds per corner, single-threaded (a 476-corner board adds about 1–2 s per image), hence the default `false`. Corner positions are the same with or without it. |
 
 **`kind = "ringgrid"`**: Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal or rectangular lattice, either coded (self-identifying) or plain with a triad of origin dots. Its geometry mirrors the `ringgrid` target layout, so the manifest fully determines detection.
 

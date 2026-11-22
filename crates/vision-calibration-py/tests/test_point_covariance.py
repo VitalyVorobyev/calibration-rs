@@ -54,6 +54,26 @@ class PointCovarianceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             vc.Observation(points_3d=[(0, 0, 0)], points_2d=[(1, 2)], cov_px=cov)
 
+    def test_observation_round_trips_its_blur(self) -> None:
+        cov = ((1e-3, 0.0, 0.0), (0.0, 1e-4, 0.0), (0.0, 0.0, 1e-3))
+        blur = vc.PointBlur(psf_px=(2.25, 0.0, 1.44), cov=cov)
+        self.assertAlmostEqual(blur.sigma_px, math.sqrt(0.5 * (2.25 + 1.44)))
+        obs = vc.Observation(points_3d=[(0, 0, 0), (1, 0, 0)], points_2d=[(1, 2), (3, 4)], blur=[None, blur])
+        payload = obs.to_payload()
+        self.assertEqual(payload["blur"], [None, {"psf_px": [2.25, 0.0, 1.44], "cov": [list(r) for r in cov]}])
+        self.assertEqual(vc.Observation.from_payload(payload), obs)
+        # No blur on any point is no blur, and no key.
+        none = vc.Observation(points_3d=[(0, 0, 0)], points_2d=[(1, 2)], blur=[None])
+        self.assertIsNone(none.blur)
+        self.assertNotIn("blur", none.to_payload())
+        with self.assertRaises(ValueError):
+            vc.Observation(points_3d=[(0, 0, 0)], points_2d=[(1, 2)], blur=[blur, blur])
+        for psf in [(1.0, 2.0, 1.0), (0.0, 0.0, 1.0), (1.0, 0.0, math.nan)]:
+            with self.assertRaises(ValueError):
+                vc.PointBlur(psf_px=psf, cov=cov)
+        with self.assertRaises(ValueError):
+            vc.PointBlur(psf_px=(1.0, 0.0, 1.0), cov=((1e-3, 1e-4, 0.0), (0.0, 1e-4, 0.0), (0.0, 0.0, 1e-3)))
+
     def test_stated_covariances_whiten_the_solve(self) -> None:
         base = planar_calibration_dataset()
         result = vc.planar_intrinsics.run_calibration(_noisy(base, seed=3, stated=True))

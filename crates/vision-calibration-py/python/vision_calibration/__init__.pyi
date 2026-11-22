@@ -23,6 +23,7 @@ from .models import (
     LaserlineView,
     NoDistortion,
     Observation,
+    PointBlur,
     PointCovariance,
     CameraParams,
     EquidistantProjection,

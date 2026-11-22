@@ -278,6 +278,57 @@ mod tests {
         assert_eq!((cov.xx(), cov.xy(), cov.yy()), (0.04, 0.0, 0.09));
     }
 
+    /// A feature's measured blur reaches its observation, beside the
+    /// covariance; a feature without one stays without.
+    #[test]
+    fn feature_blur_reaches_the_observations() {
+        use vision_calibration_detect::FeatureBlur;
+        let cov = [[1e-4, 0.0, 0.0], [0.0, 4e-5, 0.0], [0.0, 0.0, 9e-5]];
+        let features = (0..6)
+            .map(|i| {
+                let blur = (i != 4).then(|| FeatureBlur::new([2.0, 0.1 * f64::from(i), 1.5], cov));
+                feature(i, Some([0.04, 0.0, 0.09])).with_blur(blur)
+            })
+            .collect();
+        let obs = &covariance_run(features).unwrap().input.views[0].obs;
+        let blur = obs.blur(3).expect("blur attached");
+        assert_eq!(
+            (blur.psf_px(), blur.cov()),
+            ([2.0, 0.30000000000000004, 1.5], cov)
+        );
+        assert_eq!(obs.blur(4), None);
+        assert!(obs.covariance(4).is_some());
+    }
+
+    /// A cached blur that the observations cannot hold fails the image with
+    /// a typed error rather than being dropped.
+    #[test]
+    fn an_invalid_cached_blur_is_a_typed_error() {
+        use vision_calibration_detect::FeatureBlur;
+        let features = (0..6)
+            .map(|i| {
+                let psf = if i == 2 {
+                    [1.0, 2.0, 1.0]
+                } else {
+                    [1.0, 0.0, 1.0]
+                };
+                feature(i, Some([0.04, 0.0, 0.09]))
+                    .with_blur(Some(FeatureBlur::new(psf, [[0.0; 3]; 3])))
+            })
+            .collect();
+        match covariance_run(features).unwrap_err() {
+            RunError::Detection {
+                detector, source, ..
+            } => {
+                assert_eq!(detector, "chessboard");
+                let message = source.to_string();
+                assert!(message.contains("feature 2"), "{message}");
+                assert!(message.contains("positive definite"), "{message}");
+            }
+            other => panic!("expected Detection, got {other:?}"),
+        }
+    }
+
     #[test]
     fn requested_covariance_missing_on_a_corner_is_a_typed_error() {
         // Cached features are checked too, and no corner is dropped.

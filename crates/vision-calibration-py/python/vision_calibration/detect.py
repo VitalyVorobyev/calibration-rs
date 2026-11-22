@@ -19,7 +19,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from . import _vision_calibration as _native
-from .models import Observation, PointCovariance
+from .models import Observation, PointBlur, PointCovariance
 
 __all__ = [
     "CacheKey",
@@ -38,6 +38,14 @@ class Features:
     ``cov_px`` holds each corner's position covariance ``(xx, xy, yy)`` in px²
     when the detector was asked for it (the manifest's
     ``detector.chess_corners.covariance``), else it is ``None``.
+
+    ``blur_psf_px`` and ``blur_cov`` hold the blur the detector measured at
+    each feature (chessboard and PuzzleBoard corners, when the target asks
+    for it with ``measure_blur``): the PSF
+    covariance ``(xx, xy, yy)`` in px², including the pixel's area
+    integration, and the 3×3 covariance of those three elements in px⁴ (see
+    :class:`PointBlur`). They are given together, ``None`` when no feature
+    has a blur, and a feature without one is a row of NaN in both.
     """
 
     image_xy: NDArray[np.float64]
@@ -46,6 +54,12 @@ class Features:
     """``(N, 3)`` target points, metres."""
     cov_px: NDArray[np.float64] | None = None
     """``(N, 3)`` corner covariances ``(xx, xy, yy)``, px², or ``None``."""
+    blur_psf_px: NDArray[np.float64] | None = None
+    """``(N, 3)`` PSF covariances ``(xx, xy, yy)``, px², NaN rows for features
+    without a blur, or ``None``."""
+    blur_cov: NDArray[np.float64] | None = None
+    """``(N, 3, 3)`` covariances of ``blur_psf_px``, px⁴, NaN for features
+    without a blur, or ``None``."""
 
     def __post_init__(self) -> None:
         image_xy = np.ascontiguousarray(np.asarray(self.image_xy, dtype=np.float64).reshape(-1, 2))
@@ -62,6 +76,21 @@ class Features:
                     f"cov_px needs one row per feature, got {cov_px.shape[0]} and {image_xy.shape[0]}"
                 )
             object.__setattr__(self, "cov_px", cov_px)
+        if (self.blur_psf_px is None) != (self.blur_cov is None):
+            raise ValueError("blur_psf_px and blur_cov are given together or not at all")
+        if self.blur_psf_px is not None and self.blur_cov is not None:
+            psf = np.ascontiguousarray(np.asarray(self.blur_psf_px, dtype=np.float64).reshape(-1, 3))
+            cov = np.ascontiguousarray(np.asarray(self.blur_cov, dtype=np.float64).reshape(-1, 3, 3))
+            if psf.shape[0] != image_xy.shape[0] or cov.shape[0] != image_xy.shape[0]:
+                raise ValueError(
+                    f"blur_psf_px and blur_cov need one row per feature, got {psf.shape[0]}, "
+                    f"{cov.shape[0]} and {image_xy.shape[0]}"
+                )
+            missing_psf = np.isnan(psf).all(axis=1)
+            if not np.array_equal(missing_psf, np.isnan(cov).all(axis=(1, 2))):
+                raise ValueError("a feature without a blur is a row of NaN in both blur arrays")
+            object.__setattr__(self, "blur_psf_px", psf)
+            object.__setattr__(self, "blur_cov", cov)
         object.__setattr__(self, "image_xy", image_xy)
         object.__setattr__(self, "world_xyz", world_xyz)
 
@@ -70,24 +99,59 @@ class Features:
 
     def to_observation(self) -> Observation:
         """The features as one view's 2D-3D correspondences, for a session's
-        input, with their corner covariances when ``cov_px`` is set."""
+        input, with their corner covariances when ``cov_px`` is set and their
+        measured blur when the blur arrays are."""
         cov_px = (
             None
             if self.cov_px is None
             else [PointCovariance(float(xx), float(xy), float(yy)) for xx, xy, yy in self.cov_px]
         )
+        blur: list[PointBlur | None] | None = None
+        if self.blur_psf_px is not None and self.blur_cov is not None:
+            blur = [
+                None
+                if np.isnan(psf).all()
+                else PointBlur(
+                    psf_px=(float(psf[0]), float(psf[1]), float(psf[2])),
+                    cov=cast(
+                        tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+                        tuple(tuple(float(v) for v in row) for row in cov),
+                    ),
+                )
+                for psf, cov in zip(self.blur_psf_px, self.blur_cov, strict=True)
+            ]
         return Observation(
             points_3d=[(float(x), float(y), float(z)) for x, y, z in self.world_xyz],
             points_2d=[(float(u), float(v)) for u, v in self.image_xy],
             cov_px=cov_px,
+            blur=blur,
         )
+
+    def _blur_args(self) -> tuple[NDArray[np.float64] | None, NDArray[np.float64] | None]:
+        """The blur arrays as the extension takes them: ``(N, 3)`` and ``(N, 9)``."""
+        if self.blur_psf_px is None or self.blur_cov is None:
+            return None, None
+        return self.blur_psf_px, np.ascontiguousarray(self.blur_cov.reshape(-1, 9))
 
 
 def _features(arrays: Any) -> Features:
-    image_xy, world_xyz, cov_px = cast(
-        tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64] | None], arrays
+    image_xy, world_xyz, cov_px, blur_psf_px, blur_cov = cast(
+        tuple[
+            NDArray[np.float64],
+            NDArray[np.float64],
+            NDArray[np.float64] | None,
+            NDArray[np.float64] | None,
+            NDArray[np.float64] | None,
+        ],
+        arrays,
     )
-    return Features(image_xy=image_xy, world_xyz=world_xyz, cov_px=cov_px)
+    return Features(
+        image_xy=image_xy,
+        world_xyz=world_xyz,
+        cov_px=cov_px,
+        blur_psf_px=blur_psf_px,
+        blur_cov=None if blur_cov is None else blur_cov.reshape(-1, 3, 3),
+    )
 
 
 def reject_ambiguous_detection(features: Features) -> Features:
@@ -97,7 +161,11 @@ def reject_ambiguous_detection(features: Features) -> Features:
     means the detector lost track of its grid; none of the detection's labels
     are then trusted.
     """
-    return _features(_native.reject_ambiguous_detection(features.image_xy, features.world_xyz, features.cov_px))
+    return _features(
+        _native.reject_ambiguous_detection(
+            features.image_xy, features.world_xyz, features.cov_px, *features._blur_args()
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +234,9 @@ class FsDetectionCache:
 
     def put(self, key: CacheKey, features: Features) -> None:
         """Store ``features`` under ``key``."""
-        self._native.put(key.to_payload(), features.image_xy, features.world_xyz, features.cov_px)
+        self._native.put(
+            key.to_payload(), features.image_xy, features.world_xyz, features.cov_px, *features._blur_args()
+        )
 
     def __repr__(self) -> str:
         return f"FsDetectionCache({str(self.root)!r})"

@@ -25,9 +25,9 @@ The target is chosen by the manifest's `[target]` table, `kind` being one of the
 
 | `kind` | Fields | What it detects |
 |---|---|---|
-| `chessboard` | `rows`, `cols` (interior corners), `square_size_m` | Saddle corners of a plain checkerboard |
+| `chessboard` | `rows`, `cols` (interior corners), `square_size_m`, optional `measure_blur` | Saddle corners of a plain checkerboard |
 | `charuco` | `rows`, `cols` (squares), `square_size_m`, `marker_size_m`, `dictionary` | Chessboard corners identified by embedded ArUco markers |
-| `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m` | Saddles of a self-identifying chessboard variant |
+| `puzzleboard` | `layout` (`"puzzle_<R>x<C>"`), `cell_size_m`, optional `measure_blur` | Saddles of a self-identifying chessboard variant |
 | `ringgrid` | `pitch_m`, `rows`, `long_row_cols`, `marker_outer_radius_m`, `marker_inner_radius_m`, `marker_ring_width_m` (coded markers), optional `lattice`, `coding`, `center_method` | Centres of ring markers on a hexagonal or rectangular lattice, coded or plain with origin dots |
 
 ### Chessboard
@@ -106,6 +106,29 @@ marker_inner_radius_m = 0.0012
 marker_ring_width_m = 0.0004
 center_method = "photometric"
 ```
+
+### Measured blur
+
+The chessboard and PuzzleBoard targets can also measure the blur at each corner: set `measure_blur = true` in the `[target]` table (`ChessboardConfig::measure_blur`, `PuzzleboardConfig::measure_blur`). Each corner then carries the blur in `Feature::blur` (a `FeatureBlur`), and every observation built from the features carries it per point (`CorrespondenceView::blur`, a `PointBlur`; in JSON the view's optional `blur` list, `null` for a point without one). It is a measurement carried with the points: no calibration reads it, and the points and their covariances are the same with or without it.
+
+```toml
+[target]
+kind = "puzzleboard"
+layout = "puzzle_130x130"
+cell_size_m = 0.002
+measure_blur = true
+```
+
+At each corner the image is fitted with the printed squares (and a PuzzleBoard's dots) around it, blurred by a Gaussian of free covariance and integrated over each pixel, under a free local homography and illumination.
+
+- **`psf_px`** is that Gaussian's covariance `Σ = [[xx, xy], [xy, yy]]`, in px², stored as `[xx, xy, yy]` like `cov_px`. Its principal axes are the directions of least and most blur, and `√(tr Σ / 2)` is its width σ (`PointBlur::sigma_px`).
+- **It includes the pixel's area integration.** For a Gaussian lens PSF of covariance `Σ_o` and square pixels, `Σ = Σ_o + I/12`, so a perfectly focused camera has `Σ = I/12`. This is what the detector measured; a model of the optics adds `I/12` to its prediction before comparing it with `Σ`, rather than subtracting it here (on a sharp corner `Σ − I/12` is within its error of zero).
+- **`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴. It allows for residuals correlated between neighbouring pixels, and a combination of `Σ` the print around a corner constrains weakly (with one edge direction, the width along that edge) shows as a large variance.
+- **Accuracy.** On boards rendered through a known Gaussian lens blur of 1 and 2 px, the mean of `tr Σ / 2` over the corners is within 0.2 % of `σ² + 1/12`, and the corners scatter about it as their stated standard errors say. Under a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the Gaussian that blurs the print most like the lens does, not the PSF's second moment; it then depends on the cell size and the pattern, so compare values measured on the same board. An image whose black or white is clipped at 0 or 255 reads as sharper than it is.
+- **Missing values.** A corner has no blur when the estimate declines it rather than give a number its standard error does not cover: when σ exceeds 0.3 of the cell or the blur reaches print outside the detection (corners at its edge see less of the board), when the corner is sharper than the pixel aperture (an in-camera sharpened image) or its blur is not resolved, or when too few labelled neighbours fix the local geometry.
+- **Cost.** A few milliseconds per corner, single-threaded: a board of 476 corners adds about 1 to 2 s per image, which is why it is off by default. The PuzzleBoard is measured on the image as given, not on the upscaled copy it is detected on, at the reported corner positions. ChArUco and ring-grid targets do not measure blur.
+
+In Python, `Features.blur_psf_px` `(N, 3)` and `Features.blur_cov` `(N, 3, 3)` hold it (NaN rows for a corner without one, `None` when no corner has one), and `Features.to_observation()` carries it into `Observation.blur` as `PointBlur` values.
 
 ## Corner Detector Overrides
 

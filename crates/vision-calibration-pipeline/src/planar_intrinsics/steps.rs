@@ -542,6 +542,7 @@ pub fn step_filter(
         let mut points_3d = Vec::new();
         let mut points_2d = Vec::new();
         let mut cov_px = Vec::new();
+        let mut blur = Vec::new();
 
         for (i, (p3d, p2d)) in view
             .obs
@@ -563,6 +564,7 @@ pub fn step_filter(
                 if let Some(cov) = view.obs.covariance(i) {
                     cov_px.push(cov);
                 }
+                blur.push(view.obs.blur(i));
             } else {
                 total_removed += 1;
             }
@@ -573,7 +575,8 @@ pub fn step_filter(
                 CorrespondenceView::new_with_covariances(points_3d, points_2d, cov_px)?
             } else {
                 CorrespondenceView::new(points_3d, points_2d)?
-            };
+            }
+            .with_blur(blur)?;
             filtered_views.push(View::without_meta(obs));
         } else if !opts.remove_sparse_views {
             // Keep sparse views if requested
@@ -804,6 +807,22 @@ mod tests {
             p.x += 50.0;
         }
 
+        // Every other point carries a measured blur whose width is its
+        // index, so the filtered view shows which blur stayed with which
+        // point.
+        let blur = |i: usize| {
+            let v = (1.0 + i as f64).powi(2);
+            let cov = [[1e-4, 0.0, 0.0], [0.0, 1e-4, 0.0], [0.0, 0.0, 1e-4]];
+            Some(vision_calibration_core::PointBlur::new([v, 0.0, v], cov).unwrap())
+        };
+        let views: Vec<_> = views
+            .into_iter()
+            .map(|obs| {
+                let n = obs.len();
+                obs.with_blur((0..n).map(|i| blur(i).filter(|_| i % 2 == 0)).collect())
+                    .unwrap()
+            })
+            .collect();
         let dataset = vision_calibration_core::PlanarDataset::new(
             views.into_iter().map(View::without_meta).collect(),
         )
@@ -827,6 +846,19 @@ mod tests {
             .map(|v| v.obs.len())
             .sum();
         assert!(filtered_points < original_points);
+
+        // Each kept point keeps its own blur (board point `i` is grid index
+        // `i`), the outlier's goes with it.
+        for view in &session.require_input().unwrap().views {
+            assert!(view.obs.blurs().is_some());
+            for (j, p3) in view.obs.points_3d.iter().enumerate() {
+                let i = board_points
+                    .iter()
+                    .position(|b| (b - p3).norm() < 1e-12)
+                    .unwrap();
+                assert_eq!(view.obs.blur(j), blur(i).filter(|_| i % 2 == 0));
+            }
+        }
 
         // State and output should be cleared
         assert!(!session.state.is_initialized());

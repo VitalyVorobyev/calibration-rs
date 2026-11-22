@@ -368,9 +368,12 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
     - `points_2d`: Corresponding 2D pixel observations
     - `cov_px`: optionally, the covariance of each image point
       (`PointCovariance`, px²)
+    - `blur`: optionally, the blur measured at each image point
+      (`PointBlur`), `None` for a point without one
 
     Within one calibration input either every view carries covariances or
-    none does.
+    none does. The blur is a measurement carried with the points: any point
+    may have one or not, and no calibration reads it.
 
     # Example
 
@@ -389,6 +392,11 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
         CorrespondenceView::new_with_covariances(points_3d, points_2d, vec![cov; 2]).unwrap();
     assert_eq!(view.covariance(1), Some(cov));
     ```
+    """
+
+    blur: list[PointBlur | None]
+    """The blur measured at each image point, one per point, `null` for a
+    point without one; absent or empty when no point has one.
     """
 
     cov_px: list[PointCovariance]
@@ -1843,6 +1851,52 @@ class PlaneOptimizeConfig(TypedDict):
     laser_residual_type: LaserlineResidualType
     """The laser residual: the line distance in pixels (the default) or the
     point-to-plane distance in meters.
+    """
+
+
+class PointBlur(TypedDict):
+    """The blur measured at one observed image point: the Gaussian point-spread
+    function (PSF) that best explains the blurred image around it, and the
+    covariance of that estimate.
+
+    `psf_px` is the PSF's covariance matrix `Σ = [[xx, xy],
+    [xy, yy]]`, px², stored as `[xx, xy, yy]` (the layout of
+    `PointCovariance`'s entries). Its principal axes are the directions of
+    least and most blur, and `sigma_px` `= √(tr Σ / 2)` is
+    the PSF's width. `Σ` is the blur as the image shows it, **including the
+    pixel's area integration**: for a Gaussian optical PSF of covariance `Σ_o`
+    seen by square pixels, `Σ ≈ Σ_o + I/12`, so a model of the optics adds
+    `I/12` to its prediction before comparing it with `Σ`.
+
+    `cov` is the 3×3 covariance of `(xx, xy, yy)`, px⁴. What it
+    covers is the detector's statement: chessboard and PuzzleBoard corners
+    report one that allows for residuals correlated between neighbouring
+    pixels, and a combination of `Σ` the print around the corner constrains
+    weakly shows as a large variance.
+
+    Constructed only through `PointBlur::new` (or deserialization), which
+    checks that it is finite, that `Σ` is positive definite and that `cov` is
+    a symmetric matrix with non-negative variances.
+
+    # Example
+
+    ```
+    use vision_calibration_core::PointBlur;
+
+    // A PSF of 1.5 px along u and 1.2 px along v, uncorrelated.
+    let cov = [[1e-3, 0.0, 0.0], [0.0, 1e-4, 0.0], [0.0, 0.0, 1e-3]];
+    let blur = PointBlur::new([2.25, 0.0, 1.44], cov).unwrap();
+    assert!((blur.sigma_px() - 1.3583).abs() < 1e-4);
+    assert!(PointBlur::new([1.0, 2.0, 1.0], cov).is_err()); // Σ not positive definite
+    ```
+    """
+
+    cov: tuple[tuple[float, float, float] | list[float], tuple[float, float, float] | list[float], tuple[float, float, float] | list[float]] | list[tuple[float, float, float] | list[float]]
+    """The covariance of `psf_px`, px⁴, row-major."""
+
+    psf_px: tuple[float, float, float] | list[float]
+    """The PSF covariance `[xx, xy, yy]`, px², including the pixel's area
+    integration.
     """
 
 
@@ -3839,22 +3893,8 @@ class TargetSpec_Charuco(TypedDict):
     """Edge length of one square in metres."""
 
 
-class TargetSpec_Chessboard(TypedDict):
-    """Standard checkerboard. Counts are interior corners
-    (i.e. `9x6` ⇒ a 10×7 black-and-white square grid).
-
-    A plain chessboard has no markers: each view is labelled from the
-    detection's own top-left corner. Where views share one target frame
-    (single-camera hand-eye and every rig topology) the runner therefore
-    keeps a view only when its corners reach every edge of the board.
-    In a rig, each camera's labels are turned to agree with the other
-    cameras of the view, so a board seen turned is kept. Where the target
-    is fixed through the views (hand-eye), the board must appear the same
-    way up in every image of camera 0 (`cols` across and `rows` down);
-    a board seen turned by 90° is dropped, and one seen upside down, or a
-    square board seen turned by 90°, cannot be told apart. Use a ChArUco
-    or PuzzleBoard target to calibrate a shared frame from partial views.
-    """
+class _TargetSpec_ChessboardRequired(TypedDict):
+    """The keys of `TargetSpec_Chessboard` that every payload has."""
 
     cols: int
     """Number of interior corners across the board (the image's
@@ -3871,11 +3911,37 @@ class TargetSpec_Chessboard(TypedDict):
     """Edge length of one square in metres."""
 
 
-class TargetSpec_Puzzleboard(TypedDict):
-    """Puzzleboard target: a self-identifying chessboard. The layout name
-    carries the board's dimensions, so the manifest fully determines
-    detection.
+class TargetSpec_Chessboard(_TargetSpec_ChessboardRequired, total=False):
+    """Standard checkerboard. Counts are interior corners
+    (i.e. `9x6` ⇒ a 10×7 black-and-white square grid).
+
+    A plain chessboard has no markers: each view is labelled from the
+    detection's own top-left corner. Where views share one target frame
+    (single-camera hand-eye and every rig topology) the runner therefore
+    keeps a view only when its corners reach every edge of the board.
+    In a rig, each camera's labels are turned to agree with the other
+    cameras of the view, so a board seen turned is kept. Where the target
+    is fixed through the views (hand-eye), the board must appear the same
+    way up in every image of camera 0 (`cols` across and `rows` down);
+    a board seen turned by 90° is dropped, and one seen upside down, or a
+    square board seen turned by 90°, cannot be told apart. Use a ChArUco
+    or PuzzleBoard target to calibrate a shared frame from partial views.
     """
+
+    measure_blur: bool
+    """Measure the blur at each corner: the covariance `Σ` (px², image
+    axes, including the pixel aperture) of the Gaussian kernel that
+    best blurs the printed pattern around the corner into the image,
+    with the covariance of that estimate, carried into each
+    observation. A corner the estimate declines has none. It costs a
+    few milliseconds per corner, single-threaded (a 476-corner board
+    adds about 1–2 s per image), hence the default `false`. Corner
+    positions are the same with or without it.
+    """
+
+
+class _TargetSpec_PuzzleboardRequired(TypedDict):
+    """The keys of `TargetSpec_Puzzleboard` that every payload has."""
 
     cell_size_m: float
     """Edge length of one cell in metres."""
@@ -3884,6 +3950,24 @@ class TargetSpec_Puzzleboard(TypedDict):
     layout: str
     """Board dimensions as `puzzle_<rows>x<cols>` (e.g.
     `"puzzle_12x12"`; the `puzzle_` prefix is optional).
+    """
+
+
+class TargetSpec_Puzzleboard(_TargetSpec_PuzzleboardRequired, total=False):
+    """Puzzleboard target: a self-identifying chessboard. The layout name
+    carries the board's dimensions, so the manifest fully determines
+    detection.
+    """
+
+    measure_blur: bool
+    """Measure the blur at each corner: the covariance `Σ` (px², image
+    axes, including the pixel aperture) of the Gaussian kernel that
+    best blurs the printed pattern around the corner into the image,
+    with the covariance of that estimate, carried into each
+    observation. A corner the estimate declines has none. It costs a
+    few milliseconds per corner, single-threaded (a 476-corner board
+    adds about 1–2 s per image), hence the default `false`. Corner
+    positions are the same with or without it.
     """
 
 
@@ -4216,6 +4300,7 @@ __all__ = [
     "PlanarOptimizeConfig",
     "PlanarView",
     "PlaneOptimizeConfig",
+    "PointBlur",
     "PointCovariance",
     "PoseColumnMap",
     "PoseConvention",

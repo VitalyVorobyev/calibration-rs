@@ -711,6 +711,67 @@ class PointCovariance:
         return cls(float(payload["xx"]), float(payload["xy"]), float(payload["yy"]))
 
 
+@dataclass(frozen=True, slots=True)
+class PointBlur:
+    """The blur measured at one observed image point: the Gaussian PSF that
+    best explains the blurred image around it, and the covariance of that
+    estimate.
+
+    ``psf_px`` is the PSF covariance ``Σ = [[xx, xy], [xy, yy]]`` as
+    ``(xx, xy, yy)``, px², including the pixel's area integration (for a
+    Gaussian optical PSF ``Σ_o`` seen by square pixels, ``Σ ≈ Σ_o + I/12``);
+    :attr:`sigma_px` ``= √(tr Σ / 2)`` is its width. ``cov`` is the 3×3
+    covariance of ``(xx, xy, yy)``, px⁴, row-major; for chessboard and
+    PuzzleBoard corners it allows for residuals correlated between
+    neighbouring pixels.
+
+    Raises :class:`ValueError` unless the entries are finite, ``Σ`` is
+    positive definite and ``cov`` is symmetric with non-negative variances.
+    """
+
+    psf_px: tuple[float, float, float]
+    cov: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]
+
+    def __post_init__(self) -> None:
+        psf = tuple(float(v) for v in self.psf_px)
+        cov = tuple(tuple(float(v) for v in row) for row in self.cov)
+        if len(psf) != 3 or len(cov) != 3 or any(len(row) != 3 for row in cov):
+            raise ValueError("a point blur has a 3-element psf_px and a 3×3 cov")
+        xx, xy, yy = psf
+        values = (*psf, *(v for row in cov for v in row))
+        if not (all(math.isfinite(v) for v in values) and xx > 0.0 and yy > 0.0 and xx * yy - xy * xy > 0.0):
+            raise ValueError(
+                "a point blur's PSF covariance must be finite and positive definite, "
+                f"got [[{xx}, {xy}], [{xy}, {yy}]] px²"
+            )
+        scale = max(cov[i][i] for i in range(3))
+        symmetric = all(abs(cov[r][k] - cov[k][r]) <= 1e-9 * scale for r in range(3) for k in range(r))
+        if not (symmetric and all(cov[i][i] >= 0.0 for i in range(3))):
+            raise ValueError(
+                f"a point blur's covariance must be symmetric with non-negative variances, got {cov} px⁴"
+            )
+        object.__setattr__(self, "psf_px", psf)
+        object.__setattr__(self, "cov", cov)
+
+    @property
+    def sigma_px(self) -> float:
+        """The PSF's width ``√(tr Σ / 2)``, px."""
+        return math.sqrt(0.5 * (self.psf_px[0] + self.psf_px[2]))
+
+    def to_payload(self) -> dict[str, Any]:
+        return {"psf_px": list(self.psf_px), "cov": [list(row) for row in self.cov]}
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "PointBlur":
+        return cls(
+            psf_px=cast(tuple[float, float, float], tuple(payload["psf_px"])),
+            cov=cast(
+                tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+                tuple(tuple(row) for row in payload["cov"]),
+            ),
+        )
+
+
 @dataclass(slots=True)
 class Observation:
     """2D-3D correspondences for one camera view.
@@ -725,11 +786,16 @@ class Observation:
         Optional covariance of each pixel point (:class:`PointCovariance`,
         px²), one per point. Within one calibration input either every view
         states them or none does.
+    blur:
+        Optional blur measured at each pixel point (:class:`PointBlur`), one
+        per point, ``None`` for a point without one. A measurement carried
+        with the points; no calibration reads it.
     """
 
     points_3d: list[Vec3]
     points_2d: list[Vec2]
     cov_px: list[PointCovariance] | None = None
+    blur: list[PointBlur | None] | None = None
 
     def __post_init__(self) -> None:
         self.points_3d = [_as_vec3(list(p)) for p in self.points_3d]
@@ -747,6 +813,15 @@ class Observation:
                 )
             if not all(isinstance(c, PointCovariance) for c in self.cov_px):
                 raise TypeError("cov_px entries must be PointCovariance")
+        if self.blur is not None:
+            if len(self.blur) != len(self.points_3d):
+                raise ValueError(
+                    f"blur must match point count (got {len(self.blur)} vs {len(self.points_3d)})"
+                )
+            if not all(b is None or isinstance(b, PointBlur) for b in self.blur):
+                raise TypeError("blur entries must be PointBlur or None")
+            if all(b is None for b in self.blur):
+                self.blur = None
 
     def to_payload(self) -> dict[str, Any]:
         """Convert to Rust/serde shape."""
@@ -756,16 +831,20 @@ class Observation:
         }
         if self.cov_px is not None:
             payload["cov_px"] = [c.to_payload() for c in self.cov_px]
+        if self.blur is not None:
+            payload["blur"] = [None if b is None else b.to_payload() for b in self.blur]
         return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "Observation":
         """Build observation from Rust/serde shape."""
         cov = cast(list[Mapping[str, Any]], payload.get("cov_px") or [])
+        blur = cast(list[Mapping[str, Any] | None], payload.get("blur") or [])
         return cls(
             points_3d=[cast(Vec3, tuple(p)) for p in payload["points_3d"]],
             points_2d=[cast(Vec2, tuple(p)) for p in payload["points_2d"]],
             cov_px=[PointCovariance.from_payload(c) for c in cov] or None,
+            blur=[None if b is None else PointBlur.from_payload(b) for b in blur] or None,
         )
 
 
