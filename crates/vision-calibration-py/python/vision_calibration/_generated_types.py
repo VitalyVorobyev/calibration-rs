@@ -238,8 +238,8 @@ CheckKind: TypeAlias = Literal[
 - ``"covariance_linearity"``: Whether the covariance describes the joint error of the shared
   parameters, or a combination of them errs well beyond its σ at
   second order.
-- ``"parameter_conditioning"``: Parameters whose σ the data inflates by trading them off against a
-  combination of the result's other parameters.
+- ``"parameter_conditioning"``: Camera parameters whose σ the data inflates by trading them off
+  against a combination of the camera's other parameters.
 """
 
 
@@ -2277,12 +2277,14 @@ class QualityThresholds(TypedDict, total=False):
 
     max_sigma_inflation: float
     """Largest acceptable σ inflation `1/√(1 − R²)` of one camera parameter,
-    R its multiple correlation with the other shared parameters (≥ 1);
+    R its multiple correlation with the camera's other parameters (≥ 1);
     above it the conditioning check warns, naming the parameter and the
-    partners it trades off against. Default `7.0`: a pair at the
-    correlation limit 0.99 inflates both by 7.09; well-determined sensor
-    tilts measured 1.3–4.75, tilts the data cannot separate from the
-    principal point or the tangential terms 8.6–2900.
+    partners it trades off against. The other focal length is left out
+    of a focal length's regressors, and the other radial coefficients out
+    of a radial coefficient's. Default `7.0`: a pair at the correlation
+    limit 0.99 inflates both by 7.09; well-determined sensor tilts
+    measured 1.2–5, tilts the data cannot separate from the principal
+    point or the tangential terms 14–2900.
     """
 
     max_view_residual: float

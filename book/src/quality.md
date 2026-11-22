@@ -57,7 +57,7 @@ can be changed, and in JSON they reject unknown fields.
 | `view_outliers` | camera | — | a view's mean residual exceeds 3 σ̂ |
 | `parameter_correlation` | camera | — | two parameters correlate above 0.99 |
 | `covariance_linearity` | result | — | a combination of the shared parameters is predicted to scatter more than 1.2× its σ |
-| `parameter_conditioning` | camera | — | a parameter's σ is inflated more than 7× by its correlations with the others |
+| `parameter_conditioning` | camera | — | a parameter's σ is inflated more than 7× by its correlations with the camera's other parameters |
 
 Each check carries its status, the measured value with its unit and the
 threshold it was compared to (`measurement`), what it names (`subjects`:
@@ -105,20 +105,28 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   distance scales both, so they correlate almost fully in every planar
   calibration while their ratio is well determined.
 - **Parameter conditioning** catches what a pairwise correlation misses: a
-  parameter the data cannot tell from a combination of three or more
-  others. Its measure is the σ inflation `1/√(1 − R²)`, with `R` the
-  multiple correlation of one camera parameter with all the other shared
-  parameters (other cameras and the rig included; per-view poses are
-  already folded into the covariance): how many times larger its σ is than
-  it would be if every other parameter were known. A pair at the
-  correlation limit 0.99 inflates both by 7.1; the check warns above
-  `max_sigma_inflation` (7), never fails, and `measurement` holds the
-  camera's largest inflation. Each named parameter comes with its
-  *partners*, the parameters whose partial correlation with it reaches
-  0.87: leaving any one of them out of the trade-off would at least halve
-  its σ. The message reads, for example, `k3 ×12 (with k1, k2): the data
-  determines their combination, not each`. `fx` and `fy` are each measured
-  without the other, as in the correlation check.
+  camera parameter the data cannot tell from a combination of two or more
+  of the camera's other parameters. Its measure is the σ inflation
+  `1/√(1 − R²)`, with `R` the multiple correlation of one camera parameter
+  with the camera's other parameters: how many times larger its σ is than
+  it would be if they were known. It reads the camera's own block of the
+  covariance, in which the board poses, a rig's extrinsics, a hand-eye and
+  a laser plane are already accounted for; trade-offs with those show in
+  their own σ, and nothing done to the camera model changes them. A pair
+  at the correlation limit 0.99 inflates both by 7.1; the check warns
+  above `max_sigma_inflation` (7), never fails, and `measurement` holds
+  the camera's largest inflation. Each named parameter comes with its
+  *partners*, the camera's parameters whose partial correlation with it
+  reaches 0.87: leaving any one of them out of the trade-off would at
+  least halve its σ. The message reads, for example, `tilt_x ×42 (with
+  cy), …`, or for another parameter `cy ×42 (with tilt_x): the data
+  determines their combination, not each`. `fx` and `fy` are each
+  measured without the other, as in the correlation check, and a radial
+  coefficient (`k1` … `k6`) without the camera's other radial
+  coefficients: the terms of one polynomial trade off by construction,
+  the correlation check names a pair that does, and the remedy is a model
+  with fewer terms rather than another capture. They stay in the
+  trade-off of every other parameter.
 
   A Scheimpflug tilt is determined only through the lens distortion it
   decentres, so a flagged `tilt_x` or `tilt_y` gets its cause:
@@ -140,9 +148,9 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   least halve the tilt's σ; otherwise the distortion is. On a synthetic
   1280×960 camera with a 50° field, 5 % distortion at the corner, a 5° tilt
   and twenty views over the whole image, the default free set inflates the
-  tilt 2.4× and passes; a 20° tilt 3.9×, a 20° field 1.2×. Distortion of
-  0.5 % at the corner inflates it 42×, freeing `p1, p2` 28×, freeing the
-  thin-prism terms 14×.
+  tilt 2.4× and passes; a 20° tilt 3.9×, a 20° field 1.2×, a 90° field
+  with 15 % at the corner 1.2×. Distortion of 0.5 % at the corner inflates
+  it 42×, freeing `p1, p2` 28×, freeing the thin-prism terms 14×.
 - **Covariance linearity** reads the uncertainty's `second_order`
   prediction ([Reading the Covariance](uncertainty_reading.md)). The
   covariance is the error's first-order term. When the views pin a

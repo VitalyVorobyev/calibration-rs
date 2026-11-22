@@ -765,12 +765,11 @@ fn tilted_params() -> CameraParams {
     params
 }
 
-/// `k3 ≈ (k1 + k2)/√2` up to 0.1 % of its variance: every pair correlates
-/// at most 0.71, but each parameter is almost a combination of the other two.
-#[test]
-fn a_three_way_near_gauge_warns_where_the_pairwise_check_passes() {
-    let params = calibrate(&well_covered_poses()).camera;
-    let a = 0.9995_f64;
+/// A covariance over `fx` and three more parameters `labels`, the last
+/// `(first + second)/√2` up to `1 − a²` of its variance: every pair of the
+/// three correlates at most 0.71, but the last is almost a combination of
+/// the other two.
+fn near_gauge(labels: [&str; 3], a: f64) -> Uncertainty {
     let r = a / 2.0_f64.sqrt();
     let correlation = vec![
         vec![1.0, 0.0, 0.0, 0.0],
@@ -778,24 +777,31 @@ fn a_three_way_near_gauge_warns_where_the_pairwise_check_passes() {
         vec![0.0, 0.0, 1.0, r],
         vec![0.0, r, r, 1.0],
     ];
-    let m = scaled(&correlation, &[2.0, 1e-3, 1e-2, 0.1]);
-    let uncertainty = Uncertainty::Available(covariance(&["fx", "k1", "k2", "k3"], m, 0.1));
+    let m = scaled(&correlation, &[2.0, 1.0, 1e-3, 1e-4]);
+    let [x, y, z] = labels;
+    Uncertainty::Available(covariance(&["fx", x, y, z], m, 0.1))
+}
+
+#[test]
+fn a_three_way_near_gauge_warns_where_the_pairwise_check_passes() {
+    let params = calibrate(&well_covered_poses()).camera;
+    let a = 0.9995_f64;
+    let uncertainty = near_gauge(["cx", "p1", "p2"], a);
     let thresholds = QualityThresholds::default();
     let pairwise = parameter_correlation(&params, &uncertainty, 0, &thresholds);
     assert_eq!(pairwise.status, CheckStatus::Pass, "{}", pairwise.message);
 
-    let conditioning = uncertainty.covariance().and_then(Conditioning::new);
-    let c = parameter_conditioning(&params, &uncertainty, conditioning.as_ref(), 0, &thresholds);
+    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
     assert_eq!(c.status, CheckStatus::Warn, "{}", c.message);
-    assert_eq!(c.subjects, vec!["k1", "k2", "k3"]);
-    // R² of k3 on (k1, k2) is a², so its inflation is 1/√(1 − a²).
+    assert_eq!(c.subjects, vec!["cx", "p1", "p2"]);
+    // R² of p2 on (cx, p1) is a², so its inflation is 1/√(1 − a²).
     let m = c.measurement.unwrap();
     assert_eq!((m.threshold, m.unit), (7.0, Unit::Ratio));
     assert!(
         (m.value - 1.0 / (1.0 - a * a).sqrt()).abs() < 1e-6 * m.value,
         "{m:?}"
     );
-    assert!(c.message.contains("k3 ×32 (with k1, k2)"), "{}", c.message);
+    assert!(c.message.contains("p2 ×32 (with cx, p1)"), "{}", c.message);
     assert!(
         c.message
             .contains("the data determines their combination, not each"),
@@ -803,6 +809,40 @@ fn a_three_way_near_gauge_warns_where_the_pairwise_check_passes() {
         c.message
     );
     assert!(!c.message.contains("fx"), "{}", c.message);
+}
+
+/// A radial coefficient is measured without the camera's other radial
+/// coefficients, which stay in every other parameter's trade-off.
+#[test]
+fn radial_coefficients_leave_their_own_family_out() {
+    let params = calibrate(&well_covered_poses()).camera;
+    let thresholds = QualityThresholds::default();
+    // k3 ≈ (k1 + k2)/√2: one polynomial's terms, left to the pairwise check
+    // and to model comparison.
+    let c = parameter_conditioning(
+        &params,
+        &near_gauge(["k1", "k2", "k3"], 0.9995),
+        0,
+        &thresholds,
+    );
+    assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
+    assert!((c.measurement.unwrap().value - 1.0).abs() < 1e-9);
+
+    // cx ≈ (k1 + k2)/√2: the radial terms are cx's partners, while each of
+    // them, without the other, correlates with cx at 0.71 only.
+    let c = parameter_conditioning(
+        &params,
+        &near_gauge(["k1", "k2", "cx"], 0.9995),
+        0,
+        &thresholds,
+    );
+    assert_eq!(c.status, CheckStatus::Warn, "{}", c.message);
+    assert_eq!(c.subjects, vec!["cx"]);
+    assert!(
+        c.message.starts_with("cx ×32 (with k1, k2)"),
+        "{}",
+        c.message
+    );
 }
 
 #[test]
@@ -815,14 +855,7 @@ fn the_focal_pair_alone_is_not_a_conditioning_warning() {
     ];
     let m = scaled(&correlation, &[2.0, 2.0, 1.0]);
     let uncertainty = Uncertainty::Available(covariance(&["fx", "fy", "cx"], m, 0.1));
-    let conditioning = uncertainty.covariance().and_then(Conditioning::new);
-    let c = parameter_conditioning(
-        &params,
-        &uncertainty,
-        conditioning.as_ref(),
-        0,
-        &QualityThresholds::default(),
-    );
+    let c = parameter_conditioning(&params, &uncertainty, 0, &QualityThresholds::default());
     assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
     assert!(c.subjects.is_empty());
     assert!(c.measurement.unwrap().value < 1.1, "{:?}", c.measurement);
@@ -841,8 +874,7 @@ fn a_tilt_flagged_names_its_cause() {
     let assess_one = |labels: &[&str], correlation: Vec<Vec<f64>>, sigma: &[f64]| {
         let uncertainty =
             Uncertainty::Available(covariance(labels, scaled(&correlation, sigma), 0.1));
-        let conditioning = uncertainty.covariance().and_then(Conditioning::new);
-        parameter_conditioning(&params, &uncertainty, conditioning.as_ref(), 0, &thresholds)
+        parameter_conditioning(&params, &uncertainty, 0, &thresholds)
     };
 
     // Told apart from the principal point only by the distortion.
@@ -926,7 +958,7 @@ fn a_near_singular_covariance_gives_a_finite_inflation() {
     let Uncertainty::Available(cov) = &mut export.uncertainty else {
         panic!("expected a covariance");
     };
-    cov.labels = vec!["k1".into(), "k2".into()];
+    cov.labels = vec!["cx".into(), "cy".into()];
     cov.covariance = vec![
         vec![block[(0, 0)], block[(0, 1)]],
         vec![block[(1, 0)], block[(1, 1)]],
@@ -953,15 +985,16 @@ fn a_covariance_without_positive_variances_has_no_conditioning() {
         vec![vec![1.0, 0.0], vec![0.0, 0.0]],
         0.1,
     ));
-    let conditioning = uncertainty.covariance().and_then(Conditioning::new);
-    assert!(conditioning.is_none());
+    let cov = uncertainty.covariance().unwrap();
+    assert!(Conditioning::new(cov, &[0, 1]).is_none());
+    assert!(Conditioning::new(cov, &[0]).is_some());
+    assert!(Conditioning::new(cov, &[2]).is_none());
     let thresholds = QualityThresholds::default();
-    let c = parameter_conditioning(&params, &uncertainty, None, 0, &thresholds);
+    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
     assert_eq!(c.status, CheckStatus::NotApplicable);
     let c = parameter_conditioning(
         &params,
         &unavailable(UncertaintyUnavailable::NotComputed),
-        None,
         0,
         &thresholds,
     );
@@ -969,11 +1002,13 @@ fn a_covariance_without_positive_variances_has_no_conditioning() {
 }
 
 /// The closed forms of [`Conditioning`] against direct inverses of a random
-/// SPD covariance with parameters of very different scales.
+/// SPD covariance with parameters of very different scales: the
+/// conditioning of a subset of its parameters (their marginal block), with
+/// none, one or two of them left out of the regressors.
 #[test]
 fn conditioning_matches_direct_inverses() {
     use nalgebra::DMatrix;
-    let n = 7;
+    let total = 9;
     let mut state = 0x2545_F491_4F6C_DD1D_u64;
     let mut uniform = move || {
         state ^= state << 13;
@@ -981,46 +1016,49 @@ fn conditioning_matches_direct_inverses() {
         state ^= state << 17;
         ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64 - 0.5
     };
-    let a = DMatrix::from_fn(n, n, |_, _| uniform());
-    let scales: Vec<f64> = (0..n).map(|i| 10f64.powi(i as i32 - 3)).collect();
+    let a = DMatrix::from_fn(total, total, |_, _| uniform());
+    let scales: Vec<f64> = (0..total).map(|i| 10f64.powi(i as i32 - 4)).collect();
     let d = DMatrix::from_diagonal(&nalgebra::DVector::from_vec(scales));
-    let s = &d * (a.transpose() * &a + DMatrix::identity(n, n) * 0.05) * &d;
-    let labels: Vec<String> = (0..n).map(|i| format!("q{i}")).collect();
-    let rows: Vec<Vec<f64>> = (0..n)
-        .map(|r| (0..n).map(|c| s[(r, c)]).collect())
+    let full = &d * (a.transpose() * &a + DMatrix::identity(total, total) * 0.05) * &d;
+    let labels: Vec<String> = (0..total).map(|i| format!("q{i}")).collect();
+    let rows: Vec<Vec<f64>> = (0..total)
+        .map(|r| (0..total).map(|c| full[(r, c)]).collect())
         .collect();
     let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let conditioning = Conditioning::new(&covariance(&refs, rows, 0.1)).unwrap();
+    // Seven of the nine parameters: their marginal block.
+    let subset = [0, 2, 3, 4, 5, 7, 8];
+    let n = subset.len();
+    let conditioning = Conditioning::new(&covariance(&refs, rows, 0.1), &subset).unwrap();
+    let s = DMatrix::from_fn(n, n, |r, c| full[(subset[r], subset[c])]);
 
-    let p = s.clone().try_inverse().unwrap();
-    let without = |j: usize| {
-        let keep: Vec<usize> = (0..n).filter(|&k| k != j).collect();
-        let sub = DMatrix::from_fn(n - 1, n - 1, |r, c| s[(keep[r], keep[c])]);
-        (keep.clone(), sub.try_inverse().unwrap())
+    // `S` without `excluded`, inverted, and the positions it keeps.
+    let without = |excluded: &[usize]| {
+        let keep: Vec<usize> = (0..n).filter(|k| !excluded.contains(k)).collect();
+        let m = keep.len();
+        let sub = DMatrix::from_fn(m, m, |r, c| s[(keep[r], keep[c])]);
+        (keep, sub.try_inverse().unwrap())
     };
     let close = |a: f64, b: f64| (a - b).abs() <= 1e-8 * b.abs().max(1.0);
     for i in 0..n {
-        let direct = (s[(i, i)] * p[(i, i)]).sqrt();
-        assert!(close(conditioning.inflation(i), direct), "inflation {i}");
-        for j in (0..n).filter(|&j| j != i) {
-            let partial = -p[(i, j)] / (p[(i, i)] * p[(j, j)]).sqrt();
-            assert!(
-                close(conditioning.partial(i, j), partial),
-                "partial {i} {j}"
-            );
-            let (keep, inv) = without(j);
+        let excluded_sets: Vec<Vec<usize>> = std::iter::once(Vec::new())
+            .chain((0..n).filter(|&j| j != i).map(|j| vec![j]))
+            .chain(std::iter::once(
+                (0..n).filter(|&j| j != i).take(2).collect(),
+            ))
+            .collect();
+        for excluded in &excluded_sets {
+            let (keep, inv) = without(excluded);
             let r = keep.iter().position(|&k| k == i).unwrap();
             let direct = (s[(i, i)] * inv[(r, r)]).sqrt();
             assert!(
-                close(conditioning.inflation_without(i, j), direct),
-                "inflation of {i} without {j}"
+                close(conditioning.inflation_without(i, excluded), direct),
+                "inflation of {i} without {excluded:?}"
             );
-            for k in (0..n).filter(|&k| k != i && k != j) {
-                let c = keep.iter().position(|&q| q == k).unwrap();
+            for (c, &k) in keep.iter().enumerate().filter(|&(_, &k)| k != i) {
                 let partial = -inv[(r, c)] / (inv[(r, r)] * inv[(c, c)]).sqrt();
                 assert!(
-                    close(conditioning.partial_without(i, k, j), partial),
-                    "partial {i} {k} without {j}"
+                    close(conditioning.partial_without(i, k, excluded), partial),
+                    "partial {i} {k} without {excluded:?}"
                 );
             }
         }
@@ -1037,6 +1075,38 @@ fn conditioning_matches_direct_inverses() {
             "gain of {i} holding {held:?}"
         );
     }
+}
+
+/// The check reads the camera's marginal covariance: a parameter that
+/// trades off against a rig extrinsic or a laser plane is not flagged, and a
+/// camera with one free parameter passes at inflation 1.
+#[test]
+fn trade_offs_outside_the_camera_do_not_count() {
+    let params = calibrate(&well_covered_poses()).camera;
+    let thresholds = QualityThresholds::default();
+    // cx is almost cam_se3_rig.ry + plane.d: a near-gauge outside the camera.
+    let r = 0.9995_f64 / 2.0_f64.sqrt();
+    let correlation = vec![
+        vec![1.0, 0.0, r, r],
+        vec![0.0, 1.0, 0.0, 0.0],
+        vec![r, 0.0, 1.0, 0.0],
+        vec![r, 0.0, 0.0, 1.0],
+    ];
+    let m = scaled(&correlation, &[1.0, 0.01, 1e-3, 1e-3]);
+    let labels = ["cx", "k1", "cam_se3_rig.ry", "plane.d"];
+    let uncertainty = Uncertainty::Available(covariance(&labels, m, 0.1));
+    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
+    assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
+    assert!((c.measurement.unwrap().value - 1.0).abs() < 1e-9);
+
+    let uncertainty = Uncertainty::Available(covariance(
+        &["cx", "plane.d"],
+        vec![vec![1.0, 0.999_999], vec![0.999_999, 1.0]],
+        0.1,
+    ));
+    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
+    assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
+    assert_eq!(c.measurement.unwrap().value, 1.0);
 }
 
 #[test]

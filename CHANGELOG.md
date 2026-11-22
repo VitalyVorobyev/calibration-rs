@@ -26,8 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   schema.
 - The quality report has a `parameter_conditioning` check per camera
   (`CheckKind::ParameterConditioning`). It measures how many times each
-  camera parameter's σ is inflated by its correlations with all the other
-  shared parameters, `1/√(1 − R²)`, and warns above
+  camera parameter's σ is inflated by its correlations with the camera's
+  other parameters, `1/√(1 − R²)` (a focal length without the other one, a
+  radial coefficient without the other radial coefficients), and warns above
   `QualityThresholds::max_sigma_inflation` (default 7, about a pair at the
   0.99 correlation limit), naming each such parameter with the parameters
   it trades off against. It catches trade-offs among three or more

@@ -123,7 +123,13 @@ sweep). The quality report adds `TiltDetermination`: `Warn` for
 
 The quality report's `ParameterConditioning` check (shipped ahead of the
 procedure) explains *why* a tilt's σ is large: its σ inflation
-`1/√(1 − R²)` over all shared parameters, the partners behind it, and a
+`1/√(1 − R²)` by the camera's other parameters (the camera's marginal
+block of the covariance: trade-offs with poses, rig extrinsics, a hand-eye
+or a laser plane do not count, since no change to the camera model or its
+capture moves them; with them counted, 17 of the suite's 22 camera checks
+warned, most on the principal point and focal length against a rig's
+extrinsics, a hand-eye or a laser plane, inflation up to 98), the
+partners behind it, and a
 named cause (free tangential or thin-prism terms when holding them would
 at least halve its σ, else weak or unobserved distortion). It does not
 decide *whether* the tilt is determined: an inflation measures a
@@ -134,7 +140,16 @@ well-determined coordinate there, so nothing trades off), although its
 σ-based `TiltDetermination`. The cause is read from the group gain, not
 from partial correlations: with `p1, p2` free at the study's baseline the
 tilt's partner by partial correlation is the principal point alone, while
-holding `p1, p2` cuts its σ 12× (two solves: 11.6×).
+holding `p1, p2` cuts its σ 12× (two solves: 11.6×). A radial
+coefficient's inflation leaves the camera's other radial coefficients out
+of its regressors (as `fx` and `fy` leave each other out): the terms of
+one polynomial trade off by construction (Kannala–Brandt `k1..k4` on the
+suite's fisheye cameras at 10–76, a 90° Brown–Conrady `k2` at 7.1), the
+pairwise check names a pair that does, and the remedy is model comparison,
+not a capture change. They stay regressors of every other parameter,
+since the tilt is determined through them. Under both rules no suite
+camera warns (largest inflation 6.0, the synthetic Scheimpflug entry's
+`tilt_y`), and the tilt cells keep their statuses and numbers.
 
 ### Where it runs
 

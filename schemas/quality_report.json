@@ -45,7 +45,7 @@
         },
         {
           "const": "parameter_conditioning",
-          "description": "Parameters whose σ the data inflates by trading them off against a\ncombination of the result's other parameters.",
+          "description": "Camera parameters whose σ the data inflates by trading them off\nagainst a combination of the camera's other parameters.",
           "type": "string"
         }
       ]

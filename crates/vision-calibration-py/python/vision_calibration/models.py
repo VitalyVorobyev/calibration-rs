@@ -2112,7 +2112,7 @@ class QualityThresholds:
     #: check warns (≥ 1).
     max_second_order_scatter: float = 1.2
     #: σ inflation ``1/√(1 − R²)`` of one camera parameter by its correlations
-    #: with all the other shared parameters above which the conditioning check
+    #: with the camera's other parameters above which the conditioning check
     #: names it (≥ 1).
     max_sigma_inflation: float = 7.0
 
