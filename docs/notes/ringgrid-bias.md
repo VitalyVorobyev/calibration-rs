@@ -263,3 +263,29 @@ model absorbing Steger's aspect family for a tilt about a pixel axis
 pixels. The `fy/fx` of a printed, non-display target on the same rig, and
 the datasheet pitch against tilt-from-focus's `pitch/m_p` = 5.29 µm
 (`m_p ≈ 1.75` would need a 9.3 µm pitch), decide between them.
+
+**The display candidate, checked** (measured 2026-11-22, `calib-bench run
+--dataset <id>` per entry, default configs, `fy/fx` from the record's
+intrinsics; σ not extracted). Untilted three-camera device on the same
+kind of e-ink display, anti-aliased rendering:
+
+| entries | target | `fy/fx`, cam0 / cam1 / cam2 | mean residual px |
+|---|---|---|---|
+| `rtv3s_rg_small_cam0..2` | ring grid | 1.00088 / 1.00083 / 1.00137 | 0.03 |
+| `rtv3s_rg_large_cam0..2` | ring grid | 1.00095 / 1.00061 / 1.00140 | 0.03 |
+| `rtv3s_pb_b_cam0..2` | PuzzleBoard | 1.00085 / 1.00096 / 1.00160 | — |
+| `ipgs_cam1` | precision print | 1.00011 | 0.034 |
+
+Each camera repeats across the three display captures to about 3e-4, and
+the camera on the precision print is square to 1e-4. So the display's x/y
+scale, together with those cameras' own aspect, is at most +0.06 … +0.16 %:
+it cannot carry the +0.74 … +0.95 % of the tilted cameras. About 0.6–0.85 %
+is left to the tilted devices themselves, which leaves two candidates:
+Steger's aspect family under the `d = c` model (0.7 % at `τ_d` = 5.2° is
+`τ_s ≈ 8.5°`, `m_p ≈ 1.66`, a pitch of 8.8 µm by tilt-from-focus's
+`pitch/m_p`), or non-square pixels on that sensor. The sensor's model name
+(its pitch) decides: a pitch near 8.8 µm supports `m_p`, a square pitch far
+from it does not. Caveats: the untilted device is a different camera and
+lens, so this bounds the display, not the tilted sensor; and the display
+captures compared are anti-aliased, the tilted ones aliased (snapping moves
+points by a fraction of a display pixel and keeps the mean scale).

@@ -344,11 +344,12 @@ Each model follows AGENTS.md §10 (a camera model).
   display's x/y scale trades with the aspect ratio; views with the rig
   rolled about 90° separate them. First
   check, before any solve: the raw `fy/fx` there is 1.0074–1.0095 on all
-  six cameras. If the pixels are square and the
-  e-ink target's x and y scales equal, that is the `d = c` model absorbing
-  Steger's aspect family, `m_p ≈ 1.75`. Compare the `fy/fx` of a printed
-  target on the same rig, and the datasheet pitch against
-  tilt-from-focus's `pitch/m_p` = 5.29 µm (`m_p ≈ 1.75` needs 9.3 µm).
+  six cameras. The display's x/y scale carries at most 0.06–0.16 % of
+  it (untilted cameras on the same kind of display, measured,
+  `notes/ringgrid-bias.md`). If the pixels are square, the remaining
+  0.6–0.85 % is the `d = c` model absorbing Steger's aspect family,
+  `m_p ≈ 1.66`. The sensor's pitch decides: tilt-from-focus's
+  `pitch/m_p` = 5.29 µm needs 8.8 µm for that `m_p`.
 - [ ] CAL-TILT-SEED-INIT - A tilt seed without an intrinsics seed fits the
   intrinsics at the seeded tilt (`planar_family::bootstrap_camera`, every
   workflow), but only from the candidates the linear Scheimpflug init builds
