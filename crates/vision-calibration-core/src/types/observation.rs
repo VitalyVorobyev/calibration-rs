@@ -144,6 +144,122 @@ impl PointCovariance {
     }
 }
 
+/// The blur measured at one observed image point: the Gaussian point-spread
+/// function (PSF) that best explains the blurred image around it, and the
+/// covariance of that estimate.
+///
+/// [`psf_px`](Self::psf_px) is the PSF's covariance matrix `Σ = [[xx, xy],
+/// [xy, yy]]`, px², stored as `[xx, xy, yy]` (the layout of
+/// [`PointCovariance`]'s entries). Its principal axes are the directions of
+/// least and most blur, and [`sigma_px`](Self::sigma_px) `= √(tr Σ / 2)` is
+/// the PSF's width. `Σ` is the blur as the image shows it, **including the
+/// pixel's area integration**: for a Gaussian optical PSF of covariance `Σ_o`
+/// seen by square pixels, `Σ ≈ Σ_o + I/12`, so a model of the optics adds
+/// `I/12` to its prediction before comparing it with `Σ`.
+///
+/// [`cov`](Self::cov) is the 3×3 covariance of `(xx, xy, yy)`, px⁴. What it
+/// covers is the detector's statement: ring-grid markers report one that
+/// holds for differences between the markers of one image, and every marker
+/// of an image shares a further offset of the width that it does not
+/// contain.
+///
+/// Constructed only through [`PointBlur::new`] (or deserialization), which
+/// checks that it is finite, that `Σ` is positive definite and that `cov` is
+/// a symmetric matrix with non-negative variances.
+///
+/// # Example
+///
+/// ```
+/// use vision_calibration_core::PointBlur;
+///
+/// // A PSF of 1.5 px along u and 1.2 px along v, uncorrelated.
+/// let cov = [[1e-3, 0.0, 0.0], [0.0, 1e-4, 0.0], [0.0, 0.0, 1e-3]];
+/// let blur = PointBlur::new([2.25, 0.0, 1.44], cov).unwrap();
+/// assert!((blur.sigma_px() - 1.3583).abs() < 1e-4);
+/// assert!(PointBlur::new([1.0, 2.0, 1.0], cov).is_err()); // Σ not positive definite
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(try_from = "PointBlurRaw")]
+pub struct PointBlur {
+    psf_px: [f64; 3],
+    cov: [[f64; 3]; 3],
+}
+
+/// The wire form of [`PointBlur`], validated on conversion; it also
+/// describes its JSON Schema.
+#[derive(Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(rename = "PointBlur"))]
+struct PointBlurRaw {
+    /// The PSF covariance `[xx, xy, yy]`, px², including the pixel's area
+    /// integration.
+    psf_px: [f64; 3],
+    /// The covariance of `psf_px`, px⁴, row-major.
+    cov: [[f64; 3]; 3],
+}
+
+impl TryFrom<PointBlurRaw> for PointBlur {
+    type Error = Error;
+
+    fn try_from(raw: PointBlurRaw) -> Result<Self, Self::Error> {
+        Self::new(raw.psf_px, raw.cov)
+    }
+}
+
+impl PointBlur {
+    /// The blur of PSF covariance `psf_px` (`[xx, xy, yy]`, px²) with the
+    /// covariance `cov` of those three elements (px⁴, row-major).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] unless every entry is finite, `Σ` is
+    /// positive definite (`xx > 0`, `yy > 0`, `xy² < xx·yy`), `cov` has
+    /// non-negative variances and is symmetric (to `1e-9` of its largest
+    /// variance).
+    pub fn new(psf_px: [f64; 3], cov: [[f64; 3]; 3]) -> Result<Self, Error> {
+        let [xx, xy, yy] = psf_px;
+        let finite = psf_px
+            .iter()
+            .chain(cov.iter().flatten())
+            .all(|v| v.is_finite());
+        if !finite || !(xx > 0.0 && yy > 0.0 && xx * yy - xy * xy > 0.0) {
+            return Err(Error::invalid_input(format!(
+                "a point blur's PSF covariance must be finite and positive definite, got \
+                 [[{xx}, {xy}], [{xy}, {yy}]] px²"
+            )));
+        }
+        let scale = (0..3).map(|i| cov[i][i]).fold(0.0, f64::max);
+        let variances = (0..3).all(|i| cov[i][i] >= 0.0);
+        let symmetric =
+            (0..3).all(|r| (0..r).all(|k| (cov[r][k] - cov[k][r]).abs() <= 1e-9 * scale));
+        if !(variances && symmetric) {
+            return Err(Error::invalid_input(format!(
+                "a point blur's covariance must be symmetric with non-negative variances, \
+                 got {cov:?} px⁴"
+            )));
+        }
+        Ok(Self { psf_px, cov })
+    }
+
+    /// The PSF covariance `[xx, xy, yy]`, px², including the pixel's area
+    /// integration.
+    pub fn psf_px(&self) -> [f64; 3] {
+        self.psf_px
+    }
+
+    /// The covariance of [`psf_px`](Self::psf_px), px⁴, row-major.
+    pub fn cov(&self) -> [[f64; 3]; 3] {
+        self.cov
+    }
+
+    /// The PSF's width `√(tr Σ / 2)`, px: the root mean of its two
+    /// principal variances.
+    pub fn sigma_px(&self) -> f64 {
+        (0.5 * (self.psf_px[0] + self.psf_px[2])).sqrt()
+    }
+}
+
 /// A single view containing 2D-3D point correspondences.
 ///
 /// This is the canonical observation type used across planar intrinsics,
@@ -155,9 +271,12 @@ impl PointCovariance {
 /// - `points_2d`: Corresponding 2D pixel observations
 /// - `cov_px`: optionally, the covariance of each image point
 ///   ([`PointCovariance`], px²)
+/// - `blur`: optionally, the blur measured at each image point
+///   ([`PointBlur`]), `None` for a point without one
 ///
 /// Within one calibration input either every view carries covariances or
-/// none does.
+/// none does. The blur is a measurement carried with the points: any point
+/// may have one or not, and no calibration reads it.
 ///
 /// # Example
 ///
@@ -189,6 +308,10 @@ pub struct CorrespondenceView {
     /// Per-point covariance, px², one per point; `None` when not stated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cov_px: Option<Vec<PointCovariance>>,
+    /// Per-point measured blur, one per point (`None` for a point without
+    /// one); empty when no point has one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    blur: Vec<Option<PointBlur>>,
 }
 
 /// The wire form of [`CorrespondenceView`], validated on conversion; it
@@ -208,17 +331,22 @@ struct CorrespondenceViewRaw {
     /// view states them or none does.
     #[serde(default)]
     cov_px: Vec<PointCovariance>,
+    /// The blur measured at each image point, one per point, `null` for a
+    /// point without one; absent or empty when no point has one.
+    #[serde(default)]
+    blur: Vec<Option<PointBlur>>,
 }
 
 impl TryFrom<CorrespondenceViewRaw> for CorrespondenceView {
     type Error = Error;
 
     fn try_from(raw: CorrespondenceViewRaw) -> Result<Self, Self::Error> {
-        if raw.cov_px.is_empty() {
+        let view = if raw.cov_px.is_empty() {
             Self::new(raw.points_3d, raw.points_2d)
         } else {
             Self::new_with_covariances(raw.points_3d, raw.points_2d, raw.cov_px)
-        }
+        }?;
+        view.with_blur(raw.blur)
     }
 }
 
@@ -234,6 +362,7 @@ impl CorrespondenceView {
             points_3d,
             points_2d,
             cov_px: None,
+            blur: Vec::new(),
         })
     }
 
@@ -260,7 +389,32 @@ impl CorrespondenceView {
             points_3d,
             points_2d,
             cov_px: Some(cov_px),
+            blur: Vec::new(),
         })
+    }
+
+    /// The same view with the blur measured at each point, one per point
+    /// (`None` for a point without one). An empty list, or one without any
+    /// blur, leaves the view without blur.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidInput`] if a non-empty `blur` does not have
+    /// one entry per point.
+    pub fn with_blur(mut self, blur: Vec<Option<PointBlur>>) -> Result<Self, Error> {
+        if !blur.is_empty() && blur.len() != self.len() {
+            return Err(Error::invalid_input(format!(
+                "blur count must match point count: {} vs {}",
+                blur.len(),
+                self.len()
+            )));
+        }
+        self.blur = if blur.iter().any(Option::is_some) {
+            blur
+        } else {
+            Vec::new()
+        };
+        Ok(self)
     }
 
     /// Return planar target coordinates `(x, y)` extracted from `points_3d`.
@@ -296,6 +450,19 @@ impl CorrespondenceView {
     #[inline]
     pub fn covariance(&self, idx: usize) -> Option<PointCovariance> {
         self.cov_px.as_ref().and_then(|c| c.get(idx).copied())
+    }
+
+    /// The blur measured at each point, one per point (`None` for a point
+    /// without one); `None` when no point has one.
+    pub fn blurs(&self) -> Option<&[Option<PointBlur>]> {
+        (!self.blur.is_empty()).then_some(self.blur.as_slice())
+    }
+
+    /// The blur measured at point `idx`; `None` when it has none (or `idx`
+    /// is out of range).
+    #[inline]
+    pub fn blur(&self, idx: usize) -> Option<PointBlur> {
+        self.blur.get(idx).copied().flatten()
     }
 
     /// Iterate over (3D point, 2D point) pairs.
@@ -575,6 +742,116 @@ mod tests {
             "cov_px": [{"xx": 1.0, "xy": 2.0, "yy": 1.0}]
         }"#;
         let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
+        assert!(err.to_string().contains("positive definite"), "{err}");
+    }
+
+    const BLUR_COV: [[f64; 3]; 3] = [[4e-3, 1e-4, -2e-4], [1e-4, 1e-3, 0.0], [-2e-4, 0.0, 3e-3]];
+
+    #[test]
+    fn point_blur_validates() {
+        let blur = PointBlur::new([2.25, 0.3, 1.75], BLUR_COV).unwrap();
+        assert_eq!(blur.psf_px(), [2.25, 0.3, 1.75]);
+        assert_eq!(blur.cov(), BLUR_COV);
+        assert!((blur.sigma_px() - 2.0_f64.sqrt()).abs() < 1e-15);
+        for psf in [
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0], // singular
+            [1.0, 0.0, -1.0],
+            [f64::NAN, 0.0, 1.0],
+        ] {
+            assert!(PointBlur::new(psf, BLUR_COV).is_err(), "{psf:?} accepted");
+        }
+        let mut asymmetric = BLUR_COV;
+        asymmetric[0][1] += 1e-6;
+        let mut negative = BLUR_COV;
+        negative[1][1] = -1e-6;
+        let mut infinite = BLUR_COV;
+        infinite[2][0] = f64::INFINITY;
+        for cov in [asymmetric, negative, infinite] {
+            assert!(
+                PointBlur::new([1.0, 0.0, 1.0], cov).is_err(),
+                "{cov:?} accepted"
+            );
+        }
+        // Rounding-level asymmetry is accepted.
+        let mut rounded = BLUR_COV;
+        rounded[0][1] += 1e-18;
+        assert!(PointBlur::new([1.0, 0.0, 1.0], rounded).is_ok());
+    }
+
+    #[test]
+    fn correspondence_view_carries_blur() {
+        let (p3, p2) = points(3);
+        let blur = PointBlur::new([2.25, 0.0, 2.25], BLUR_COV).unwrap();
+        let view = CorrespondenceView::new(p3.clone(), p2.clone())
+            .unwrap()
+            .with_blur(vec![Some(blur), None, Some(blur)])
+            .unwrap();
+        assert_eq!(view.blur(0), Some(blur));
+        assert_eq!(view.blur(1), None);
+        assert_eq!(view.blur(3), None);
+        assert_eq!(view.blurs().map(<[_]>::len), Some(3));
+
+        // A list without any blur, or an empty one, is no blur.
+        let none = CorrespondenceView::new(p3.clone(), p2.clone())
+            .unwrap()
+            .with_blur(vec![None; 3])
+            .unwrap();
+        assert!(none.blurs().is_none());
+        assert!(
+            CorrespondenceView::new(p3.clone(), p2.clone())
+                .unwrap()
+                .with_blur(Vec::new())
+                .unwrap()
+                .blurs()
+                .is_none()
+        );
+        let err = CorrespondenceView::new(p3, p2)
+            .unwrap()
+            .with_blur(vec![Some(blur)])
+            .unwrap_err();
+        assert!(err.to_string().contains("blur count"), "{err}");
+    }
+
+    #[test]
+    fn correspondence_view_blur_json_roundtrip() {
+        let (p3, p2) = points(2);
+        let blur = PointBlur::new([2.25, -0.1, 1.5], BLUR_COV).unwrap();
+        let c = PointCovariance::new(0.09, 0.0, 0.04).unwrap();
+        let view = CorrespondenceView::new_with_covariances(p3.clone(), p2.clone(), vec![c; 2])
+            .unwrap()
+            .with_blur(vec![None, Some(blur)])
+            .unwrap();
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(
+            json.contains(r#""blur":[null,{"psf_px":[2.25,-0.1,1.5],"cov":"#),
+            "{json}"
+        );
+        let restored: CorrespondenceView = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.blurs(), view.blurs());
+        assert_eq!(restored.covariances(), view.covariances());
+
+        // Without blur: no key, and a view written before the field reads.
+        let plain = CorrespondenceView::new(p3, p2).unwrap();
+        let json = serde_json::to_string(&plain).unwrap();
+        assert!(!json.contains("blur"), "{json}");
+        let old = r#"{"points_3d": [[0.0, 0.0, 0.0]], "points_2d": [[1.0, 2.0]]}"#;
+        assert!(
+            serde_json::from_str::<CorrespondenceView>(old)
+                .unwrap()
+                .blurs()
+                .is_none()
+        );
+
+        // Validated on read: a count mismatch and an invalid blur fail.
+        let short = r#"{"points_3d": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            "points_2d": [[1.0, 2.0], [3.0, 2.0]],
+            "blur": [{"psf_px": [1.0, 0.0, 1.0], "cov": [[0,0,0],[0,0,0],[0,0,0]]}]}"#;
+        let err = serde_json::from_str::<CorrespondenceView>(short).unwrap_err();
+        assert!(err.to_string().contains("blur count"), "{err}");
+        let bad = r#"{"points_3d": [[0.0, 0.0, 0.0]], "points_2d": [[1.0, 2.0]],
+            "blur": [{"psf_px": [1.0, 2.0, 1.0], "cov": [[0,0,0],[0,0,0],[0,0,0]]}]}"#;
+        let err = serde_json::from_str::<CorrespondenceView>(bad).unwrap_err();
         assert!(err.to_string().contains("positive definite"), "{err}");
     }
 

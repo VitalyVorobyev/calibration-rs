@@ -15,7 +15,8 @@
 #                        `Division`, `RationalPolynomial`, `ThinPrism`, each with
 #                        the `Distortion` suffix Python's flat namespace needs and
 #                        the coefficient count its payload carries
-#   Features             the numpy columns of `Vec<Feature>`; `CachedFeatures` is
+#   Features             the numpy columns of `Vec<Feature>` (a `FeatureBlur` is its
+#                        `blur_psf_px` and `blur_cov` rows); `CachedFeatures` is
 #                        the cache's one-field wrapper around that vector
 #   RigEyeInHand, RigEyeToHand, CameraEyeInHand, CameraEyeToHand
 #                        the variants of `HandeyeSolution` and
@@ -114,6 +115,7 @@
 "core::PixelRect" = "types.PixelRect"
 "core::PlanarDataset" = ["PlanarIntrinsicsInput", "types.PlanarIntrinsicsInput"]
 "core::Ray" = "camera.CameraModel.unproject"
+"core::PointBlur" = ["PointBlur", "types.PointBlur"]
 "core::PointCovariance" = ["PointCovariance", "types.PointCovariance"]
 "core::ProjectionKind" = "types.ProjectionKind"
 "core::ProjectionParams" = "types.ProjectionParams"
@@ -200,6 +202,7 @@
 "detect::CachedFeatures" = "Features"
 "detect::DetectError" = "RunError"
 "detect::Feature" = "Features"
+"detect::FeatureBlur" = "Features"
 "detect::FsDetectionCache" = "FsDetectionCache"
 "detect::reject_ambiguous_detection" = "reject_ambiguous_detection"
 "laserline_device::DeviceInitOptions" = "DeviceInitOptions"

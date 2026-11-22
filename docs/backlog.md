@@ -258,32 +258,33 @@ Each model follows AGENTS.md §10 (a camera model).
   analytic `√(1/(σ⁻² + σₚ⁻²))` within 5 %, the C1 table through the
   library, JSON round-trips, typed errors for a prior on a fixed parameter
   or a non-positive σ.
-- [ ] CAL-TILT-FOCUS - Per-feature blur as an observation, and a focus
-  term that ties the Scheimpflug tilt to the plane of sharp focus
-  (`notes/tilt-from-focus.md`). Evidence: on six ring-grid cameras a
+- [ ] CAL-TILT-FOCUS - A focus term that ties the Scheimpflug tilt to the
+  plane of sharp focus (`notes/tilt-from-focus.md`), read from the
+  per-feature blur the observations carry (`Feature::blur` →
+  `CorrespondenceView::blur`, a `PointBlur`: the PSF covariance `Σ` in px²
+  including pixel integration, with its 3×3 covariance; ring-grid
+  photometric centres fill it; calib-targets' coming per-corner 2×2 Σ maps
+  to it without loss, adding `I/12` if its model excludes the pixel).
+  Evidence: on six ring-grid cameras a
   5-parameter focus model (plane `π`, blur scale `κ`, in-focus blur `σ0`)
   explains 91–96 % of the blur variance and the PoF's sign agrees with the
   distortion tilt on all six, but the two routes disagree by ±0.5° per unit,
   which neither model explains (a defocus/depth law in the distortion route
   closes 13–51 % of the `τx` gap and none of the direction gap,
-  `notes/tilt-bias.md`). Design: (1) a
-  detector-agnostic optional blur σ (px) per feature next to the 2D point
-  (ring-grid photometric fits have it; corners could report an edge
-  width), carried through the dataset types and the detection cache. The
-  type is the PSF covariance `Σ_psf` (px², its three unique elements)
-  with their 3×3 covariance, not a scalar: ringgrid's `(σ, a, b)` and
-  calib-targets' per-corner 2×2 Σ both map to it without loss, and the
-  focus model reads `σ² = tr Σ_psf / 2`. ringgrid's σ carries a per-image
-  offset of −2…−6 % until its ALGO-021, so the focus fit takes one σ
-  offset per image until then. The blur-gradient centre bias stays in the
+  `notes/tilt-bias.md`). Design constraints: the model reads
+  `σ² = tr Σ / 2` and predicts it as `σ_optics² + 1/12` (the pixel term is
+  in the observation, not subtracted from it); ringgrid's `cov` holds for
+  differences within one image and every marker of an image shares a σ
+  offset it excludes (≈ 0.001 px coded, 0.008–0.05 px plain), so the fit
+  takes one σ offset per image. The blur-gradient centre bias stays in the
   points: ringgrid measured and rejected a detector-side correction (its
   ALGO-018/019), and the bias is a near-gauge of `fy` and the poses, so no
   calibration term models it either. Where the aspect ratio matters, a
   caller subtracts the law `0.62·∇(σ²)` with the gradient of the fitted
   focus model (`notes/scheimpflug-literature.md`, *The blur field of a
   planar target*); otherwise it is a stated systematic of about 4e-4 in
-  `fy/fx` on the studied rig;
-  (2) a diagnostic first: fit `σ² = σ0² + κ²(1/z − π·(x, y, 1))²` after
+  `fy/fx` on the studied rig. Steps:
+  (1) a diagnostic first: fit `σ² = σ0² + κ²(1/z − π·(x, y, 1))²` after
   the solve in the `K'` frame (the poses' tilt rotation applied) and
   report `π` with its view-jackknife σ, the tilt direction, the tilt
   implied by a stated pitch and pupil magnification, and the difference
@@ -291,7 +292,7 @@ Each model follows AGENTS.md §10 (a camera model).
   implies: for a stated acceptable blur `σ_max`, the near and far planes
   `(π ± ε·e_z)·X = 1`, `ε = √(σ_max² − σ0²)/κ`, through the hinge line
   `{π·X = 1, e_z·X = 0}`, as derived quantities with their σ (ADR 0028;
-  `notes/scheimpflug-literature.md`, *Depth of field*); (3) only once the ±0.5°
+  `notes/scheimpflug-literature.md`, *Depth of field*); (2) only once the ±0.5°
   is explained, an opt-in focus residual (`FactorKind` arm, both
   backends, the covariance family map) linking `π` to the tilt through
   `v0 = f'·pitch` and `m_p` given as priors with σ. Not a replacement for

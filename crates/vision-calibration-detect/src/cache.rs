@@ -387,6 +387,7 @@ mod tests {
                 image_xy: [10.0, 20.0],
                 world_xyz: [0.0, 0.0, 0.0],
                 cov_px: None,
+                blur: None,
             }],
         };
         cache.put(&key, &entry).unwrap();
@@ -417,6 +418,7 @@ mod tests {
                 image_xy: [f64::from((next() * 1440.0) as f32), next() * 1080.0],
                 world_xyz: [(i % 130) as f64 * 0.0052, (i / 130) as f64 * 0.001014, 0.0],
                 cov_px: None,
+                blur: None,
             })
             .collect();
         let entry = CachedFeatures { features };
@@ -426,6 +428,35 @@ mod tests {
         for (stored, read) in entry.features.iter().zip(&back.features) {
             assert_eq!(bits(stored), bits(read), "{stored:?} read back as {read:?}");
         }
+    }
+
+    /// A feature's blur is stored and read back exactly, and an entry
+    /// written before features carried a blur still reads, without one.
+    #[test]
+    fn fs_cache_carries_the_blur_and_reads_old_entries() {
+        let dir = tempdir().unwrap();
+        let cache = FsDetectionCache::new(dir.path());
+        let key = CacheKey::from_inputs(b"img", "ringgrid", &json!({}));
+        let blur = crate::FeatureBlur::new(
+            [2.25, -0.125, 1.75],
+            [[4e-3, 1e-4, 0.0], [1e-4, 1e-3, 2e-5], [0.0, 2e-5, 3e-3]],
+        );
+        let entry = CachedFeatures::new(vec![
+            Feature::new([1.5, 2.5], [0.0, 0.0, 0.0]).with_blur(Some(blur)),
+            Feature::new([7.5, 2.5], [0.008, 0.0, 0.0]),
+        ]);
+        cache.put(&key, &entry).unwrap();
+        let back = cache.get(&key).unwrap().expect("cache hit expected");
+        assert_eq!(back.features, entry.features);
+
+        let old = CacheKey::from_inputs(b"old", "ringgrid", &json!({}));
+        std::fs::write(
+            dir.path().join(old.file_name()),
+            r#"{"features":[{"image_xy":[1.5,2.5],"world_xyz":[0.0,0.0,0.0]}]}"#,
+        )
+        .unwrap();
+        let back = cache.get(&old).unwrap().expect("cache hit expected");
+        assert_eq!(back.features[0].blur, None);
     }
 
     #[test]
@@ -451,6 +482,7 @@ mod tests {
                 image_xy: [1.0, 2.0],
                 world_xyz: [0.0, 0.0, 0.0],
                 cov_px: None,
+                blur: None,
             }],
         };
         cache.put(&key, &entry).unwrap();

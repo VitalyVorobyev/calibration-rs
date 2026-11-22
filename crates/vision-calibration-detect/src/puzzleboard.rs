@@ -110,6 +110,7 @@ pub(crate) fn detect(
             ],
             world_xyz: [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0],
             cov_px: None,
+            blur: None,
         });
     }
     Ok(crate::reject_ambiguous_detection(features))

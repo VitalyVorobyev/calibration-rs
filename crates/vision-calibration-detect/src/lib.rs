@@ -52,7 +52,7 @@ mod ringgrid;
 
 pub use cache::{CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache};
 pub use error::DetectError;
-pub use feature::{Feature, reject_ambiguous_detection};
+pub use feature::{Feature, FeatureBlur, reject_ambiguous_detection};
 
 #[cfg(feature = "charuco")]
 pub use charuco::{CharucoConfig, validate_charuco_layout, validate_dictionary};
@@ -176,6 +176,9 @@ impl DetectorConfig {
             // Corner re-detection runs with the `chess_corners` override.
             #[cfg(feature = "charuco")]
             Self::Charuco(_) => Some(1),
+            // Photometric centres carry their measured blur.
+            #[cfg(feature = "ringgrid")]
+            Self::Ringgrid(_) => Some(1),
             #[allow(unreachable_patterns)]
             _ => None,
         }

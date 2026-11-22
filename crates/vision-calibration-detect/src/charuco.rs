@@ -175,6 +175,7 @@ pub(crate) fn detect(
                     0.0,
                 ],
                 cov_px: corner.position_covariance.map(cov_px),
+                blur: None,
             })
             .collect(),
     ))

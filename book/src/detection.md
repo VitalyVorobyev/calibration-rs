@@ -93,7 +93,7 @@ let json = serde_json::to_string(&target).unwrap();
 assert!(json.contains(r#""coding":{"plain":{"origin_dots":true}}"#));
 ```
 
-The optional `center_method` picks how each marker's centre is estimated. The default, `"ellipse"`, takes the projective centre of the fitted inner and outer ellipses: fast, and accurate on sharp images. On a blurred or low-contrast image the edge points of a ring carry a blur- and code-dependent bias; `"photometric"` instead fits the marker's pixels with the printed ring (and code) pattern, blurred by a fitted Gaussian, and removes that bias. It works on coded and plain markers alike. It costs roughly 2.5 times the detection time, and it returns only the markers the fit refined, so a marker that could not be fitted is dropped rather than mixed in at lower accuracy. It stays opt-in until its benefit on real calibration data is established. It does not report a per-point covariance, so the calibration stays unweighted.
+The optional `center_method` picks how each marker's centre is estimated. The default, `"ellipse"`, takes the projective centre of the fitted inner and outer ellipses: fast, and accurate on sharp images. On a blurred or low-contrast image the edge points of a ring carry a blur- and code-dependent bias; `"photometric"` instead fits the marker's pixels with the printed ring (and code) pattern, blurred by a fitted Gaussian, and removes that bias. It works on coded and plain markers alike. It costs roughly 2.5 times the detection time, and it returns only the markers the fit refined, so a marker that could not be fitted is dropped rather than mixed in at lower accuracy. It stays opt-in until its benefit on real calibration data is established. It does not report a per-point covariance, so the calibration stays unweighted; it does report each marker's [measured blur](#measured-blur).
 
 ```toml
 [target]
@@ -106,6 +106,18 @@ marker_inner_radius_m = 0.0012
 marker_ring_width_m = 0.0004
 center_method = "photometric"
 ```
+
+### Measured blur
+
+With photometric centres, each marker also reports the blur the fit measured, in `Feature::blur` (a `FeatureBlur`), and every observation built from the features carries it per point (`CorrespondenceView::blur`, a `PointBlur`; in JSON the view's optional `blur` list, `null` for a point without one). It is a measurement carried with the points: no calibration reads it, and the points and their covariances are the same with or without it.
+
+- **`psf_px`** is the covariance `Σ = [[xx, xy], [xy, yy]]` of the Gaussian point-spread function that best explains the marker's edges, in px², stored as `[xx, xy, yy]` like `cov_px`. Its principal axes are the directions of least and most blur, and `√(tr Σ / 2)` is its width σ (`PointBlur::sigma_px`).
+- **It includes the pixel's area integration.** For a Gaussian lens PSF of covariance `Σ_o` and square pixels, `Σ ≈ Σ_o + I/12`. This is what the detector measured; a model of the optics adds `I/12` to its prediction before comparing it with `Σ`, rather than subtracting it here (on a sharp marker `Σ − I/12` need not be positive definite).
+- **`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴. It holds for differences between the markers of one image. Every marker of an image shares a further offset of σ that it does not contain (about 0.001 px on coded targets, 0.008 to 0.05 px on plain rings), so a model fitted across images carries one blur offset per image.
+- **Accuracy.** For a Gaussian PSF of 0.7 to 3 px on markers of outer radius 17 px or more, σ is within about ±0.5 % of the true edge width; on smaller markers, plain thin rings or displayed targets, within a few percent. Under a non-Gaussian PSF (a defocus disc, a halo) it is the width of the best-matching Gaussian edge, not the PSF's second moment.
+- **Missing values.** A marker has no blur when the fit's width exceeds a quarter of its outer radius in pixels, where the ring's own edges blur together. Edge-based centres (`"ellipse"`) report none.
+
+In Python, `Features.blur_psf_px` `(N, 3)` and `Features.blur_cov` `(N, 3, 3)` hold it (NaN rows for a marker without one, `None` when no marker has one), and `Features.to_observation()` carries it into `Observation.blur` as `PointBlur` values.
 
 ## Corner Detector Overrides
 

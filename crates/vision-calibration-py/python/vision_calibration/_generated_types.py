@@ -368,9 +368,12 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
     - `points_2d`: Corresponding 2D pixel observations
     - `cov_px`: optionally, the covariance of each image point
       (`PointCovariance`, px²)
+    - `blur`: optionally, the blur measured at each image point
+      (`PointBlur`), `None` for a point without one
 
     Within one calibration input either every view carries covariances or
-    none does.
+    none does. The blur is a measurement carried with the points: any point
+    may have one or not, and no calibration reads it.
 
     # Example
 
@@ -389,6 +392,11 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
         CorrespondenceView::new_with_covariances(points_3d, points_2d, vec![cov; 2]).unwrap();
     assert_eq!(view.covariance(1), Some(cov));
     ```
+    """
+
+    blur: list[PointBlur | None]
+    """The blur measured at each image point, one per point, `null` for a
+    point without one; absent or empty when no point has one.
     """
 
     cov_px: list[PointCovariance]
@@ -1843,6 +1851,52 @@ class PlaneOptimizeConfig(TypedDict):
     laser_residual_type: LaserlineResidualType
     """The laser residual: the line distance in pixels (the default) or the
     point-to-plane distance in meters.
+    """
+
+
+class PointBlur(TypedDict):
+    """The blur measured at one observed image point: the Gaussian point-spread
+    function (PSF) that best explains the blurred image around it, and the
+    covariance of that estimate.
+
+    `psf_px` is the PSF's covariance matrix `Σ = [[xx, xy],
+    [xy, yy]]`, px², stored as `[xx, xy, yy]` (the layout of
+    `PointCovariance`'s entries). Its principal axes are the directions of
+    least and most blur, and `sigma_px` `= √(tr Σ / 2)` is
+    the PSF's width. `Σ` is the blur as the image shows it, **including the
+    pixel's area integration**: for a Gaussian optical PSF of covariance `Σ_o`
+    seen by square pixels, `Σ ≈ Σ_o + I/12`, so a model of the optics adds
+    `I/12` to its prediction before comparing it with `Σ`.
+
+    `cov` is the 3×3 covariance of `(xx, xy, yy)`, px⁴. What it
+    covers is the detector's statement: ring-grid markers report one that
+    holds for differences between the markers of one image, and every marker
+    of an image shares a further offset of the width that it does not
+    contain.
+
+    Constructed only through `PointBlur::new` (or deserialization), which
+    checks that it is finite, that `Σ` is positive definite and that `cov` is
+    a symmetric matrix with non-negative variances.
+
+    # Example
+
+    ```
+    use vision_calibration_core::PointBlur;
+
+    // A PSF of 1.5 px along u and 1.2 px along v, uncorrelated.
+    let cov = [[1e-3, 0.0, 0.0], [0.0, 1e-4, 0.0], [0.0, 0.0, 1e-3]];
+    let blur = PointBlur::new([2.25, 0.0, 1.44], cov).unwrap();
+    assert!((blur.sigma_px() - 1.3583).abs() < 1e-4);
+    assert!(PointBlur::new([1.0, 2.0, 1.0], cov).is_err()); // Σ not positive definite
+    ```
+    """
+
+    cov: tuple[tuple[float, float, float] | list[float], tuple[float, float, float] | list[float], tuple[float, float, float] | list[float]] | list[tuple[float, float, float] | list[float]]
+    """The covariance of `psf_px`, px⁴, row-major."""
+
+    psf_px: tuple[float, float, float] | list[float]
+    """The PSF covariance `[xx, xy, yy]`, px², including the pixel's area
+    integration.
     """
 
 
@@ -4216,6 +4270,7 @@ __all__ = [
     "PlanarOptimizeConfig",
     "PlanarView",
     "PlaneOptimizeConfig",
+    "PointBlur",
     "PointCovariance",
     "PoseColumnMap",
     "PoseConvention",

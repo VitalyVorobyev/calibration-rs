@@ -25,16 +25,26 @@ pub struct Feature {
     /// (`ChessCornersConfig::covariance`) and measured one; `None` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cov_px: Option<[f64; 3]>,
+    /// The blur the detector measured at this feature, with its covariance
+    /// ([`FeatureBlur`]). Present when the detector measures one: ring-grid
+    /// markers with photometric centres
+    /// ([`RinggridCenterMethod::Photometric`](crate::RinggridCenterMethod::Photometric)),
+    /// for each marker whose fit reported a blur. `None` otherwise.
+    ///
+    /// A measurement only: no calibration reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blur: Option<FeatureBlur>,
 }
 
 impl Feature {
     /// The correspondence of pixel `image_xy` to target point `world_xyz`,
-    /// without a covariance.
+    /// without a covariance or a blur.
     pub fn new(image_xy: [f64; 2], world_xyz: [f64; 3]) -> Self {
         Self {
             image_xy,
             world_xyz,
             cov_px: None,
+            blur: None,
         }
     }
 
@@ -43,6 +53,59 @@ impl Feature {
     pub fn with_cov_px(mut self, cov_px: Option<[f64; 3]>) -> Self {
         self.cov_px = cov_px;
         self
+    }
+
+    /// The same feature with the measured blur `blur`, or none.
+    pub fn with_blur(mut self, blur: Option<FeatureBlur>) -> Self {
+        self.blur = blur;
+        self
+    }
+}
+
+/// The blur a detector measured at one feature: the Gaussian point-spread
+/// function (PSF) that best explains the feature's blurred edges, and the
+/// covariance of that estimate.
+///
+/// **`psf_px`** is the PSF's covariance matrix `Σ = [[xx, xy], [xy, yy]]`
+/// in px², stored as `[xx, xy, yy]` (the layout of
+/// [`Feature::cov_px`]), in the image frame of `image_xy`. Its principal
+/// axes are the directions of least and most blur, and `√(tr Σ / 2) =
+/// √((xx + yy) / 2)` is the PSF's width σ in pixels.
+///
+/// `Σ` is the blur **as the image shows it, including the pixel's area
+/// integration**: for a Gaussian optical PSF of covariance `Σ_o` seen by
+/// square pixels, `Σ ≈ Σ_o + I/12`. A model of the optics that predicts
+/// `Σ_o` adds `I/12` to its prediction before comparing it with `psf_px`.
+/// The constant is not subtracted here: it is what the detector measured,
+/// its covariance is unchanged by a constant shift, and on a sharp feature
+/// `Σ − I/12` can fail to be positive definite (an estimate below the pixel
+/// term, which happens at the sharp end where the estimate is biased low).
+///
+/// **`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴, row-major. How
+/// far it can be trusted is the detector's statement; for ring-grid markers
+/// it covers differences between the markers of one image, and every marker
+/// of an image shares a further offset of `σ` that `cov` does not contain,
+/// so a model fitted across images carries one blur offset per image.
+///
+/// Under a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the covariance
+/// of the Gaussian whose edges best match the image, not the PSF's second
+/// moment.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(JsonSchema))]
+#[non_exhaustive]
+pub struct FeatureBlur {
+    /// The PSF covariance `[xx, xy, yy]`, px², including the pixel's area
+    /// integration.
+    pub psf_px: [f64; 3],
+    /// The covariance of `psf_px`, px⁴, row-major.
+    pub cov: [[f64; 3]; 3],
+}
+
+impl FeatureBlur {
+    /// The blur of PSF covariance `psf_px` (`[xx, xy, yy]`, px²) with the
+    /// covariance `cov` of those three elements (px⁴).
+    pub fn new(psf_px: [f64; 3], cov: [[f64; 3]; 3]) -> Self {
+        Self { psf_px, cov }
     }
 }
 
@@ -101,11 +164,45 @@ mod tests {
     use super::*;
 
     fn feat(x: f64, y: f64, wx: f64) -> Feature {
-        Feature {
-            image_xy: [x, y],
-            world_xyz: [wx, 0.0, 0.0],
-            cov_px: None,
-        }
+        Feature::new([x, y], [wx, 0.0, 0.0])
+    }
+
+    fn blur() -> FeatureBlur {
+        FeatureBlur::new(
+            [2.25, 0.1, 1.96],
+            [[1e-3, 2e-5, -1e-4], [2e-5, 4e-4, 3e-6], [-1e-4, 3e-6, 9e-4]],
+        )
+    }
+
+    #[test]
+    fn blur_json_roundtrip_and_old_json_reads() {
+        let with = feat(1.0, 2.0, 0.0).with_blur(Some(blur()));
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(
+            json.contains(r#""blur":{"psf_px":[2.25,0.1,1.96],"cov":"#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<Feature>(&json).unwrap(), with);
+
+        let both = with.with_cov_px(Some([0.01, 0.0, 0.01]));
+        let json = serde_json::to_string(&both).unwrap();
+        assert_eq!(serde_json::from_str::<Feature>(&json).unwrap(), both);
+
+        let without = feat(1.0, 2.0, 0.0);
+        let json = serde_json::to_string(&without).unwrap();
+        assert!(!json.contains("blur"), "{json}");
+        assert_eq!(serde_json::from_str::<Feature>(&json).unwrap(), without);
+
+        // A record written before the field existed reads as no blur.
+        let old = r#"{"image_xy":[1.0,2.0],"world_xyz":[0.0,0.0,0.0],"cov_px":[0.01,0.0,0.01]}"#;
+        let read = serde_json::from_str::<Feature>(old).unwrap();
+        assert_eq!(read.blur, None);
+        assert_eq!(read.cov_px, Some([0.01, 0.0, 0.01]));
+
+        // The value and its covariance come together or not at all.
+        let half =
+            r#"{"image_xy":[1.0,2.0],"world_xyz":[0.0,0.0,0.0],"blur":{"psf_px":[1.0,0.0,1.0]}}"#;
+        assert!(serde_json::from_str::<Feature>(half).is_err());
     }
 
     #[test]

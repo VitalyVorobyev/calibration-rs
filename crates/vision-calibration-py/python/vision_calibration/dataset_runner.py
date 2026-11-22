@@ -46,7 +46,7 @@ from ._generated_types import RigHandeyeInput as _RigHandeyeInputPayload
 from ._generated_types import RigHandeyeLaserlineInput as _RigHandeyeLaserlineInputPayload
 from ._generated_types import RigLaserlineDeviceInput as _RigLaserlineDeviceInputPayload
 from ._generated_types import SingleCamHandeyeInput as _SingleCamHandeyeInputPayload
-from .detect import Features, FsDetectionCache
+from .detect import Features, FsDetectionCache, _features
 from .models import (
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
@@ -667,7 +667,9 @@ def detect_target(
 
     Returns
     -------
-    The detected features; empty when the image shows no usable board.
+    The detected features; empty when the image shows no usable board. A
+    ring grid with photometric centres also reports each marker's measured
+    blur (``blur_psf_px``, ``blur_cov``).
 
     Raises
     ------
@@ -683,9 +685,10 @@ def detect_target(
             "image must be a 2-D uint8 grayscale array, got "
             f"{array.ndim}-D {array.dtype}; convert colour images first"
         )
-    image_xy, world_xyz, cov_px = _native.detect_target(
-        np.ascontiguousarray(array),
-        dict(target),
-        None if detector is None else dict(detector),
+    return _features(
+        _native.detect_target(
+            np.ascontiguousarray(array),
+            dict(target),
+            None if detector is None else dict(detector),
+        )
     )
-    return Features(image_xy=image_xy, world_xyz=world_xyz, cov_px=cov_px)

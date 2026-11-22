@@ -38,6 +38,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or too little observed to tell the tilt from the principal point. The
   check warns, never fails; thresholds written without the new field read
   its default. Python: `QualityThresholds.max_sigma_inflation`.
+- **Measured blur per feature.** Ring-grid markers with photometric
+  centres report the blur the fit measured: `Feature::blur`
+  (`detect::FeatureBlur`), the covariance `Σ` of the Gaussian point-spread
+  function in px² as `[xx, xy, yy]`, including the pixel's area
+  integration (`Σ ≈ Σ_lens + I/12`), with the 3×3 covariance of those
+  elements. It travels through the detection cache and into the
+  observations (`CorrespondenceView::with_blur`, `blur`, `blurs`;
+  `core::PointBlur`, with `sigma_px() = √(tr Σ / 2)`), and in JSON as the
+  view's optional `blur` list. Python: `Features.blur_psf_px` and
+  `Features.blur_cov`, `Observation.blur` and `PointBlur`. No calibration
+  reads it yet: results are unchanged. A cached feature whose blur is not
+  valid (not finite, `Σ` not positive definite) fails its image with a
+  detection error.
 
 ### Changed
 
