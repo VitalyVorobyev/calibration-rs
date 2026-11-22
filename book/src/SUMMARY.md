@@ -146,7 +146,7 @@
 
 - [Synthetic Data Generation](synthetic.md)
 - [Data Types Quick Reference](types_reference.md)
-- [References and Further Reading](references.md)
+- [References](references.md)
 
 ---
 

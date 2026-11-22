@@ -147,7 +147,11 @@ Each model follows AGENTS.md §10 (a camera model).
   metrology lenses: affine-factorization init, and the gauge of ADR 0005
   (held axial depth, the per-view reflection ambiguity). Done when: it is a
   `ProjectionKind` variant with everything §10 lists, and the matrix test
-  covers the held depth and the reflection ambiguity.
+  covers the held depth and the reflection ambiguity. With a Scheimpflug
+  sensor the default fix list also holds the pixel scale `sx` (with `sy`):
+  for an image-side telecentric tilt the scale, the tilt and its azimuth
+  are not unique even with distortion, the untilted-to-tilted map being
+  affine (Steger 2017, Prop. 6; `notes/scheimpflug-literature.md`).
 - [ ] CAM-SELECT - Model selection: compare candidate models by residual
   structure, an information criterion and held-out views. It extends the
   distortion-model-selection tutorial. Done when: the library ranks
@@ -169,7 +173,21 @@ Each model follows AGENTS.md §10 (a camera model).
   field` and `--parts centroid`. The same aperture capture also fixes the
   coupling's image-fixed part, which decides how far it biases the
   distortion-derived tilt (`notes/tilt-bias.md`: 13–51 % of the
-  focus–distortion gap, by the assumed law).
+  focus–distortion gap, by the assumed law). An optical candidate for the
+  depth-coupled part, testable on the existing capture: a moving entrance
+  pupil (Kumar & Ahuja, ICCV 2015), equivalent to radial distortion only
+  at one depth, leaves `r_px·(δ(θ) − δ₀)·(1/z − 1/z̄)`, about 0.5 px at the
+  edge for 1 mm of pupil motion at these depths
+  (`notes/scheimpflug-literature.md`, *A moving entrance pupil*).
+  Parameterize it as Tezaur, Kumar & Nestares (CVPRW 2022) do: the axial
+  shift as `g(ρ) = g₂ρ² + g₄ρ⁴` of the ideal-image radius, with no
+  constant term (that is the pose translation). Unprojection then stays
+  closed form and projection needs one scalar root. Compare it with the
+  empirical depth terms on held-out views in the `field` harness, never on
+  the calibration residual: their real-data gain showed in held-out
+  points (2.13 → 0.93 px), hardly in the residual (0.39 → 0.30 px). It
+  predicts a radial term where the stable one measured is anamorphic, so
+  it may be rejected.
 
 ## Calibration problems (Phase 2)
 
@@ -259,12 +277,29 @@ Each model follows AGENTS.md §10 (a camera model).
   `notes/tilt-bias.md`). Design: (1) a
   detector-agnostic optional blur σ (px) per feature next to the 2D point
   (ring-grid photometric fits have it; corners could report an edge
-  width), carried through the dataset types and the detection cache;
+  width), carried through the dataset types and the detection cache. The
+  type is the PSF covariance `Σ_psf` (px², its three unique elements)
+  with their 3×3 covariance, not a scalar: ringgrid's `(σ, a, b)` and
+  calib-targets' per-corner 2×2 Σ both map to it without loss, and the
+  focus model reads `σ² = tr Σ_psf / 2`. ringgrid's σ carries a per-image
+  offset of −2…−6 % until its ALGO-021, so the focus fit takes one σ
+  offset per image until then. The blur-gradient centre bias stays in the
+  points: ringgrid measured and rejected a detector-side correction (its
+  ALGO-018/019), and the bias is a near-gauge of `fy` and the poses, so no
+  calibration term models it either. Where the aspect ratio matters, a
+  caller subtracts the law `0.62·∇(σ²)` with the gradient of the fitted
+  focus model (`notes/scheimpflug-literature.md`, *The blur field of a
+  planar target*); otherwise it is a stated systematic of about 4e-4 in
+  `fy/fx` on the studied rig;
   (2) a diagnostic first: fit `σ² = σ0² + κ²(1/z − π·(x, y, 1))²` after
   the solve in the `K'` frame (the poses' tilt rotation applied) and
   report `π` with its view-jackknife σ, the tilt direction, the tilt
   implied by a stated pitch and pupil magnification, and the difference
-  to the fitted tilt — the independent check; (3) only once the ±0.5°
+  to the fitted tilt — the independent check — and the depth of field it
+  implies: for a stated acceptable blur `σ_max`, the near and far planes
+  `(π ± ε·e_z)·X = 1`, `ε = √(σ_max² − σ0²)/κ`, through the hinge line
+  `{π·X = 1, e_z·X = 0}`, as derived quantities with their σ (ADR 0028;
+  `notes/scheimpflug-literature.md`, *Depth of field*); (3) only once the ±0.5°
   is explained, an opt-in focus residual (`FactorKind` arm, both
   backends, the covariance family map) linking `π` to the tilt through
   `v0 = f'·pitch` and `m_p` given as priors with σ. Not a replacement for
@@ -273,7 +308,48 @@ Each model follows AGENTS.md §10 (a camera model).
   Monte-Carlo σ with view-correlated blur noise, null tilt, field
   curvature detected; the six-camera comparison. Reopen the factor step
   with the datasheet values (pitch, focal length, f-number, pupil
-  magnification) or a capture at two focus settings.
+  magnification) or a capture at two focus settings. Published precedents
+  for the factor's form (a thin-lens blur term in the reprojection cost,
+  Kumar & Ahuja 2014; a `(u, v, ρ)` feature, Labussière et al. 2020) are in
+  `notes/scheimpflug-literature.md`.
+- [ ] CAL-TILT-PUPIL - Study whether the geometry alone measures the pupil
+  magnification `m_p`, the datum CAL-TILT-FOCUS lacks. Steger's tilt model
+  has an image-side distance `d`; holding `d = c`, as our sensor slot does,
+  fits `tan τ_d = tan τ_s·c/d`, the same law as our `tan τ_s / m_p`
+  (`notes/scheimpflug-literature.md`, *Steger's `d`*). With the pixel
+  aspect held, a free `d` is determined; for a tilt about a pixel axis
+  (Steger Prop. 5, the studied rig) only through `cos τ`: 10 % in `m_p` is
+  8.5e-4 in aspect at 5°. Study only, in the bench example's exact
+  thick-lens synthetic (`focus::Lens`): add `q = c/d = 1/m_p` as
+  `q = exp(η)` to the study model, aspect held, freed only after the
+  `q = 1` tilt fit, with explicit small-tilt cells where `q` and `τ`
+  correlate; compare with Kumar & Ahuja's pupil-centric tilt model
+  (CVPR 2014); cells `m_p` 0.7 / 0.85 / 1.2 / 1.4, tilt azimuth `ρ` 0° and 45°,
+  tilt 2–15°; report the recovered `m_p`, its σ against the Monte-Carlo
+  scatter, and its sensitivity to an aspect bias of 1e-4–1e-3. Then, if it
+  is recovered to about 20 %, the six ring-grid cameras (one `m_p` for six
+  units of one design is the check). A library parameter only after the
+  study, as an additive sensor-slot term with Steger's holds (`d` held near
+  zero tilt; an error for a free `d` with a free aspect ratio). The
+  ring-grid blur-gradient bias moves `fy/fx` by +3.1 … +4.6e-4 on that rig
+  (measured, `notes/ringgrid-bias.md`), about 5 % in `m_p` at 5°. The
+  detector does not remove it (ringgrid rejected ALGO-018), so on real
+  data subtract the law `0.62·∇(σ²)` with the fitted focus model's
+  gradient (about 70 % removed with a true gradient, ringgrid's
+  measurement) and carry the rest as a systematic. Its effect is checked
+  through `fy/fx` and the poses, since the residual does not move. Also
+  measure, in the synthetic, the held-out misfit of the `d = c` model at
+  an oblique tilt with `m_p ≠ 1`: that decides whether `q` is ever needed
+  for accuracy and not only for the tilt's meaning. On real data the
+  display's x/y scale trades with the aspect ratio; views with the rig
+  rolled about 90° separate them. First
+  check, before any solve: the raw `fy/fx` there is 1.0074–1.0095 on all
+  six cameras. The display's x/y scale carries at most 0.06–0.16 % of
+  it (untilted cameras on the same kind of display, measured,
+  `notes/ringgrid-bias.md`). If the pixels are square, the remaining
+  0.6–0.85 % is the `d = c` model absorbing Steger's aspect family,
+  `m_p ≈ 1.66`. The sensor's pitch decides: tilt-from-focus's
+  `pitch/m_p` = 5.29 µm needs 8.8 µm for that `m_p`.
 - [ ] CAL-TILT-SEED-INIT - A tilt seed without an intrinsics seed fits the
   intrinsics at the seeded tilt (`planar_family::bootstrap_camera`, every
   workflow), but only from the candidates the linear Scheimpflug init builds

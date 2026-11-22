@@ -29,7 +29,7 @@ this chapter builds on.
 
 The camera comes from Zhang's method with a distortion fit, over the board
 views. Each board pose comes from its homography, and the part's pose from
-EPnP on its eight fiducials, whose positions on the part are known:
+EPnP ([Lepetit et al., 2009](references.md#lepetit-2009)) on its eight fiducials, whose positions on the part are known:
 
 ```rust,no_run
 use vision_calibration::core::{CorrespondenceView, PlanarDataset, Pt2, Pt3, View};

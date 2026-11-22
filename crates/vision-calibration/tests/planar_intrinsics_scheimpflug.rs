@@ -514,3 +514,213 @@ fn scheimpflug_result_json_roundtrip() {
     assert!(restored.mean_reproj_error.is_finite());
     assert_eq!(restored.params.cam_se3_target.len(), dataset.num_views());
 }
+
+/// The photometric centre's blur-gradient bias under a plane-of-focus blur
+/// law is mostly absorbed by the camera and the poses, with a definite
+/// aspect-ratio signature.
+///
+/// A ring-grid photometric fit lands `b = −k·σ·∇σ` (`k = 1.24`) off the
+/// true centre under a blur gradient. With the defocus law
+/// `σ² = σ0² + κ²·D²`, `D = 1/z − π·(x_n, y_n, 1)` (`π` the plane of sharp
+/// focus in the camera frame, 1/m; `κ` px·m), `σ·∇σ = κ²·D·∇D` and
+/// `∇D = −(π_x, π_y)/f`, so `b = (k·κ²/f)·(π_x, π_y)·D`. Its part linear in
+/// `y_n`, `−(k·κ²/f)·π_y²·y_n`, is a rescaling of `v`: to first order
+/// `Δ(fy/fx) = −k·κ²·π_y²/fx²`. On an exact scene close to the studied
+/// rig, solving the seeded route on exact and on exact + `b` observations
+/// must leave only a small share of `|b|²` in the residual, move `fy/fx` by
+/// the predicted amount, and move the tilt little.
+#[test]
+fn blur_gradient_bias_is_absorbed_with_an_aspect_ratio_signature() {
+    use vision_calibration::core::{CameraModelSpec, DistortionKind, SensorParams};
+
+    let intr = FxFyCxCy {
+        fx: 1145.0,
+        fy: 1155.0,
+        cx: 362.0,
+        cy: 268.0,
+    };
+    let dist = BrownConrady5 {
+        k1: -0.41,
+        k2: 0.2,
+        k3: 0.0,
+        p1: 0.0,
+        p2: 0.0,
+        iters: 8,
+    };
+    let sensor = ScheimpflugParams {
+        tilt_x: (-5.0_f64).to_radians(),
+        tilt_y: 0.0,
+    };
+    let camera = Camera::new(Pinhole, dist, sensor.compile(), intr);
+    let (w, h) = (720.0, 540.0);
+
+    // A 0.24 m × 0.18 m board (12 mm pitch), centred on the line of sight
+    // `(cx_off, cy_off)` at depth `z`, tilted about its centre.
+    let spacing = 0.012;
+    let board: Vec<Pt3> = (0..=20)
+        .flat_map(|i| (0..=15).map(move |j| Pt3::new(i as f64 * spacing, j as f64 * spacing, 0.0)))
+        .collect();
+    let centre = nalgebra::Vector3::new(0.12, 0.09, 0.0);
+    let specs: [(f64, f64, f64, f64, f64, f64); 16] = [
+        (0.00, 0.00, 0.25, 0.00, 0.00, 0.00),
+        (0.02, -0.01, 0.17, 0.30, -0.10, 0.05),
+        (-0.02, 0.01, 0.19, -0.35, 0.15, -0.05),
+        (0.01, 0.02, 0.21, 0.10, 0.40, 0.10),
+        (-0.01, -0.02, 0.23, -0.15, -0.42, -0.08),
+        (0.03, 0.01, 0.27, 0.45, 0.05, 0.00),
+        (-0.03, -0.01, 0.29, -0.45, -0.05, 0.12),
+        (0.02, 0.03, 0.31, 0.20, 0.30, -0.10),
+        (-0.02, -0.03, 0.33, -0.25, -0.30, 0.06),
+        (0.00, 0.02, 0.18, 0.40, 0.25, 0.00),
+        (0.01, -0.02, 0.22, -0.40, 0.25, -0.04),
+        (-0.01, 0.00, 0.26, 0.05, -0.45, 0.08),
+        (0.02, 0.00, 0.30, -0.10, 0.45, -0.12),
+        (-0.02, 0.02, 0.20, 0.30, 0.35, 0.03),
+        (0.00, -0.03, 0.28, -0.30, -0.35, -0.03),
+        (0.03, -0.02, 0.32, 0.15, -0.20, 0.15),
+    ];
+    let poses: Vec<Iso3> = specs
+        .iter()
+        .map(|&(tx, ty, tz, rx, ry, rz)| {
+            let r = Rotation3::from_euler_angles(rx, ry, rz);
+            let t = nalgebra::Vector3::new(tx, ty, tz) - r * centre;
+            Iso3::from_parts(Translation3::from(t), r.into())
+        })
+        .collect();
+
+    // The bias law: π = (0, −15, +3) /m, κ = 1.4 px·m, k = 1.24.
+    let (pi_x, pi_y, pi_z) = (0.0, -15.0, 3.0);
+    let (k, kappa) = (1.24, 1.4);
+    let c = k * kappa * kappa / intr.fx;
+    let mut exact = Vec::new();
+    let mut biased = Vec::new();
+    let mut bias: Vec<Vec<[f64; 2]>> = Vec::new();
+    for pose in &poses {
+        let (mut p3, mut p2, mut p2b, mut bv) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for point in &board {
+            let pc = pose.transform_point(point);
+            let Some(px) = camera.project_point(&pc) else {
+                continue;
+            };
+            if !(0.0..w).contains(&px.x) || !(0.0..h).contains(&px.y) {
+                continue;
+            }
+            let (xn, yn) = ((px.x - intr.cx) / intr.fx, (px.y - intr.cy) / intr.fy);
+            let d = 1.0 / pc.z - (pi_x * xn + pi_y * yn + pi_z);
+            let b = [c * pi_x * d, c * pi_y * d];
+            p3.push(*point);
+            p2.push(Pt2::new(px.x, px.y));
+            p2b.push(Pt2::new(px.x + b[0], px.y + b[1]));
+            bv.push(b);
+        }
+        exact.push(View::without_meta(
+            CorrespondenceView::new(p3.clone(), p2).expect("obs"),
+        ));
+        biased.push(View::without_meta(
+            CorrespondenceView::new(p3, p2b).expect("obs"),
+        ));
+        bias.push(bv);
+    }
+    let exact = PlanarDataset::new(exact).expect("dataset");
+    let biased = PlanarDataset::new(biased).expect("dataset");
+
+    // The accept path: the seeded route, bc5 under a tilted sensor, Huber.
+    let solve = |ds: &PlanarDataset| {
+        let mut config = tilted_config();
+        config.camera.model =
+            CameraModelSpec::pinhole(DistortionKind::BrownConrady5, SensorKind::Scheimpflug);
+        config.solver.max_iters = 120;
+        config.optimize.reprojection_loss = RobustLoss::Huber { scale: 1.0 };
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(ds.clone()).expect("input");
+        session.set_config(config).expect("config");
+        let mut seed = IntrinsicsManualInit::default();
+        seed.intrinsics = Some(FxFyCxCy {
+            fx: 1050.0,
+            fy: 1050.0,
+            cx: 360.0,
+            cy: 270.0,
+        });
+        seed.sensor = Some(ScheimpflugParams {
+            tilt_x: -0.087,
+            tilt_y: 0.0,
+        });
+        step_init_with_seed(&mut session, seed, None).expect("seeded init");
+        step_optimize(&mut session, None).expect("optimize");
+        session.output().cloned().expect("output")
+    };
+    let residuals = |ds: &PlanarDataset, est: &PlanarIntrinsicsEstimate| -> Vec<[f64; 2]> {
+        let model = est.params.camera.build().expect("camera");
+        ds.views
+            .iter()
+            .zip(&est.params.cam_se3_target)
+            .flat_map(|(view, pose)| {
+                let model = &model;
+                view.obs
+                    .points_3d
+                    .iter()
+                    .zip(&view.obs.points_2d)
+                    .map(move |(p3, p2)| {
+                        let p = model
+                            .project_point(&pose.transform_point(p3))
+                            .expect("projects");
+                        [p2.x - p.x, p2.y - p.y]
+                    })
+            })
+            .collect()
+    };
+    let tilt = |est: &PlanarIntrinsicsEstimate| match est.params.camera.sensor {
+        SensorParams::Scheimpflug { params } => [params.tilt_x, params.tilt_y],
+        _ => panic!("a Scheimpflug sensor"),
+    };
+
+    let e0 = solve(&exact);
+    let eb = solve(&biased);
+    let (r0, rb) = (residuals(&exact, &e0), residuals(&biased, &eb));
+    let bb: f64 = bias
+        .iter()
+        .flatten()
+        .map(|b| b[0] * b[0] + b[1] * b[1])
+        .sum();
+    let left: f64 = r0
+        .iter()
+        .zip(&rb)
+        .map(|(a, b)| (b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2))
+        .sum::<f64>()
+        / bb;
+    let ratio = |e: &PlanarIntrinsicsEstimate| {
+        e.params.camera.intrinsics.fy / e.params.camera.intrinsics.fx
+    };
+    let d_ratio = ratio(&eb) - ratio(&e0);
+    let predicted = -k * kappa * kappa * pi_y * pi_y / (intr.fx * intr.fx);
+    let (t0, tb) = (tilt(&e0), tilt(&eb));
+    let d_tilt_deg = [(tb[0] - t0[0]).to_degrees(), (tb[1] - t0[1]).to_degrees()];
+    let n = r0.len();
+    let rms0 = (r0.iter().map(|r| r[0] * r[0] + r[1] * r[1]).sum::<f64>() / n as f64).sqrt();
+    eprintln!(
+        "points {n}, |b| rms {:.4} px, exact rms {rms0:.2e} px, share left {left:.3e}, \
+         d(fy/fx) {d_ratio:+.4e} vs predicted {predicted:+.4e} (ratio {:.3}), d tilt {:+.4} / {:+.4} deg",
+        (bb / n as f64).sqrt(),
+        d_ratio / predicted,
+        d_tilt_deg[0],
+        d_tilt_deg[1]
+    );
+    // Measured: exact rms 1.3e-8 px, share left 8.0e-5, d(fy/fx) −4.263e-4
+    // against −4.171e-4 predicted (ratio 1.022), d tilt −0.0062° / −0.0001°.
+    // Margins: share 25×, the ratio's error 7×, the tilt about 5×.
+    assert!(
+        rms0 < 1e-6,
+        "the exact scene is not fitted exactly: {rms0:.2e} px"
+    );
+    assert!(left < 2e-3, "share of |b|² left in the residual {left:.3e}");
+    assert!(
+        (d_ratio / predicted - 1.0).abs() < 0.15,
+        "d(fy/fx) {d_ratio:+.4e} against the first-order {predicted:+.4e}"
+    );
+    assert!(
+        d_tilt_deg[0].abs() < 0.03 && d_tilt_deg[1].abs() < 0.03,
+        "the tilt moved {:+.4} / {:+.4} deg",
+        d_tilt_deg[0],
+        d_tilt_deg[1]
+    );
+}

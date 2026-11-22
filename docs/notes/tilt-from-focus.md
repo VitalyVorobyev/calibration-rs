@@ -9,7 +9,10 @@ is tied to the lens axis too. This note derives what the blur of each
 marker says about the lens, tests it on exact synthetic optics and on the
 six ring-grid cameras (an e-ink display target, per-marker blur from the
 photometric centre fit), and asks whether it can check, constrain or
-replace the distortion route. Dev-facing; aggregate numbers only.
+replace the distortion route. Dev-facing; aggregate numbers only. The
+published precedents, Steger's `d` as a geometric route to `m_p`, and the
+depth-of-field wedge this model implies are in
+[scheimpflug-literature.md](scheimpflug-literature.md).
 
 **Derived** marks algebra (pinned by a test where it says so),
 **measured** a number the harness prints, **hypothesis** what neither
@@ -388,5 +391,33 @@ blur response); one unit with the lens rotated 180° in its mount (a lens
 element's field tilt rotates with it, a sensor tilt does not). The analysis
 without new data (hypothesis (i)) is in [tilt-bias.md](tilt-bias.md): the
 coupling accounts for part of the τx disagreement, not for the direction.
+
+**A pose-only capture** (2026-11-22: the device's aperture and focus are
+fixed, so the two-aperture and two-focus captures above are not available;
+the display target and the poses are free). What poses and patterns can
+still settle:
+
+1. **Two patterns at every pose**, with no motion between them: the
+   anti-aliased ring grid and the PuzzleBoard. An optical displacement is
+   common to both, a detector bias is not. The comparison needs no
+   calibration: ring centres against the smooth map fitted to the corners
+   of the same pose, as a function of blur. This stands in for the
+   two-aperture capture on the optics-or-detector question
+   (CAM-FIELD-ORIGIN).
+2. **A third of the views with the rig rolled about 90°** about its axis.
+   The display's x/y scale and per-point offsets turn with the board, the
+   camera's `fy/fx` and distortion do not (CAL-TILT-PUPIL,
+   CAL-TARGET-OFFSETS).
+3. **A through-focus set**: the board near the plane of sharp focus, then
+   stepped along its normal across it; plus tilted views with depth
+   variation inside the view, covering the rows the plane crosses. At a
+   fixed pixel, signed defocus stays affine in inverse depth whatever the
+   poses, so this sharpens the unsigned-blur term and the focus fit, not
+   the centroid-against-pupil question.
+4. **Repeats**: 5–10 frames at one fixed pose (the noise floor on sharp
+   markers), and one pose revisited at the start and the end (drift).
+5. **Coverage**: translations and more than one rotation centre (the
+   target's scale), the image corners (the distortion that determines the
+   tilt), at least 24 views per camera for four folds.
 
 Library sketch: backlog `CAL-TILT-FOCUS`.

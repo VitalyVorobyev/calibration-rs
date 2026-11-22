@@ -172,4 +172,123 @@ estimator less sensitive to blur), not a camera-model or target change.
   dataset under `--features tier-b`.
 - **Related:** ADR 0011 (seeded Scheimpflug route),
   [scheimpflug-intrinsics.md](scheimpflug-intrinsics.md),
-  [planar-intrinsics.md](planar-intrinsics.md).
+  [planar-intrinsics.md](planar-intrinsics.md),
+  [scheimpflug-literature.md](scheimpflug-literature.md).
+
+## Where the blur-gradient bias goes
+
+A photometric centre under a blur gradient lands `b ≈ 1.24·σ·∇σ` towards
+the sharper side (`ringgrid` ADR-022 / ADR-029; σ the fitted PSF width,
+∇σ its image gradient). **Derived**
+([scheimpflug-literature.md](scheimpflug-literature.md), *Ring centres under
+a blur gradient*): through the focus model, `b` is to first order a view
+translation, an `fy` scale and a `cy` shift, so the calibration absorbs it
+and the residual does not show it.
+
+**Method** (a study part of the bench example `scheimpflug_model_study`,
+deleted when the study closed, AGENTS.md §6). ringgrid is called directly (photometric centres, the accept
+path's layout) for each marker's σ; ∇σ is the least-squares plane through
+the marker and its 8 nearest accepted neighbours (ringgrid's
+`attach_blur_gradient_bias` rule: ≥ 4 fits, non-degenerate), and
+`b = −1.24·σ·∇σ`. Three solves per camera with identical seeds: raw,
+corrected (`obs − b`) and sign-flipped (`obs + b`), each the seeded route
+then a tight polish (`k1, k2`, tilt, intrinsics and every pose free;
+`k3, p1, p2` held). The response is the antisymmetric part
+`(corr − anti)/2`. This applies the bias *law* as a correction, a proxy
+for ringgrid's archived per-marker gradient term, which removes ~90 % of
+the same bias.
+
+**Measured** (4921 observations, 110 views, six cameras; "/σ" is the
+response over the raw solve's stated σ):
+
+| camera | median / p95 \|b\| px | fy/fx raw | Δ(fy/fx) | /σ | Δfy px | Δcy px | Δτx ° (/σ) | share of \|b\|² left in the residual |
+|---|---|---:|---:|---:|---:|---:|---|---:|
+| cam0 | 0.020 / 0.068 | 1.00808 | +3.5e-4 | +1.91 | +0.62 | +0.10 | +0.028 (+0.44) | 0.067 |
+| cam1 | 0.025 / 0.090 | 1.00913 | +4.5e-4 | +1.69 | +0.67 | −0.15 | +0.029 (+0.36) | 0.082 |
+| cam2 | 0.017 / 0.086 | 1.00744 | +4.6e-4 | +1.18 | +0.62 | −0.14 | +0.026 (+0.20) | 0.091 |
+| cam3 | 0.020 / 0.062 | 1.00886 | +3.1e-4 | +0.90 | +0.63 | −0.08 | +0.031 (+0.25) | 0.061 |
+| cam4 | 0.011 / 0.047 | 1.00760 | +3.5e-4 | +1.47 | +0.65 | −0.23 | +0.011 (+0.14) | 0.088 |
+| cam5 | 0.014 / 0.060 | 1.00948 | +3.7e-4 | +0.76 | +0.36 | −0.21 | +0.008 (+0.05) | 0.105 |
+
+Pooled: 92.1 % of `|b|²` (5.63 px²) is taken up by the camera and the
+poses and 7.9 % stays in the residual. The pooled mean residual moves by
+−0.003 px (0.109 → 0.106 px; the sign flip +0.004 px). The response is
+linear: the symmetric part is 2–4 orders below the antisymmetric one, the
+two backends agree to 3–4 figures, and the three solves end in one basin.
+A first-order regression of `b` on the Jacobian of every free parameter
+and pose reproduces the absorbed share to the fourth digit and the
+parameter changes within a few per cent (10–25 % for `cx, cy`). On poses
+alone it explains 72 %; on `cx, cy, fx, fy` and poses 91 %, but with a
+different split (it flips `Δfx` and halves `Δfy`): the distortion and the
+tilt take part of it. Per view: lateral translations up to 0.05 mm, along
+the axis 0.04–0.08 mm, rotations ≤ 0.024°.
+
+**Readings.**
+
+- The bias is nearly a gauge, as derived: correcting it does not change
+  the residual, which agrees with ringgrid's gradient-term on/off finding.
+- The `fy` scale holds quantitatively. Predicted ≈ 4e-4 relative; measured
+  `Δ(fy/fx)` +3.1 … +4.6e-4, the same sign on all six, 0.8–1.9 σ. This is
+  the parameter it moves most.
+- The `cy` prediction does not hold as stated. `Δcy` is −0.23 … +0.10 px
+  with no common sign: the principal point trades with the poses, the
+  distortion and the tilt, and only the full set fixes the split.
+- The tilt moves ≤ 0.44 σ (≤ 0.031°). For geometric calibration on this
+  rig the correction is not worth the accept path's change. It matters
+  where the aspect ratio does (CAL-TILT-PUPIL) and when the blur itself
+  is an observation (CAL-TILT-FOCUS).
+
+**Pinned** by `blur_gradient_bias_is_absorbed_with_an_aspect_ratio_signature`
+(`crates/vision-calibration/tests/planar_intrinsics_scheimpflug.rs`): an
+exact Scheimpflug scene of the studied rig's geometry (720×540, `f` 1145,
+`k1` −0.41, `k2` 0.2, τx −5°, 16 views at 0.17–0.33 m, 2418 points) with
+the derived field `b = (k·κ²/fx)·π_xy·D` added (rms 0.075 px). Measured
+there: 8e-5 of `|b|²` stays in the residual (asserted < 2e-3);
+`Δ(fy/fx)` −4.26e-4 against the first-order −k·κ²·π_y²/fx² = −4.17e-4
+(ratio 1.02, asserted within 15 %); tilt moves −0.006° (asserted
+< 0.03°). The real data leave 6–10 % in the residual against 8e-5 here:
+the derived field is smooth, the real per-marker bias also carries the
+neighbourhood-plane scatter (**hypothesis**).
+
+**Open.** (1) The study's pooled raw residual (mean 0.109, RMS 0.129 px)
+is not the 0.137 px quoted from ringgrid's documents: a different solve or
+residual definition; ringgrid's own harness on these captures decides it.
+(2) **Hypothesis**: the raw `fy/fx` is 1.0074–1.0095 on all six, 20–50 σ
+from square. Three candidates: the e-ink target's x and y scales differ
+(display pixel pitch, row and column snapping;
+[display-target-residual.md](display-target-residual.md)); the `d = c`
+model absorbing Steger's aspect family for a tilt about a pixel axis
+(0.85 % at `τ_d` = 5.2° would need `m_p ≈ 1.75`;
+[scheimpflug-literature.md](scheimpflug-literature.md)); or non-square
+pixels. The `fy/fx` of a printed, non-display target on the same rig, and
+the datasheet pitch against tilt-from-focus's `pitch/m_p` = 5.29 µm
+(`m_p ≈ 1.75` would need a 9.3 µm pitch), decide between them.
+
+**The display candidate, checked** (measured 2026-11-22, `calib-bench run
+--dataset <id>` per entry, default configs, `fy/fx` from the record's
+intrinsics; σ not extracted). Untilted three-camera device on the same
+kind of e-ink display, anti-aliased rendering:
+
+| entries | target | `fy/fx`, cam0 / cam1 / cam2 | mean residual px |
+|---|---|---|---|
+| `rtv3s_rg_small_cam0..2` | ring grid | 1.00088 / 1.00083 / 1.00137 | 0.03 |
+| `rtv3s_rg_large_cam0..2` | ring grid | 1.00095 / 1.00061 / 1.00140 | 0.03 |
+| `rtv3s_pb_b_cam0..2` | PuzzleBoard | 1.00085 / 1.00096 / 1.00160 | — |
+| `imx226_pb_cam0` | PuzzleBoard on the display, another camera | 0.99970 | — |
+| `ipgs_cam1`, `ipgs_cam2` | precision print | 1.00011, 0.99981 | 0.034 |
+
+Each camera repeats across the three display captures to about 3e-4, the
+cameras on the precision print are square to 2e-4, and a fourth camera on
+the display is square to 3e-4, so the three-camera device's +0.1 % is
+mostly its own. So the display's x/y
+scale, together with those cameras' own aspect, is at most +0.06 … +0.16 %:
+it cannot carry the +0.74 … +0.95 % of the tilted cameras. About 0.6–0.85 %
+is left to the tilted devices themselves, which leaves two candidates:
+Steger's aspect family under the `d = c` model (0.7 % at `τ_d` = 5.2° is
+`τ_s ≈ 8.5°`, `m_p ≈ 1.66`, a pitch of 8.8 µm by tilt-from-focus's
+`pitch/m_p`), or non-square pixels on that sensor. The sensor's model name
+(its pitch) decides: a pitch near 8.8 µm supports `m_p`, a square pitch far
+from it does not. Caveats: the untilted device is a different camera and
+lens, so this bounds the display, not the tilted sensor; and the display
+captures compared are anti-aliased, the tilted ones aliased (snapping moves
+points by a fraction of a display pixel and keeps the mean scale).

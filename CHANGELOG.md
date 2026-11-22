@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- The book's sensor chapter states what an estimated Scheimpflug tilt is:
+  `atan(tan τ_s / m_p)` for a sensor tilted by `τ_s` behind a lens of
+  pupil magnification `m_p`, the mechanical tilt only when `m_p = 1`.
+- The book has one bibliography: the References page lists every work the
+  book cites, and each chapter links its citations to it.
+
 ### Fixed
 
 - A solve that meets a residual whose Jacobian is not finite where it

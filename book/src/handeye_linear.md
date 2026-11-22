@@ -143,7 +143,7 @@ let z = estimate.base_se3_target;
 
 ## References
 
-- Tsai, R.Y. & Lenz, R.K. (1989). "A New Technique for Fully Autonomous and Efficient 3D Robotics Hand/Eye Calibration." *IEEE Transactions on Robotics and Automation*, 5(3), 345-358.
-- Park, F.C. & Martin, B.J. (1994). "Robot Sensor Calibration: Solving AX=XB on the Euclidean Group." *IEEE Transactions on Robotics and Automation*, 10(5), 717-721.
-- Daniilidis, K. (1999). "Hand-Eye Calibration Using Dual Quaternions." *The International Journal of Robotics Research*, 18(3), 286-298.
-- Shah, M. (2013). "Solving the Robot-World/Hand-Eye Calibration Problem Using the Kronecker Product." *Journal of Mechanisms and Robotics*, 5(3), 031007.
+- [Tsai & Lenz (1989)](references.md#tsai-lenz-1989)
+- [Park & Martin (1994)](references.md#park-martin-1994)
+- [Daniilidis (1999)](references.md#daniilidis-1999)
+- [Shah (2013)](references.md#shah-2013)

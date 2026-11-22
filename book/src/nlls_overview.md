@@ -38,7 +38,7 @@ The matrix $H_{\text{GN}} = J^T J$ is the Gauss-Newton approximation to the Hess
 
 ## Levenberg-Marquardt Method
 
-Gauss-Newton can diverge when the linearization is poor (far from the minimum) or when $J^T J$ is singular. Levenberg-Marquardt (LM) adds a damping term:
+Gauss-Newton can diverge when the linearization is poor (far from the minimum) or when $J^T J$ is singular. Levenberg-Marquardt (LM; [Levenberg, 1944](references.md#levenberg-1944); [Marquardt, 1963](references.md#marquardt-1963)) adds a damping term:
 
 $$(J^T J + \lambda \, \text{diag}(J^T J)) \, \boldsymbol{\delta} = -J^T \mathbf{r}$$
 

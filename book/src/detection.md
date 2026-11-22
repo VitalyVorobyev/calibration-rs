@@ -49,13 +49,13 @@ A camera left with no usable chessboard view is an error (`NoWholeChessboardView
 
 ### ChArUco
 
-A ChArUco board interleaves a chessboard with ArUco markers, and each corner is identified by the markers around it. A partly visible board therefore still yields correctly labelled corners, and the result is **sparse**: occluded or unidentified cells simply contribute no feature, so the per-view feature count varies.
+A ChArUco board interleaves a chessboard with ArUco markers ([Garrido-Jurado et al., 2014](references.md#garrido-jurado-2014)), and each corner is identified by the markers around it. A partly visible board therefore still yields correctly labelled corners, and the result is **sparse**: occluded or unidentified cells simply contribute no feature, so the per-view feature count varies.
 
 `rows` and `cols` count squares (not corners). `marker_size_m` must be positive and at most `square_size_m`. `dictionary` is an ArUco dictionary name such as `"DICT_4X4_1000"`; the layout is checked before any image is read, because a larger board needs more marker codes than a small dictionary holds (a 12x12 board needs 72, which `DICT_4X4_50` cannot supply). `validate_dictionary` and `validate_charuco_layout` expose these checks. The marker layout follows the OpenCV ChArUco convention, so coordinates are indexed the way an OpenCV-printed board expects.
 
 ### PuzzleBoard
 
-A PuzzleBoard is a self-identifying chessboard: each saddle decodes to a unique grid index from a local code window, so a single partial view yields globally consistent correspondences. The manifest names the layout as `"puzzle_<rows>x<cols>"` (the prefix is optional, `"130x130"` also parses); the dimensions are all the detector needs. Coordinates are in the board's own frame with its origin at the top-left, like the chessboard and ChArUco detectors, and decoded saddles outside the printed board are discarded.
+A PuzzleBoard ([Stelldinger et al., 2024](references.md#stelldinger-2024)) is a self-identifying chessboard: each saddle decodes to a unique grid index from a local code window, so a single partial view yields globally consistent correspondences. The manifest names the layout as `"puzzle_<rows>x<cols>"` (the prefix is optional, `"130x130"` also parses); the dimensions are all the detector needs. Coordinates are in the board's own frame with its origin at the top-left, like the chessboard and ChArUco detectors, and decoded saddles outside the printed board are discarded.
 
 Two fixed parts of the recipe are not configurable: the image is upscaled 2x before decoding (saddle decoding degrades on small or blurred tiles; pixel coordinates are divided back down), and the search is restricted to the declared board.
 

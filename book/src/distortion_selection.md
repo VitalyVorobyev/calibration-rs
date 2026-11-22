@@ -12,7 +12,7 @@ Every workflow that estimates intrinsics picks a lens distortion model and a per
 | `BrownConrady5` | 5 | `[k1, k2, k3, p1, p2]` | Brown-Conrady radial and tangential (default) |
 | `Rational8` | 8 | `[k1, k2, k3, k4, k5, k6, p1, p2]` | rational polynomial |
 | `ThinPrism9` | 9 | `[k1, k2, k3, p1, p2, s1, s2, s3, s4]` | Brown-Conrady plus thin prism |
-| `Division1` | 1 | `[lambda]` | Fitzgibbon division model |
+| `Division1` | 1 | `[lambda]` | division model ([Fitzgibbon, 2001](references.md#fitzgibbon-2001)) |
 
 Every workflow calibrates every kind with a straight or a tilted (Scheimpflug) sensor: planar intrinsics, single-camera hand-eye and the laserline device through `camera`, the rigs per camera (`camera` plus `camera_overrides`). The rig laser workflows take each camera of the upstream rig in its own model.
 

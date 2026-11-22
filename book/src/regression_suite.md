@@ -29,10 +29,8 @@ plain JSON, other calibration tools can run on exactly the same data.
 
 The real-image entries come from their publishers:
 
-- `kuka_1` is dataset `kuka_1` of RWHE-Calib, from I. Ali, O. Suominen,
-  A. Gotchev and E. Ruiz Morales, *Methods for Simultaneous
-  Robot-World-Hand–Eye Calibration: A Comparative Study*, Sensors 19(12),
-  2837 (2019), <https://doi.org/10.3390/s19122837>. The images and robot
+- `kuka_1` is dataset `kuka_1` of RWHE-Calib, from
+  [Ali et al. (2019)](references.md#ali-2019), <https://doi.org/10.3390/s19122837>. The images and robot
   poses are published at <https://github.com/ihtishamaliktk/RWHE-Calib> as
   open-access data; the authors state no licence and ask users to cite the
   paper.
@@ -40,9 +38,7 @@ The real-image entries come from their publishers:
   by Daniel (Kaggle user `danielwe14`), version 3,
   <https://www.kaggle.com/datasets/danielwe14/stereocamera-chessboard-pictures>,
   which states no licence.
-- `ds8` is dataset 8 of A. Tabb and K. M. Ahmad Yousef, *Solving the
-  robot-world hand-eye(s) calibration problem with iterative methods*,
-  Machine Vision and Applications 28 (2017); the images are published at
+- `ds8` is dataset 8 of [Tabb & Ahmad Yousef (2017)](references.md#tabb-2017); the images are published at
   <https://doi.org/10.15482/USDA.ADC/1340592> in the U.S. public domain.
 - `opencv_stereo` is the stereo calibration sample of OpenCV
   (`samples/data/left*.jpg`, `right*.jpg` in <https://github.com/opencv/opencv>),

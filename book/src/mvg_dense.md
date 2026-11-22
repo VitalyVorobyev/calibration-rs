@@ -49,7 +49,7 @@ disp = mvg.match_block(left, right, mvg.BlockMatchOptions(num_disparities=64, bl
 
 ## Semi-Global Matching
 
-For low-texture surfaces (the flat interiors of chessboard squares, for instance) set `semi_global: true`. The matching cost is then aggregated along 8 paths with the `sgm_p1` penalty for a one-pixel disparity step (small, so slanted surfaces survive) and the `sgm_p2` penalty for larger jumps (large, so depth discontinuities survive; `sgm_p2` must be at least `sgm_p1`). Disparity then propagates into regions block matching leaves blank: on a real chessboard rig coverage rose from about 21 % to about 49 %.
+Semi-global matching follows [Hirschmüller (2008)](references.md#hirschmuller-2008). For low-texture surfaces (the flat interiors of chessboard squares, for instance) set `semi_global: true`. The matching cost is then aggregated along 8 paths with the `sgm_p1` penalty for a one-pixel disparity step (small, so slanted surfaces survive) and the `sgm_p2` penalty for larger jumps (large, so depth discontinuities survive; `sgm_p2` must be at least `sgm_p1`). Disparity then propagates into regions block matching leaves blank: on a real chessboard rig coverage rose from about 21 % to about 49 %.
 
 Semi-global matching is strictly additive: block matching stays the default. In SGM mode `min_correlation` and `uniqueness_ratio` (which gate on the raw per-pixel correlation) are bypassed; the left-right consistency check and the disparity window are the filters. It costs extra time and memory.
 

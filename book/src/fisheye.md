@@ -20,7 +20,7 @@ $(\sin\theta\, n_x / \theta,\ \sin\theta\, n_y / \theta,\ \cos\theta)$.
 
 ## Kannala-Brandt distortion
 
-`KannalaBrandt4` is an odd radial polynomial in the radius $r$ of the
+`KannalaBrandt4` ([Kannala & Brandt, 2006](references.md#kannala-brandt-2006)) is an odd radial polynomial in the radius $r$ of the
 normalized point:
 
 $$r_d = r\,(1 + k_1 r^2 + k_2 r^4 + k_3 r^6 + k_4 r^8)$$

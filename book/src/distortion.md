@@ -1,6 +1,6 @@
 # Brown-Conrady Distortion
 
-Real lenses introduce geometric distortion: straight lines in the world project as curves in the image. The Brown-Conrady model captures the two dominant distortion effects — radial and tangential — as polynomial functions of the distance from the optical axis.
+Real lenses introduce geometric distortion: straight lines in the world project as curves in the image. The Brown-Conrady model ([Brown, 1966](references.md#brown-1966)) captures the two dominant distortion effects — radial and tangential — as polynomial functions of the distance from the optical axis.
 
 ## Distortion Model
 

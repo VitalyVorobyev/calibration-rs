@@ -1,6 +1,6 @@
 # RANSAC
 
-RANSAC (Random Sample Consensus) is a robust estimation method that fits a model to data containing outliers. Unlike least-squares methods that use all data points and can be corrupted by even a single outlier, RANSAC repeatedly samples minimal subsets, fits a model to each, and selects the model with the most support (inliers).
+RANSAC (Random Sample Consensus; [Fischler & Bolles, 1981](references.md#fischler-bolles-1981)) is a robust estimation method that fits a model to data containing outliers. Unlike least-squares methods that use all data points and can be corrupted by even a single outlier, RANSAC repeatedly samples minimal subsets, fits a model to each, and selects the model with the most support (inliers).
 
 ## Algorithm
 
