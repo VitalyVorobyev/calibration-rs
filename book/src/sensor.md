@@ -118,6 +118,44 @@ Consequences for a calibration:
   board's own tilt do not change the tilt's uncertainty, though the focal
   length still needs tilted views.
 
+### What the Estimated Tilt Is
+
+The tilt model sends a ray to the tilted sensor at the angle it had in
+front of the lens. A real lens changes that angle: a chief ray that enters
+at slope $\tan\theta$ leaves towards the sensor at slope
+$\tan\theta / m_p$, where $m_p$ is the lens's pupil magnification (the
+exit pupil's diameter over the entrance pupil's). For a sensor physically
+tilted by $\tau_s$ behind such a lens, the calibration estimates
+
+$$
+\tau = \arctan\!\left(\frac{\tan\tau_s}{m_p}\right),
+$$
+
+the tilt that makes the lens distortion centred on the lens axis.
+
+```text
+ m_p    physical tilt for an estimated tilt of 5.0 deg
+ 0.7    3.5 deg
+ 1.0    5.0 deg
+ 1.5    7.5 deg
+ 2.0    9.9 deg
+```
+
+So the estimated tilt is the mechanical sensor tilt only when $m_p = 1$.
+The projection is not affected: the model predicts image points equally
+well for any $m_p$, and for a tilt about a pixel axis the focal lengths
+take up the difference (the ratio $f_y / f_x$ moves by about
+$1 - \cos\tau_s / \cos\tau$). Only the reading of $\tau$ as a
+mechanical angle needs $m_p$, from the lens's data sheet.
+
+Both statements of this section are published. That the tilt cannot be
+estimated from point correspondences without lens distortion is in Kumar &
+Ahuja (2014) and, in general form, in Steger (2017), who shows that every
+projective camera is some tilt camera. Steger's model has a separate
+image-side distance for the tilted sensor; holding it equal to the
+principal distance, as this model and OpenCV's do, gives the relation
+above.
+
 ## Optimization of Tilt Parameters
 
 In the non-linear optimization stage, Scheimpflug parameters $(\tau_x, \tau_y)$ are treated as additional optimization variables. The tilt homography is generic over the scalar type, so it is differentiated by automatic differentiation, enabling joint optimization of tilt with intrinsics, distortion, and poses.

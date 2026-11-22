@@ -419,17 +419,6 @@ Design: ADR 0028; what each σ promises: `notes/mvg-measurements.md`.
 
 ## Book (alongside)
 
-- [ ] BOOK-TILT-MEANING - The Scheimpflug chapter states what the
-  estimated tilt is: the tilt that makes the distortion centred on the lens
-  axis, `atan(tan τ_s / m_p)` for a sensor tilted by `τ_s` behind a lens of
-  pupil magnification `m_p`, so the physical sensor tilt only when
-  `m_p = 1`; and that without lens distortion no tilt is observable (a
-  tilted pinhole is a rotated plain pinhole). Cite the published sources
-  (Steger, IJCV 2017; Kumar & Ahuja, ICPR 2014), not the notes
-  (AGENTS.md §9). Evidence: `notes/tilt-from-focus.md` (*Thick lens*),
-  `notes/scheimpflug-literature.md`. Done when the chapter says it, with a
-  `text` diagram if it helps, and `cargo xtask check-docs` passes.
-
 - [ ] BOOK-WASM - A `vision-calibration-wasm` crate (wasm-bindgen over the
   facade, `publish = false` at first), built by `publish-docs.yml` with a
   bun bundle loaded through mdBook `additional-js`. The app can use the

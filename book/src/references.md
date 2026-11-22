@@ -12,6 +12,10 @@
 
 - **Brown, D.C.** (1966). "Decentering Distortion of Lenses." *Photometric Engineering*, 32(3), 444-462. — The original Brown-Conrady distortion model with radial and tangential components.
 
+- **Steger, C.** (2017). "A Comprehensive and Versatile Camera Model for Cameras with Tilt Lenses." *International Journal of Computer Vision*, 123, 121-159. — The tilt-lens camera model with an image-side distance, its telecentric variants and its degenerate cases.
+
+- **Kumar, A. & Ahuja, N.** (2014). "Non-frontal Camera Calibration using Focal Stack Imagery." *International Conference on Pattern Recognition (ICPR)*. — States that a sensor tilt cannot be calibrated geometrically under ideal perspective imaging, and adds image blur to determine it.
+
 ## Minimal Solvers
 
 - **Nister, D.** (2004). "An Efficient Solution to the Five-Point Relative Pose Problem." *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 26(6), 756-770. — The 5-point essential matrix solver used in stereo and visual odometry.
