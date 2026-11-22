@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CameraParams, ImageManifest, NoiseLevel, ParameterCovariance, ResidualKind, ResidualNoise,
@@ -83,6 +84,14 @@ pub struct QualityThresholds {
     /// stayed at or below 1.06, and every stereo capture predicted above 1.3
     /// scattered 1.4–3 times its σ along that combination.
     pub max_second_order_scatter: f64,
+    /// Largest acceptable σ inflation `1/√(1 − R²)` of one camera parameter,
+    /// R its multiple correlation with the other shared parameters (≥ 1);
+    /// above it the conditioning check warns, naming the parameter and the
+    /// partners it trades off against. Default `7.0`: a pair at the
+    /// correlation limit 0.99 inflates both by 7.09; well-determined sensor
+    /// tilts measured 1.3–4.75, tilts the data cannot separate from the
+    /// principal point or the tangential terms 8.6–2900.
+    pub max_sigma_inflation: f64,
 }
 
 impl Default for QualityThresholds {
@@ -96,6 +105,7 @@ impl Default for QualityThresholds {
             max_view_residual: 3.0,
             max_parameter_correlation: 0.99,
             max_second_order_scatter: 1.2,
+            max_sigma_inflation: 7.0,
         }
     }
 }
@@ -126,6 +136,12 @@ impl QualityThresholds {
             return Err(Error::invalid_input(format!(
                 "quality threshold max_second_order_scatter must be finite and ≥ 1, got {}",
                 self.max_second_order_scatter
+            )));
+        }
+        if !(self.max_sigma_inflation.is_finite() && self.max_sigma_inflation >= 1.0) {
+            return Err(Error::invalid_input(format!(
+                "quality threshold max_sigma_inflation must be finite and ≥ 1, got {}",
+                self.max_sigma_inflation
             )));
         }
         if !(self.max_parameter_correlation > 0.0 && self.max_parameter_correlation <= 1.0) {
@@ -215,6 +231,9 @@ pub enum CheckKind {
     /// parameters, or a combination of them errs well beyond its σ at
     /// second order.
     CovarianceLinearity,
+    /// Parameters whose σ the data inflates by trading them off against a
+    /// combination of the result's other parameters.
+    ParameterConditioning,
 }
 
 /// The unit of a measured value.
@@ -333,6 +352,7 @@ pub struct QualityReport {
 /// | [`ViewOutliers`](CheckKind::ViewOutliers) | the per-feature residuals, per camera | warns, naming the views whose mean residual is several σ̂ |
 /// | [`ParameterCorrelation`](CheckKind::ParameterCorrelation) | the covariance, per camera | warns, naming the camera parameters that trade off almost fully |
 /// | [`CovarianceLinearity`](CheckKind::CovarianceLinearity) | the covariance's second-order error | warns when the worst combination of the shared parameters is predicted to scatter well beyond its σ, naming its parameters |
+/// | [`ParameterConditioning`](CheckKind::ParameterConditioning) | the covariance, per camera | warns, naming the camera parameters whose σ the data inflates by trading them off against a combination of the others, with those partners and, for a sensor tilt, the cause |
 ///
 /// A check whose inputs the result does not carry is
 /// [`NotApplicable`](CheckStatus::NotApplicable), with the reason in its
@@ -370,6 +390,7 @@ pub fn assess<E: CalibratedCameras + ?Sized>(
     let uncertainty = export.parameter_uncertainty();
     let target = &export.diagnostics().per_feature_residuals.target;
 
+    let conditioning = uncertainty.covariance().and_then(Conditioning::new);
     let mut checks = vec![observability(uncertainty), convergence(uncertainty)];
     checks.extend(variance_factor(uncertainty, thresholds));
     checks.push(covariance_linearity(uncertainty, thresholds));
@@ -380,6 +401,13 @@ pub fn assess<E: CalibratedCameras + ?Sized>(
         checks.push(parameter_correlation(
             params,
             uncertainty,
+            camera,
+            thresholds,
+        ));
+        checks.push(parameter_conditioning(
+            params,
+            uncertainty,
+            conditioning.as_ref(),
             camera,
             thresholds,
         ));
@@ -987,6 +1015,332 @@ fn parameter_correlation(
     QualityCheck::new(kind, Some(camera), status, message)
         .measured(worst, limit, Unit::Correlation)
         .naming(pairs)
+}
+
+/// A camera parameter's σ inflation is checked against the threshold, and a
+/// flagged one is named with its partners: the shared parameters it trades
+/// off against, those whose partial correlation with it reaches `√0.75`
+/// (without one among the regressors, its conditional σ would at least
+/// double). A flagged sensor tilt gets a named cause: the camera's free
+/// tangential or thin-prism terms, which absorb a tilt to first order, when
+/// holding them would at least halve its σ; else the lens distortion, which
+/// alone tells a tilt from the principal point.
+fn parameter_conditioning(
+    params: &CameraParams,
+    uncertainty: &Uncertainty,
+    conditioning: Option<&Conditioning>,
+    camera: usize,
+    thresholds: &QualityThresholds,
+) -> QualityCheck {
+    let kind = CheckKind::ParameterConditioning;
+    let Some(covariance) = uncertainty.covariance() else {
+        return QualityCheck::not_applicable(kind, Some(camera), no_covariance(uncertainty));
+    };
+    let indices = camera_indices(params, covariance, camera);
+    if indices.is_empty() {
+        return QualityCheck::not_applicable(
+            kind,
+            Some(camera),
+            format!(
+                "the final solve held camera {camera}'s parameters fixed, so the result \
+                 has no covariance of them"
+            ),
+        );
+    }
+    let Some(conditioning) = conditioning else {
+        return QualityCheck::not_applicable(
+            kind,
+            Some(camera),
+            "the covariance has a parameter without a finite, positive variance",
+        );
+    };
+    let labels = &covariance.labels;
+    let name = |i: usize| split_camera_label(&labels[i]).1;
+    let own = |wanted: &str| indices.iter().copied().find(|&i| name(i) == wanted);
+    let limit = thresholds.max_sigma_inflation;
+
+    let mut worst: Option<(usize, f64)> = None;
+    let mut clauses = Vec::new();
+    let mut subjects = Vec::new();
+    for &i in &indices {
+        // The board's distance scales both focal lengths alike: each one's
+        // inflation leaves the other out of the regressors.
+        let focal = match name(i) {
+            "fx" => own("fy"),
+            "fy" => own("fx"),
+            _ => None,
+        };
+        let inflation = match focal {
+            Some(j) => conditioning.inflation_without(i, j),
+            None => conditioning.inflation(i),
+        };
+        if worst.is_none_or(|(_, w)| inflation > w) {
+            worst = Some((i, inflation));
+        }
+        if inflation <= limit {
+            continue;
+        }
+        let mut partners: Vec<(usize, f64)> = (0..labels.len())
+            .filter(|&j| j != i && Some(j) != focal)
+            .map(|j| {
+                let rho = match focal {
+                    Some(f) => conditioning.partial_without(i, j, f),
+                    None => conditioning.partial(i, j),
+                };
+                (j, rho.abs())
+            })
+            .filter(|&(_, rho)| rho >= PARTNER_PARTIAL)
+            .collect();
+        partners.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        let partners: Vec<usize> = partners.into_iter().map(|(j, _)| j).collect();
+        clauses.push(conditioning_clause(
+            covariance,
+            conditioning,
+            &indices,
+            i,
+            inflation,
+            &partners,
+        ));
+        subjects.push(labels[i].clone());
+    }
+    let Some((worst_index, worst_inflation)) = worst else {
+        // `indices` is not empty, so the loop always sets a worst parameter.
+        return QualityCheck::not_applicable(kind, Some(camera), "no parameter to assess");
+    };
+    let (status, message) = if clauses.is_empty() {
+        (
+            CheckStatus::Pass,
+            format!(
+                "no parameter's σ is inflated above {limit}× (largest: {} {})",
+                labels[worst_index],
+                times(worst_inflation)
+            ),
+        )
+    } else {
+        (CheckStatus::Warn, clauses.join("; "))
+    };
+    QualityCheck::new(kind, Some(camera), status, message)
+        .measured(worst_inflation, limit, Unit::Ratio)
+        .naming(subjects)
+}
+
+/// Partial correlation at which a shared parameter is a partner of a flagged
+/// one: without it among the regressors, the flagged parameter's conditional
+/// σ would at least double (`√(1 − ρ²) ≤ ½`, `ρ ≥ √0.75`).
+const PARTNER_PARTIAL: f64 = 0.866_025_403_784_438_6;
+
+/// The tangential and thin-prism terms: to first order each absorbs a sensor
+/// tilt, as a decentred radial distortion is a tangential term.
+const DECENTRING_TERMS: [&str; 6] = ["p1", "p2", "s1", "s2", "s3", "s4"];
+
+/// σ gain from holding a flagged tilt's free decentring terms at which they
+/// are named its cause: holding them would at least halve its σ, the
+/// partner threshold applied to the group.
+const CAUSE_GAIN: f64 = 2.0;
+
+/// One flagged parameter's sentence: its inflation, its partners and what
+/// the trade-off means.
+fn conditioning_clause(
+    covariance: &ParameterCovariance,
+    conditioning: &Conditioning,
+    camera_indices: &[usize],
+    i: usize,
+    inflation: f64,
+    partners: &[usize],
+) -> String {
+    let labels = &covariance.labels;
+    let name = |j: usize| split_camera_label(&labels[j]).1;
+    let label = &labels[i];
+    let with = if partners.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<&str> = partners.iter().map(|&j| labels[j].as_str()).collect();
+        format!(" (with {})", names.join(", "))
+    };
+    let head = format!("{label} {}{with}", times(inflation));
+    if !matches!(name(i), "tilt_x" | "tilt_y") {
+        return if partners.is_empty() {
+            format!(
+                "{head}: the data determines it only in combination with several other \
+                 parameters"
+            )
+        } else {
+            format!("{head}: the data determines their combination, not each")
+        };
+    }
+    // The camera's free decentring terms are the cause when holding them
+    // would at least halve the tilt's σ. Not by partial correlation: with the
+    // principal point beside them, the tilt's last-step partner can be the
+    // principal point alone while the terms still absorb most of it.
+    let own_terms = |terms: &[&str]| -> Vec<usize> {
+        camera_indices
+            .iter()
+            .copied()
+            .filter(|&j| terms.contains(&name(j)))
+            .collect()
+    };
+    let tangential = own_terms(&DECENTRING_TERMS[..2]);
+    let prism = own_terms(&DECENTRING_TERMS[2..]);
+    let held: Vec<usize> = tangential.iter().chain(&prism).copied().collect();
+    let gain = conditioning.sigma_gain_holding(i, &held);
+    if held.is_empty() || gain < CAUSE_GAIN {
+        let sigma_deg = covariance.covariance[i][i].max(0.0).sqrt().to_degrees();
+        return format!(
+            "{head}, σ {}°: a Scheimpflug tilt is told apart from the principal point only by \
+             the lens distortion it decentres; cover the image corners, or hold the tilt at \
+             the known mount angle",
+            significant(sigma_deg)
+        );
+    }
+    let held_names: Vec<&str> = held.iter().map(|&j| labels[j].as_str()).collect();
+    let absorbs = |group: &[usize]| {
+        !group.is_empty() && conditioning.sigma_gain_holding(i, group) >= CAUSE_GAIN
+    };
+    let terms = match (absorbs(&tangential), absorbs(&prism)) {
+        (true, false) => "tangential",
+        (false, true) => "thin-prism",
+        _ => "tangential and thin-prism",
+    };
+    format!(
+        "{head}: free {terms} terms absorb a tilt to first order (holding {} cuts σ({label}) \
+         {}×); hold them to estimate the tilt, at the cost of reading a real decentring as \
+         tilt, or hold the tilt and keep them free",
+        held_names.join(", "),
+        factor(gain)
+    )
+}
+
+/// `×3.0`, `×43`: an inflation as the messages print it.
+fn times(value: f64) -> String {
+    format!("×{}", factor(value))
+}
+
+/// A factor to one decimal below 10, else whole.
+fn factor(value: f64) -> String {
+    if value < 10.0 {
+        format!("{value:.1}")
+    } else {
+        format!("{value:.0}")
+    }
+}
+
+/// `value` to two significant digits (0.57, 0.030, 1.2, 32).
+fn significant(value: f64) -> String {
+    if !(value.is_finite() && value > 0.0) {
+        return format!("{value}");
+    }
+    let decimals = (1 - value.log10().floor() as i32).max(0) as usize;
+    format!("{value:.decimals$}")
+}
+
+/// Relative floor of a correlation matrix's eigenvalues before it is
+/// inverted: each is raised to at least this share of the largest, the rank
+/// tolerance of the solver's covariance. It caps a σ inflation at 1e6, so
+/// even a matrix the solver only just accepted gives finite values.
+const EIGEN_FLOOR: f64 = 1e-12;
+
+/// The conditioning of a result's shared parameters: their correlation
+/// matrix `C` and its inverse `P`, the precision in units of each
+/// parameter's σ. `P_ii = 1/(1 − R_i²)`, `R_i` the multiple correlation of
+/// parameter `i` with all the others.
+struct Conditioning {
+    correlation: DMatrix<f64>,
+    precision: DMatrix<f64>,
+}
+
+impl Conditioning {
+    /// `None` when the covariance is not square over its labels, has a
+    /// non-finite entry, or a variance that is not positive.
+    fn new(cov: &ParameterCovariance) -> Option<Self> {
+        let n = cov.labels.len();
+        if n == 0 || cov.covariance.len() != n || cov.covariance.iter().any(|row| row.len() != n) {
+            return None;
+        }
+        if cov.covariance.iter().flatten().any(|v| !v.is_finite()) {
+            return None;
+        }
+        let scale: Vec<f64> = (0..n)
+            .map(|i| {
+                let variance = cov.covariance[i][i];
+                (variance > 0.0).then(|| 1.0 / variance.sqrt())
+            })
+            .collect::<Option<_>>()?;
+        let correlation = DMatrix::from_fn(n, n, |r, c| {
+            if r == c {
+                1.0
+            } else {
+                0.5 * (cov.covariance[r][c] + cov.covariance[c][r]) * scale[r] * scale[c]
+            }
+        });
+        let precision = clamped_inverse(&correlation)?;
+        Some(Self {
+            correlation,
+            precision,
+        })
+    }
+
+    /// The σ inflation of parameter `i` by its correlations with all the
+    /// others: `√P_ii = 1/√(1 − R²)`, at least 1.
+    fn inflation(&self, i: usize) -> f64 {
+        self.precision[(i, i)].max(1.0).sqrt()
+    }
+
+    /// [`inflation`](Self::inflation) with parameter `j` left out of the
+    /// regressors: `√(P_ii − P_ij²/P_jj)`.
+    fn inflation_without(&self, i: usize, j: usize) -> f64 {
+        let p = &self.precision;
+        (p[(i, i)] - p[(i, j)].powi(2) / p[(j, j)]).max(1.0).sqrt()
+    }
+
+    /// The partial correlation of `i` and `j` given all the other
+    /// parameters: `−P_ij/√(P_ii P_jj)`.
+    fn partial(&self, i: usize, j: usize) -> f64 {
+        let p = &self.precision;
+        (-p[(i, j)] / (p[(i, i)] * p[(j, j)]).sqrt()).clamp(-1.0, 1.0)
+    }
+
+    /// [`partial`](Self::partial) of `i` and `k` with parameter `j` left out
+    /// of the regressors: from the precision of the others, `P` with `j`
+    /// eliminated.
+    fn partial_without(&self, i: usize, k: usize, j: usize) -> f64 {
+        let p = &self.precision;
+        let reduced = |a: usize, b: usize| p[(a, b)] - p[(a, j)] * p[(j, b)] / p[(j, j)];
+        (-reduced(i, k) / (reduced(i, i) * reduced(k, k)).sqrt()).clamp(-1.0, 1.0)
+    }
+
+    /// How many times smaller the σ of parameter `i` becomes when the
+    /// parameters `held` are held at their values:
+    /// `1/√(1 − c_iGᵀ C_GG⁻¹ c_iG)`, the eigenvalues of `C_GG` floored as for
+    /// the full matrix (two decentring terms can correlate fully,
+    /// `corr(p1, s3) = −1`).
+    fn sigma_gain_holding(&self, i: usize, held: &[usize]) -> f64 {
+        let h = held.len();
+        if h == 0 {
+            return 1.0;
+        }
+        let block = DMatrix::from_fn(h, h, |a, b| self.correlation[(held[a], held[b])]);
+        let cross = DVector::from_fn(h, |a, _| self.correlation[(i, held[a])]);
+        let Some(inverse) = clamped_inverse(&block) else {
+            return 1.0;
+        };
+        let explained = cross.dot(&(inverse * &cross));
+        1.0 / (1.0 - explained).max(EIGEN_FLOOR).sqrt()
+    }
+}
+
+/// The inverse of a symmetric positive semi-definite matrix, each eigenvalue
+/// raised to at least [`EIGEN_FLOOR`] times the largest; `None` when the
+/// largest is not finite and positive.
+fn clamped_inverse(matrix: &DMatrix<f64>) -> Option<DMatrix<f64>> {
+    let eigen = SymmetricEigen::new(matrix.clone());
+    let largest = eigen.eigenvalues.max();
+    if !(largest.is_finite() && largest > 0.0) {
+        return None;
+    }
+    let floor = EIGEN_FLOOR * largest;
+    let inverse = eigen.eigenvalues.map(|l| 1.0 / l.max(floor));
+    let v = &eigen.eigenvectors;
+    Some(v * DMatrix::from_diagonal(&inverse) * v.transpose())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `schemas/cross_validation_options.json` and
   `schemas/model_comparison.json`. `ReprojectionStats` gains a JSON
   schema.
+- The quality report has a `parameter_conditioning` check per camera
+  (`CheckKind::ParameterConditioning`). It measures how many times each
+  camera parameter's σ is inflated by its correlations with all the other
+  shared parameters, `1/√(1 − R²)`, and warns above
+  `QualityThresholds::max_sigma_inflation` (default 7, about a pair at the
+  0.99 correlation limit), naming each such parameter with the parameters
+  it trades off against. It catches trade-offs among three or more
+  parameters that the pairwise `parameter_correlation` check misses. A
+  flagged Scheimpflug tilt gets its cause: free tangential or thin-prism
+  terms (with how much holding them would cut its σ), or distortion too weak
+  or too little observed to tell the tilt from the principal point. The
+  check warns, never fails; thresholds written without the new field read
+  its default. Python: `QualityThresholds.max_sigma_inflation`.
 
 ### Documentation
 

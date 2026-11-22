@@ -4,8 +4,8 @@
 //! # Quality verdict
 //!
 //! [`assess`] judges any export — observability, convergence, the noise
-//! level, projection uncertainty, feature coverage, outlier views and
-//! parameter correlations — and returns a [`QualityReport`] with a
+//! level, projection uncertainty, feature coverage, outlier views,
+//! parameter correlations and conditioning — and returns a [`QualityReport`] with a
 //! pass / warn / fail [`Verdict`]; see [`QualityThresholds`] for the limits
 //! and their defaults.
 //!

@@ -57,6 +57,7 @@ can be changed, and in JSON they reject unknown fields.
 | `view_outliers` | camera | — | a view's mean residual exceeds 3 σ̂ |
 | `parameter_correlation` | camera | — | two parameters correlate above 0.99 |
 | `covariance_linearity` | result | — | a combination of the shared parameters is predicted to scatter more than 1.2× its σ |
+| `parameter_conditioning` | camera | — | a parameter's σ is inflated more than 7× by its correlations with the others |
 
 Each check carries its status, the measured value with its unit and the
 threshold it was compared to (`measurement`), what it names (`subjects`:
@@ -103,6 +104,45 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   combination of the pair, not each. `fx` and `fy` are left out: the board's
   distance scales both, so they correlate almost fully in every planar
   calibration while their ratio is well determined.
+- **Parameter conditioning** catches what a pairwise correlation misses: a
+  parameter the data cannot tell from a combination of three or more
+  others. Its measure is the σ inflation `1/√(1 − R²)`, with `R` the
+  multiple correlation of one camera parameter with all the other shared
+  parameters (other cameras and the rig included; per-view poses are
+  already folded into the covariance): how many times larger its σ is than
+  it would be if every other parameter were known. A pair at the
+  correlation limit 0.99 inflates both by 7.1; the check warns above
+  `max_sigma_inflation` (7), never fails, and `measurement` holds the
+  camera's largest inflation. Each named parameter comes with its
+  *partners*, the parameters whose partial correlation with it reaches
+  0.87: leaving any one of them out of the trade-off would at least halve
+  its σ. The message reads, for example, `k3 ×12 (with k1, k2): the data
+  determines their combination, not each`. `fx` and `fy` are each measured
+  without the other, as in the correlation check.
+
+  A Scheimpflug tilt is determined only through the lens distortion it
+  decentres, so a flagged `tilt_x` or `tilt_y` gets its cause:
+
+  - *Weak or unobserved distortion*, with the tilt's σ in degrees: `tilt_x
+    ×42 (with cy), σ 0.60°: a Scheimpflug tilt is told apart from the
+    principal point only by the lens distortion it decentres`. Cover the
+    image corners, where the distortion is, or hold the tilt at the known
+    mount angle (`camera.fix.sensor`).
+  - *Free tangential terms*: `p1, p2` absorb a tilt to first order, as a
+    decentred radial distortion is a tangential term. The message states how
+    many times holding them would cut the tilt's σ (`holding p1, p2 cuts
+    σ(tilt_x) 12×`). Hold them to estimate the tilt, which then also reads a
+    real lens decentring as tilt; or hold the tilt and keep them free.
+  - *Free thin-prism terms* (`s1..s4`) trade off with a tilt the same way,
+    and the message names them.
+
+  The decentring terms are named as the cause when holding them would at
+  least halve the tilt's σ; otherwise the distortion is. On a synthetic
+  1280×960 camera with a 50° field, 5 % distortion at the corner, a 5° tilt
+  and twenty views over the whole image, the default free set inflates the
+  tilt 2.4× and passes; a 20° tilt 3.9×, a 20° field 1.2×. Distortion of
+  0.5 % at the corner inflates it 42×, freeing `p1, p2` 28×, freeing the
+  thin-prism terms 14×.
 - **Covariance linearity** reads the uncertainty's `second_order`
   prediction ([Reading the Covariance](uncertainty_reading.md)). The
   covariance is the error's first-order term. When the views pin a
@@ -177,7 +217,8 @@ and the thresholds as
   "coverage_fail_below": 0.3,
   "max_view_residual": 3.0,
   "max_parameter_correlation": 0.99,
-  "max_second_order_scatter": 1.2
+  "max_second_order_scatter": 1.2,
+  "max_sigma_inflation": 7.0
 }
 ```
 

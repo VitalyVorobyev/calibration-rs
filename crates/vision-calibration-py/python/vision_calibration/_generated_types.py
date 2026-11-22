@@ -224,6 +224,7 @@ CheckKind: TypeAlias = Literal[
     "view_outliers",
     "parameter_correlation",
     "covariance_linearity",
+    "parameter_conditioning",
 ]
 """What a check examines; `assess` describes each check.
 
@@ -237,6 +238,8 @@ CheckKind: TypeAlias = Literal[
 - ``"covariance_linearity"``: Whether the covariance describes the joint error of the shared
   parameters, or a combination of them errs well beyond its σ at
   second order.
+- ``"parameter_conditioning"``: Parameters whose σ the data inflates by trading them off against a
+  combination of the result's other parameters.
 """
 
 
@@ -2270,6 +2273,16 @@ class QualityThresholds(TypedDict, total=False):
     single cameras whose error the covariance describes the prediction
     stayed at or below 1.06, and every stereo capture predicted above 1.3
     scattered 1.4–3 times its σ along that combination.
+    """
+
+    max_sigma_inflation: float
+    """Largest acceptable σ inflation `1/√(1 − R²)` of one camera parameter,
+    R its multiple correlation with the other shared parameters (≥ 1);
+    above it the conditioning check warns, naming the parameter and the
+    partners it trades off against. Default `7.0`: a pair at the
+    correlation limit 0.99 inflates both by 7.09; well-determined sensor
+    tilts measured 1.3–4.75, tilts the data cannot separate from the
+    principal point or the tangential terms 8.6–2900.
     """
 
     max_view_residual: float

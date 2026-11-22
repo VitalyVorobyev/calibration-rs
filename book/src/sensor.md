@@ -118,6 +118,10 @@ Consequences for a calibration:
   board's own tilt do not change the tilt's uncertainty, though the focal
   length still needs tilted views.
 
+The quality report's `parameter_conditioning` check flags a tilt whose σ
+these trade-offs inflate and says which one is at work ([Judging a
+Result](quality.md#the-checks)).
+
 ### What the Estimated Tilt Is
 
 The tilt model sends a ray to the tilted sensor at the angle it had in

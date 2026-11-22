@@ -121,6 +121,21 @@ sweep). The quality report adds `TiltDetermination`: `Warn` for
 `EstimatedImprecise` (supply a prior), and for a prior–data conflict
 `|τ̂ − τ₀| / √(s² + σₚ²) > 3`.
 
+The quality report's `ParameterConditioning` check (shipped ahead of the
+procedure) explains *why* a tilt's σ is large: its σ inflation
+`1/√(1 − R²)` over all shared parameters, the partners behind it, and a
+named cause (free tangential or thin-prism terms when holding them would
+at least halve its σ, else weak or unobserved distortion). It does not
+decide *whether* the tilt is determined: an inflation measures a
+trade-off, not a precision. A narrow field with the default free set is
+not flagged (inflation 1.2 at 20°: the distortion centre is the
+well-determined coordinate there, so nothing trades off), although its
+σ(tilt) is larger than at 50°; that loss is a precision matter for the
+σ-based `TiltDetermination`. The cause is read from the group gain, not
+from partial correlations: with `p1, p2` free at the study's baseline the
+tilt's partner by partial correlation is the principal point alone, while
+holding `p1, p2` cuts its σ 12× (two solves: 11.6×).
+
 ### Where it runs
 
 In `planar_family::optimize_camera`, so planar intrinsics, each rig

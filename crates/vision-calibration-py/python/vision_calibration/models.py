@@ -2111,6 +2111,10 @@ class QualityThresholds:
     #: over its σ, at second order, above which the covariance-linearity
     #: check warns (≥ 1).
     max_second_order_scatter: float = 1.2
+    #: σ inflation ``1/√(1 − R²)`` of one camera parameter by its correlations
+    #: with all the other shared parameters above which the conditioning check
+    #: names it (≥ 1).
+    max_sigma_inflation: float = 7.0
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -2126,6 +2130,7 @@ class QualityThresholds:
             "max_view_residual": float(self.max_view_residual),
             "max_parameter_correlation": float(self.max_parameter_correlation),
             "max_second_order_scatter": float(self.max_second_order_scatter),
+            "max_sigma_inflation": float(self.max_sigma_inflation),
         }
 
 
@@ -2155,8 +2160,8 @@ class QualityCheck:
 
     #: What it examines: ``"observability"``, ``"convergence"``,
     #: ``"variance_factor"``, ``"projection_sigma"``, ``"feature_coverage"``,
-    #: ``"view_outliers"``, ``"parameter_correlation"`` or
-    #: ``"covariance_linearity"``.
+    #: ``"view_outliers"``, ``"parameter_correlation"``,
+    #: ``"covariance_linearity"`` or ``"parameter_conditioning"``.
     kind: str
     #: ``"pass"``, ``"warn"``, ``"fail"`` or ``"not_applicable"``.
     status: str
@@ -2169,7 +2174,8 @@ class QualityCheck:
     measurement: Measurement | None = None
     #: Named items: parameter labels, parameter pairs (``"fx/cx"``) or views
     #: (``"view 3"``); for ``"covariance_linearity"``, the labels of the
-    #: combination that errs beyond its σ.
+    #: combination that errs beyond its σ; for ``"parameter_conditioning"``,
+    #: the camera parameters whose σ the data inflates.
     subjects: list[str] = field(default_factory=list)
 
     @classmethod

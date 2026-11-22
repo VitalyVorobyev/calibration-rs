@@ -338,12 +338,29 @@ fn thresholds_fill_defaults_and_reject_unknown_fields() {
         expected
     );
     assert!(serde_json::from_str::<QualityThresholds>(r#"{"coverage": 0.5}"#).is_err());
+
+    // Thresholds written before the conditioning check read its default.
+    let older: QualityThresholds = serde_json::from_str(
+        r#"{
+            "expected_feature_noise_px": null,
+            "variance_test_alpha": 0.01,
+            "max_projection_sigma_px": 1.0,
+            "coverage_warn_below": 0.5,
+            "coverage_fail_below": 0.3,
+            "max_view_residual": 3.0,
+            "max_parameter_correlation": 0.99,
+            "max_second_order_scatter": 1.2
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(older, QualityThresholds::default());
+    assert_eq!(older.max_sigma_inflation, 7.0);
 }
 
 #[test]
 fn out_of_range_thresholds_are_errors() {
     let export = calibrate(&well_covered_poses());
-    let invalid: [fn(&mut QualityThresholds); 7] = [
+    let invalid: [fn(&mut QualityThresholds); 9] = [
         |t| t.expected_feature_noise_px = Some(0.0),
         |t| t.variance_test_alpha = 1.0,
         |t| t.max_projection_sigma_px = f64::NAN,
@@ -351,6 +368,8 @@ fn out_of_range_thresholds_are_errors() {
         |t| t.max_view_residual = -1.0,
         |t| t.max_parameter_correlation = 1.5,
         |t| t.max_second_order_scatter = 0.9,
+        |t| t.max_sigma_inflation = 0.99,
+        |t| t.max_sigma_inflation = f64::INFINITY,
     ];
     for set in invalid {
         let mut thresholds = QualityThresholds::default();
@@ -716,6 +735,308 @@ fn the_focal_lengths_correlating_is_not_a_warning() {
     let c = parameter_correlation(&params, &uncertainty, 0, &QualityThresholds::default());
     assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
     assert!((c.measurement.unwrap().value - 0.1).abs() < 1e-12);
+}
+
+/// The covariance with standard deviations `sigma` and correlations
+/// `correlation`.
+fn scaled(correlation: &[Vec<f64>], sigma: &[f64]) -> Vec<Vec<f64>> {
+    correlation
+        .iter()
+        .enumerate()
+        .map(|(r, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(c, rho)| rho * sigma[r] * sigma[c])
+                .collect()
+        })
+        .collect()
+}
+
+/// A Scheimpflug camera with thin-prism distortion, so a tilt and every
+/// decentring term are among its labels.
+fn tilted_params() -> CameraParams {
+    let mut params = calibrate(&well_covered_poses()).camera;
+    params.sensor = vision_calibration_core::SensorParams::Scheimpflug {
+        params: vision_calibration_core::ScheimpflugParams::default(),
+    };
+    params.distortion = vision_calibration_core::DistortionParams::ThinPrism {
+        params: vision_calibration_core::ThinPrism::default(),
+    };
+    params
+}
+
+/// `k3 ≈ (k1 + k2)/√2` up to 0.1 % of its variance: every pair correlates
+/// at most 0.71, but each parameter is almost a combination of the other two.
+#[test]
+fn a_three_way_near_gauge_warns_where_the_pairwise_check_passes() {
+    let params = calibrate(&well_covered_poses()).camera;
+    let a = 0.9995_f64;
+    let r = a / 2.0_f64.sqrt();
+    let correlation = vec![
+        vec![1.0, 0.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0, r],
+        vec![0.0, 0.0, 1.0, r],
+        vec![0.0, r, r, 1.0],
+    ];
+    let m = scaled(&correlation, &[2.0, 1e-3, 1e-2, 0.1]);
+    let uncertainty = Uncertainty::Available(covariance(&["fx", "k1", "k2", "k3"], m, 0.1));
+    let thresholds = QualityThresholds::default();
+    let pairwise = parameter_correlation(&params, &uncertainty, 0, &thresholds);
+    assert_eq!(pairwise.status, CheckStatus::Pass, "{}", pairwise.message);
+
+    let conditioning = uncertainty.covariance().and_then(Conditioning::new);
+    let c = parameter_conditioning(&params, &uncertainty, conditioning.as_ref(), 0, &thresholds);
+    assert_eq!(c.status, CheckStatus::Warn, "{}", c.message);
+    assert_eq!(c.subjects, vec!["k1", "k2", "k3"]);
+    // R² of k3 on (k1, k2) is a², so its inflation is 1/√(1 − a²).
+    let m = c.measurement.unwrap();
+    assert_eq!((m.threshold, m.unit), (7.0, Unit::Ratio));
+    assert!(
+        (m.value - 1.0 / (1.0 - a * a).sqrt()).abs() < 1e-6 * m.value,
+        "{m:?}"
+    );
+    assert!(c.message.contains("k3 ×32 (with k1, k2)"), "{}", c.message);
+    assert!(
+        c.message
+            .contains("the data determines their combination, not each"),
+        "{}",
+        c.message
+    );
+    assert!(!c.message.contains("fx"), "{}", c.message);
+}
+
+#[test]
+fn the_focal_pair_alone_is_not_a_conditioning_warning() {
+    let params = calibrate(&well_covered_poses()).camera;
+    let correlation = vec![
+        vec![1.0, 0.999, 0.1],
+        vec![0.999, 1.0, 0.1],
+        vec![0.1, 0.1, 1.0],
+    ];
+    let m = scaled(&correlation, &[2.0, 2.0, 1.0]);
+    let uncertainty = Uncertainty::Available(covariance(&["fx", "fy", "cx"], m, 0.1));
+    let conditioning = uncertainty.covariance().and_then(Conditioning::new);
+    let c = parameter_conditioning(
+        &params,
+        &uncertainty,
+        conditioning.as_ref(),
+        0,
+        &QualityThresholds::default(),
+    );
+    assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
+    assert!(c.subjects.is_empty());
+    assert!(c.measurement.unwrap().value < 1.1, "{:?}", c.measurement);
+    assert!(
+        c.message
+            .starts_with("no parameter's σ is inflated above 7× (largest: "),
+        "{}",
+        c.message
+    );
+}
+
+#[test]
+fn a_tilt_flagged_names_its_cause() {
+    let params = tilted_params();
+    let thresholds = QualityThresholds::default();
+    let assess_one = |labels: &[&str], correlation: Vec<Vec<f64>>, sigma: &[f64]| {
+        let uncertainty =
+            Uncertainty::Available(covariance(labels, scaled(&correlation, sigma), 0.1));
+        let conditioning = uncertainty.covariance().and_then(Conditioning::new);
+        parameter_conditioning(&params, &uncertainty, conditioning.as_ref(), 0, &thresholds)
+    };
+
+    // Told apart from the principal point only by the distortion.
+    let sigma_tilt = 0.01_f64;
+    let c = assess_one(
+        &["cy", "k1", "tilt_x"],
+        vec![
+            vec![1.0, 0.0, 0.999],
+            vec![0.0, 1.0, 0.0],
+            vec![0.999, 0.0, 1.0],
+        ],
+        &[5.0, 0.01, sigma_tilt],
+    );
+    assert_eq!(c.status, CheckStatus::Warn, "{}", c.message);
+    assert_eq!(c.subjects, vec!["cy", "tilt_x"]);
+    let expected = format!(
+        "tilt_x ×22 (with cy), σ {:.2}°: a Scheimpflug tilt is told apart from the principal \
+         point only by the lens distortion it decentres",
+        sigma_tilt.to_degrees()
+    );
+    assert!(c.message.contains(&expected), "{}", c.message);
+    assert!(
+        c.message
+            .starts_with("cy ×22 (with tilt_x): the data determines their combination")
+    );
+
+    // Free tangential terms absorb it.
+    let c = assess_one(
+        &["cy", "p1", "p2", "tilt_x"],
+        vec![
+            vec![1.0, 0.0, 0.0, 0.05],
+            vec![0.0, 1.0, 0.0, -0.995],
+            vec![0.0, 0.0, 1.0, 0.0],
+            vec![0.05, -0.995, 0.0, 1.0],
+        ],
+        &[5.0, 1e-3, 1e-3, sigma_tilt],
+    );
+    assert_eq!(c.status, CheckStatus::Warn, "{}", c.message);
+    assert!(
+        c.subjects.contains(&"tilt_x".to_string()),
+        "{:?}",
+        c.subjects
+    );
+    assert!(
+        c.message.contains(
+            "tilt_x ×12 (with p1): free tangential terms absorb a tilt to first order \
+             (holding p1, p2 cuts σ(tilt_x) 10×); hold them to estimate the tilt"
+        ),
+        "{}",
+        c.message
+    );
+
+    // Free thin-prism terms likewise.
+    let c = assess_one(
+        &["cy", "s1", "s3", "tilt_x"],
+        vec![
+            vec![1.0, 0.0, 0.0, 0.0],
+            vec![0.0, 1.0, 0.0, 0.0],
+            vec![0.0, 0.0, 1.0, 0.995],
+            vec![0.0, 0.0, 0.995, 1.0],
+        ],
+        &[5.0, 1e-3, 1e-3, sigma_tilt],
+    );
+    assert!(
+        c.message
+            .contains("free thin-prism terms absorb a tilt to first order (holding s1, s3"),
+        "{}",
+        c.message
+    );
+}
+
+/// A covariance whose correlation block has an eigenvalue 1e-15 of its
+/// largest: the inflation stays finite (the floor caps it at 1e6) and the
+/// report survives JSON.
+#[test]
+fn a_near_singular_covariance_gives_a_finite_inflation() {
+    let mut export = calibrate(&well_covered_poses());
+    let (c, s) = (30.0_f64.to_radians().cos(), 30.0_f64.to_radians().sin());
+    let v = nalgebra::Matrix2::new(c, -s, s, c);
+    let block = v * nalgebra::Matrix2::new(1.0, 0.0, 0.0, 1e-15) * v.transpose();
+    let Uncertainty::Available(cov) = &mut export.uncertainty else {
+        panic!("expected a covariance");
+    };
+    cov.labels = vec!["k1".into(), "k2".into()];
+    cov.covariance = vec![
+        vec![block[(0, 0)], block[(0, 1)]],
+        vec![block[(1, 0)], block[(1, 1)]],
+    ];
+    cov.second_order = None;
+    let report = assess(&export, &[IMAGE], &QualityThresholds::default()).unwrap();
+    let check = check(&report, CheckKind::ParameterConditioning);
+    assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
+    let value = check.measurement.unwrap().value;
+    assert!(
+        value.is_finite() && value > 1e5 && value <= 1e6 + 1.0,
+        "{value}"
+    );
+    let json = serde_json::to_string(&report).unwrap();
+    let back: QualityReport = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, report);
+}
+
+#[test]
+fn a_covariance_without_positive_variances_has_no_conditioning() {
+    let params = calibrate(&well_covered_poses()).camera;
+    let uncertainty = Uncertainty::Available(covariance(
+        &["fx", "cx"],
+        vec![vec![1.0, 0.0], vec![0.0, 0.0]],
+        0.1,
+    ));
+    let conditioning = uncertainty.covariance().and_then(Conditioning::new);
+    assert!(conditioning.is_none());
+    let thresholds = QualityThresholds::default();
+    let c = parameter_conditioning(&params, &uncertainty, None, 0, &thresholds);
+    assert_eq!(c.status, CheckStatus::NotApplicable);
+    let c = parameter_conditioning(
+        &params,
+        &unavailable(UncertaintyUnavailable::NotComputed),
+        None,
+        0,
+        &thresholds,
+    );
+    assert_eq!(c.status, CheckStatus::NotApplicable);
+}
+
+/// The closed forms of [`Conditioning`] against direct inverses of a random
+/// SPD covariance with parameters of very different scales.
+#[test]
+fn conditioning_matches_direct_inverses() {
+    use nalgebra::DMatrix;
+    let n = 7;
+    let mut state = 0x2545_F491_4F6C_DD1D_u64;
+    let mut uniform = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64 - 0.5
+    };
+    let a = DMatrix::from_fn(n, n, |_, _| uniform());
+    let scales: Vec<f64> = (0..n).map(|i| 10f64.powi(i as i32 - 3)).collect();
+    let d = DMatrix::from_diagonal(&nalgebra::DVector::from_vec(scales));
+    let s = &d * (a.transpose() * &a + DMatrix::identity(n, n) * 0.05) * &d;
+    let labels: Vec<String> = (0..n).map(|i| format!("q{i}")).collect();
+    let rows: Vec<Vec<f64>> = (0..n)
+        .map(|r| (0..n).map(|c| s[(r, c)]).collect())
+        .collect();
+    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let conditioning = Conditioning::new(&covariance(&refs, rows, 0.1)).unwrap();
+
+    let p = s.clone().try_inverse().unwrap();
+    let without = |j: usize| {
+        let keep: Vec<usize> = (0..n).filter(|&k| k != j).collect();
+        let sub = DMatrix::from_fn(n - 1, n - 1, |r, c| s[(keep[r], keep[c])]);
+        (keep.clone(), sub.try_inverse().unwrap())
+    };
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-8 * b.abs().max(1.0);
+    for i in 0..n {
+        let direct = (s[(i, i)] * p[(i, i)]).sqrt();
+        assert!(close(conditioning.inflation(i), direct), "inflation {i}");
+        for j in (0..n).filter(|&j| j != i) {
+            let partial = -p[(i, j)] / (p[(i, i)] * p[(j, j)]).sqrt();
+            assert!(
+                close(conditioning.partial(i, j), partial),
+                "partial {i} {j}"
+            );
+            let (keep, inv) = without(j);
+            let r = keep.iter().position(|&k| k == i).unwrap();
+            let direct = (s[(i, i)] * inv[(r, r)]).sqrt();
+            assert!(
+                close(conditioning.inflation_without(i, j), direct),
+                "inflation of {i} without {j}"
+            );
+            for k in (0..n).filter(|&k| k != i && k != j) {
+                let c = keep.iter().position(|&q| q == k).unwrap();
+                let partial = -inv[(r, c)] / (inv[(r, r)] * inv[(c, c)]).sqrt();
+                assert!(
+                    close(conditioning.partial_without(i, k, j), partial),
+                    "partial {i} {k} without {j}"
+                );
+            }
+        }
+        // Holding a set: σ² falls to S_ii − S_iG S_GG⁻¹ S_Gi.
+        let held: Vec<usize> = (0..n).filter(|&k| k != i && k % 2 == 0).collect();
+        let h = held.len();
+        let s_gg = DMatrix::from_fn(h, h, |r, c| s[(held[r], held[c])]);
+        let s_ig = DMatrix::from_fn(1, h, |_, c| s[(i, held[c])]);
+        let conditional =
+            s[(i, i)] - (&s_ig * s_gg.try_inverse().unwrap() * s_ig.transpose())[(0, 0)];
+        let direct = (s[(i, i)] / conditional).sqrt();
+        assert!(
+            close(conditioning.sigma_gain_holding(i, &held), direct),
+            "gain of {i} holding {held:?}"
+        );
+    }
 }
 
 #[test]
