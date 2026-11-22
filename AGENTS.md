@@ -73,7 +73,8 @@ use the pinned publisher download in CI, then run
 suite (`calib-bench suite check` on both backends, `suite compare`) and the
 suite images' checksums, the uncertainty gates (release-mode `--ignored`
 tests: Monte-Carlo, rig laser
-points, dense cloud, second-order error, tilted rig, robot-frame points,
+points, dense cloud, second-order error, tilted rig, tilt conditioning,
+robot-frame points,
 robot-error estimate, next-view prediction, feature covariance; the
 `uncertainty-gates` job lists the commands), the install smoke test (the
 wheel's examples and `vcal` run outside the checkout), the Python runtime

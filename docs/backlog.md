@@ -220,7 +220,7 @@ Each model follows AGENTS.md §10 (a camera model).
   `scheimpflug_rig_ref_cam0..5`.
 - [ ] CAL-TILT-DETERMINE - A Scheimpflug tilt is estimated only when the
   data determine it, the result says why, and a small σ alone does not
-  count as determined. Three parts, one design:
+  count as determined. Two parts, one design:
   - **The procedure** (ADR 0031, proposed; evidence
     `notes/tilt-determination.md`): `TiltPolicy::{Estimate, Determine {
     max_sigma }}` on `CameraConfig` (Scheimpflug only), the procedure in
@@ -250,18 +250,6 @@ Each model follows AGENTS.md §10 (a camera model).
     tiltsweep`) on both backends, null (no displacement: `σ_sys` within its
     noise), a known displacement (`σ_sys` covers the bias), and the six
     ring-grid cameras.
-  - **The quality message** (evidence `notes/tilt-identifiability.md`: the
-    tilt is determined only through lens distortion, and
-    `ParameterCorrelation` already flags the bad cells pairwise with a
-    generic message). Design: in `analysis::quality`, when a flagged pair
-    joins a Scheimpflug tilt with a principal-point coordinate, a
-    tangential or a thin-prism term, name the cause (weak or unobserved
-    distortion: cover the image corners, or hold the tilt at a known mount
-    angle; tangential or prism terms free with the tilt: hold them) and add
-    the tilt's σ inflation by its correlations, `1/√(1 − R²)` from the
-    camera block, as the measured value; additive, no threshold change.
-    Gate: the weak-distortion, narrow-field and `p`-free cells of the study
-    get the named message, the baseline cell none, on both backends.
 - [ ] CAM-PARAM-PRIOR - Gaussian priors on camera parameters, designed in
   ADR 0031 (*Priors on camera parameters*); the tilt is the first user. The
   solve must reach the posterior, which the raw coordinates do not

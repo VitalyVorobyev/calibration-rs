@@ -16,6 +16,7 @@ KINDS = {
     "view_outliers",
     "parameter_correlation",
     "covariance_linearity",
+    "parameter_conditioning",
 }
 
 
@@ -69,6 +70,25 @@ class AssessTest(unittest.TestCase):
             self.assertEqual(warned.subjects, [t.label for t in second.combination])
         with self.assertRaises(ValueError):
             vc.assess(result, vc.QualityThresholds(max_second_order_scatter=0.5))
+
+    def test_parameter_conditioning_reads_the_sigma_inflation(self) -> None:
+        result = _planar_result()
+        check = _check(vc.assess(result), "parameter_conditioning")
+        self.assertEqual(check.camera, 0)
+        self.assertIn(check.status, {"pass", "warn"})
+        assert check.measurement is not None
+        self.assertEqual(check.measurement.unit, "ratio")
+        self.assertEqual(check.measurement.threshold, 7.0)
+        self.assertGreaterEqual(check.measurement.value, 1.0)
+        # At a limit of 1 every parameter with a correlation is named.
+        strict = _check(
+            vc.assess(result, vc.QualityThresholds(max_sigma_inflation=1.0)),
+            "parameter_conditioning",
+        )
+        self.assertEqual(strict.status, "warn")
+        self.assertTrue(strict.subjects)
+        with self.assertRaises(ValueError):
+            vc.assess(result, vc.QualityThresholds(max_sigma_inflation=0.5))
 
     def test_without_an_image_size_the_image_checks_do_not_apply(self) -> None:
         report = vc.assess(_planar_result())
@@ -141,7 +161,8 @@ class AssessTest(unittest.TestCase):
         self.assertIsNone(payload["expected_feature_noise_px"])
         self.assertEqual(payload["coverage_fail_below"], 0.3)
         self.assertEqual(payload["max_second_order_scatter"], 1.2)
-        self.assertEqual(len(payload), 8)
+        self.assertEqual(payload["max_sigma_inflation"], 7.0)
+        self.assertEqual(len(payload), 9)
 
 
 class HtmlReportTest(unittest.TestCase):

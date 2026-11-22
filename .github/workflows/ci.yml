@@ -296,6 +296,11 @@ jobs:
           cargo test --release --locked -p vision-calibration
           --test rig_extrinsics_scheimpflug -- --ignored
 
+      - name: Tilt conditioning sweep
+        run: >-
+          cargo test --release --locked -p vision-calibration
+          --test quality_tilt_conditioning -- --ignored
+
       - name: Robot-frame point gate
         run: >-
           cargo test --release --locked -p vision-calibration

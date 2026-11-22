@@ -42,6 +42,11 @@
           "const": "covariance_linearity",
           "description": "Whether the covariance describes the joint error of the shared\nparameters, or a combination of them errs well beyond its σ at\nsecond order.",
           "type": "string"
+        },
+        {
+          "const": "parameter_conditioning",
+          "description": "Camera parameters whose σ the data inflates by trading them off\nagainst a combination of the camera's other parameters.",
+          "type": "string"
         }
       ]
     },

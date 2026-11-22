@@ -42,6 +42,12 @@
       "format": "double",
       "type": "number"
     },
+    "max_sigma_inflation": {
+      "default": 7.0,
+      "description": "Largest acceptable σ inflation `1/√(1 − R²)` of one camera parameter,\nR its multiple correlation with the camera's other parameters (≥ 1);\nabove it the conditioning check warns, naming the parameter and the\npartners it trades off against. The other focal length is left out\nof a focal length's regressors, and the other radial coefficients out\nof a radial coefficient's. Default `7.0`: a pair at the correlation\nlimit 0.99 inflates both by 7.09; well-determined sensor tilts\nmeasured 1.2–5, tilts the data cannot separate from the principal\npoint or the tangential terms 14–2900.",
+      "format": "double",
+      "type": "number"
+    },
     "max_view_residual": {
       "default": 3.0,
       "description": "Largest acceptable mean normalized residual of one view, in units of\nthe noise level σ̂ (> 0); a view above it is named and the check warns.\nDefault `3.0`: the mean of `|r| / σ̂` over Gaussian inliers is about\n1.25, so a view at 3 has residuals well over twice the typical ones,\nas from a misdetection, motion blur or a wrong robot pose.",
