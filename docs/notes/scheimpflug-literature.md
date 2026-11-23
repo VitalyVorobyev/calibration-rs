@@ -276,23 +276,31 @@ the held-out error from 2.49 to 2.13 px.
 For an acceptable blur `σ_max`, `ε = √(σ_max² − σ0²)/κ`, `X = z·(x, y, 1)`:
 
 ```text
-|1/z − π·(x, y, 1)| ≤ ε   ⇔   |1 − π·X| ≤ ε·(e_z·X)
-near / far limits:  (π + ε·e_z)·X = 1,   (π − ε·e_z)·X = 1
-both contain        {π·X = 1} ∩ {e_z·X = 0}   (the hinge line)
+|1 − π·X| ≤ ε·(n·X)/s     (n the sensor normal, s the spot scale)
+near / far limits at s = 1:  (π + ε·n)·X = 1,   (π − ε·n)·X = 1
+both contain        {π·X = 1} ∩ {n·X = 0}   (the hinge line)
 ```
 
-`e_z·X = 0` is the plane through the projection centre parallel to the
+`n·X = 0` is the plane through the projection centre parallel to the
 sensor (Merklinger's PTF plane); its intersection with the PoF is the
 hinge line, about which the view-camera literature's depth-of-field wedge
 opens (Merklinger, *Focusing the View Camera*; Evens, tilt and depth of
 field — pointers, the near/far formulas were not retrieved). The fitted
-`π, κ, σ0` therefore give the wedge with no further model; exporting it is
-part of CAL-TILT-FOCUS.
+`π, κ, σ0` therefore give the wedge with no further model, exact where
+the spot scale `s` is 1 (an untilted camera without distortion) and the
+hinge-rule approximation elsewhere (`s` 0.97–1.05 across the image at an
+11.5° × 5.7° tilt: the pupil lies in the lens plane, not square to `n`);
+`analysis::fit_focus` reports it (`DepthOfField`), the planes with their
+covariance, `σ_max` the measured blur including the pixel term
+(`ε = √(σ_max² − σ0² − 1/12)/κ`).
 
-Per-feature blur by target: ring grids give σ and the PSF anisotropy
-(ringgrid's photometric fit); PuzzleBoard and chessboard corners an
-isotropic σ from the edge profiles, as Kumar & Ahuja used, or per square
-with the ISO 12233 slanted edge (pointer). Requirement
+Per-feature blur by target: in the library, chessboard and PuzzleBoard
+corners give the full PSF covariance `Σ` (`measure_blur`, a fit of the
+blurred print around each corner); ring grids give σ and the PSF
+anisotropy from ringgrid 0.18's photometric fit, which the library does
+not pin yet (backlog DETECT-RINGGRID-018). Alternatives in the literature:
+an isotropic σ from the edge profiles, as Kumar & Ahuja used, or per
+square with the ISO 12233 slanted edge (pointer). Requirement
 ([tilt-from-focus.md](tilt-from-focus.md), *Data requirement*): blur well
 above `σ0` over the field, depth variation within views, coverage of the
 rows the PoF crosses.

@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `analysis::fit_focus` fits the plane of sharp focus to the per-point blur
+  of a calibrated planar dataset (chessboard or PuzzleBoard corners measured
+  with `measure_blur`), with the camera and target poses held: the
+  blur `σ` is predicted as `√(σ0² + 1/12 + (κ·s·d)²)` plus one offset per
+  image (the offsets summing to zero), `d` the defocus from the plane
+  `π·X = 1` along the sensor normal and `s` the spot's local scale (the
+  entrance pupil in the lens plane: distortion's change of magnification and
+  a tilted sensor's oblique view of the pupil). `FocusDiagnostic` is the
+  `FocusFit` (the plane, the blur scale and the in-focus blur with their
+  covariance; the image line where the focus reaches infinity with its
+  covariance; the depth-of-field wedge for a blur limit set in
+  `FocusOptions`, its near and far planes with their covariances; the
+  noise scale, per-image residuals and offsets, and the blur points left
+  out because they do not project); the same fit as `NotCrossed` when no
+  image crosses the plane (its direction is determined, its position along
+  the sensor normal rests on the images' common blur level); or why there
+  is none: no blur, too few points, or views that do not determine it.
+  `FocusOptions::view_jackknife` adds the delete-one-view jackknife
+  covariance (`FocusJackknife`), which covers blur errors correlated
+  within an image; the stated covariance assumes them independent, and on
+  real detectors has been measured up to 3× short. Points are weighted by
+  their stated blur variance, or all equally when none states one; a mix
+  is the error `Error::MixedBlurCovariance`. A pinhole projection is
+  required; a lens tilt is not derived (it needs the pixel pitch and the
+  pupil magnification). Nothing reads the result: it is asked for. Python:
+  `vision_calibration.fit_focus`. The JSON schemas are
+  `schemas/focus_options.json` and `schemas/focus_diagnostic.json`.
 - `analysis::compare_camera_models` compares candidate camera
   configurations of a planar intrinsics calibration on views each fit did
   not see. The views are split into folds (`CrossValidationOptions`:
@@ -57,13 +84,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Σ = Σ_lens + I/12`), with the 3×3 covariance of those elements; a
   corner the estimate declines has none. The blur travels through the
   detection cache and into the observations (`CorrespondenceView::with_blur`,
-  `blur`, `blurs`; `core::PointBlur`, with `sigma_px() = √(tr Σ / 2)`), and
-  in JSON as the view's optional `blur` list. Python: the target's
-  `measure_blur`, `Features.blur_psf_px` and `Features.blur_cov`,
-  `Observation.blur` and `PointBlur`. Corner positions are the same with or
-  without it, and no calibration reads it yet: results are unchanged. A
+  `blur`, `blurs`; `core::PointBlur`, with `sigma_px() = √(tr Σ / 2)`; its
+  covariance must be symmetric and positive semi-definite, all zeros
+  stating no precision), and in JSON as the view's optional `blur` list.
+  Python: the target's `measure_blur`, `Features.blur_psf_px` and
+  `Features.blur_cov`, `Observation.blur` and `PointBlur`. Corner positions
+  are the same with or without it, and no calibration reads it yet: results
+  are unchanged. The detector drops an estimate that would not be valid; a
   cached feature whose blur is not valid (not finite, `Σ` not positive
-  definite) fails its image with a detection error.
+  definite, its covariance not semi-definite) fails its image with a
+  detection error.
 
 ### Changed
 

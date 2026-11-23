@@ -30,6 +30,12 @@
 //! [`CrossValidationOptions`]) and ranks them by held-out reprojection
 //! error ([`ModelComparison`]).
 //!
+//! # Focus and depth of field
+//!
+//! [`fit_focus`] fits the plane of sharp focus to the per-point blur of a
+//! calibrated planar dataset and derives the depth of field for a stated
+//! blur limit ([`FocusDiagnostic`], [`FocusFit`]).
+//!
 //! # Reprojection report
 //!
 //! A single reprojection number per calibration (e.g. "kuka_1 hand-eye =
@@ -89,6 +95,11 @@ mod cross_validation;
 pub use cross_validation::{
     CrossValidationOptions, FoldScore, HeldOutScore, ModelComparison, ModelOutcome, ModelScore,
     compare_camera_models,
+};
+mod focus;
+pub use focus::{
+    DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,
+    FocusJackknifeCovariance, FocusOptions, FocusViewStats, fit_focus,
 };
 mod next_view;
 pub use next_view::{

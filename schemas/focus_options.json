@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Options of [`fit_focus`].",
+  "properties": {
+    "blur_limit_px": {
+      "default": null,
+      "description": "The largest acceptable blur `σ` (px, the measured width\n`√(tr Σ / 2)`, pixel integration included) for the depth of field;\n`None` (the default) computes none. Must be finite and positive. A\nlimit at or below the in-focus blur `√(σ0² + 1/12)` has no depth of\nfield.",
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "view_jackknife": {
+      "default": false,
+      "description": "Whether to estimate the covariance a second way, by leaving out one\nview at a time and refitting ([`FocusFit::view_jackknife`]). Default\n`false`: it costs one refit per view, and the stated covariance is\nthe right one when the detector's blur errors are independent within\nan image. Real detectors' are not (see [`FocusFit::covariance`]).",
+      "type": "boolean"
+    }
+  },
+  "title": "FocusOptions",
+  "type": "object"
+}

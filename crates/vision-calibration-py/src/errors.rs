@@ -60,6 +60,7 @@ pub(crate) fn calib_err(context: &str, err: vision_calibration::Error) -> PyErr 
     match err {
         Error::InvalidInput { .. }
         | Error::InsufficientData { .. }
+        | Error::MixedBlurCovariance { .. }
         | Error::NotAvailable { .. }
         | Error::Linear(vision_calibration::init::Error::DegenerateViews { .. }) => {
             PyValueError::new_err(message)

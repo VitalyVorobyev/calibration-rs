@@ -321,6 +321,13 @@ jobs:
           cargo test --release --locked -p vision-calibration-pipeline
           --lib analysis::cross_validation -- --ignored
 
+      # The focus fit's stated σ of the plane, blur scale, offsets, image
+      # line and depth of field agree with the scatter over 1000 noise draws.
+      - name: Focus diagnostic gate
+        run: >-
+          cargo test --release --locked -p vision-calibration-pipeline
+          --lib analysis::focus -- --ignored
+
       # The whitened covariance of a feature-weighted solve agrees with the
       # scatter of Monte-Carlo solves, single camera and rig (about 70 s).
       - name: Feature-covariance gate

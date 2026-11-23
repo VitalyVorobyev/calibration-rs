@@ -73,6 +73,13 @@ class PointCovarianceTest(unittest.TestCase):
                 vc.PointBlur(psf_px=psf, cov=cov)
         with self.assertRaises(ValueError):
             vc.PointBlur(psf_px=(1.0, 0.0, 1.0), cov=((1e-3, 1e-4, 0.0), (0.0, 1e-4, 0.0), (0.0, 0.0, 1e-3)))
+        # Non-negative variances but not a covariance: the width's variance
+        # (xx + 2·xy + yy)/4 would be negative.
+        with self.assertRaises(ValueError):
+            vc.PointBlur(psf_px=(1.0, 0.0, 1.0), cov=((1e-3, 0.0, -1.5e-3), (0.0, 1e-4, 0.0), (-1.5e-3, 0.0, 1e-3)))
+        # A singular covariance and one of zeros (no stated precision) are valid.
+        vc.PointBlur(psf_px=(1.0, 0.0, 1.0), cov=((1e-3, 0.0, 1e-3), (0.0, 0.0, 0.0), (1e-3, 0.0, 1e-3)))
+        vc.PointBlur(psf_px=(1.0, 0.0, 1.0), cov=((0.0,) * 3,) * 3)
 
     def test_stated_covariances_whiten_the_solve(self) -> None:
         base = planar_calibration_dataset()

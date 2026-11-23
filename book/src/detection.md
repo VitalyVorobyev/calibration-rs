@@ -140,6 +140,8 @@ At each corner the image is fitted with the printed squares (and a PuzzleBoard's
 - **Missing values.** A corner has no blur when the estimate declines it rather than give a number its standard error does not cover: when σ exceeds 0.3 of the cell or the blur reaches print outside the detection (corners at its edge see less of the board), when the corner is sharper than the pixel aperture (an in-camera sharpened image) or its blur is not resolved, or when too few labelled neighbours fix the local geometry.
 - **Cost.** A few milliseconds per corner, single-threaded: a board of 476 corners adds about 1 to 2 s per image, which is why it is off by default. The PuzzleBoard is measured on the image as given, not on the upscaled copy it is detected on, at the reported corner positions. ChArUco and ring-grid targets do not measure blur.
 
+[Focus and Depth of Field](focus.md) fits the plane of sharp focus to it.
+
 In Python, `Features.blur_psf_px` `(N, 3)` and `Features.blur_cov` `(N, 3, 3)` hold it (NaN rows for a corner without one, `None` when no corner has one), and `Features.to_observation()` carries it into `Observation.blur` as `PointBlur` values.
 
 ## Corner Detector Overrides

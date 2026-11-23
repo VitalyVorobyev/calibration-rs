@@ -38,8 +38,9 @@ use vision_calibration_core::Progress;
 use vision_calibration_dataset::{DatasetSpec, DeviceSpec};
 use vision_calibration_optim::{ProjectionUncertainty, SolveTermination};
 use vision_calibration_pipeline::analysis::{
-    CandidateGrid, CrossValidationOptions, ModelComparison, PredictedRigUncertainty,
-    PredictedUncertainty, QualityReport, QualityThresholds, RankedCandidate, RankedRobotPose,
+    CandidateGrid, CrossValidationOptions, FocusDiagnostic, FocusOptions, ModelComparison,
+    PredictedRigUncertainty, PredictedUncertainty, QualityReport, QualityThresholds,
+    RankedCandidate, RankedRobotPose,
 };
 use vision_calibration_pipeline::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
@@ -206,6 +207,8 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
             "ModelComparison",
             &[("CameraConfig", "CandidateCameraConfig")],
         ),
+        reads::<FocusOptions>("focus_options", "FocusOptions", &[]),
+        writes::<FocusDiagnostic>("focus_diagnostic", "FocusDiagnostic"),
         writes::<Progress>("progress", "Progress"),
         writes::<SolveTermination>("solve_termination", "SolveTermination"),
         plain("device_spec", schema_value::<DeviceSpec>()),

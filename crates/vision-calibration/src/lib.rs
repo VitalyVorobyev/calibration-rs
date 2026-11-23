@@ -787,6 +787,17 @@ pub mod synthetic {
 ///   ([`ModelOutcome`](analysis::ModelOutcome),
 ///   [`HeldOutScore`](analysis::HeldOutScore),
 ///   [`FoldScore`](analysis::FoldScore)).
+/// - The plane of sharp focus and the depth of field from the points' blur:
+///   [`fit_focus`](analysis::fit_focus) with
+///   [`FocusOptions`](analysis::FocusOptions), returning a
+///   [`FocusDiagnostic`](analysis::FocusDiagnostic) (a
+///   [`FocusFit`](analysis::FocusFit) with its
+///   [`FocusImageLine`](analysis::FocusImageLine),
+///   [`DepthOfField`](analysis::DepthOfField),
+///   [`FocusViewStats`](analysis::FocusViewStats) and, on request, a
+///   [`FocusJackknife`](analysis::FocusJackknife)
+///   ([`FocusJackknifeCovariance`](analysis::FocusJackknifeCovariance)), or
+///   why there is none).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
@@ -797,12 +808,13 @@ pub mod synthetic {
 ///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram).
 pub mod analysis {
     pub use vision_calibration_pipeline::analysis::{
-        CandidateGrid, CheckKind, CheckStatus, CrossValidationOptions, FoldScore, HeldOutScore,
-        Measurement, ModelComparison, ModelOutcome, ModelScore, PredictedRigUncertainty,
-        PredictedUncertainty, QualityCheck, QualityReport, QualityThresholds, RankedCandidate,
-        RankedRobotPose, ReportOptions, Unit, Verdict, assess, candidate_poses,
-        compare_camera_models, html_report, predict_with_robot_poses, predict_with_views,
-        rank_candidates, rank_robot_poses,
+        CandidateGrid, CheckKind, CheckStatus, CrossValidationOptions, DepthOfField,
+        FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife, FocusJackknifeCovariance,
+        FocusOptions, FocusViewStats, FoldScore, HeldOutScore, Measurement, ModelComparison,
+        ModelOutcome, ModelScore, PredictedRigUncertainty, PredictedUncertainty, QualityCheck,
+        QualityReport, QualityThresholds, RankedCandidate, RankedRobotPose, ReportOptions, Unit,
+        Verdict, assess, candidate_poses, compare_camera_models, fit_focus, html_report,
+        predict_with_robot_poses, predict_with_views, rank_candidates, rank_robot_poses,
     };
 
     pub use vision_calibration_core::{

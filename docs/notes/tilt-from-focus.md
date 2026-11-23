@@ -43,7 +43,15 @@ cargo run … -- --registry <any> --out <dir> --parts synth,centroid \
    no metric datum, its **size** needs one (the pixel pitch, or the focal
    length in mm) — and, for a real (thick) lens, the pupil magnification
    `m_p`: the comparison with the distortion route determines `pitch/m_p`,
-   not the pitch.
+   not the pitch. *Correction (2026-11-23, measured):* this form puts the
+   entrance pupil square to the sensor normal; it lies in the lens plane,
+   square to the camera's `e_z`. Exactly (first order in the pupil size),
+   `σ_geo = (D/4)·|1 − π·X|/(e_z·X)·‖J_c‖`, `J_c` the Jacobian of the pixel
+   in the camera's `(x/z, y/z)`; in the sensor-frame form above that is a
+   factor `‖J_c‖·(n·X)/(e_z·X)/f'` on `κ`, which departs from 1 at first
+   order in tilt × field (0.99–1.01 across the image at 5°, 0.97–1.05 at
+   11.5° × 5.7°). The library carries it (see *In the library*); the
+   harness numbers below used the sensor-frame form.
 2. **Synthetic** (measured): from exact thick-lens blur the tilt comes
    back with ≤ 0.01° bias and 0.013° scatter at the studied rig's
    settings (≤ 0.09° bias at 15°), robust to magnification, base blur,
@@ -420,4 +428,43 @@ still settle:
    target's scale), the image corners (the distortion that determines the
    tilt), at least 24 views per camera for four folds.
 
-Library sketch: backlog `CAL-TILT-FOCUS`.
+**In the library** (2026-11-22): `analysis::fit_focus` is this note's
+5-parameter model as a diagnostic, with three changes from the harness's
+fit: one blur offset per image, summing to zero (the detector's
+covariance holds only within an image; a free common level trades with
+`σ0²` through the in-focus shape alone, measured: σ(σ0²) 10× and σ(κ)
+2.7× larger in the Monte-Carlo below, and on the ring-grid units `σ0²`
+up to 3.2 px² with all offsets near −0.9 px), the pixel term `1/12` in the prediction, and the
+spot's local scale `s` in the defocus term: the calibrated camera's
+scale in the lens frame's normalized coordinates times `(n·X)/(e_z·X)`,
+over the distortion-free sensor scale (1 for an untilted camera without
+distortion; for a tilted one it carries the pupil's obliquity, the
+correction under *Short answers* 1). Weighted least squares by the stated
+blur covariance, not a robust fit; every point weighted or none, a mix an
+error. It reports `π`,
+`κ`, `σ0²` with covariance, the image line where the focus reaches
+infinity and the depth-of-field wedge (*Depth of field* in
+[scheimpflug-literature.md](scheimpflug-literature.md)); not the tilt,
+which needs `v0` and `m_p`. Pinned by its tests: the exact thick lens
+(`m_p` 1 and 0.8 at 5.2°/6.4°, and 11.5° × 5.7°, noise-free:
+`|Δπ|/|π|` ≤ 1e-5, `κ` +0.01 % (+0.12 % at 11.5°), residual RMS
+≤ 1.1e-4 px; with the pupil square to `n` instead these were 0.10–0.31 %,
++0.16 … +1.0 % and 0.0045–0.032 px, a π_z bias of 6.2 σ at 11.5°), the
+local scale against a closed-form `k1` camera, and Monte-Carlo σ of every
+reported quantity (scatter/stated 0.94–1.06 over 1000 draws, with and
+without injected offsets). With per-image offsets summing to zero, a
+common blur level is not a parameter: with crossing views 0.02 px moves
+`κ` by +2.9 σ and `σ0²` by +12.7 σ and the plane by ≤ 0.17 σ; without a
+crossing (`NotCrossed`, which carries the fit) 0.05 px moves the plane's
+position along `n` by 0.9 σ and its direction across `n` and the line's
+angle by ≤ 0.03 σ (measured, the pipeline's `analysis::focus` tests). The
+stated covariance assumes independent blur errors within an image; the
+opt-in delete-one-view jackknife (`FocusOptions::view_jackknife`) covers
+a per-image blur gradient and a random common level where the stated σ is
+2–5× short (synthetic, scatter/jackknife 0.94–1.01). In the library the
+blur comes from chessboard and PuzzleBoard corners (`measure_blur`); the
+ring-grid blur this note measured needs ringgrid 0.18, which the library
+does not pin yet (backlog DETECT-RINGGRID-018). What is left is listed
+under backlog `CAL-TILT-FOCUS`: the producers, what the detector's width
+is, the camera frame taken for the lens frame, two-view fits, and the tilt
+check and the factor, both needing `m_p`.

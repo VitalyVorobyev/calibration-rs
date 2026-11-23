@@ -108,6 +108,63 @@ impl FeatureBlur {
     pub fn new(psf_px: [f64; 3], cov: [[f64; 3]; 3]) -> Self {
         Self { psf_px, cov }
     }
+
+    /// Whether the calibration accepts this blur as an observation
+    /// (`vision_calibration_core::PointBlur::new`): every entry finite, `Σ`
+    /// positive definite, and `cov` symmetric and positive semi-definite, to
+    /// `1e-9` of its largest variance. A detector drops an estimate that
+    /// fails this rather than emit one that fails its image downstream.
+    ///
+    /// The detectors do not depend on the calibration types, so this is the
+    /// same check written without them, a little stricter on
+    /// semi-definiteness: it requires `cov + (5e-10 · max variance)·I` to
+    /// pass a Cholesky factorization, which holds only if the smallest
+    /// eigenvalue is above `−5e-10 · max variance`, inside the calibration's
+    /// `−1e-9 · max variance` by far more than either computation's
+    /// rounding. What this accepts the calibration accepts; the two agree
+    /// except on covariances already within rounding of indefinite.
+    #[doc(hidden)]
+    pub fn is_valid(&self) -> bool {
+        let ([xx, xy, yy], cov) = (self.psf_px, self.cov);
+        let finite = self
+            .psf_px
+            .iter()
+            .chain(cov.iter().flatten())
+            .all(|v| v.is_finite());
+        if !finite || !(xx > 0.0 && yy > 0.0 && xx * yy - xy * xy > 0.0) {
+            return false;
+        }
+        let scale = (0..3).map(|i| cov[i][i]).fold(0.0, f64::max);
+        let tolerance = 1e-9 * scale;
+        let symmetric = (0..3).all(|r| (0..r).all(|k| (cov[r][k] - cov[k][r]).abs() <= tolerance));
+        if !symmetric {
+            return false;
+        }
+        if scale == 0.0 {
+            // No variance above zero: semi-definite only as all zeros.
+            return cov.iter().flatten().all(|&v| v == 0.0);
+        }
+        // Cholesky of the symmetric part, shifted by half the tolerance.
+        let shift = 0.5 * tolerance;
+        let a =
+            |r: usize, k: usize| 0.5 * (cov[r][k] + cov[k][r]) + if r == k { shift } else { 0.0 };
+        let mut l = [[0.0_f64; 3]; 3];
+        for r in 0..3 {
+            for k in 0..=r {
+                let dot: f64 = (0..k).map(|j| l[r][j] * l[k][j]).sum();
+                if r == k {
+                    let pivot = a(r, r) - dot;
+                    if pivot.is_nan() || pivot <= 0.0 {
+                        return false;
+                    }
+                    l[r][r] = pivot.sqrt();
+                } else {
+                    l[r][k] = (a(r, k) - dot) / l[k][k];
+                }
+            }
+        }
+        true
+    }
 }
 
 /// Reject a detection whose image points are not distinct.
