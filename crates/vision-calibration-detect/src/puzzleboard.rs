@@ -7,15 +7,16 @@
 //! with metric target coordinates in the board's own (top-left-origin)
 //! frame — the same origin convention as the chessboard/charuco detectors.
 //!
-//! Two parts of the recipe are fixed: a 2× upscale before detection
-//! (PuzzleBoard decoding is sensitive to saddle sharpness on small tiles)
-//! and `FixedBoard` search (the board dimensions are known from the
-//! manifest, so we never search for an unknown sub-board).
+//! Two parts of the recipe are fixed: the corner detector's own 2× upscale
+//! stage (saddle detection degrades on small or blurred tiles; the stage
+//! reports corners in the image's own pixels) and `FixedBoard` search (the
+//! board dimensions are known from the manifest, so we never search for an
+//! unknown sub-board).
 
 use calib_targets::blur::puzzleboard_blur;
 use calib_targets::detect;
 use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
-use image::imageops::FilterType;
+use chess_corners::UpscaleConfig;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "schemars")]
@@ -24,9 +25,9 @@ use schemars::JsonSchema;
 use crate::corner_blur::feature_blurs;
 use crate::{DetectError, Feature};
 
-/// Upscale factor applied before detection. PuzzleBoard saddle decoding
-/// degrades on small/blurred tiles, so the image is resized 2× first and
-/// detected pixel coordinates are divided back down.
+/// Factor of the corner detector's upscale stage. Saddle detection degrades
+/// on small or blurred tiles at native resolution; the stage maps the
+/// corners back to the image's own pixels.
 const DETECT_UPSCALE: u32 = 2;
 
 /// PuzzleBoard detector configuration.
@@ -54,9 +55,9 @@ pub struct PuzzleboardConfig {
     /// `Σ` (px², image axes, including the pixel aperture) of the Gaussian
     /// kernel that best blurs the printed squares and dots around the saddle
     /// into the image, with the covariance of that estimate. It is measured
-    /// on the image as given, not on the upscaled copy detection runs on,
-    /// at the reported `image_xy`. A saddle the estimate declines (blur too
-    /// wide for the cells, sharper than a pixel, too few labelled
+    /// on the image as given, not on the upscaled copy corner detection
+    /// runs on, at the reported `image_xy`. A saddle the estimate declines
+    /// (blur too wide for the cells, sharper than a pixel, too few labelled
     /// neighbours) has none. It costs a few milliseconds per saddle,
     /// single-threaded (476 saddles in view add about 1–2 s per
     /// image), hence the default `false`. Saddle positions are the same
@@ -83,13 +84,6 @@ impl PuzzleboardConfig {
     }
 }
 
-/// A corner coordinate in the upscaled detection image, in the original
-/// image's pixels. Division by a power of two is exact, so the features and
-/// the blur measurement see the same positions.
-fn to_original(coordinate: f32) -> f32 {
-    coordinate / DETECT_UPSCALE as f32
-}
-
 /// Detect the PuzzleBoard `cfg` describes in `luma`.
 pub(crate) fn detect(
     cfg: &PuzzleboardConfig,
@@ -104,17 +98,13 @@ pub(crate) fn detect(
     let mut params = PuzzleBoardParams::for_board(spec);
     params.decode.search_all_components = false;
     params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
-
-    let detection_image = image::imageops::resize(
-        luma,
-        luma.width().saturating_mul(DETECT_UPSCALE),
-        luma.height().saturating_mul(DETECT_UPSCALE),
-        FilterType::Triangle,
-    );
+    params.chess = params
+        .chess
+        .with_upscale(UpscaleConfig::fixed(DETECT_UPSCALE));
 
     // No board in frame is "no features", not an error — same
     // semantics as the chessboard/charuco detectors on a blank image.
-    let detection = match detect::detect_puzzleboard(&detection_image, &params) {
+    let detection = match detect::detect_puzzleboard(luma, &params) {
         Ok(detection) => detection,
         Err(_) => return Ok(Vec::new()),
     };
@@ -125,15 +115,10 @@ pub(crate) fn detect(
     let max_x_mm = cfg.cols.saturating_sub(1) as f64 * cell_size_mm;
     let max_y_mm = cfg.rows.saturating_sub(1) as f64 * cell_size_mm;
 
-    // The blur is measured on the original image (resampling blurs it), so
-    // the corners are mapped back first, by the map the features use.
+    // The corners are in `luma`'s pixels, and the blur is measured there
+    // (resampling would blur it).
     let mut blurs = if cfg.measure_blur {
-        let mut original = detection.clone();
-        for corner in &mut original.corners {
-            corner.position.x = to_original(corner.position.x);
-            corner.position.y = to_original(corner.position.y);
-        }
-        feature_blurs(puzzleboard_blur(luma, &original))
+        feature_blurs(puzzleboard_blur(luma, &detection))
     } else {
         Vec::new()
     };
@@ -146,10 +131,7 @@ pub(crate) fn detect(
         if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
             continue;
         }
-        let image_xy = [
-            f64::from(to_original(corner.position.x)),
-            f64::from(to_original(corner.position.y)),
-        ];
+        let image_xy = [f64::from(corner.position.x), f64::from(corner.position.y)];
         features.push(Feature::new(image_xy, [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0]).with_blur(blur));
     }
     Ok(crate::reject_ambiguous_detection(features))
@@ -215,8 +197,7 @@ mod tests {
     /// A board seen through a lens of Gaussian blur σ reports the rendered
     /// `tr Σ / 2` (the lens's `σ²` plus the pixel aperture's term) within
     /// its stated standard errors. The blur is measured on the image as
-    /// given, at the saddles mapped back from the upscaled detection, and
-    /// measuring it moves no saddle.
+    /// given, at the reported saddles, and measuring it moves no saddle.
     #[test]
     fn measured_blur_matches_the_rendered_blur() {
         use crate::corner_blur::known_blur::{assert_matches_render, camera_image};
@@ -237,6 +218,109 @@ mod tests {
                 assert_eq!(a.world_xyz, b.world_xyz);
             }
             assert_matches_render(&with, sigma);
+        }
+    }
+
+    /// Sub-pixels per pixel and axis that [`shifted_board`] rasterizes the
+    /// print at.
+    const SUB: u32 = 8;
+
+    /// A frontal `cells × cells` PuzzleBoard of 25.4 mm cells with `cell_px`
+    /// pixels per cell, as a camera with box-shaped pixels sees it, the print
+    /// shifted by `shift` sub-pixels (`1 / SUB` px) right and down.
+    ///
+    /// The print is rasterized at `cell_px · SUB` dots per inch on a page one
+    /// cell wider than the board on every side, so the board's top-left edge
+    /// sits at sub-pixel `cell_px · SUB` and every square edge on a sub-pixel
+    /// boundary. Pixel `(x, y)` averages the sub-pixels
+    /// `[x · SUB + shift, (x + 1) · SUB + shift)` per axis. Returns the image
+    /// and the map from a saddle's board position (mm, the frame the decoder
+    /// reports `target_position` in) to its true pixel position, integer
+    /// coordinates at pixel centres.
+    fn shifted_board(
+        cells: u32,
+        cell_px: u32,
+        shift: [u32; 2],
+    ) -> (image::GrayImage, impl Fn([f64; 2]) -> [f64; 2]) {
+        use calib_targets::printable::{PageSize, PageSpec};
+        let mut document = calib_targets::generate::puzzleboard_document(cells, cells, 25.4);
+        let page_mm = f64::from(cells + 2) * 25.4;
+        document.page = PageSpec::default().with_size(PageSize::Custom {
+            width_mm: page_mm,
+            height_mm: page_mm,
+        });
+        document.render.png_dpi = cell_px * SUB;
+        let bundle =
+            calib_targets::printable::render_target_bundle(&document).expect("render bundle");
+        let fine = image::load_from_memory(&bundle.png_bytes)
+            .expect("decode rendered PNG")
+            .to_luma8();
+        assert_eq!(fine.width(), (cells + 2) * cell_px * SUB, "page width");
+        let size = fine.width() / SUB - 1;
+        let image = image::GrayImage::from_fn(size, size, |x, y| {
+            let mut sum = 0u32;
+            for j in 0..SUB {
+                for i in 0..SUB {
+                    let fx = x * SUB + shift[0] + i;
+                    let fy = y * SUB + shift[1] + j;
+                    sum += u32::from(fine.get_pixel(fx, fy).0[0]);
+                }
+            }
+            let reflectance = f64::from(sum) / f64::from(SUB * SUB) / 255.0;
+            image::Luma([(30.0 + 190.0 * reflectance).round() as u8])
+        });
+        let sub = f64::from(SUB);
+        let origin = f64::from(cell_px * SUB);
+        let truth = move |board_mm: [f64; 2]| {
+            let at = |mm: f64, shift: u32| {
+                let edge = origin + mm / 25.4 * f64::from(cell_px) * sub;
+                (edge - f64::from(shift)) / sub - 0.5
+            };
+            [at(board_mm[0], shift[0]), at(board_mm[1], shift[1])]
+        };
+        (image, truth)
+    }
+
+    /// Saddles land where the board puts them, at several cell sizes and
+    /// sub-pixel placements: the mean error over a board is within 0.03 px
+    /// on each axis. An error in the map between the upscaled copy corner
+    /// detection runs on and the image given shows up here as a shift of
+    /// every saddle: a map that only divides by the factor 2 puts each one a
+    /// quarter pixel right and down.
+    #[test]
+    fn saddles_land_at_the_rendered_corners() {
+        for (cell_px, shift) in [(12, [3, 6]), (17, [1, 5]), (24, [6, 2])] {
+            let (image, truth) = shifted_board(10, cell_px, shift);
+            let cfg = PuzzleboardConfig::new(10, 10, 0.0254);
+            let features = detect(&cfg, &image).unwrap();
+            assert!(
+                features.len() >= 49,
+                "cell {cell_px} px: {} saddles",
+                features.len()
+            );
+            let n = features.len() as f64;
+            let (mut mean, mut sq) = ([0.0; 2], 0.0);
+            for f in &features {
+                let t = truth([f.world_xyz[0] * 1.0e3, f.world_xyz[1] * 1.0e3]);
+                let e = [f.image_xy[0] - t[0], f.image_xy[1] - t[1]];
+                mean[0] += e[0] / n;
+                mean[1] += e[1] / n;
+                sq += (e[0] * e[0] + e[1] * e[1]) / n;
+            }
+            eprintln!(
+                "cell {cell_px} px, shift {shift:?}: {} saddles, mean error ({:+.4}, {:+.4}) px, \
+                 rms {:.4} px",
+                features.len(),
+                mean[0],
+                mean[1],
+                sq.sqrt()
+            );
+            assert!(
+                mean[0].abs() < 0.03 && mean[1].abs() < 0.03,
+                "cell {cell_px} px, shift {shift:?}: mean error ({:+.4}, {:+.4}) px",
+                mean[0],
+                mean[1]
+            );
         }
     }
 

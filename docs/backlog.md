@@ -90,17 +90,15 @@ Windows. `stereo_charuco` stays local-only, as do the private sets.
   fetched from its publisher with checksums, or is named here as failing
   the licence check.
 
-- [ ] DETECT-PB-BACKMAP - The PuzzleBoard detector runs on a 2× upscaled
-  copy and maps corners back with `x_up / 2`; the resize is centre-aligned,
-  so the map is `x_up / 2 − 0.25`. Measured on renders: the upscale path is
-  +0.240…+0.260 px off in x and y against the truth and against native
-  detection (native within ±0.02 px). Correcting it moves `cx, cy` of every
-  PuzzleBoard calibration by a quarter pixel and nothing else, so it is a
-  result change: decide whether it lands before 1.0.0 as a fix or waits for
-  a major. With it, measure whether calib-targets 0.17 still needs the
-  upscale (on one render it returned 36 saddles where native detection
-  found 49). Gate: the render test at three cell sizes, the private
-  PuzzleBoard entries' RMS unchanged and `cx, cy` moved by 0.25 px.
+- [ ] DETECT-PB-UPSCALE - The PuzzleBoard detector runs the corner pass
+  with chess-corners' 2× upscale stage (`UpscaleConfig::fixed(2)`, fixed in
+  `vision-calibration-detect/src/puzzleboard.rs`). Measure whether
+  calib-targets 0.17 still needs it: on one render, native detection found
+  49 saddles where the upscale path returned 36. Compare the two on the
+  render test (`saddles_land_at_the_rendered_corners`, cell sizes down to
+  12 px) and on the private PuzzleBoard entries: saddle counts, RMS and the
+  render error. Done when the upscale is dropped (a result change: it moves
+  the saddle set) or kept with the measured reason in its rustdoc.
 - [~] DETECT-RINGGRID-018 - ringgrid 0.18 (the ring-grid blur as
   `Feature::blur`, more markers in defocused rows). Parked: on the tilted
   ring-grid rigs the features roughly double, the new markers sit 0.03–0.12

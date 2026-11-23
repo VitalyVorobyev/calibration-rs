@@ -178,6 +178,10 @@ impl DetectorConfig {
             // Corner re-detection runs with the `chess_corners` override.
             #[cfg(feature = "charuco")]
             Self::Charuco(_) => Some(1),
+            // Corners come from the corner detector's upscale stage, in the
+            // image's own pixels (they were a quarter pixel right and down).
+            #[cfg(feature = "puzzleboard")]
+            Self::Puzzleboard(_) => Some(1),
             #[allow(unreachable_patterns)]
             _ => None,
         }

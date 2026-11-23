@@ -57,7 +57,7 @@ A ChArUco board interleaves a chessboard with ArUco markers ([Garrido-Jurado et 
 
 A PuzzleBoard ([Stelldinger et al., 2024](references.md#stelldinger-2024)) is a self-identifying chessboard: each saddle decodes to a unique grid index from a local code window, so a single partial view yields globally consistent correspondences. The manifest names the layout as `"puzzle_<rows>x<cols>"` (the prefix is optional, `"130x130"` also parses); the dimensions are all the detector needs. Coordinates are in the board's own frame with its origin at the top-left, like the chessboard and ChArUco detectors, and decoded saddles outside the printed board are discarded.
 
-Two fixed parts of the recipe are not configurable: the image is upscaled 2x before decoding (saddle decoding degrades on small or blurred tiles; pixel coordinates are divided back down), and the search is restricted to the declared board.
+Two fixed parts of the recipe are not configurable: the corner detector runs on a copy of the image upscaled 2x (saddle detection degrades on small or blurred tiles) and reports the corners in the image's own pixels, integer coordinates at pixel centres; and the search is restricted to the declared board.
 
 ### Ring Grid
 

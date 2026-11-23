@@ -269,8 +269,7 @@ mod tests {
                 })
             )
         );
-        // A detector without a revision is keyed on the release alone, and a
-        // crop is part of the key.
+        // A crop is part of the key.
         let puzzle = DetectorConfig::Puzzleboard(crate::PuzzleboardConfig::new(10, 10, 0.01));
         assert_eq!(
             CacheKey::for_detection(b"img", &puzzle, Some([1, 2, 3, 4])),
@@ -281,6 +280,7 @@ mod tests {
                     "config": { "detector": "puzzleboard", "rows": 10, "cols": 10, "cell_size_m": 0.01 },
                     "release": release,
                     "backend": crate::backend::CALIB_TARGETS,
+                    "revision": 1,
                     "roi": [1, 2, 3, 4],
                 })
             )

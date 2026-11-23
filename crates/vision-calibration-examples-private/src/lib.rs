@@ -5,7 +5,7 @@
 //! end-to-end example can run on physical sensor data.
 
 use anyhow::{Context, Result, anyhow};
-use image::{GrayImage, ImageReader, imageops::FilterType};
+use image::{GrayImage, ImageReader};
 use serde::Deserialize;
 use std::path::Path;
 use vision_calibration_core::{
@@ -305,20 +305,18 @@ pub fn detect_target(
     cols: u32,
     cell_size_mm: f64,
 ) -> Result<CorrespondenceView> {
+    // The corner detector's own 2x upscale stage: it reports corners in
+    // the tile's pixels.
     const TARGET_DETECT_UPSCALE: u32 = 2;
-    let detection_image = image::imageops::resize(
-        tile,
-        tile.width() * TARGET_DETECT_UPSCALE,
-        tile.height() * TARGET_DETECT_UPSCALE,
-        FilterType::Triangle,
-    );
     let spec = PuzzleBoardSpec::new(rows, cols, cell_size_mm as f32)
         .map_err(|e| anyhow!("puzzleboard spec: {e}"))?;
     let mut params = PuzzleBoardParams::for_board(spec);
     params.decode.search_all_components = false;
     params.decode.search_mode = PuzzleBoardSearchMode::FixedBoard;
-    let result =
-        detect_puzzleboard(&detection_image, &params).map_err(|e| anyhow!("detect: {e}"))?;
+    params.chess = params
+        .chess
+        .with_upscale(chess_corners::UpscaleConfig::fixed(TARGET_DETECT_UPSCALE));
+    let result = detect_puzzleboard(tile, &params).map_err(|e| anyhow!("detect: {e}"))?;
 
     let mut pts_3d: Vec<Pt3> = Vec::new();
     let mut pts_2d: Vec<Pt2> = Vec::new();
@@ -339,8 +337,8 @@ pub fn detect_target(
             0.0,
         ));
         pts_2d.push(Pt2::new(
-            (corner.position.x / TARGET_DETECT_UPSCALE as f32) as Real,
-            (corner.position.y / TARGET_DETECT_UPSCALE as f32) as Real,
+            corner.position.x as Real,
+            corner.position.y as Real,
         ));
     }
 
