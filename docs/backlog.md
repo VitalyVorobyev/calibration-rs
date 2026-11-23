@@ -288,13 +288,13 @@ Each model follows AGENTS.md §10 (a camera model).
   or a non-positive σ.
 - [ ] CAL-TILT-FOCUS - Tie the Scheimpflug tilt to the plane of sharp
   focus (`notes/tilt-from-focus.md`). The blur observation (`PointBlur`,
-  chessboard and PuzzleBoard corners with `measure_blur`) and the
-  diagnostic `analysis::fit_focus` are built. Open:
-  (1) **Producers.** Ring-grid markers carry no blur until ringgrid 0.18
-  (DETECT-RINGGRID-018; map its `(σ, a, b)` to `Σ` by
-  `σ²[1 + a, b, 1 − a]`, `J C Jᵀ`; its `cov` holds within one image, which
-  the fit's per-image offset already takes). ChArUco corners wait for
-  calib-targets to measure blur on a marker board.
+  chessboard and PuzzleBoard corners with `measure_blur`, ring-grid markers
+  with photometric centres) and the diagnostic `analysis::fit_focus` are
+  built. Open:
+  (1) **Producers.** Ring-grid markers carry blur with ringgrid 0.18 (its
+  `(σ, a, b)` mapped to `Σ` by `σ²[1 + a, b, 1 − a]`, `J C Jᵀ`; its `cov`
+  holds within one image, which the fit's per-image offset already takes).
+  ChArUco corners wait for calib-targets to measure blur on a marker board.
   (2) **What the detector's width is.** `κ = D·f/4` and the quadrature law
   are for PSF second moments; the corner estimator (and ringgrid's) reports
   the Gaussian whose blurred edges best match the image. A synthetic that

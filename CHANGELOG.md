@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `analysis::fit_focus` fits the plane of sharp focus to the per-point blur
   of a calibrated planar dataset (chessboard or PuzzleBoard corners measured
-  with `measure_blur`), with the camera and target poses held: the
+  with `measure_blur`, or ring-grid markers with photometric centres), with
+  the camera and target poses held: the
   blur `σ` is predicted as `√(σ0² + 1/12 + (κ·s·d)²)` plus one offset per
   image (the offsets summing to zero), `d` the defocus from the plane
   `π·X = 1` along the sensor normal and `s` the spot's local scale (the
@@ -69,11 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the manifest's `target.min_confidence` (optional, in `[0, 1]`) raise
   the detector's floor on a reported marker's confidence; left out, the
   detector's own floor of 0.03 applies and nothing changes. The confidence
-  is a product of factors in `[0, 1]` (decode and outer-fit quality, rim
-  coverage, inner-edge agreement, edge sharpness, distance to the border),
-  so a floor `c` also keeps only markers whose outer edge is at most
-  `3 · √(1/c − 1)` px wide (0.17: 6.6 px). An out-of-range value is
-  rejected before detection.
+  is a product of factors in `[0, 1]`, so a floor `c` also bounds each of
+  them: for ellipse centres it keeps only markers whose outer edge is at
+  most `3 · √(1/c − 1)` px wide (0.17: 6.6 px), for photometric centres
+  only markers whose predicted centre error per axis is at most
+  `0.03 · (1/c − 1)` px (0.17: 0.15 px). An out-of-range value is rejected
+  before detection.
 - **Measured blur per corner.** Chessboard and PuzzleBoard targets measure
   the blur at each corner on request: `measure_blur` on `ChessboardConfig`
   and `PuzzleboardConfig` and on the manifest's chessboard and PuzzleBoard
@@ -94,6 +96,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cached feature whose blur is not valid (not finite, `Σ` not positive
   definite, its covariance not semi-definite) fails its image with a
   detection error.
+- **Measured blur per ring-grid marker.** Ring-grid markers with
+  photometric centres carry `Feature::blur` too, a by-product of the
+  photometric fit (no flag): the fitted width `σ` and anisotropy `[a, b]`
+  as `Σ = σ² [[1 + a, b], [b, 1 − a]]`, with their covariance carried
+  through that map. Its covariance holds for differences between the
+  markers of one image. A marker whose fitted width exceeds a quarter of
+  its outer radius has none.
 
 ### Changed
 
@@ -106,6 +115,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version is part of the detection-cache key, so these caches are rebuilt
   on the next run. The Python examples' optional `calib-targets` package is
   0.17.0 or later.
+- Ring-grid detection runs on `ringgrid` 0.18. It finds more markers on
+  dark, low-contrast and blurred images and on large rings, so ring-grid
+  feature counts, and the calibrations made from them, change. Cached
+  ring-grid detections are recomputed on first use.
 
 ### Documentation
 

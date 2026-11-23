@@ -574,7 +574,8 @@ def fit_focus(
     input:
         The views of the planar target, their points carrying blur
         (chessboard and PuzzleBoard corners measure it with
-        ``measure_blur``).
+        ``measure_blur``; ring-grid markers with photometric centres always
+        carry it).
     camera:
         The calibrated camera (a pinhole projection).
     cam_se3_target:

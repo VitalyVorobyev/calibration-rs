@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
-use crate::{DetectError, Feature};
+use crate::{DetectError, Feature, FeatureBlur};
 
 /// How a ring marker's centre is estimated; see [`RinggridConfig::center_method`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,8 +42,10 @@ pub enum RinggridCenterMethod {
     /// blurred or low-contrast images. It costs roughly 2.5x the detection
     /// time. Only markers the fit refined are returned (a marker that fell
     /// back to its ellipse centre is less accurate than its neighbours and is
-    /// dropped). The default stays `Ellipse` until the benefit on real
-    /// calibration data is established.
+    /// dropped). A returned marker also carries the blur the fit measured
+    /// ([`Feature::blur`]) unless its fitted width exceeds a quarter of the
+    /// marker's outer radius. The default stays `Ellipse` until the benefit
+    /// on real calibration data is established.
     Photometric,
 }
 
@@ -179,14 +181,21 @@ pub struct RinggridConfig {
     /// omitted key keeps it, and `None` is left out when serializing, so
     /// existing configs keep their meaning and detection-cache key.
     ///
-    /// The confidence is a product of factors in `[0, 1]`, the same for
-    /// both centre methods: the decode and outer-fit quality, the rim
-    /// coverage, the inner-edge agreement, the edge sharpness
-    /// `1 / (1 + (w / 3 px)²)` with `w` the width of the marker's outer edge,
-    /// and the distance to the image border. Each factor is at most 1, so a
-    /// floor `c` bounds every one of them: a kept marker's outer edge is at
-    /// most `3 · √(1/c − 1)` px wide (0.17: 6.6 px). The confidence ranks
-    /// how far a centre can be trusted; it is not a predicted centre error.
+    /// The confidence is a product of factors in `[0, 1]`: the decode and
+    /// outer-fit quality and the distance to the image border, times
+    /// factors that depend on the centre method. Each factor is at most 1,
+    /// so a floor `c` bounds every one of them.
+    ///
+    /// - For an edge-fitted centre ([`RinggridCenterMethod::Ellipse`]) they
+    ///   are the rim coverage, the inner-edge agreement and the edge
+    ///   sharpness `1 / (1 + (w / 3 px)²)`, `w` the width of the marker's
+    ///   outer edge: a kept marker's outer edge is at most
+    ///   `3 · √(1/c − 1)` px wide (0.17: 6.6 px).
+    /// - For a photometric centre ([`RinggridCenterMethod::Photometric`]) it
+    ///   is the centre's precision `1 / (1 + σ_c / 0.03 px)`, `σ_c` the
+    ///   predicted centre error per axis: the fit's covariance plus the bias
+    ///   a blur gradient across the marker leaves uncorrected. A kept marker
+    ///   has `σ_c ≤ 0.03 · (1/c − 1)` px (0.17: 0.15 px, 0.38: 0.05 px).
     ///
     /// The floor trades markers for centre accuracy; a marker below it is
     /// not reported (it still helps the detector label the board). A value
@@ -319,12 +328,71 @@ pub(crate) fn detect(
                     || marker.center_source == CenterSource::Photometric
             })
             .filter_map(|marker| {
+                // `ringgrid` reports a blur only with a photometric centre.
+                let blur = marker.blur.as_ref().and_then(feature_blur);
                 marker.board_xy_mm.map(|xy_mm| {
                     Feature::new(marker.center, [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0])
+                        .with_blur(blur)
                 })
             })
             .collect(),
     ))
+}
+
+/// A marker's blur as a [`FeatureBlur`]: `ringgrid`'s `(σ, a, b)` mapped to
+/// the PSF covariance and its covariance by [`psf_from_sigma_anisotropy`].
+/// `None` (the marker keeps its centre, without a blur) when the calibration
+/// would not accept it ([`FeatureBlur::is_valid`]: not finite, `Σ` not
+/// positive definite, or its covariance not symmetric and positive
+/// semi-definite), none of which a converged fit produces (`ringgrid` bounds
+/// `|[a, b]| ≤ 0.9`, so `Σ` has eigenvalues `σ²(1 ± |[a, b]|) > 0`); the
+/// check keeps a delivered blur from failing its image downstream.
+fn feature_blur(blur: &ringgrid::BlurEstimate) -> Option<FeatureBlur> {
+    let (psf_px, cov) = psf_from_sigma_anisotropy(blur.sigma_px, blur.anisotropy, blur.cov);
+    Some(FeatureBlur::new(psf_px, cov)).filter(FeatureBlur::is_valid)
+}
+
+/// The PSF covariance `[xx, xy, yy]` (px²) of `ringgrid`'s blur parameters,
+/// and its covariance (px⁴).
+///
+/// `ringgrid` parameterises the PSF covariance as `σ² [[1 + a, b], [b, 1 −
+/// a]]` with `σ` the edge width (px, including the pixel's area
+/// integration) and `[a, b]` the anisotropy, so
+///
+/// ```text
+/// Σ = [xx, xy, yy] = [σ²(1 + a), σ² b, σ²(1 − a)]
+/// ```
+///
+/// and `tr Σ / 2 = σ²`. Its Jacobian in `(σ, a, b)` is
+///
+/// ```text
+/// J = [[2σ(1 + a),  σ²,  0 ],
+///      [2σ b,       0,   σ²],
+///      [2σ(1 − a), −σ²,  0 ]]
+/// ```
+///
+/// (`det J = 4σ⁵`, so the map is one to one for `σ > 0`), and the covariance
+/// of `Σ` is `J C Jᵀ` with `C` the covariance of `(σ, a, b)`, symmetrized
+/// against rounding.
+fn psf_from_sigma_anisotropy(
+    sigma: f64,
+    [a, b]: [f64; 2],
+    c: [[f64; 3]; 3],
+) -> ([f64; 3], [[f64; 3]; 3]) {
+    let s2 = sigma * sigma;
+    let psf = [s2 * (1.0 + a), s2 * b, s2 * (1.0 - a)];
+    let j = [
+        [2.0 * sigma * (1.0 + a), s2, 0.0],
+        [2.0 * sigma * b, 0.0, s2],
+        [2.0 * sigma * (1.0 - a), -s2, 0.0],
+    ];
+    // J C Jᵀ, then the mean of it and its transpose.
+    let jc: [[f64; 3]; 3] =
+        std::array::from_fn(|r| std::array::from_fn(|k| (0..3).map(|m| j[r][m] * c[m][k]).sum()));
+    let full: [[f64; 3]; 3] =
+        std::array::from_fn(|r| std::array::from_fn(|k| (0..3).map(|m| jc[r][m] * j[k][m]).sum()));
+    let cov = std::array::from_fn(|r| std::array::from_fn(|k| 0.5 * (full[r][k] + full[k][r])));
+    (psf, cov)
 }
 
 #[cfg(test)]
@@ -573,7 +641,7 @@ mod tests {
     fn a_confidence_floor_drops_low_confidence_markers() {
         let mut cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
         cfg.center_method = RinggridCenterMethod::Photometric;
-        let img = render(&cfg, 100.0, 1.5).0;
+        let img = camera_render(&cfg, 100.0, 1.5, 40);
 
         // The detector's own confidences, without a floor of ours.
         let mut detector = RinggridDetectorImpl::new(cfg.board_layout().unwrap());
@@ -627,6 +695,210 @@ mod tests {
             let err = detect(&cfg, &image::GrayImage::new(8, 8)).unwrap_err();
             assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
         }
+    }
+
+    // ── The measured blur ──────────────────────────────────────────────────
+
+    /// The inverse of [`psf_from_sigma_anisotropy`]'s value map: `σ² = tr Σ /
+    /// 2`, `a = (xx − yy) / tr Σ`, `b = 2 xy / tr Σ`.
+    fn sigma_anisotropy_from_psf([xx, xy, yy]: [f64; 3]) -> (f64, [f64; 2]) {
+        let tr = xx + yy;
+        ((0.5 * tr).sqrt(), [(xx - yy) / tr, 2.0 * xy / tr])
+    }
+
+    fn mat_mul(a: [[f64; 3]; 3], b: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+        std::array::from_fn(|r| std::array::from_fn(|k| (0..3).map(|m| a[r][m] * b[m][k]).sum()))
+    }
+
+    fn transpose(a: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+        std::array::from_fn(|r| std::array::from_fn(|k| a[k][r]))
+    }
+
+    /// The `(σ, a, b)` → `Σ` map is inverted exactly, its covariance is `J C
+    /// Jᵀ` with `J` the Jacobian of the value map (checked against central
+    /// differences), and the inverse map's Jacobian takes the covariance
+    /// back to `C`.
+    #[test]
+    fn blur_map_round_trips_and_propagates_its_covariance() {
+        let c = [[4e-4, 3e-5, -2e-5], [3e-5, 9e-4, 1e-5], [-2e-5, 1e-5, 6e-4]];
+        for (sigma, ab) in [
+            (0.5, [0.0, 0.0]),
+            (1.53, [0.12, -0.07]),
+            (3.2, [-0.6, 0.5]),
+            (2.0, [0.0, 0.89]),
+        ] {
+            let (psf, cov) = psf_from_sigma_anisotropy(sigma, ab, c);
+            let (s, [a, b]) = sigma_anisotropy_from_psf(psf);
+            assert!((s - sigma).abs() < 1e-14 && (a - ab[0]).abs() < 1e-14);
+            assert!((b - ab[1]).abs() < 1e-14, "{b} vs {}", ab[1]);
+            assert!(((psf[0] + psf[2]) / 2.0 - sigma * sigma).abs() < 1e-12);
+
+            // Numerical Jacobian of the value map, column by parameter.
+            let p = [sigma, ab[0], ab[1]];
+            let value = |p: [f64; 3]| psf_from_sigma_anisotropy(p[0], [p[1], p[2]], c).0;
+            let mut j = [[0.0; 3]; 3];
+            for col in 0..3 {
+                let h = 1e-6;
+                let (mut lo, mut hi) = (p, p);
+                lo[col] -= h;
+                hi[col] += h;
+                let (vl, vh) = (value(lo), value(hi));
+                for row in 0..3 {
+                    j[row][col] = (vh[row] - vl[row]) / (2.0 * h);
+                }
+            }
+            let want = mat_mul(mat_mul(j, c), transpose(j));
+            for r in 0..3 {
+                for k in 0..3 {
+                    assert!(
+                        (cov[r][k] - want[r][k]).abs() < 1e-8 * (1.0 + want[r][k].abs()),
+                        "cov[{r}][{k}] = {} vs J C Jᵀ {}",
+                        cov[r][k],
+                        want[r][k]
+                    );
+                    assert_eq!(cov[r][k], cov[k][r], "symmetric");
+                }
+            }
+
+            // The inverse map's Jacobian (analytic in Σ) brings it back to C.
+            let [xx, xy, yy] = psf;
+            let tr = xx + yy;
+            let ji = [
+                [0.25 / s, 0.0, 0.25 / s],
+                [2.0 * yy / (tr * tr), 0.0, -2.0 * xx / (tr * tr)],
+                [-2.0 * xy / (tr * tr), 2.0 / tr, -2.0 * xy / (tr * tr)],
+            ];
+            let back = mat_mul(mat_mul(ji, cov), transpose(ji));
+            for r in 0..3 {
+                for k in 0..3 {
+                    assert!(
+                        (back[r][k] - c[r][k]).abs() < 1e-12,
+                        "C[{r}][{k}]: {} vs {}",
+                        back[r][k],
+                        c[r][k]
+                    );
+                }
+            }
+        }
+    }
+
+    /// The frontal render of `cfg` at `dpi` as a camera with a Gaussian PSF
+    /// of `sigma_px` camera pixels and square pixels sees it: rendered at
+    /// twice the density, blurred there by an exact (truncated at 5σ,
+    /// normalized) separable Gaussian, averaged over 2 × 2 blocks (the
+    /// pixel's area integration) and padded with paper.
+    fn camera_render(cfg: &RinggridConfig, dpi: f32, sigma_px: f64, pad: u32) -> image::GrayImage {
+        const N: u32 = 2;
+        let options = TargetRenderOptions {
+            png_dpi: dpi * N as f32,
+            ..TargetRenderOptions::default()
+        };
+        let fine = cfg
+            .board_layout()
+            .unwrap()
+            .render_target_png(&options)
+            .unwrap();
+        let (w, h) = (fine.width() as usize, fine.height() as usize);
+        let s = sigma_px * f64::from(N);
+        let r = (5.0 * s).ceil() as isize;
+        let mut kernel: Vec<f64> = (-r..=r)
+            .map(|i| (-0.5 * (i as f64 / s).powi(2)).exp())
+            .collect();
+        let total: f64 = kernel.iter().sum();
+        kernel.iter_mut().for_each(|k| *k /= total);
+        // Separable convolution, the board extended by paper (255).
+        let src: Vec<f64> = fine.pixels().map(|p| f64::from(p.0[0])).collect();
+        let at = |v: &[f64], x: isize, y: isize, w: usize, h: usize| {
+            if x < 0 || y < 0 || x >= w as isize || y >= h as isize {
+                255.0
+            } else {
+                v[y as usize * w + x as usize]
+            }
+        };
+        let mut rows = vec![0.0; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                rows[y * w + x] = kernel
+                    .iter()
+                    .enumerate()
+                    .map(|(i, k)| k * at(&src, x as isize + i as isize - r, y as isize, w, h))
+                    .sum();
+            }
+        }
+        let mut both = vec![0.0; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                both[y * w + x] = kernel
+                    .iter()
+                    .enumerate()
+                    .map(|(i, k)| k * at(&rows, x as isize, y as isize + i as isize - r, w, h))
+                    .sum();
+            }
+        }
+        let (cw, ch) = (w as u32 / N, h as u32 / N);
+        image::GrayImage::from_fn(cw + 2 * pad, ch + 2 * pad, |x, y| {
+            if x < pad || y < pad || x >= cw + pad || y >= ch + pad {
+                return image::Luma([255]);
+            }
+            let (x0, y0) = (((x - pad) * N) as usize, ((y - pad) * N) as usize);
+            let sum: f64 = (0..N as usize)
+                .flat_map(|dy| (0..N as usize).map(move |dx| (dx, dy)))
+                .map(|(dx, dy)| both[(y0 + dy) * w + x0 + dx])
+                .sum();
+            image::Luma([(sum / f64::from(N * N)).round().clamp(0.0, 255.0) as u8])
+        })
+    }
+
+    /// A camera with a Gaussian PSF of 1.5 px sees edges of width
+    /// `√(1.5² + 1/12)` px (the pixel's area integration adds `1/12`): the
+    /// photometric centres report that width as `√(tr Σ / 2)`, isotropic.
+    ///
+    /// `ringgrid` states its fitted width within ±0.5 % of `√(σ_psf² +
+    /// 1/12)` for a Gaussian PSF of 0.7–3 px on markers of outer radius
+    /// ≥ 17 px with the print radii right; these markers are 23.6 px.
+    #[test]
+    fn photometric_centres_report_the_rendered_blur() {
+        let sigma_psf = 1.5;
+        let truth = (sigma_psf * sigma_psf + 1.0 / 12.0_f64).sqrt();
+        let mut cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
+        let img = camera_render(&cfg, 100.0, sigma_psf, 40);
+
+        // Edge centres carry no blur.
+        assert!(detect(&cfg, &img).unwrap().iter().all(|f| f.blur.is_none()));
+
+        cfg.center_method = RinggridCenterMethod::Photometric;
+        let features = detect(&cfg, &img).unwrap();
+        let blurs: Vec<FeatureBlur> = features.iter().filter_map(|f| f.blur).collect();
+        // Of the board's 23 markers, the fit reports a blur for 20 on this
+        // render.
+        assert!(
+            blurs.len() >= 18,
+            "{} of {} markers",
+            blurs.len(),
+            features.len()
+        );
+
+        let mut rel: Vec<f64> = Vec::new();
+        for b in &blurs {
+            let [xx, _, yy] = b.psf_px;
+            let sigma = (0.5 * (xx + yy)).sqrt();
+            // Its standard deviation from the reported covariance:
+            // ∂σ/∂(xx, xy, yy) = (1, 0, 1) / (4σ).
+            let sd = (b.cov[0][0] + 2.0 * b.cov[0][2] + b.cov[2][2]).sqrt() / (4.0 * sigma);
+            assert!(
+                (sigma - truth).abs() < 0.01 * truth + 4.0 * sd,
+                "σ {sigma} px (sd {sd}) vs {truth} px"
+            );
+            let (_, [a, bb]) = sigma_anisotropy_from_psf(b.psf_px);
+            // Measured: |[a, b]| ≤ 0.01 on this render.
+            assert!(a.hypot(bb) < 0.02, "an isotropic PSF fitted as [{a}, {bb}]");
+            rel.push(sigma / truth - 1.0);
+        }
+        rel.sort_by(f64::total_cmp);
+        // Measured: −0.36 % (markers −1.4 … +0.35 %, each within 1.8
+        // reported standard deviations).
+        let median = rel[rel.len() / 2];
+        assert!(median.abs() < 0.005, "median relative error {median}");
     }
 
     // ── The other lattice × coding combinations ─────────────────────────────

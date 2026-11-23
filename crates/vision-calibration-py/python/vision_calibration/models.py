@@ -723,7 +723,8 @@ class PointBlur:
     :attr:`sigma_px` ``= √(tr Σ / 2)`` is its width. ``cov`` is the 3×3
     covariance of ``(xx, xy, yy)``, px⁴, row-major; for chessboard and
     PuzzleBoard corners it allows for residuals correlated between
-    neighbouring pixels.
+    neighbouring pixels, and for ring-grid markers it holds for differences
+    between the markers of one image.
 
     Raises :class:`ValueError` unless the entries are finite, ``Σ`` is
     positive definite and ``cov`` is symmetric and positive semi-definite

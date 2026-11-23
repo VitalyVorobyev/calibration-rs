@@ -26,9 +26,12 @@ pub struct Feature {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cov_px: Option<[f64; 3]>,
     /// The blur the detector measured at this feature, with its covariance
-    /// ([`FeatureBlur`]). Present when the detector was asked to measure one
-    /// (`measure_blur` on the chessboard and PuzzleBoard configs) and the
-    /// estimate at this corner was not declined; `None` otherwise.
+    /// ([`FeatureBlur`]). Present on a chessboard or PuzzleBoard corner when
+    /// the detector was asked to measure one (`measure_blur` on their
+    /// configs) and the estimate at this corner was not declined, and on a
+    /// ring-grid marker with a photometric centre, a by-product of its fit
+    /// (no flag), unless the fitted width exceeds a quarter of the marker's
+    /// outer radius; `None` otherwise.
     ///
     /// A measurement only: no calibration reads it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,7 +88,9 @@ impl Feature {
 /// PuzzleBoard corners it allows for residuals correlated between
 /// neighbouring pixels, and a combination of `Σ` the print around the
 /// corner constrains weakly (with one edge direction, the width along that
-/// edge) shows as a large variance.
+/// edge) shows as a large variance. For ring-grid markers it holds for
+/// differences between markers of one image: the markers of an image can
+/// share one offset in the width that it does not contain.
 ///
 /// Under a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the covariance
 /// of the Gaussian that blurs the print most like the lens does, not the
