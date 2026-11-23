@@ -266,6 +266,16 @@ pub enum TargetSpec {
         cols: u32,
         /// Edge length of one square in metres.
         square_size_m: f64,
+        /// Measure the blur at each corner: the covariance `Σ` (px², image
+        /// axes, including the pixel aperture) of the Gaussian kernel that
+        /// best blurs the printed pattern around the corner into the image,
+        /// with the covariance of that estimate, carried into each
+        /// observation. A corner the estimate declines has none. It costs a
+        /// few milliseconds per corner, single-threaded (a 476-corner board
+        /// adds about 1–2 s per image), hence the default `false`. Corner
+        /// positions are the same with or without it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        measure_blur: bool,
     },
     /// ChArUco board. Marker IDs and dictionary live here so detection
     /// is fully deterministic from the manifest.
@@ -294,6 +304,16 @@ pub enum TargetSpec {
         layout: String,
         /// Edge length of one cell in metres.
         cell_size_m: f64,
+        /// Measure the blur at each corner: the covariance `Σ` (px², image
+        /// axes, including the pixel aperture) of the Gaussian kernel that
+        /// best blurs the printed pattern around the corner into the image,
+        /// with the covariance of that estimate, carried into each
+        /// observation. A corner the estimate declines has none. It costs a
+        /// few milliseconds per corner, single-threaded (a 476-corner board
+        /// adds about 1–2 s per image), hence the default `false`. Corner
+        /// positions are the same with or without it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        measure_blur: bool,
     },
     /// Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal
     /// or rectangular lattice, either coded (self-identifying) or plain with
@@ -341,6 +361,7 @@ impl TargetSpec {
             rows,
             cols,
             square_size_m,
+            measure_blur: false,
         }
     }
 
@@ -368,6 +389,7 @@ impl TargetSpec {
         Self::Puzzleboard {
             layout: layout.into(),
             cell_size_m,
+            measure_blur: false,
         }
     }
 
@@ -953,6 +975,38 @@ mod tests {
 
     const RINGGRID: &str = r#"{"kind":"ringgrid","pitch_m":0.02,"rows":5,"long_row_cols":5,
         "marker_outer_radius_m":0.006,"marker_inner_radius_m":0.003,"marker_ring_width_m":0.001"#;
+
+    /// `measure_blur` on the chessboard and PuzzleBoard targets: absent reads
+    /// as `false` and is not written back; `true` round-trips.
+    #[test]
+    fn measure_blur_defaults_and_roundtrips() {
+        for base in [
+            r#"{"kind":"chessboard","rows":5,"cols":7,"square_size_m":0.03"#,
+            r#"{"kind":"puzzleboard","layout":"puzzle_12x12","cell_size_m":0.012"#,
+        ] {
+            let plain: TargetSpec = serde_json::from_str(&format!("{base}}}")).unwrap();
+            let json = serde_json::to_string(&plain).unwrap();
+            assert!(!json.contains("measure_blur"), "{json}");
+            let (TargetSpec::Chessboard { measure_blur, .. }
+            | TargetSpec::Puzzleboard { measure_blur, .. }) = &plain
+            else {
+                panic!("{json}");
+            };
+            assert!(!measure_blur);
+
+            let with: TargetSpec =
+                serde_json::from_str(&format!(r#"{base},"measure_blur":true}}"#)).unwrap();
+            let json = serde_json::to_string(&with).unwrap();
+            assert!(json.contains(r#""measure_blur":true"#), "{json}");
+            let back: TargetSpec = serde_json::from_str(&json).unwrap();
+            let (TargetSpec::Chessboard { measure_blur, .. }
+            | TargetSpec::Puzzleboard { measure_blur, .. }) = &back
+            else {
+                panic!("{json}");
+            };
+            assert!(measure_blur);
+        }
+    }
 
     #[test]
     fn ringgrid_center_method_defaults_and_roundtrips() {

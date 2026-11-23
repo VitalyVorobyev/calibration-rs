@@ -281,10 +281,8 @@ pub(crate) fn detect(
                     || marker.center_source == CenterSource::Photometric
             })
             .filter_map(|marker| {
-                marker.board_xy_mm.map(|xy_mm| Feature {
-                    image_xy: marker.center,
-                    world_xyz: [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0],
-                    cov_px: None,
+                marker.board_xy_mm.map(|xy_mm| {
+                    Feature::new(marker.center, [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0])
                 })
             })
             .collect(),

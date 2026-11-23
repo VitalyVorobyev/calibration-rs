@@ -512,8 +512,8 @@ pub mod core {
         DistortionKind, DistortionParams, Division, Equidistant, FixedParams, FrameKind, FrameRef,
         FxFyCxCy, Handeye, HomographySensor, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4,
         LaserPlane, Mat3, NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera,
-        PixelRect, PlanarDataset, PointCovariance, ProjectionKind, ProjectionParams, Pt2, Pt3,
-        RationalPolynomial, Ray, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
+        PixelRect, PlanarDataset, PointBlur, PointCovariance, ProjectionKind, ProjectionParams,
+        Pt2, Pt3, RationalPolynomial, Ray, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
         RigViewObs, RobotFrame, RobotPose, ScheimpflugParams, SecondOrderError, SensorKind,
         SensorModel, SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable, Vec2, Vec3,
         View, ViewCovariance, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
@@ -601,8 +601,9 @@ pub mod detect {
     pub use vision_calibration_detect::{
         CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
         CornerCovariance, CornerStrategy, DetectError, DetectionCache, DetectorConfig, Feature,
-        FsDetectionCache, GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod,
-        RinggridCoding, RinggridConfig, RinggridLattice, reject_ambiguous_detection,
+        FeatureBlur, FsDetectionCache, GrayImageView, ImageNoise, PuzzleboardConfig,
+        RinggridCenterMethod, RinggridCoding, RinggridConfig, RinggridLattice,
+        reject_ambiguous_detection,
     };
 }
 

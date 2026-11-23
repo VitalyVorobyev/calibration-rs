@@ -43,7 +43,8 @@ All based on `nalgebra` with `f64` precision:
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `CorrespondenceView` | `points_3d, points_2d`, optional `cov_px` | 2D-3D correspondences (build with `CorrespondenceView::new(..)?`, or `new_with_covariances(..)?` with a `PointCovariance` per point) |
+| `CorrespondenceView` | `points_3d, points_2d`, optional `cov_px`, optional `blur` | 2D-3D correspondences (build with `CorrespondenceView::new(..)?`, or `new_with_covariances(..)?` with a `PointCovariance` per point; `with_blur(..)?` adds the measured blur, an `Option<PointBlur>` per point) |
+| `PointBlur` | `psf_px, cov` | Blur measured at one image point: the PSF covariance `[xx, xy, yy]` (px², including pixel integration) and its 3×3 covariance (px⁴) |
 | `View<Meta>` | `obs, meta` | Observation + metadata |
 | `PlanarDataset` | `views: Vec<View<NoMeta>>` | Planar calibration input |
 | `RigViewObs` | `cameras: Vec<Option<CorrespondenceView>>` | Per-camera observations of one rig frame |

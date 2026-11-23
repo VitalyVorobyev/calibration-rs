@@ -82,12 +82,24 @@ const same = (a: unknown, b: unknown) =>
  * where the value had no such key (serde skips a `None` `skip_serializing_if`) writes
  * `null` rather than removing the key: the same `None` to serde, a different key in the JSON. */
 function dropNulls(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(dropNulls);
+  return dropMembers(value, (member) => member === null);
+}
+
+/** `null` and `false` members removed. Switching a boolean on and off again, where
+ * the value had no such key (serde skips a `false` that is its default), writes
+ * `false` rather than removing the key: the same value to serde. A `true` switched
+ * off is still a difference: only the `false` side loses its key. */
+function dropUnset(value: unknown): unknown {
+  return dropMembers(value, (member) => member === null || member === false);
+}
+
+function dropMembers(value: unknown, unset: (member: unknown) => boolean): unknown {
+  if (Array.isArray(value)) return value.map((item) => dropMembers(item, unset));
   if (typeof value !== "object" || value === null) return value;
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([, member]) => member !== null)
-      .map(([key, member]) => [key, dropNulls(member)]),
+      .filter(([, member]) => !unset(member))
+      .map(([key, member]) => [key, dropMembers(member, unset)]),
   );
 }
 
@@ -187,7 +199,7 @@ describe.each(CASES)("$name", ({ schema, value }) => {
       // and hides fields) is reseeded from the schema's defaults when switched back
       // on, by design: it only has to be a block again.
       if (isBlock) expect(controlCount()).toBe(before);
-      else same(dropNulls(last), dropNulls(valueBefore));
+      else same(dropUnset(last), dropUnset(valueBefore));
     }
 
     // The loops above would pass vacuously if nothing were edited.

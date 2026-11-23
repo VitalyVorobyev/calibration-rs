@@ -482,6 +482,7 @@ mod tests {
                 rows: 9,
                 cols: 6,
                 square_size_m: 0.025,
+                measure_blur: false,
             },
             detector: None,
             robot_poses: None,

@@ -38,6 +38,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or too little observed to tell the tilt from the principal point. The
   check warns, never fails; thresholds written without the new field read
   its default. Python: `QualityThresholds.max_sigma_inflation`.
+- **Measured blur per corner.** Chessboard and PuzzleBoard targets measure
+  the blur at each corner on request: `measure_blur` on `ChessboardConfig`
+  and `PuzzleboardConfig` and on the manifest's chessboard and PuzzleBoard
+  targets (off by default: it costs a few milliseconds per corner). Each
+  corner then carries `Feature::blur` (`detect::FeatureBlur`), the
+  covariance `Σ` of the Gaussian point-spread function in px² as
+  `[xx, xy, yy]`, including the pixel's area integration
+  (`Σ = Σ_lens + I/12`), with the 3×3 covariance of those elements; a
+  corner the estimate declines has none. The blur travels through the
+  detection cache and into the observations (`CorrespondenceView::with_blur`,
+  `blur`, `blurs`; `core::PointBlur`, with `sigma_px() = √(tr Σ / 2)`), and
+  in JSON as the view's optional `blur` list. Python: the target's
+  `measure_blur`, `Features.blur_psf_px` and `Features.blur_cov`,
+  `Observation.blur` and `PointBlur`. Corner positions are the same with or
+  without it, and no calibration reads it yet: results are unchanged. A
+  cached feature whose blur is not valid (not finite, `Σ` not positive
+  definite) fails its image with a detection error.
 
 ### Changed
 

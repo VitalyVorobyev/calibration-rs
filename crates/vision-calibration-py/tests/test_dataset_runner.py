@@ -109,6 +109,31 @@ class DetectTargetTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             vc.Features(image_xy=np.zeros((2, 2)), world_xyz=np.zeros((2, 3)), cov_px=np.zeros((3, 3)))
 
+    def test_corner_blur_is_opt_in(self) -> None:
+        r, t = _images.board_poses(1)[0]
+        # A lens blur of 1 px, so the corners are not sharper than a pixel.
+        image = _images.render_board(r, t).astype(np.float64)
+        kernel = np.exp(-0.5 * np.arange(-6, 7) ** 2)
+        kernel /= kernel.sum()
+        for axis in (0, 1):
+            image = np.apply_along_axis(np.convolve, axis, image, kernel, mode="same")
+        image = np.clip(np.round(image), 0, 255).astype(np.uint8)
+        plain = vc.detect_target(image, _images.TARGET)
+        self.assertIsNone(plain.blur_psf_px)
+        features = vc.detect_target(image, {**_images.TARGET, "measure_blur": True})
+        np.testing.assert_array_equal(features.image_xy, plain.image_xy)
+        assert features.blur_psf_px is not None and features.blur_cov is not None
+        self.assertEqual(features.blur_cov.shape, (len(features), 3, 3))
+        measured = ~np.isnan(features.blur_psf_px[:, 0])
+        self.assertGreaterEqual(measured.sum(), 0.9 * len(features))
+        # About 1² + 1/12 px² (the lens and the pixel), up to the render's
+        # perspective and its own anti-aliasing.
+        half_trace = 0.5 * (features.blur_psf_px[measured, 0] + features.blur_psf_px[measured, 2])
+        self.assertTrue(((half_trace > 0.9) & (half_trace < 1.5)).all(), half_trace)
+        obs = features.to_observation()
+        assert obs.blur is not None
+        self.assertEqual(sum(b is not None for b in obs.blur), measured.sum())
+
     def test_ambiguous_detections_are_dropped(self) -> None:
         features = vc.Features(
             image_xy=np.array([[1.0, 2.0], [3.0, 4.0]]),
@@ -158,6 +183,58 @@ class DetectionCacheTest(unittest.TestCase):
             assert cached is not None
             np.testing.assert_array_equal(cached.cov_px, features.cov_px)
             self.assertEqual(len(vc.reject_ambiguous_detection(features).cov_px), 1)
+
+    def test_entries_keep_the_measured_blur(self) -> None:
+        cov = np.array([[4e-3, 1e-4, 0.0], [1e-4, 1e-3, 0.0], [0.0, 0.0, 3e-3]])
+        features = vc.Features(
+            image_xy=np.array([[10.5, 20.25], [30.5, 20.25]]),
+            world_xyz=np.array([[0.0, 0.03, 0.0], [0.01, 0.03, 0.0]]),
+            blur_psf_px=np.array([[2.25, -0.1, 1.75], [np.nan] * 3]),
+            blur_cov=np.stack([cov, np.full((3, 3), np.nan)]),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = vc.FsDetectionCache(tmp)
+            key = vc.CacheKey.from_inputs(b"image bytes", "chessboard", {})
+            cache.put(key, features)
+            cached = cache.get(key)
+            assert cached is not None and cached.blur_psf_px is not None and cached.blur_cov is not None
+            np.testing.assert_array_equal(cached.blur_psf_px, features.blur_psf_px)
+            np.testing.assert_array_equal(cached.blur_cov, features.blur_cov)
+        kept = vc.reject_ambiguous_detection(features)
+        np.testing.assert_array_equal(kept.blur_cov, features.blur_cov)
+
+        obs = features.to_observation()
+        assert obs.blur is not None
+        first = obs.blur[0]
+        assert first is not None
+        self.assertEqual(first.psf_px, (2.25, -0.1, 1.75))
+        self.assertAlmostEqual(first.sigma_px, 2.0 ** 0.5)
+        self.assertIsNone(obs.blur[1])
+        payload = obs.to_payload()
+        self.assertIsNone(payload["blur"][1])
+        self.assertEqual(vc.Observation.from_payload(payload).blur, obs.blur)
+
+        # The two arrays come together, and a missing blur is NaN in both.
+        with self.assertRaises(ValueError):
+            vc.Features(
+                image_xy=features.image_xy, world_xyz=features.world_xyz, blur_psf_px=features.blur_psf_px
+            )
+        with self.assertRaises(ValueError):
+            vc.Features(
+                image_xy=features.image_xy,
+                world_xyz=features.world_xyz,
+                blur_psf_px=np.array([[2.25, -0.1, 1.75], [1.0, 0.0, 1.0]]),
+                blur_cov=features.blur_cov,
+            )
+        # An invalid blur is refused where it enters the native layer.
+        bad = vc.Features(
+            image_xy=features.image_xy,
+            world_xyz=features.world_xyz,
+            blur_psf_px=np.array([[1.0, 2.0, 1.0], [np.nan] * 3]),
+            blur_cov=features.blur_cov,
+        )
+        with self.assertRaises(ValueError):
+            vc.reject_ambiguous_detection(bad)
 
 
 class SniffFolderTest(unittest.TestCase):

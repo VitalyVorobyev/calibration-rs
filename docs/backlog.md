@@ -90,6 +90,34 @@ Windows. `stereo_charuco` stays local-only, as do the private sets.
   fetched from its publisher with checksums, or is named here as failing
   the licence check.
 
+- [ ] DETECT-PB-BACKMAP - The PuzzleBoard detector runs on a 2× upscaled
+  copy and maps corners back with `x_up / 2`; the resize is centre-aligned,
+  so the map is `x_up / 2 − 0.25`. Measured on renders: the upscale path is
+  +0.240…+0.260 px off in x and y against the truth and against native
+  detection (native within ±0.02 px). Correcting it moves `cx, cy` of every
+  PuzzleBoard calibration by a quarter pixel and nothing else, so it is a
+  result change: decide whether it lands before 1.0.0 as a fix or waits for
+  a major. With it, measure whether calib-targets 0.17 still needs the
+  upscale (on one render it returned 36 saddles where native detection
+  found 49). Gate: the render test at three cell sizes, the private
+  PuzzleBoard entries' RMS unchanged and `cx, cy` moved by 0.25 px.
+- [~] DETECT-RINGGRID-018 - ringgrid 0.18 (the ring-grid blur as
+  `Feature::blur`, more markers in defocused rows). Parked: on the tilted
+  ring-grid rigs the features roughly double, the new markers sit 0.03–0.12
+  px off along the tilt axis and the accept baselines fail; which marker
+  population is unbiased is undetermined. Reopen with truth in the
+  defocused rows: a synthetic tilted-focus render through the detector, or
+  a capture with corners and rings at identical poses (corner blur by
+  `measure_blur` as the reference). It moves ring-grid results, so it lands
+  after 1.0.0.
+- [ ] DATA-SUITE-STEREO-DRIFT - Re-freezing the suite images with the
+  pinned detector differs from the committed
+  `regression/observations/opencv_stereo.json`: view 10 has no
+  left-camera detection in the committed file and 54 corners when
+  re-frozen (macOS; the same with calib-targets 0.16.3 and 0.17.0). Find
+  whether it is a platform difference or a stale observation file before
+  re-freezing.
+
 ## Bindings and internals (alongside)
 
 - [ ] PY-MODELS-GEN - `models.py` and the problem modules hand-write the
@@ -258,32 +286,34 @@ Each model follows AGENTS.md §10 (a camera model).
   analytic `√(1/(σ⁻² + σₚ⁻²))` within 5 %, the C1 table through the
   library, JSON round-trips, typed errors for a prior on a fixed parameter
   or a non-positive σ.
-- [ ] CAL-TILT-FOCUS - Per-feature blur as an observation, and a focus
-  term that ties the Scheimpflug tilt to the plane of sharp focus
-  (`notes/tilt-from-focus.md`). Evidence: on six ring-grid cameras a
+- [ ] CAL-TILT-FOCUS - A focus term that ties the Scheimpflug tilt to the
+  plane of sharp focus (`notes/tilt-from-focus.md`), read from the
+  per-feature blur the observations carry (`Feature::blur` →
+  `CorrespondenceView::blur`, a `PointBlur`: the PSF covariance `Σ` in px²
+  including pixel integration, with its 3×3 covariance). Chessboard and
+  PuzzleBoard corners fill it (`measure_blur`, calib-targets 0.17). Open
+  producers: ring-grid photometric centres, waiting for the held ringgrid
+  0.18 pin (map its `(σ, a, b)` to `Σ` by `σ²[1 + a, b, 1 − a]`, `J C Jᵀ`;
+  its `cov` holds within one image and every marker shares a σ offset it
+  excludes, ≈ 0.001 px coded, 0.008–0.05 px plain, so the fit takes one σ
+  offset per image), and ChArUco corners, waiting for calib-targets.
+  Evidence: on six ring-grid cameras a
   5-parameter focus model (plane `π`, blur scale `κ`, in-focus blur `σ0`)
   explains 91–96 % of the blur variance and the PoF's sign agrees with the
   distortion tilt on all six, but the two routes disagree by ±0.5° per unit,
   which neither model explains (a defocus/depth law in the distortion route
   closes 13–51 % of the `τx` gap and none of the direction gap,
-  `notes/tilt-bias.md`). Design: (1) a
-  detector-agnostic optional blur σ (px) per feature next to the 2D point
-  (ring-grid photometric fits have it; corners could report an edge
-  width), carried through the dataset types and the detection cache. The
-  type is the PSF covariance `Σ_psf` (px², its three unique elements)
-  with their 3×3 covariance, not a scalar: ringgrid's `(σ, a, b)` and
-  calib-targets' per-corner 2×2 Σ both map to it without loss, and the
-  focus model reads `σ² = tr Σ_psf / 2`. ringgrid's σ carries a per-image
-  offset of −2…−6 % until its ALGO-021, so the focus fit takes one σ
-  offset per image until then. The blur-gradient centre bias stays in the
-  points: ringgrid measured and rejected a detector-side correction (its
+  `notes/tilt-bias.md`). Design constraints: the model reads
+  `σ² = tr Σ / 2` and predicts it as `σ_optics² + 1/12` (the pixel term is
+  in the observation, not subtracted from it). The blur-gradient centre
+  bias stays in the points: ringgrid measured and rejected a detector-side correction (its
   ALGO-018/019), and the bias is a near-gauge of `fy` and the poses, so no
   calibration term models it either. Where the aspect ratio matters, a
   caller subtracts the law `0.62·∇(σ²)` with the gradient of the fitted
   focus model (`notes/scheimpflug-literature.md`, *The blur field of a
   planar target*); otherwise it is a stated systematic of about 4e-4 in
-  `fy/fx` on the studied rig;
-  (2) a diagnostic first: fit `σ² = σ0² + κ²(1/z − π·(x, y, 1))²` after
+  `fy/fx` on the studied rig. Steps:
+  (1) a diagnostic first: fit `σ² = σ0² + κ²(1/z − π·(x, y, 1))²` after
   the solve in the `K'` frame (the poses' tilt rotation applied) and
   report `π` with its view-jackknife σ, the tilt direction, the tilt
   implied by a stated pitch and pupil magnification, and the difference
@@ -291,7 +321,7 @@ Each model follows AGENTS.md §10 (a camera model).
   implies: for a stated acceptable blur `σ_max`, the near and far planes
   `(π ± ε·e_z)·X = 1`, `ε = √(σ_max² − σ0²)/κ`, through the hinge line
   `{π·X = 1, e_z·X = 0}`, as derived quantities with their σ (ADR 0028;
-  `notes/scheimpflug-literature.md`, *Depth of field*); (3) only once the ±0.5°
+  `notes/scheimpflug-literature.md`, *Depth of field*); (2) only once the ±0.5°
   is explained, an opt-in focus residual (`FactorKind` arm, both
   backends, the covariance family map) linking `π` to the tilt through
   `v0 = f'·pitch` and `m_p` given as priors with σ. Not a replacement for
@@ -304,6 +334,24 @@ Each model follows AGENTS.md §10 (a camera model).
   for the factor's form (a thin-lens blur term in the reprojection cost,
   Kumar & Ahuja 2014; a `(u, v, ρ)` feature, Labussière et al. 2020) are in
   `notes/scheimpflug-literature.md`.
+- [ ] CAL-BLUR-STUDY - Does the measured corner blur improve a
+  calibration? A study on the private PuzzleBoard entries with
+  `measure_blur`, then on captures with corners and rings at identical
+  poses. (1) Residual variance against blur: if it grows, a two-parameter
+  noise model `σ_px² = a + b·σ_blur²` as weights, judged by held-out error
+  (`analysis::compare_camera_models`); the detector's own stated σ was
+  rejected as a weight, blur is a different regressor. (2) Signed residual
+  against the blur gradient `∇(σ²)`: a law here is the nuisance regressor
+  of CAL-TILT-DETERMINE's systematics safeguard for corner targets; a
+  saddle is point-symmetric, so the expectation is a much smaller
+  coefficient than the rings' 0.62. (3) View checks for the quality report:
+  a blur anisotropic along one direction across a view (motion), a view
+  mostly beyond a blur limit (out of focus). Known limits: the estimator
+  declines beyond a blur of 0.3 cell, so the most defocused corners are
+  missing; a print with softened edges (an anti-aliased target) adds a blur
+  fixed in board units, which in pixels scales with the magnification and
+  needs its own term before a focus model reads it. Nothing changes a
+  default without the held-out evidence. Ends with the harness deleted.
 - [ ] CAL-TILT-PUPIL - Study whether the geometry alone measures the pupil
   magnification `m_p`, the datum CAL-TILT-FOCUS lacks. Steger's tilt model
   has an image-side distance `d`; holding `d = c`, as our sensor slot does,

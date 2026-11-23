@@ -5,6 +5,7 @@
 //! grid index are filtered out — calibration consumes 2D-3D
 //! correspondences, so an unindexed corner is unusable.
 
+use calib_targets::blur::chessboard_blur;
 use calib_targets::chessboard::ChessboardParams;
 use calib_targets::detect;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,7 @@ use schemars::JsonSchema;
 use crate::chess_options::{
     ChessCornersConfig, apply_board_override, chess_config_for_override, cov_px,
 };
+use crate::corner_blur::feature_blurs;
 use crate::{DetectError, Feature};
 
 /// Chessboard detector configuration. Mirrors the shape of the
@@ -37,6 +39,17 @@ pub struct ChessboardConfig {
     /// Optional ChESS corner-stage overrides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chess_corners: Option<ChessCornersConfig>,
+    /// Measure the blur at each corner ([`Feature::blur`]): the covariance
+    /// `Σ` (px², image axes, including the pixel aperture) of the Gaussian
+    /// kernel that best blurs the printed squares around the corner into the
+    /// image, with the covariance of that estimate. A corner the estimate
+    /// declines (blur too wide for the squares, sharper than a pixel, too
+    /// few labelled neighbours) has none. It costs a few milliseconds per
+    /// corner, single-threaded (a 476-corner board adds about 1–2 s per image),
+    /// hence the default `false`. Corner positions and covariances are the
+    /// same with or without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub measure_blur: bool,
 }
 
 impl ChessboardConfig {
@@ -48,7 +61,14 @@ impl ChessboardConfig {
             cols,
             square_size_m,
             chess_corners: None,
+            measure_blur: false,
         }
+    }
+
+    /// The same config with [`measure_blur`](Self::measure_blur) set.
+    pub fn with_measure_blur(mut self, measure_blur: bool) -> Self {
+        self.measure_blur = measure_blur;
+        self
     }
 }
 
@@ -85,21 +105,31 @@ pub(crate) fn detect(
         cfg.rows,
         cfg.cols,
     );
+    // The blur at every corner, in `detection.corners` order, measured on
+    // the image the corners were found in.
+    let mut blurs = if cfg.measure_blur {
+        feature_blurs(chessboard_blur(luma, &detection))
+    } else {
+        Vec::new()
+    };
+    blurs.resize(detection.corners.len(), None);
     let mut features = Vec::new();
-    for corner in detection.corners {
+    for (corner, blur) in detection.corners.into_iter().zip(blurs) {
         let grid = corner.grid;
         if grid.u < 0 || grid.v < 0 || grid.u >= max_u || grid.v >= max_v {
             continue;
         }
-        features.push(Feature {
-            image_xy: [corner.position.x as f64, corner.position.y as f64],
-            world_xyz: [
-                grid.u as f64 * cfg.square_size_m,
-                grid.v as f64 * cfg.square_size_m,
-                0.0,
-            ],
-            cov_px: corner.position_covariance.map(cov_px),
-        });
+        let image_xy = [corner.position.x as f64, corner.position.y as f64];
+        let world_xyz = [
+            grid.u as f64 * cfg.square_size_m,
+            grid.v as f64 * cfg.square_size_m,
+            0.0,
+        ];
+        features.push(
+            Feature::new(image_xy, world_xyz)
+                .with_cov_px(corner.position_covariance.map(cov_px))
+                .with_blur(blur),
+        );
     }
     Ok(crate::reject_ambiguous_detection(features))
 }
@@ -241,6 +271,51 @@ mod tests {
                 a.cov_px
             );
         }
+    }
+
+    /// A board seen through a lens of Gaussian blur σ reports the rendered
+    /// `tr Σ / 2` (the lens's `σ²` plus the pixel aperture's term) within
+    /// its stated standard errors, and measuring it moves no corner.
+    #[test]
+    fn measured_blur_matches_the_rendered_blur() {
+        use crate::corner_blur::known_blur::{assert_matches_render, camera_image};
+        // 7 × 9 squares of 24 px: σ = 2 px is 0.08 of a cell, well inside
+        // the estimator's range (it declines beyond 0.3).
+        let document = calib_targets::generate::chessboard_document(6, 8, 25.4);
+        let cfg = ChessboardConfig::new(6, 8, 0.0254);
+        for sigma in [1.0, 2.0] {
+            let img = camera_image(document.clone(), 24, 250.0, sigma, 1.0, 7);
+            let plain = detect(&cfg, &img).unwrap();
+            assert_eq!(plain.len(), 48, "every corner of the board");
+            assert!(plain.iter().all(|f| f.blur.is_none()));
+
+            let with = detect(&cfg.with_measure_blur(true), &img).unwrap();
+            assert_eq!(with.len(), plain.len());
+            for (a, b) in with.iter().zip(&plain) {
+                assert_eq!(a.image_xy, b.image_xy);
+                assert_eq!(a.world_xyz, b.world_xyz);
+                assert_eq!(a.cov_px, b.cov_px);
+            }
+            assert_matches_render(&with, sigma);
+        }
+    }
+
+    #[test]
+    fn measure_blur_round_trips_and_defaults_to_off() {
+        let cfg: ChessboardConfig = serde_json::from_value(board_config()).unwrap();
+        assert!(!cfg.measure_blur);
+        assert!(
+            !serde_json::to_string(&cfg)
+                .unwrap()
+                .contains("measure_blur")
+        );
+        let with = cfg.with_measure_blur(true);
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains(r#""measure_blur":true"#), "{json}");
+        assert_eq!(
+            serde_json::from_str::<ChessboardConfig>(&json).unwrap(),
+            with
+        );
     }
 
     #[test]

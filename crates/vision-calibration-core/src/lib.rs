@@ -126,7 +126,7 @@ pub use residuals::{
 pub use types::{
     CalibratedRig, CombinationTerm, CorrespondenceView, FeatureResidualHistogram, FrameKind,
     FrameRef, Handeye, ImageManifest, LaserFeatureResidual, LaserLineTrace, LaserPlane, NoiseLevel,
-    ParameterCovariance, PerFeatureResiduals, PixelRect, PointCovariance,
+    ParameterCovariance, PerFeatureResiduals, PixelRect, PointBlur, PointCovariance,
     REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, ResidualKind, ResidualNoise, RobotFrame,
     RobotPose, SecondOrderError, TargetFeatureResidual, Uncertainty, UncertaintyUnavailable,
     ViewCovariance,

@@ -595,6 +595,10 @@
               "const": "chessboard",
               "type": "string"
             },
+            "measure_blur": {
+              "description": "Measure the blur at each corner: the covariance `Σ` (px², image\naxes, including the pixel aperture) of the Gaussian kernel that\nbest blurs the printed pattern around the corner into the image,\nwith the covariance of that estimate, carried into each\nobservation. A corner the estimate declines has none. It costs a\nfew milliseconds per corner, single-threaded (a 476-corner board\nadds about 1–2 s per image), hence the default `false`. Corner\npositions are the same with or without it.",
+              "type": "boolean"
+            },
             "rows": {
               "description": "Number of interior corners down the board (the image's rows\naxis when the board is seen as declared).",
               "format": "uint32",
@@ -674,6 +678,10 @@
             "layout": {
               "description": "Board dimensions as `puzzle_<rows>x<cols>` (e.g.\n`\"puzzle_12x12\"`; the `puzzle_` prefix is optional).",
               "type": "string"
+            },
+            "measure_blur": {
+              "description": "Measure the blur at each corner: the covariance `Σ` (px², image\naxes, including the pixel aperture) of the Gaussian kernel that\nbest blurs the printed pattern around the corner into the image,\nwith the covariance of that estimate, carried into each\nobservation. A corner the estimate declines has none. It costs a\nfew milliseconds per corner, single-threaded (a 476-corner board\nadds about 1–2 s per image), hence the default `false`. Corner\npositions are the same with or without it.",
+              "type": "boolean"
             }
           },
           "required": [

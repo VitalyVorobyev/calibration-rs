@@ -45,6 +45,8 @@ mod charuco;
 mod chess_options;
 #[cfg(feature = "chessboard")]
 mod chessboard;
+#[cfg(any(feature = "chessboard", feature = "puzzleboard"))]
+mod corner_blur;
 #[cfg(feature = "puzzleboard")]
 mod puzzleboard;
 #[cfg(feature = "ringgrid")]
@@ -52,7 +54,7 @@ mod ringgrid;
 
 pub use cache::{CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache};
 pub use error::DetectError;
-pub use feature::{Feature, reject_ambiguous_detection};
+pub use feature::{Feature, FeatureBlur, reject_ambiguous_detection};
 
 #[cfg(feature = "charuco")]
 pub use charuco::{CharucoConfig, validate_charuco_layout, validate_dictionary};
