@@ -6133,6 +6133,7 @@ name = "vision-calibration-detect"
 version = "1.0.0-rc.1"
 dependencies = [
  "calib-targets",
+ "chess-corners",
  "image",
  "ringgrid",
  "schemars 1.2.3",

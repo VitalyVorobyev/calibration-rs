@@ -127,6 +127,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   errors name their cause: a cost that is
   not finite at the initial parameters, or normal equations that cannot be
   allocated.
+- PuzzleBoard corners were reported 0.25 px too far right and down (+0.25
+  px in x and in y). The detector finds corners on an image upscaled 2×,
+  and their positions were divided by 2 to return to the image's pixels,
+  which ignores that both images put integer coordinates at pixel
+  centres; the corner detector's own upscale stage now maps them back
+  exactly. A calibration from PuzzleBoard images moves its principal point
+  `cx, cy` by −0.25 px; its reprojection error does not change. Corner
+  detection is otherwise the same; decoding now reads the image as given
+  rather than the upscaled copy, which in rare frames labels a few fewer
+  corners at the image border. Cached PuzzleBoard detections are recomputed
+  on the next run.
 
 ## [1.0.0-rc.1] - 2026-11-18
 

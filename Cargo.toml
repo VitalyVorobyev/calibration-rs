@@ -97,6 +97,10 @@ criterion = "0.8"
 # solver stack: `vision-calibration-detect` converts to plain arrays at its
 # boundary.
 calib-targets = { version = "0.17.0", default-features = false, features = ["image"] }
+# The ChESS corner detector under `calib-targets`, named for its tuning types
+# (`calib-targets` re-exports only its `DetectorConfig`). Keep it at the
+# version `calib-targets` resolves, or the two configs are different types.
+chess-corners = { version = "2.1.0", default-features = false }
 ringgrid = "0.16.0"
 
 [workspace.lints.rust]
