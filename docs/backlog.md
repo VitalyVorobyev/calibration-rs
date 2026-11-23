@@ -90,6 +90,34 @@ Windows. `stereo_charuco` stays local-only, as do the private sets.
   fetched from its publisher with checksums, or is named here as failing
   the licence check.
 
+- [ ] DETECT-PB-BACKMAP - The PuzzleBoard detector runs on a 2× upscaled
+  copy and maps corners back with `x_up / 2`; the resize is centre-aligned,
+  so the map is `x_up / 2 − 0.25`. Measured on renders: the upscale path is
+  +0.240…+0.260 px off in x and y against the truth and against native
+  detection (native within ±0.02 px). Correcting it moves `cx, cy` of every
+  PuzzleBoard calibration by a quarter pixel and nothing else, so it is a
+  result change: decide whether it lands before 1.0.0 as a fix or waits for
+  a major. With it, measure whether calib-targets 0.17 still needs the
+  upscale (on one render it returned 36 saddles where native detection
+  found 49). Gate: the render test at three cell sizes, the private
+  PuzzleBoard entries' RMS unchanged and `cx, cy` moved by 0.25 px.
+- [~] DETECT-RINGGRID-018 - ringgrid 0.18 (the ring-grid blur as
+  `Feature::blur`, more markers in defocused rows). Parked: on the tilted
+  ring-grid rigs the features roughly double, the new markers sit 0.03–0.12
+  px off along the tilt axis and the accept baselines fail; which marker
+  population is unbiased is undetermined. Reopen with truth in the
+  defocused rows: a synthetic tilted-focus render through the detector, or
+  a capture with corners and rings at identical poses (corner blur by
+  `measure_blur` as the reference). It moves ring-grid results, so it lands
+  after 1.0.0.
+- [ ] DATA-SUITE-STEREO-DRIFT - Re-freezing the suite images with the
+  pinned detector differs from the committed
+  `regression/observations/opencv_stereo.json`: view 10 has no
+  left-camera detection in the committed file and 54 corners when
+  re-frozen (macOS; the same with calib-targets 0.16.3 and 0.17.0). Find
+  whether it is a platform difference or a stale observation file before
+  re-freezing.
+
 ## Bindings and internals (alongside)
 
 - [ ] PY-MODELS-GEN - `models.py` and the problem modules hand-write the
@@ -306,6 +334,24 @@ Each model follows AGENTS.md §10 (a camera model).
   for the factor's form (a thin-lens blur term in the reprojection cost,
   Kumar & Ahuja 2014; a `(u, v, ρ)` feature, Labussière et al. 2020) are in
   `notes/scheimpflug-literature.md`.
+- [ ] CAL-BLUR-STUDY - Does the measured corner blur improve a
+  calibration? A study on the private PuzzleBoard entries with
+  `measure_blur`, then on captures with corners and rings at identical
+  poses. (1) Residual variance against blur: if it grows, a two-parameter
+  noise model `σ_px² = a + b·σ_blur²` as weights, judged by held-out error
+  (`analysis::compare_camera_models`); the detector's own stated σ was
+  rejected as a weight, blur is a different regressor. (2) Signed residual
+  against the blur gradient `∇(σ²)`: a law here is the nuisance regressor
+  of CAL-TILT-DETERMINE's systematics safeguard for corner targets; a
+  saddle is point-symmetric, so the expectation is a much smaller
+  coefficient than the rings' 0.62. (3) View checks for the quality report:
+  a blur anisotropic along one direction across a view (motion), a view
+  mostly beyond a blur limit (out of focus). Known limits: the estimator
+  declines beyond a blur of 0.3 cell, so the most defocused corners are
+  missing; a print with softened edges (an anti-aliased target) adds a blur
+  fixed in board units, which in pixels scales with the magnification and
+  needs its own term before a focus model reads it. Nothing changes a
+  default without the held-out evidence. Ends with the harness deleted.
 - [ ] CAL-TILT-PUPIL - Study whether the geometry alone measures the pupil
   magnification `m_p`, the datum CAL-TILT-FOCUS lacks. Steger's tilt model
   has an image-side distance `d`; holding `d = c`, as our sensor slot does,
