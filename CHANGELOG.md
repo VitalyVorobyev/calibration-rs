@@ -39,6 +39,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check warns, never fails; thresholds written without the new field read
   its default. Python: `QualityThresholds.max_sigma_inflation`.
 
+### Changed
+
+- The chessboard, ChArUco and PuzzleBoard detector is `calib-targets` 0.17.0.
+  Two kinds of frame that used to deliver wrongly labelled corners now give
+  no features: a ChArUco frame blurred past readability, whose board
+  placement rested on marker reads no stronger than chance, and a
+  chessboard frame whose small "grid" was assembled from saddle points that
+  are not board corners. Other detections are unchanged. The detector
+  version is part of the detection-cache key, so these caches are rebuilt
+  on the next run. The Python examples' optional `calib-targets` package is
+  0.17.0 or later.
+
 ### Documentation
 
 - The book's sensor chapter states what an estimated Scheimpflug tilt is:
