@@ -165,7 +165,9 @@ impl PointCovariance {
 ///
 /// Constructed only through [`PointBlur::new`] (or deserialization), which
 /// checks that it is finite, that `Σ` is positive definite and that `cov` is
-/// a symmetric matrix with non-negative variances.
+/// symmetric and positive semi-definite, so every quantity derived from the
+/// PSF (its width, an axis) has a non-negative variance. A `cov` of zeros
+/// states no precision.
 ///
 /// # Example
 ///
@@ -207,6 +209,11 @@ impl TryFrom<PointBlurRaw> for PointBlur {
     }
 }
 
+/// The relative tolerance of [`PointBlur::new`]'s symmetry and
+/// semi-definiteness checks, of the largest variance: rounding in a
+/// propagated covariance stays far below it.
+const BLUR_COV_TOLERANCE: f64 = 1e-9;
+
 impl PointBlur {
     /// The blur of PSF covariance `psf_px` (`[xx, xy, yy]`, px²) with the
     /// covariance `cov` of those three elements (px⁴, row-major).
@@ -214,8 +221,8 @@ impl PointBlur {
     /// # Errors
     ///
     /// Returns [`Error::InvalidInput`] unless every entry is finite, `Σ` is
-    /// positive definite (`xx > 0`, `yy > 0`, `xy² < xx·yy`), `cov` has
-    /// non-negative variances and is symmetric (to `1e-9` of its largest
+    /// positive definite (`xx > 0`, `yy > 0`, `xy² < xx·yy`), and `cov` is
+    /// symmetric and positive semi-definite (both to `1e-9` of its largest
     /// variance).
     pub fn new(psf_px: [f64; 3], cov: [[f64; 3]; 3]) -> Result<Self, Error> {
         let [xx, xy, yy] = psf_px;
@@ -230,12 +237,13 @@ impl PointBlur {
             )));
         }
         let scale = (0..3).map(|i| cov[i][i]).fold(0.0, f64::max);
-        let variances = (0..3).all(|i| cov[i][i] >= 0.0);
-        let symmetric =
-            (0..3).all(|r| (0..r).all(|k| (cov[r][k] - cov[k][r]).abs() <= 1e-9 * scale));
-        if !(variances && symmetric) {
+        let tolerance = BLUR_COV_TOLERANCE * scale;
+        let symmetric = (0..3).all(|r| (0..r).all(|k| (cov[r][k] - cov[k][r]).abs() <= tolerance));
+        let sym = nalgebra::Matrix3::from_fn(|r, k| 0.5 * (cov[r][k] + cov[k][r]));
+        let semidefinite = sym.symmetric_eigenvalues().min() >= -tolerance;
+        if !(symmetric && semidefinite) {
             return Err(Error::invalid_input(format!(
-                "a point blur's covariance must be symmetric with non-negative variances, \
+                "a point blur's covariance must be symmetric and positive semi-definite, \
                  got {cov:?} px⁴"
             )));
         }
@@ -767,7 +775,10 @@ mod tests {
         negative[1][1] = -1e-6;
         let mut infinite = BLUR_COV;
         infinite[2][0] = f64::INFINITY;
-        for cov in [asymmetric, negative, infinite] {
+        // Non-negative variances, but a variance of the width
+        // `(xx + 2·xy + yy)/4` below zero: not a covariance.
+        let indefinite = [[1e-3, 0.0, -1.5e-3], [0.0, 1e-4, 0.0], [-1.5e-3, 0.0, 1e-3]];
+        for cov in [asymmetric, negative, infinite, indefinite] {
             assert!(
                 PointBlur::new([1.0, 0.0, 1.0], cov).is_err(),
                 "{cov:?} accepted"
@@ -777,6 +788,16 @@ mod tests {
         let mut rounded = BLUR_COV;
         rounded[0][1] += 1e-18;
         assert!(PointBlur::new([1.0, 0.0, 1.0], rounded).is_ok());
+        // A singular (rank-one) covariance and one of zeros are valid, and
+        // so is rounding just below semi-definite.
+        let v = [1.0, 0.2, 1.0];
+        let rank_one: [[f64; 3]; 3] =
+            std::array::from_fn(|r| std::array::from_fn(|k| 1e-3 * v[r] * v[k]));
+        assert!(PointBlur::new([1.0, 0.0, 1.0], rank_one).is_ok());
+        assert!(PointBlur::new([1.0, 0.0, 1.0], [[0.0; 3]; 3]).is_ok());
+        let mut rounded_rank_one = rank_one;
+        rounded_rank_one[1][1] -= 1e-18;
+        assert!(PointBlur::new([1.0, 0.0, 1.0], rounded_rank_one).is_ok());
     }
 
     #[test]

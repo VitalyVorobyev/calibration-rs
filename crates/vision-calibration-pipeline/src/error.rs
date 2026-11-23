@@ -25,6 +25,19 @@ pub enum Error {
         got: usize,
     },
 
+    /// Some blur points state a variance of their width and others do not
+    /// (their covariance gives the width none). A fit weights every point
+    /// by its stated precision or none.
+    #[error(
+        "blur points must all state a variance of their width or none: {with} do, {without} do not"
+    )]
+    MixedBlurCovariance {
+        /// Blur points whose covariance gives their width a variance.
+        with: usize,
+        /// Blur points whose covariance does not.
+        without: usize,
+    },
+
     /// A required resource (input, state, output) was not yet set in the session.
     #[error("session resource not available: {resource}")]
     NotAvailable {

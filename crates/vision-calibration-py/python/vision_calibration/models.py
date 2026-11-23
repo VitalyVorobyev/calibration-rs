@@ -726,7 +726,8 @@ class PointBlur:
     neighbouring pixels.
 
     Raises :class:`ValueError` unless the entries are finite, ``Σ`` is
-    positive definite and ``cov`` is symmetric with non-negative variances.
+    positive definite and ``cov`` is symmetric and positive semi-definite
+    (a ``cov`` of zeros states no precision).
     """
 
     psf_px: tuple[float, float, float]
@@ -745,10 +746,22 @@ class PointBlur:
                 f"got [[{xx}, {xy}], [{xy}, {yy}]] px²"
             )
         scale = max(cov[i][i] for i in range(3))
-        symmetric = all(abs(cov[r][k] - cov[k][r]) <= 1e-9 * scale for r in range(3) for k in range(r))
-        if not (symmetric and all(cov[i][i] >= 0.0 for i in range(3))):
+        tol = 1e-9 * scale
+        symmetric = all(abs(cov[r][k] - cov[k][r]) <= tol for r in range(3) for k in range(r))
+        # Semi-definite: every principal minor non-negative (to the tolerance).
+        c = [[0.5 * (cov[r][k] + cov[k][r]) for k in range(3)] for r in range(3)]
+        minors_1 = all(c[i][i] >= -tol for i in range(3))
+        minors_2 = all(
+            c[i][i] * c[j][j] - c[i][j] ** 2 >= -tol * scale for i in range(3) for j in range(i + 1, 3)
+        )
+        det = (
+            c[0][0] * (c[1][1] * c[2][2] - c[1][2] * c[2][1])
+            - c[0][1] * (c[1][0] * c[2][2] - c[1][2] * c[2][0])
+            + c[0][2] * (c[1][0] * c[2][1] - c[1][1] * c[2][0])
+        )
+        if not (symmetric and minors_1 and minors_2 and det >= -tol * scale * scale):
             raise ValueError(
-                f"a point blur's covariance must be symmetric with non-negative variances, got {cov} px⁴"
+                f"a point blur's covariance must be symmetric and positive semi-definite, got {cov} px⁴"
             )
         object.__setattr__(self, "psf_px", psf)
         object.__setattr__(self, "cov", cov)

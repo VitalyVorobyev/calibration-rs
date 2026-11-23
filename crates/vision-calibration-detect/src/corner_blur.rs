@@ -21,22 +21,18 @@ pub(crate) fn feature_blurs(
         .collect()
 }
 
-/// One estimate as a [`FeatureBlur`], or `None` when it is not finite, `Σ`
-/// is not positive definite or its covariance has a negative variance. A
-/// delivered estimate is none of these (`calib-targets` declines a kernel
-/// below `I/12`); the check keeps a corner from carrying one that is.
+/// One estimate as a [`FeatureBlur`], or `None` when the calibration would
+/// not accept it ([`FeatureBlur::is_valid`]: not finite, `Σ` not positive
+/// definite, or its covariance not symmetric and positive semi-definite).
+/// `calib-targets` declines a kernel below `I/12`, and its covariance is
+/// semi-definite before it is rounded to `f32`; the check keeps a corner
+/// whose rounded covariance is not from carrying it, so a delivered blur
+/// never fails its image.
 fn feature_blur(blur: &CornerBlur) -> Option<FeatureBlur> {
     let k = blur.kernel;
     let psf_px = [f64::from(k.xx), f64::from(k.xy), f64::from(k.yy)];
     let cov: [[f64; 3]; 3] = blur.kernel_covariance.map(|row| row.map(f64::from));
-    let [xx, xy, yy] = psf_px;
-    let finite = psf_px
-        .iter()
-        .chain(cov.iter().flatten())
-        .all(|v| v.is_finite());
-    let positive = xx > 0.0 && yy > 0.0 && xx * yy - xy * xy > 0.0;
-    let variances = (0..3).all(|i| cov[i][i] >= 0.0);
-    (finite && positive && variances).then(|| FeatureBlur::new(psf_px, cov))
+    Some(FeatureBlur::new(psf_px, cov)).filter(FeatureBlur::is_valid)
 }
 
 #[cfg(test)]
@@ -45,7 +41,14 @@ mod tests {
     use calib_targets::blur::{BlurFitQuality, BlurKernel};
 
     fn estimate(xx: f32, xy: f32, yy: f32, var: f32) -> CornerBlur {
-        let cov = [[var, 0.0, 0.0], [0.0, var, 0.0], [0.0, 0.0, var]];
+        with_cov(
+            [xx, xy, yy],
+            [[var, 0.0, 0.0], [0.0, var, 0.0], [0.0, 0.0, var]],
+        )
+    }
+
+    fn with_cov(kernel: [f32; 3], cov: [[f32; 3]; 3]) -> CornerBlur {
+        let [xx, xy, yy] = kernel;
         CornerBlur::new(
             BlurKernel::new(xx, xy, yy),
             cov,
@@ -74,9 +77,41 @@ mod tests {
             estimate(1.0, 1.0, 1.0, 1e-3),
             estimate(-1.0, 0.0, 1.0, 1e-3),
             estimate(1.0, 0.0, 1.0, -1e-3),
+            // Non-negative variances, but the width's variance
+            // `(xx + 2·xy + yy)/4` below zero: not a covariance.
+            with_cov(
+                [1.0, 0.0, 1.0],
+                [[1e-3, 0.0, -1.5e-3], [0.0, 1e-4, 0.0], [-1.5e-3, 0.0, 1e-3]],
+            ),
+            // Slightly indefinite: a smallest eigenvalue of −1e-6 of the
+            // largest variance, as an `f32` rounding of a rank-deficient
+            // covariance can leave it. The calibration refuses it.
+            with_cov(
+                [1.0, 0.0, 1.0],
+                [
+                    [1e-3, 0.0, -1.000_001e-3],
+                    [0.0, 1e-4, 0.0],
+                    [-1.000_001e-3, 0.0, 1e-3],
+                ],
+            ),
+            // Asymmetric beyond rounding.
+            with_cov(
+                [1.0, 0.0, 1.0],
+                [[1e-3, 1e-4, 0.0], [0.0, 1e-3, 0.0], [0.0, 0.0, 1e-3]],
+            ),
         ];
         let blurs = feature_blurs(bad.into_iter().map(Ok).collect());
         assert!(blurs.iter().all(Option::is_none), "{blurs:?}");
+    }
+
+    #[test]
+    fn keeps_a_singular_covariance() {
+        // Rank-deficient but semi-definite: a valid observation.
+        let blurs = feature_blurs(vec![Ok(with_cov(
+            [1.0, 0.0, 1.0],
+            [[1e-3, 0.0, -1e-3], [0.0, 1e-4, 0.0], [-1e-3, 0.0, 1e-3]],
+        ))]);
+        assert!(blurs[0].is_some());
     }
 }
 

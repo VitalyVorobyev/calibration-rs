@@ -33,7 +33,7 @@ from .models import (
     RigUpstreamCalibration,
     SingleCamHandeyeExport,
 )
-from ._generated_types import ModelComparison, RobustLoss
+from ._generated_types import FocusDiagnostic, ModelComparison, RobustLoss
 from .types import ProgressCallback
 
 
@@ -541,3 +541,83 @@ def compare_camera_models(
         progress,
     )
     return cast(ModelComparison, payload)
+
+
+def fit_focus(
+    input: PlanarIntrinsicsInput | Mapping[str, Any],
+    camera: CameraParams | Mapping[str, Any],
+    cam_se3_target: Sequence[Pose | Mapping[str, Any]],
+    blur_limit_px: float | None = None,
+    view_jackknife: bool = False,
+) -> FocusDiagnostic:
+    """The plane of sharp focus and the depth of field, fitted to the blur the
+    views' points carry, with the calibrated camera and poses held.
+
+    The blur ``σ`` of each point is predicted as
+    ``sqrt(σ0² + 1/12 + (κ·s·d)²) + δ``: ``d = (1 − π·X)/(n·X)`` the point's
+    defocus from the plane of sharp focus ``π·X = 1`` (camera frame, 1/m),
+    ``n`` the sensor normal, ``κ`` the blur per unit defocus, ``s`` the
+    spot's local scale (1 for an untilted camera without distortion; it
+    carries distortion's change of magnification and a tilted sensor's
+    oblique view of the entrance pupil), ``σ0²`` the optical in-focus blur,
+    ``1/12`` the pixel's area integration and ``δ`` one offset per view
+    (summing to zero). The lens tilt the plane implies needs the pixel pitch
+    and the pupil magnification and is not part of the result.
+
+    The stated covariance takes the blur errors within an image as
+    independent; on real detectors it has been measured up to 3× short.
+    ``view_jackknife=True`` adds the delete-one-view jackknife covariance,
+    which measures the scatter over the views.
+
+    Parameters
+    ----------
+    input:
+        The views of the planar target, their points carrying blur
+        (chessboard and PuzzleBoard corners measure it with
+        ``measure_blur``).
+    camera:
+        The calibrated camera (a pinhole projection).
+    cam_se3_target:
+        The calibrated target poses, one per view.
+    blur_limit_px:
+        The largest acceptable blur ``σ`` (px) for the depth of field;
+        ``None`` for none.
+    view_jackknife:
+        Whether to add the delete-one-view jackknife covariance
+        (``view_jackknife`` in the result), at the cost of one refit per
+        view.
+
+    Returns
+    -------
+    FocusDiagnostic
+        ``status`` is ``"fitted"`` (with the plane, its covariance, the image
+        line, the depth of field and per-view statistics);
+        ``"not_crossed"`` (the same fields, but no view crosses the plane:
+        its direction and the image line's angle are determined, its
+        position along the sensor normal rests on the views' common blur
+        level); or the reason there is no fit: ``"no_blur"``,
+        ``"too_few_points"`` or ``"undetermined"``.
+
+    Raises
+    ------
+    ValueError
+        If the pose count differs from the view count, the camera or a pose
+        is not finite, the projection is not a pinhole, the sensor faces
+        away, some blur points state a variance of their width and others
+        do not, or the blur limit is not finite and positive.
+
+    Example
+    -------
+    >>> export = result.export
+    >>> focus = vc.fit_focus(dataset, export["camera"], export["cam_se3_target"], 1.5)
+    >>> if focus["status"] == "fitted":
+    ...     print(1.0 / focus["plane_inv_m"][2], "m in focus on the axis")
+    """
+    payload = _native.fit_focus(
+        _dataclass_payload(input),
+        camera if isinstance(camera, Mapping) else camera.to_payload(),
+        _poses_payload(cam_se3_target),
+        blur_limit_px,
+        view_jackknife,
+    )
+    return cast(FocusDiagnostic, payload)

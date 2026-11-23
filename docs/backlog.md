@@ -286,54 +286,57 @@ Each model follows AGENTS.md §10 (a camera model).
   analytic `√(1/(σ⁻² + σₚ⁻²))` within 5 %, the C1 table through the
   library, JSON round-trips, typed errors for a prior on a fixed parameter
   or a non-positive σ.
-- [ ] CAL-TILT-FOCUS - A focus term that ties the Scheimpflug tilt to the
-  plane of sharp focus (`notes/tilt-from-focus.md`), read from the
-  per-feature blur the observations carry (`Feature::blur` →
-  `CorrespondenceView::blur`, a `PointBlur`: the PSF covariance `Σ` in px²
-  including pixel integration, with its 3×3 covariance). Chessboard and
-  PuzzleBoard corners fill it (`measure_blur`, calib-targets 0.17). Open
-  producers: ring-grid photometric centres, waiting for the held ringgrid
-  0.18 pin (map its `(σ, a, b)` to `Σ` by `σ²[1 + a, b, 1 − a]`, `J C Jᵀ`;
-  its `cov` holds within one image and every marker shares a σ offset it
-  excludes, ≈ 0.001 px coded, 0.008–0.05 px plain, so the fit takes one σ
-  offset per image), and ChArUco corners, waiting for calib-targets.
-  Evidence: on six ring-grid cameras a
-  5-parameter focus model (plane `π`, blur scale `κ`, in-focus blur `σ0`)
+- [ ] CAL-TILT-FOCUS - Tie the Scheimpflug tilt to the plane of sharp
+  focus (`notes/tilt-from-focus.md`). The blur observation (`PointBlur`,
+  chessboard and PuzzleBoard corners with `measure_blur`) and the
+  diagnostic `analysis::fit_focus` are built. Open:
+  (1) **Producers.** Ring-grid markers carry no blur until ringgrid 0.18
+  (DETECT-RINGGRID-018; map its `(σ, a, b)` to `Σ` by
+  `σ²[1 + a, b, 1 − a]`, `J C Jᵀ`; its `cov` holds within one image, which
+  the fit's per-image offset already takes). ChArUco corners wait for
+  calib-targets to measure blur on a marker board.
+  (2) **What the detector's width is.** `κ = D·f/4` and the quadrature law
+  are for PSF second moments; the corner estimator (and ringgrid's) reports
+  the Gaussian whose blurred edges best match the image. A synthetic that
+  renders disc PSFs through the detector would show how that width maps to
+  the second moment, hence whether `κ` reads as `D` and whether the mapping
+  bends the law (hypothesis: a constant factor, which leaves `π` alone).
+  (3) **Camera frame = lens frame.** The pupil is placed in the calibrated
+  camera frame's `z = 0` plane; without distortion the two frames differ by
+  a gauge, and the ±0.5° between the two tilt routes (below) may be this
+  assumption. Decide it with the thick-lens synthetic with the lens frame
+  rotated against the calibrated one.
+  (4) **Two views.** Two-view fits come back `Undetermined` (hypothesis:
+  the seed's free quadratic in the regressors is rank-deficient for two
+  planar views; check the rank of its normal matrix).
+  (5) **The tilt from the focus**, blocked on the pupil magnification `m_p`
+  (CAL-TILT-PUPIL) or the datasheet: the independent check (the tilt
+  implied by `π` for a stated pitch and `m_p`, `a ∝ π + e_z/v0`,
+  `v0 = f'·pitch`, with its σ from the view jackknife, against the fitted
+  tilt), then, only once the ±0.5° is explained, an opt-in focus residual
+  (`FactorKind` arm, both backends, the covariance family map) linking `π`
+  to the tilt through `v0` and `m_p` given as priors with σ. Not a
+  replacement for the distortion route. Gates: the exact thick-lens
+  synthetic (the pipeline's `analysis::focus` tests carry it) on both
+  backends, Monte-Carlo σ, null tilt, field curvature detected; the
+  six-camera comparison. Reopen with the datasheet values (pitch, focal
+  length, f-number, pupil magnification) or a capture at two focus
+  settings. Published precedents for the factor's form (a thin-lens blur
+  term in the reprojection cost, Kumar & Ahuja 2014; a `(u, v, ρ)` feature,
+  Labussière et al. 2020) are in `notes/scheimpflug-literature.md`.
+  Evidence, from ring-grid blur measured with ringgrid 0.18 outside the
+  pinned detector: on six ring-grid cameras the 5-parameter focus model
   explains 91–96 % of the blur variance and the PoF's sign agrees with the
-  distortion tilt on all six, but the two routes disagree by ±0.5° per unit,
-  which neither model explains (a defocus/depth law in the distortion route
-  closes 13–51 % of the `τx` gap and none of the direction gap,
-  `notes/tilt-bias.md`). Design constraints: the model reads
-  `σ² = tr Σ / 2` and predicts it as `σ_optics² + 1/12` (the pixel term is
-  in the observation, not subtracted from it). The blur-gradient centre
-  bias stays in the points: ringgrid measured and rejected a detector-side correction (its
-  ALGO-018/019), and the bias is a near-gauge of `fy` and the poses, so no
-  calibration term models it either. Where the aspect ratio matters, a
-  caller subtracts the law `0.62·∇(σ²)` with the gradient of the fitted
-  focus model (`notes/scheimpflug-literature.md`, *The blur field of a
-  planar target*); otherwise it is a stated systematic of about 4e-4 in
-  `fy/fx` on the studied rig. Steps:
-  (1) a diagnostic first: fit `σ² = σ0² + κ²(1/z − π·(x, y, 1))²` after
-  the solve in the `K'` frame (the poses' tilt rotation applied) and
-  report `π` with its view-jackknife σ, the tilt direction, the tilt
-  implied by a stated pitch and pupil magnification, and the difference
-  to the fitted tilt — the independent check — and the depth of field it
-  implies: for a stated acceptable blur `σ_max`, the near and far planes
-  `(π ± ε·e_z)·X = 1`, `ε = √(σ_max² − σ0²)/κ`, through the hinge line
-  `{π·X = 1, e_z·X = 0}`, as derived quantities with their σ (ADR 0028;
-  `notes/scheimpflug-literature.md`, *Depth of field*); (2) only once the ±0.5°
-  is explained, an opt-in focus residual (`FactorKind` arm, both
-  backends, the covariance family map) linking `π` to the tilt through
-  `v0 = f'·pitch` and `m_p` given as priors with σ. Not a replacement for
-  the distortion route: it needs `m_p` or a reference unit. Gates: the
-  exact thick-lens synthetic of the bench example on both backends,
-  Monte-Carlo σ with view-correlated blur noise, null tilt, field
-  curvature detected; the six-camera comparison. Reopen the factor step
-  with the datasheet values (pitch, focal length, f-number, pupil
-  magnification) or a capture at two focus settings. Published precedents
-  for the factor's form (a thin-lens blur term in the reprojection cost,
-  Kumar & Ahuja 2014; a `(u, v, ρ)` feature, Labussière et al. 2020) are in
-  `notes/scheimpflug-literature.md`.
+  distortion tilt on all six, but the two routes disagree by ±0.5° per
+  unit, which neither model explains (a defocus/depth law in the distortion
+  route closes 13–51 % of the `τx` gap and none of the direction gap,
+  `notes/tilt-bias.md`); the noise scale was 4–6 there (the per-image blur
+  residual is view-correlated) and the fold jackknife 0.8–3× the stated σ
+  of `π_y`. The blur-gradient centre bias stays in the points (ringgrid
+  rejected a detector-side correction, its ALGO-018/019, and the bias is a
+  near-gauge of `fy` and the poses); a caller that needs the aspect ratio
+  subtracts `0.62·∇(σ²)` with the fitted model's gradient
+  (`notes/scheimpflug-literature.md`, *The blur field of a planar target*).
 - [ ] CAL-BLUR-STUDY - Does the measured corner blur improve a
   calibration? A study on the private PuzzleBoard entries with
   `measure_blur`, then on captures with corners and rings at identical

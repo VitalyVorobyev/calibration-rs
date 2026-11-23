@@ -51,6 +51,9 @@ struct FisheyeInit;
 #[doc = include_str!("../../../book/src/fisheye_walkthrough.md")]
 struct FisheyeWalkthrough;
 
+#[doc = include_str!("../../../book/src/focus.md")]
+struct Focus;
+
 #[doc = include_str!("../../../book/src/getting_started.md")]
 struct GettingStarted;
 

@@ -1,0 +1,509 @@
+{
+  "$defs": {
+    "DepthOfField": {
+      "description": "The depth of field for a blur limit `σ_max`: the wedge between a near\nand a far plane.\n\nA point is within it when its defocus satisfies `|d| ≤ ε`,\n`ε = √(σ_max² − σ0² − 1/12) / κ`, at the spot scale `s = 1`. The limits\nare the planes `(π ± ε·n)·X = 1`, which meet the plane of sharp focus\non the line where it crosses the plane through the projection centre\nparallel to the sensor: the view camera's hinge-rule wedge. They are\nexact where `s = 1`. Where the spot is scaled by `s` (distortion's\nchange of magnification, a tilted sensor's oblique view of the pupil)\nthe limit there is `ε/s`, so the true limits are not quite planes; the\nplanes are those of `s = 1`.",
+      "properties": {
+        "blur_limit_px": {
+          "description": "The blur limit `σ_max`, px.",
+          "format": "double",
+          "type": "number"
+        },
+        "defocus_limit_inv_m": {
+          "description": "The defocus limit `ε`, 1/m.",
+          "format": "double",
+          "type": "number"
+        },
+        "defocus_limit_sigma_inv_m": {
+          "description": "The standard deviation of `ε`, 1/m.",
+          "format": "double",
+          "type": "number"
+        },
+        "far_plane_covariance": {
+          "description": "Covariance of the far plane's coefficients, 1/m².",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "far_plane_inv_m": {
+          "description": "The far limit `π − ε·n`, 1/m, camera frame. Where its `p·X` is\nnot positive along a ray, the depth of field extends to infinity.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "near_plane_covariance": {
+          "description": "Covariance of the near plane's coefficients, 1/m².",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "near_plane_inv_m": {
+          "description": "The near limit `π + ε·n`, 1/m, camera frame.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "blur_limit_px",
+        "defocus_limit_inv_m",
+        "defocus_limit_sigma_inv_m",
+        "near_plane_inv_m",
+        "near_plane_covariance",
+        "far_plane_inv_m",
+        "far_plane_covariance"
+      ],
+      "type": "object"
+    },
+    "FocusFit": {
+      "description": "The focus model fitted to a calibrated dataset's blur.\n\nPlanes are written `p·X = 1` with `p` in 1/m and `X` in the camera\nframe, metres; the in-focus distance along a ray `r` is `1 / (π·r)` in\nunits of `r`'s length.",
+      "properties": {
+        "blur_scale_px_m": {
+          "description": "The blur per unit defocus `κ`, px·m (> 0).",
+          "format": "double",
+          "type": "number"
+        },
+        "covariance": {
+          "description": "Covariance of `(π_x, π_y, π_z, κ, σ0²)`, in their units, scaled by\n[`noise_scale`](Self::noise_scale)`²` and marginal over the view\noffsets.\n\nIt treats the blur errors of one image as independent beyond the\nimage's offset, as the detector's covariance states them. On real\ncaptures they need not be: a delete-one-view jackknife of the plane\nhas measured up to 3× this σ. Ask for\n[`view_jackknife`](Self::view_jackknife) to see it on your data.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 5,
+            "minItems": 5,
+            "type": "array"
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "type": "array"
+        },
+        "depth_of_field": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DepthOfField"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The depth of field for [`FocusOptions::blur_limit_px`]; `None` when\nno limit was given or the limit is not above the in-focus blur."
+        },
+        "image_line": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FocusImageLine"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the plane of sharp focus meets infinity in the image; `None`\nwhen the plane is parallel to the sensor."
+        },
+        "in_focus_variance_px2": {
+          "description": "The optical blur variance at focus `σ0²`, px², pixel integration\nexcluded. Estimated freely: noise can make it slightly negative\nwhen the optics are sharper than a pixel.",
+          "format": "double",
+          "type": "number"
+        },
+        "noise_scale": {
+          "description": "`√(χ² / residual_dof)` of the weighted residuals: about 1 when the\nmodel explains the blur to the detector's stated precision, larger\nwhen the model misfits (field curvature, aberrations) or the stated\ncovariance is short; in px with equal weights. The covariance is\nscaled by its square.",
+          "format": "double",
+          "type": "number"
+        },
+        "plane_inv_m": {
+          "description": "The plane of sharp focus `π`, 1/m, camera frame: `π·X = 1`. On the\noptical axis the camera is focused at `1 / π_z` metres.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "points": {
+          "description": "Blur points the fit used (in views with at least three).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_dof": {
+          "description": "Residual degrees of freedom: `points` minus the five model\nparameters and one offset per fitted view but one.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual_rms_px": {
+          "description": "RMS of the blur residuals `σ − σ_pred`, px.",
+          "format": "double",
+          "type": "number"
+        },
+        "sensor_normal": {
+          "description": "The unit sensor normal `n` in the camera frame, from the camera:\n`(0, 0, 1)` for an untilted sensor.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "stated_weights": {
+          "description": "Whether the points were weighted by the inverse variance of their\n`σ` from their stated blur covariance (true), or equally (false: no\npoint's covariance gives its `σ` a variance, so the noise scale is\nin px). A dataset where some points state one and others do not is\nan error.",
+          "type": "boolean"
+        },
+        "unprojected_points": {
+          "description": "Blur points left out because they do not project at their\ncalibrated pose (behind the camera, or outside the camera model's\ndomain).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view_jackknife": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FocusJackknife"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The delete-one-view jackknife of the covariance, when\n[`FocusOptions::view_jackknife`] asks for it; `None` otherwise."
+        },
+        "views": {
+          "description": "One entry per input view, in input order.",
+          "items": {
+            "$ref": "#/$defs/FocusViewStats"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "plane_inv_m",
+        "blur_scale_px_m",
+        "in_focus_variance_px2",
+        "covariance",
+        "sensor_normal",
+        "image_line",
+        "depth_of_field",
+        "points",
+        "unprojected_points",
+        "residual_dof",
+        "stated_weights",
+        "noise_scale",
+        "residual_rms_px",
+        "views",
+        "view_jackknife"
+      ],
+      "type": "object"
+    },
+    "FocusImageLine": {
+      "description": "The image line where the plane of sharp focus is at infinity.\n\nThe pixels `(u, v)` with `u·cos θ + v·sin θ = ρ`, in the camera's\ndistortion-free projection (distortion bends the line by its own\namount). On the side `u·cos θ + v·sin θ < ρ` the in-focus distance is\nfinite and grows towards the line; beyond it the plane lies behind the\ncamera. `(cos θ, sin θ)` is the image direction in which the focus\nrecedes, the tilt direction of the plane of sharp focus.",
+      "properties": {
+        "angle_rad": {
+          "description": "`θ`, radians, in `(−π, π]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "covariance": {
+          "description": "Covariance of `(θ, ρ)`, from the plane's.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "offset_px": {
+          "description": "`ρ`, pixels.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "angle_rad",
+        "offset_px",
+        "covariance"
+      ],
+      "type": "object"
+    },
+    "FocusJackknife": {
+      "description": "The delete-one-view jackknife of the focus fit, or why there is none.\n\nEach fitted view is left out in turn and the model refitted; with `V`\nviews and `θ_v` the refit without view `v`, the covariance is\n`(V − 1)/V · Σ_v (θ_v − θ̄)(θ_v − θ̄)ᵀ`. It measures how the estimate\nmoves with the choice of images, whatever correlates the blur errors\nwithin an image, which the stated covariance does not see. It is noisy\nwith few views (its σ has a relative spread of about `1/√(2(V − 1))`),\nerrs high where a few views carry a direction alone (a single view that\ncrosses the plane of sharp focus carries its position along the axis),\nand covers the views' common blur level, which the stated covariance\nleaves out.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FocusJackknifeCovariance",
+          "description": "The jackknife covariance.",
+          "properties": {
+            "status": {
+              "const": "estimated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fewer than three views were fitted.",
+          "properties": {
+            "status": {
+              "const": "too_few_views",
+              "type": "string"
+            },
+            "views": {
+              "description": "Views fitted.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "status",
+            "views"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Leaving out the view does not leave a fit: too few points remain,\nor the refit does not converge.",
+          "properties": {
+            "status": {
+              "const": "undetermined",
+              "type": "string"
+            },
+            "view": {
+              "description": "The input index of the view.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "status",
+            "view"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FocusJackknifeCovariance": {
+      "description": "The view jackknife's covariance of the focus model and of what is\nderived from it.",
+      "properties": {
+        "covariance": {
+          "description": "Covariance of `(π_x, π_y, π_z, κ, σ0²)`, in their units.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 5,
+            "minItems": 5,
+            "type": "array"
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "type": "array"
+        },
+        "depth_of_field": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DepthOfField"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fit's depth of field with its covariances from the jackknife's,\npropagated as the stated ones are."
+        },
+        "image_line": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FocusImageLine"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fit's image line with its covariance from the jackknife's,\npropagated as the stated one is."
+        },
+        "views": {
+          "description": "Views left out in turn.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "views",
+        "covariance",
+        "image_line",
+        "depth_of_field"
+      ],
+      "type": "object"
+    },
+    "FocusViewStats": {
+      "description": "The blur fit in one view.",
+      "properties": {
+        "crosses_focus": {
+          "description": "Whether the view has points on both sides of the plane of sharp\nfocus.",
+          "type": "boolean"
+        },
+        "max_abs_px": {
+          "description": "The largest absolute blur residual of the view, px.",
+          "format": "double",
+          "type": "number"
+        },
+        "offset_px": {
+          "description": "The view's blur offset `δ`, px, relative to the mean over the\nfitted views (the offsets sum to zero).",
+          "format": "double",
+          "type": "number"
+        },
+        "offset_sigma_px": {
+          "description": "The standard deviation of `δ`, px.",
+          "format": "double",
+          "type": "number"
+        },
+        "points": {
+          "description": "Points of the view that carry a blur.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rms_px": {
+          "description": "RMS of the view's blur residuals, px.",
+          "format": "double",
+          "type": "number"
+        },
+        "used": {
+          "description": "Whether the fit used the view (at least three blur points). An\nunused view's other fields are 0 and `false`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "points",
+        "used",
+        "offset_px",
+        "offset_sigma_px",
+        "rms_px",
+        "max_abs_px",
+        "crosses_focus"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The result of [`fit_focus`]: the fitted focus model, or why there is\nnone.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/FocusFit",
+      "description": "The model was fitted and determines the plane of sharp focus.",
+      "properties": {
+        "status": {
+          "const": "fitted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "No point of the dataset carries a blur.",
+      "properties": {
+        "status": {
+          "const": "no_blur",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Too few blur points for the parameters: the five of the model plus\none offset per view with at least three blur points but one (the\noffsets sum to zero), and one more.",
+      "properties": {
+        "got": {
+          "description": "Blur points in views with at least three.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "need": {
+          "description": "Blur points needed.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "const": "too_few_points",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "need",
+        "got"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "#/$defs/FocusFit",
+      "description": "The model was fitted, but no view has points on both sides of the\nplane of sharp focus.\n\nThe plane's direction across the sensor normal is determined as in\na crossed fit, with its covariance: the component `π − (π·n)·n` and\nthe image line's angle `θ`, the direction in which the focus\nrecedes. Its position along the normal (`π·n`, so the in-focus\ndistance, the image line's offset `ρ` and the depth of field) is\nheld only by the per-image offsets summing to zero: a blur level\ncommon to every image, which a detector can have, moves it, and the\ncovariance does not include that. Views that cross the plane (a\ntarget tilted through it) determine the position.",
+      "properties": {
+        "status": {
+          "const": "not_crossed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The views do not determine the model: its normal equations are\nsingular (for one, every view at one depth facing the camera, where\nthe blur scale and the plane's tilt trade), or the fit does not\nconverge.",
+      "properties": {
+        "status": {
+          "const": "undetermined",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "FocusDiagnostic"
+}

@@ -505,6 +505,45 @@ class DatasetSpec(_DatasetSpecRequired, total=False):
     """
 
 
+class DepthOfField(TypedDict):
+    """The depth of field for a blur limit `σ_max`: the wedge between a near
+    and a far plane.
+
+    A point is within it when its defocus satisfies `|d| ≤ ε`,
+    `ε = √(σ_max² − σ0² − 1/12) / κ`, at the spot scale `s = 1`. The limits
+    are the planes `(π ± ε·n)·X = 1`, which meet the plane of sharp focus
+    on the line where it crosses the plane through the projection centre
+    parallel to the sensor: the view camera's hinge-rule wedge. They are
+    exact where `s = 1`. Where the spot is scaled by `s` (distortion's
+    change of magnification, a tilted sensor's oblique view of the pupil)
+    the limit there is `ε/s`, so the true limits are not quite planes; the
+    planes are those of `s = 1`.
+    """
+
+    blur_limit_px: float
+    """The blur limit `σ_max`, px."""
+
+    defocus_limit_inv_m: float
+    """The defocus limit `ε`, 1/m."""
+
+    defocus_limit_sigma_inv_m: float
+    """The standard deviation of `ε`, 1/m."""
+
+    far_plane_covariance: tuple[tuple[float, float, float] | list[float], tuple[float, float, float] | list[float], tuple[float, float, float] | list[float]] | list[tuple[float, float, float] | list[float]]
+    """Covariance of the far plane's coefficients, 1/m²."""
+
+    far_plane_inv_m: tuple[float, float, float] | list[float]
+    """The far limit `π − ε·n`, 1/m, camera frame. Where its `p·X` is
+    not positive along a ray, the depth of field extends to infinity.
+    """
+
+    near_plane_covariance: tuple[tuple[float, float, float] | list[float], tuple[float, float, float] | list[float], tuple[float, float, float] | list[float]] | list[tuple[float, float, float] | list[float]]
+    """Covariance of the near plane's coefficients, 1/m²."""
+
+    near_plane_inv_m: tuple[float, float, float] | list[float]
+    """The near limit `π + ε·n`, 1/m, camera frame."""
+
+
 class DetectorSpec(TypedDict, total=False):
     """Target-detector overrides. These options affect feature detection
     only; they are hashed into the detection-cache key by the runner.
@@ -782,6 +821,479 @@ class FeatureResidualHistogram(TypedDict):
 
     mean: float
     """Mean error (pixels). `0.0` when `count == 0`."""
+
+
+class FocusDiagnostic_Fitted(TypedDict):
+    """The model was fitted and determines the plane of sharp focus."""
+
+    blur_scale_px_m: float
+    """The blur per unit defocus `κ`, px·m (> 0)."""
+
+    covariance: tuple[tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float]] | list[tuple[float, float, float, float, float] | list[float]]
+    """Covariance of `(π_x, π_y, π_z, κ, σ0²)`, in their units, scaled by
+    `noise_scale``²` and marginal over the view
+    offsets.
+
+    It treats the blur errors of one image as independent beyond the
+    image's offset, as the detector's covariance states them. On real
+    captures they need not be: a delete-one-view jackknife of the plane
+    has measured up to 3× this σ. Ask for
+    `view_jackknife` to see it on your data.
+    """
+
+    depth_of_field: DepthOfField | None
+    """The depth of field for `FocusOptions::blur_limit_px`; `None` when
+    no limit was given or the limit is not above the in-focus blur.
+    """
+
+    image_line: FocusImageLine | None
+    """Where the plane of sharp focus meets infinity in the image; `None`
+    when the plane is parallel to the sensor.
+    """
+
+    in_focus_variance_px2: float
+    """The optical blur variance at focus `σ0²`, px², pixel integration
+    excluded. Estimated freely: noise can make it slightly negative
+    when the optics are sharper than a pixel.
+    """
+
+    noise_scale: float
+    """`√(χ² / residual_dof)` of the weighted residuals: about 1 when the
+    model explains the blur to the detector's stated precision, larger
+    when the model misfits (field curvature, aberrations) or the stated
+    covariance is short; in px with equal weights. The covariance is
+    scaled by its square.
+    """
+
+    plane_inv_m: tuple[float, float, float] | list[float]
+    """The plane of sharp focus `π`, 1/m, camera frame: `π·X = 1`. On the
+    optical axis the camera is focused at `1 / π_z` metres.
+    """
+
+    points: int
+    """Blur points the fit used (in views with at least three)."""
+
+    residual_dof: int
+    """Residual degrees of freedom: `points` minus the five model
+    parameters and one offset per fitted view but one.
+    """
+
+    residual_rms_px: float
+    """RMS of the blur residuals `σ − σ_pred`, px."""
+
+    sensor_normal: tuple[float, float, float] | list[float]
+    """The unit sensor normal `n` in the camera frame, from the camera:
+    `(0, 0, 1)` for an untilted sensor.
+    """
+
+    stated_weights: bool
+    """Whether the points were weighted by the inverse variance of their
+    `σ` from their stated blur covariance (true), or equally (false: no
+    point's covariance gives its `σ` a variance, so the noise scale is
+    in px). A dataset where some points state one and others do not is
+    an error.
+    """
+
+    status: Literal["fitted"]
+    unprojected_points: int
+    """Blur points left out because they do not project at their
+    calibrated pose (behind the camera, or outside the camera model's
+    domain).
+    """
+
+    view_jackknife: FocusJackknife | None
+    """The delete-one-view jackknife of the covariance, when
+    `FocusOptions::view_jackknife` asks for it; `None` otherwise.
+    """
+
+    views: list[FocusViewStats]
+    """One entry per input view, in input order."""
+
+
+class FocusDiagnostic_NoBlur(TypedDict):
+    """No point of the dataset carries a blur."""
+
+    status: Literal["no_blur"]
+
+
+class FocusDiagnostic_NotCrossed(TypedDict):
+    """The model was fitted, but no view has points on both sides of the
+    plane of sharp focus.
+
+    The plane's direction across the sensor normal is determined as in
+    a crossed fit, with its covariance: the component `π − (π·n)·n` and
+    the image line's angle `θ`, the direction in which the focus
+    recedes. Its position along the normal (`π·n`, so the in-focus
+    distance, the image line's offset `ρ` and the depth of field) is
+    held only by the per-image offsets summing to zero: a blur level
+    common to every image, which a detector can have, moves it, and the
+    covariance does not include that. Views that cross the plane (a
+    target tilted through it) determine the position.
+    """
+
+    blur_scale_px_m: float
+    """The blur per unit defocus `κ`, px·m (> 0)."""
+
+    covariance: tuple[tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float]] | list[tuple[float, float, float, float, float] | list[float]]
+    """Covariance of `(π_x, π_y, π_z, κ, σ0²)`, in their units, scaled by
+    `noise_scale``²` and marginal over the view
+    offsets.
+
+    It treats the blur errors of one image as independent beyond the
+    image's offset, as the detector's covariance states them. On real
+    captures they need not be: a delete-one-view jackknife of the plane
+    has measured up to 3× this σ. Ask for
+    `view_jackknife` to see it on your data.
+    """
+
+    depth_of_field: DepthOfField | None
+    """The depth of field for `FocusOptions::blur_limit_px`; `None` when
+    no limit was given or the limit is not above the in-focus blur.
+    """
+
+    image_line: FocusImageLine | None
+    """Where the plane of sharp focus meets infinity in the image; `None`
+    when the plane is parallel to the sensor.
+    """
+
+    in_focus_variance_px2: float
+    """The optical blur variance at focus `σ0²`, px², pixel integration
+    excluded. Estimated freely: noise can make it slightly negative
+    when the optics are sharper than a pixel.
+    """
+
+    noise_scale: float
+    """`√(χ² / residual_dof)` of the weighted residuals: about 1 when the
+    model explains the blur to the detector's stated precision, larger
+    when the model misfits (field curvature, aberrations) or the stated
+    covariance is short; in px with equal weights. The covariance is
+    scaled by its square.
+    """
+
+    plane_inv_m: tuple[float, float, float] | list[float]
+    """The plane of sharp focus `π`, 1/m, camera frame: `π·X = 1`. On the
+    optical axis the camera is focused at `1 / π_z` metres.
+    """
+
+    points: int
+    """Blur points the fit used (in views with at least three)."""
+
+    residual_dof: int
+    """Residual degrees of freedom: `points` minus the five model
+    parameters and one offset per fitted view but one.
+    """
+
+    residual_rms_px: float
+    """RMS of the blur residuals `σ − σ_pred`, px."""
+
+    sensor_normal: tuple[float, float, float] | list[float]
+    """The unit sensor normal `n` in the camera frame, from the camera:
+    `(0, 0, 1)` for an untilted sensor.
+    """
+
+    stated_weights: bool
+    """Whether the points were weighted by the inverse variance of their
+    `σ` from their stated blur covariance (true), or equally (false: no
+    point's covariance gives its `σ` a variance, so the noise scale is
+    in px). A dataset where some points state one and others do not is
+    an error.
+    """
+
+    status: Literal["not_crossed"]
+    unprojected_points: int
+    """Blur points left out because they do not project at their
+    calibrated pose (behind the camera, or outside the camera model's
+    domain).
+    """
+
+    view_jackknife: FocusJackknife | None
+    """The delete-one-view jackknife of the covariance, when
+    `FocusOptions::view_jackknife` asks for it; `None` otherwise.
+    """
+
+    views: list[FocusViewStats]
+    """One entry per input view, in input order."""
+
+
+class FocusDiagnostic_TooFewPoints(TypedDict):
+    """Too few blur points for the parameters: the five of the model plus
+    one offset per view with at least three blur points but one (the
+    offsets sum to zero), and one more.
+    """
+
+    got: int
+    """Blur points in views with at least three."""
+
+    need: int
+    """Blur points needed."""
+
+    status: Literal["too_few_points"]
+
+
+class FocusDiagnostic_Undetermined(TypedDict):
+    """The views do not determine the model: its normal equations are
+    singular (for one, every view at one depth facing the camera, where
+    the blur scale and the plane's tilt trade), or the fit does not
+    converge.
+    """
+
+    status: Literal["undetermined"]
+
+
+FocusDiagnostic: TypeAlias = (
+    FocusDiagnostic_Fitted
+    | FocusDiagnostic_NoBlur
+    | FocusDiagnostic_TooFewPoints
+    | FocusDiagnostic_NotCrossed
+    | FocusDiagnostic_Undetermined
+)
+"""The result of `fit_focus`: the fitted focus model, or why there is
+none.
+"""
+
+
+class FocusFit(TypedDict):
+    """The focus model fitted to a calibrated dataset's blur.
+
+    Planes are written `p·X = 1` with `p` in 1/m and `X` in the camera
+    frame, metres; the in-focus distance along a ray `r` is `1 / (π·r)` in
+    units of `r`'s length.
+    """
+
+    blur_scale_px_m: float
+    """The blur per unit defocus `κ`, px·m (> 0)."""
+
+    covariance: tuple[tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float]] | list[tuple[float, float, float, float, float] | list[float]]
+    """Covariance of `(π_x, π_y, π_z, κ, σ0²)`, in their units, scaled by
+    `noise_scale``²` and marginal over the view
+    offsets.
+
+    It treats the blur errors of one image as independent beyond the
+    image's offset, as the detector's covariance states them. On real
+    captures they need not be: a delete-one-view jackknife of the plane
+    has measured up to 3× this σ. Ask for
+    `view_jackknife` to see it on your data.
+    """
+
+    depth_of_field: DepthOfField | None
+    """The depth of field for `FocusOptions::blur_limit_px`; `None` when
+    no limit was given or the limit is not above the in-focus blur.
+    """
+
+    image_line: FocusImageLine | None
+    """Where the plane of sharp focus meets infinity in the image; `None`
+    when the plane is parallel to the sensor.
+    """
+
+    in_focus_variance_px2: float
+    """The optical blur variance at focus `σ0²`, px², pixel integration
+    excluded. Estimated freely: noise can make it slightly negative
+    when the optics are sharper than a pixel.
+    """
+
+    noise_scale: float
+    """`√(χ² / residual_dof)` of the weighted residuals: about 1 when the
+    model explains the blur to the detector's stated precision, larger
+    when the model misfits (field curvature, aberrations) or the stated
+    covariance is short; in px with equal weights. The covariance is
+    scaled by its square.
+    """
+
+    plane_inv_m: tuple[float, float, float] | list[float]
+    """The plane of sharp focus `π`, 1/m, camera frame: `π·X = 1`. On the
+    optical axis the camera is focused at `1 / π_z` metres.
+    """
+
+    points: int
+    """Blur points the fit used (in views with at least three)."""
+
+    residual_dof: int
+    """Residual degrees of freedom: `points` minus the five model
+    parameters and one offset per fitted view but one.
+    """
+
+    residual_rms_px: float
+    """RMS of the blur residuals `σ − σ_pred`, px."""
+
+    sensor_normal: tuple[float, float, float] | list[float]
+    """The unit sensor normal `n` in the camera frame, from the camera:
+    `(0, 0, 1)` for an untilted sensor.
+    """
+
+    stated_weights: bool
+    """Whether the points were weighted by the inverse variance of their
+    `σ` from their stated blur covariance (true), or equally (false: no
+    point's covariance gives its `σ` a variance, so the noise scale is
+    in px). A dataset where some points state one and others do not is
+    an error.
+    """
+
+    unprojected_points: int
+    """Blur points left out because they do not project at their
+    calibrated pose (behind the camera, or outside the camera model's
+    domain).
+    """
+
+    view_jackknife: FocusJackknife | None
+    """The delete-one-view jackknife of the covariance, when
+    `FocusOptions::view_jackknife` asks for it; `None` otherwise.
+    """
+
+    views: list[FocusViewStats]
+    """One entry per input view, in input order."""
+
+
+class FocusImageLine(TypedDict):
+    """The image line where the plane of sharp focus is at infinity.
+
+    The pixels `(u, v)` with `u·cos θ + v·sin θ = ρ`, in the camera's
+    distortion-free projection (distortion bends the line by its own
+    amount). On the side `u·cos θ + v·sin θ < ρ` the in-focus distance is
+    finite and grows towards the line; beyond it the plane lies behind the
+    camera. `(cos θ, sin θ)` is the image direction in which the focus
+    recedes, the tilt direction of the plane of sharp focus.
+    """
+
+    angle_rad: float
+    """`θ`, radians, in `(−π, π]`."""
+
+    covariance: tuple[tuple[float, float] | list[float], tuple[float, float] | list[float]] | list[tuple[float, float] | list[float]]
+    """Covariance of `(θ, ρ)`, from the plane's."""
+
+    offset_px: float
+    """`ρ`, pixels."""
+
+
+class FocusJackknife_Estimated(TypedDict):
+    """The jackknife covariance."""
+
+    covariance: tuple[tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float]] | list[tuple[float, float, float, float, float] | list[float]]
+    """Covariance of `(π_x, π_y, π_z, κ, σ0²)`, in their units."""
+
+    depth_of_field: DepthOfField | None
+    """The fit's depth of field with its covariances from the jackknife's,
+    propagated as the stated ones are.
+    """
+
+    image_line: FocusImageLine | None
+    """The fit's image line with its covariance from the jackknife's,
+    propagated as the stated one is.
+    """
+
+    status: Literal["estimated"]
+    views: int
+    """Views left out in turn."""
+
+
+class FocusJackknife_TooFewViews(TypedDict):
+    """Fewer than three views were fitted."""
+
+    status: Literal["too_few_views"]
+    views: int
+    """Views fitted."""
+
+
+class FocusJackknife_Undetermined(TypedDict):
+    """Leaving out the view does not leave a fit: too few points remain,
+    or the refit does not converge.
+    """
+
+    status: Literal["undetermined"]
+    view: int
+    """The input index of the view."""
+
+
+FocusJackknife: TypeAlias = (
+    FocusJackknife_Estimated
+    | FocusJackknife_TooFewViews
+    | FocusJackknife_Undetermined
+)
+"""The delete-one-view jackknife of the focus fit, or why there is none.
+
+Each fitted view is left out in turn and the model refitted; with `V`
+views and `θ_v` the refit without view `v`, the covariance is
+`(V − 1)/V · Σ_v (θ_v − θ̄)(θ_v − θ̄)ᵀ`. It measures how the estimate
+moves with the choice of images, whatever correlates the blur errors
+within an image, which the stated covariance does not see. It is noisy
+with few views (its σ has a relative spread of about `1/√(2(V − 1))`),
+errs high where a few views carry a direction alone (a single view that
+crosses the plane of sharp focus carries its position along the axis),
+and covers the views' common blur level, which the stated covariance
+leaves out.
+"""
+
+
+class FocusJackknifeCovariance(TypedDict):
+    """The view jackknife's covariance of the focus model and of what is
+    derived from it.
+    """
+
+    covariance: tuple[tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float], tuple[float, float, float, float, float] | list[float]] | list[tuple[float, float, float, float, float] | list[float]]
+    """Covariance of `(π_x, π_y, π_z, κ, σ0²)`, in their units."""
+
+    depth_of_field: DepthOfField | None
+    """The fit's depth of field with its covariances from the jackknife's,
+    propagated as the stated ones are.
+    """
+
+    image_line: FocusImageLine | None
+    """The fit's image line with its covariance from the jackknife's,
+    propagated as the stated one is.
+    """
+
+    views: int
+    """Views left out in turn."""
+
+
+class FocusOptions(TypedDict, total=False):
+    """Options of `fit_focus`."""
+
+    blur_limit_px: float | None
+    """The largest acceptable blur `σ` (px, the measured width
+    `√(tr Σ / 2)`, pixel integration included) for the depth of field;
+    `None` (the default) computes none. Must be finite and positive. A
+    limit at or below the in-focus blur `√(σ0² + 1/12)` has no depth of
+    field.
+    """
+
+    view_jackknife: bool
+    """Whether to estimate the covariance a second way, by leaving out one
+    view at a time and refitting (`FocusFit::view_jackknife`). Default
+    `false`: it costs one refit per view, and the stated covariance is
+    the right one when the detector's blur errors are independent within
+    an image. Real detectors' are not (see `FocusFit::covariance`).
+    """
+
+
+class FocusViewStats(TypedDict):
+    """The blur fit in one view."""
+
+    crosses_focus: bool
+    """Whether the view has points on both sides of the plane of sharp
+    focus.
+    """
+
+    max_abs_px: float
+    """The largest absolute blur residual of the view, px."""
+
+    offset_px: float
+    """The view's blur offset `δ`, px, relative to the mean over the
+    fitted views (the offsets sum to zero).
+    """
+
+    offset_sigma_px: float
+    """The standard deviation of `δ`, px."""
+
+    points: int
+    """Points of the view that carry a blur."""
+
+    rms_px: float
+    """RMS of the view's blur residuals, px."""
+
+    used: bool
+    """Whether the fit used the view (at least three blur points). An
+    unused view's other fields are 0 and `false`.
+    """
 
 
 class FoldScore(TypedDict):
@@ -1876,7 +2388,9 @@ class PointBlur(TypedDict):
 
     Constructed only through `PointBlur::new` (or deserialization), which
     checks that it is finite, that `Σ` is positive definite and that `cov` is
-    a symmetric matrix with non-negative variances.
+    symmetric and positive semi-definite, so every quantity derived from the
+    PSF (its width, an axis) has a non-negative variance. A `cov` of zeros
+    states no precision.
 
     # Example
 
@@ -4246,6 +4760,7 @@ __all__ = [
     "CorrespondenceView",
     "CrossValidationOptions",
     "DatasetSpec",
+    "DepthOfField",
     "DetectorSpec",
     "DeviceOptimizeConfig",
     "DistortionKind",
@@ -4258,6 +4773,21 @@ __all__ = [
     "DistortionParams_ThinPrism",
     "ExportDiagnostics",
     "FeatureResidualHistogram",
+    "FocusDiagnostic",
+    "FocusDiagnostic_Fitted",
+    "FocusDiagnostic_NoBlur",
+    "FocusDiagnostic_NotCrossed",
+    "FocusDiagnostic_TooFewPoints",
+    "FocusDiagnostic_Undetermined",
+    "FocusFit",
+    "FocusImageLine",
+    "FocusJackknife",
+    "FocusJackknifeCovariance",
+    "FocusJackknife_Estimated",
+    "FocusJackknife_TooFewViews",
+    "FocusJackknife_Undetermined",
+    "FocusOptions",
+    "FocusViewStats",
     "FoldScore",
     "FrameKind",
     "FrameRef",

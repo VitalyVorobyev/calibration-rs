@@ -1724,4 +1724,98 @@ mod tests {
             ])
         );
     }
+
+    /// The corner producer keeps a blur only when the calibration accepts
+    /// it: `FeatureBlur::is_valid` (detect, without the calibration types)
+    /// implies `PointBlur::new` (core), on semi-definite covariances of every
+    /// rank perturbed from far inside to far outside the tolerance and
+    /// rounded to `f32` as the corner detector delivers them. The two also
+    /// agree away from the boundary.
+    #[test]
+    fn producer_blur_check_matches_the_observation_check() {
+        use nalgebra::{Matrix3, Vector3};
+        use vision_calibration_detect::FeatureBlur;
+
+        // SplitMix64, uniform in [-1, 1).
+        let mut state = 0x5EED_u64;
+        let mut uniform = move || {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^= z >> 31;
+            2.0 * ((z >> 11) as f64 / (1u64 << 53) as f64) - 1.0
+        };
+        let (mut agree, mut checked, mut kept) = (0, 0, 0);
+        for trial in 0..4000 {
+            let rank = 1 + trial % 3;
+            let magnitude = 10f64.powf(-6.0 + 4.0 * uniform().abs());
+            let mut c = Matrix3::zeros();
+            for _ in 0..rank {
+                let v = Vector3::new(uniform(), uniform(), uniform());
+                c += v * v.transpose();
+            }
+            c *= magnitude;
+            // Move the smallest eigenvalue by a multiple of the largest
+            // variance spanning the tolerance (−1e-9) on both sides.
+            let scale = c.diagonal().max();
+            let shift = [
+                0.0, 1e-12, -1e-11, -3e-10, -6e-10, -9e-10, -1.1e-9, -2e-9, -1e-6,
+            ][trial % 9]
+                * scale;
+            let e = c.symmetric_eigen();
+            let u = e.eigenvectors.column(e.eigenvalues.imin()).into_owned();
+            c += u * u.transpose() * shift;
+            for to_f32 in [false, true] {
+                let cov: [[f64; 3]; 3] = std::array::from_fn(|r| {
+                    std::array::from_fn(|k| {
+                        let v = c[(r, k)];
+                        if to_f32 { f64::from(v as f32) } else { v }
+                    })
+                });
+                let produced = FeatureBlur::new([1.5, 0.1, 1.2], cov).is_valid();
+                let observed = PointBlur::new([1.5, 0.1, 1.2], cov).is_ok();
+                assert!(!produced || observed, "the producer keeps {cov:?}");
+                let s = (0..3).map(|i| cov[i][i]).fold(0.0, f64::max);
+                let sym = Matrix3::from_fn(|r, k| 0.5 * (cov[r][k] + cov[k][r]));
+                let lambda = sym.symmetric_eigenvalues().min() / s;
+                if !(-1.1e-9..=-0.4e-9).contains(&lambda) {
+                    assert_eq!(
+                        produced, observed,
+                        "λ_min {lambda:e} of the largest variance: {cov:?}"
+                    );
+                    agree += 1;
+                    kept += usize::from(produced);
+                }
+                checked += 1;
+            }
+        }
+        // Most cases lie away from the boundary band.
+        assert!(agree * 10 >= checked * 6, "{agree} of {checked}");
+        // Both outcomes occur among them.
+        assert!(
+            kept * 5 >= agree && kept * 5 <= agree * 4,
+            "{kept} of {agree} kept"
+        );
+    }
+
+    /// A corner whose covariance is slightly indefinite (as `f32` rounding
+    /// of a rank-deficient one can leave it) is dropped by the producer's
+    /// check, so the image passes; kept, it would fail the image.
+    #[test]
+    fn an_indefinite_corner_blur_is_dropped_not_failing_the_image() {
+        use vision_calibration_detect::FeatureBlur;
+
+        let off = f64::from(-1.000_001e-3_f32);
+        let indefinite = [[1e-3, 0.0, off], [0.0, 1e-4, 0.0], [off, 0.0, 1e-3]];
+        let blur = FeatureBlur::new([1.0, 0.0, 1.0], indefinite);
+        assert!(!blur.is_valid());
+        let corner = Feature::new([10.0, 20.0], [0.0, 0.0, 0.0]);
+        let path = Path::new("01.png");
+        // What the producer emits: the corner without a blur.
+        let emitted = [corner.with_blur(Some(blur).filter(FeatureBlur::is_valid))];
+        assert!(check_feature_blur(&emitted, "chessboard", path).is_ok());
+        let kept = [corner.with_blur(Some(blur))];
+        assert!(check_feature_blur(&kept, "chessboard", path).is_err());
+    }
 }

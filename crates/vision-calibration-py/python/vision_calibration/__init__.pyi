@@ -94,6 +94,7 @@ from .models import (
     SingleCamHandeyeExport,
     SingleCamHandeyeView,
 )
+from ._generated_types import FocusDiagnostic as _FocusDiagnostic
 from ._generated_types import ModelComparison as _ModelComparison
 from ._generated_types import RobustLoss as _RobustLoss
 from .types import ProgressCallback as _ProgressCallback
@@ -281,6 +282,15 @@ def compare_camera_models(
     seed: int = 0,
     progress: _ProgressCallback | None = None,
 ) -> _ModelComparison: ...
+
+
+def fit_focus(
+    input: PlanarIntrinsicsInput | Mapping[str, Any],
+    camera: CameraParams | Mapping[str, Any],
+    cam_se3_target: Sequence[Pose | Mapping[str, Any]],
+    blur_limit_px: float | None = None,
+    view_jackknife: bool = False,
+) -> _FocusDiagnostic: ...
 
 
 __all__: list[str]
