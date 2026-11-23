@@ -4538,9 +4538,13 @@ class TargetSpec_Ringgrid(_TargetSpec_RinggridRequired, total=False):
     min_confidence: float | None
     """Floor on the detector's per-marker confidence, in `[0, 1]`.
     Omitted keeps the detector's floor of 0.03. The confidence is a
-    product of factors in `[0, 1]`, one of them the edge sharpness
-    `1 / (1 + (w / 3 px)²)`, so a floor `c` keeps only markers whose
-    outer edge width `w` is at most `3 · √(1/c − 1)` px (0.17: 6.6 px).
+    product of factors in `[0, 1]`. For ellipse centres one of them is
+    the edge sharpness `1 / (1 + (w / 3 px)²)`, so a floor `c` keeps
+    only markers whose outer edge width `w` is at most
+    `3 · √(1/c − 1)` px (0.17: 6.6 px). For photometric centres one
+    of them is the precision `1 / (1 + σ_c / 0.03 px)`, so a floor `c`
+    keeps only markers whose predicted centre error `σ_c` is at most
+    `0.03 · (1/c − 1)` px per axis (0.17: 0.15 px).
     """
 
 

@@ -669,7 +669,8 @@ def detect_target(
     -------
     The detected features; empty when the image shows no usable board. A
     chessboard or PuzzleBoard target with ``"measure_blur": True`` also
-    reports each corner's measured blur (``blur_psf_px``, ``blur_cov``).
+    reports each corner's measured blur (``blur_psf_px``, ``blur_cov``), and
+    a ring-grid target with ``"center_method": "photometric"`` each marker's.
 
     Raises
     ------

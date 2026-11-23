@@ -297,8 +297,8 @@ covariance, `σ_max` the measured blur including the pixel term
 Per-feature blur by target: in the library, chessboard and PuzzleBoard
 corners give the full PSF covariance `Σ` (`measure_blur`, a fit of the
 blurred print around each corner); ring grids give σ and the PSF
-anisotropy from ringgrid 0.18's photometric fit, which the library does
-not pin yet (backlog DETECT-RINGGRID-018). Alternatives in the literature:
+anisotropy from ringgrid 0.18's photometric fit, mapped to the same `Σ`
+(`Feature::blur` on photometric centres). Alternatives in the literature:
 an isotropic σ from the edge profiles, as Kumar & Ahuja used, or per
 square with the ISO 12233 slanted edge (pointer). Requirement
 ([tilt-from-focus.md](tilt-from-focus.md), *Data requirement*): blur well

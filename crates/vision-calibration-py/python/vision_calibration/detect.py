@@ -41,7 +41,8 @@ class Features:
 
     ``blur_psf_px`` and ``blur_cov`` hold the blur the detector measured at
     each feature (chessboard and PuzzleBoard corners, when the target asks
-    for it with ``measure_blur``): the PSF
+    for it with ``measure_blur``; ring-grid markers with photometric
+    centres, always): the PSF
     covariance ``(xx, xy, yy)`` in px², including the pixel's area
     integration, and the 3×3 covariance of those three elements in px⁴ (see
     :class:`PointBlur`). They are given together, ``None`` when no feature

@@ -106,7 +106,7 @@ A plain chessboard has no markers: each view is labelled from the detection's ow
 | `coding` | [RinggridCodingSpec](#ringgridcodingspec) | no | | How the markers are told apart. Omitted keeps `"coded"`. |
 | `lattice` | [RinggridLatticeSpec](#ringgridlatticespec) | no | | The marker lattice. Omitted keeps `"hex"`. |
 | `marker_ring_width_m` | number | no | `0.0` | Width of each ring band in metres. Coded markers need it, greater than zero; plain markers ignore it, so it may be left out for them. |
-| `min_confidence` | number | no | | Floor on the detector's per-marker confidence, in `[0, 1]`. Omitted keeps the detector's floor of 0.03. The confidence is a product of factors in `[0, 1]`, one of them the edge sharpness `1 / (1 + (w / 3 px)²)`, so a floor `c` keeps only markers whose outer edge width `w` is at most `3 · √(1/c − 1)` px (0.17: 6.6 px). |
+| `min_confidence` | number | no | | Floor on the detector's per-marker confidence, in `[0, 1]`. Omitted keeps the detector's floor of 0.03. The confidence is a product of factors in `[0, 1]`. For ellipse centres one of them is the edge sharpness `1 / (1 + (w / 3 px)²)`, so a floor `c` keeps only markers whose outer edge width `w` is at most `3 · √(1/c − 1)` px (0.17: 6.6 px). For photometric centres one of them is the precision `1 / (1 + σ_c / 0.03 px)`, so a floor `c` keeps only markers whose predicted centre error `σ_c` is at most `0.03 · (1/c − 1)` px per axis (0.17: 0.15 px). |
 
 ## RinggridCenterSpec
 

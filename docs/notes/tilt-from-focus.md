@@ -462,9 +462,8 @@ stated covariance assumes independent blur errors within an image; the
 opt-in delete-one-view jackknife (`FocusOptions::view_jackknife`) covers
 a per-image blur gradient and a random common level where the stated σ is
 2–5× short (synthetic, scatter/jackknife 0.94–1.01). In the library the
-blur comes from chessboard and PuzzleBoard corners (`measure_blur`); the
-ring-grid blur this note measured needs ringgrid 0.18, which the library
-does not pin yet (backlog DETECT-RINGGRID-018). What is left is listed
-under backlog `CAL-TILT-FOCUS`: the producers, what the detector's width
-is, the camera frame taken for the lens frame, two-view fits, and the tilt
-check and the factor, both needing `m_p`.
+blur comes from chessboard and PuzzleBoard corners (`measure_blur`) and
+from ring-grid markers with photometric centres (ringgrid 0.18). What is
+left is listed under backlog `CAL-TILT-FOCUS`: the producers, what the
+detector's width is, the camera frame taken for the lens frame, two-view
+fits, and the tilt check and the factor, both needing `m_p`.

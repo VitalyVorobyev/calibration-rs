@@ -82,7 +82,7 @@ pub(crate) mod backend {
     #[cfg(any(feature = "chessboard", feature = "charuco", feature = "puzzleboard"))]
     pub const CALIB_TARGETS: &str = "calib-targets 0.17.0 / chess-corners 2.1.0";
     #[cfg(feature = "ringgrid")]
-    pub const RINGGRID: &str = "ringgrid 0.16.0";
+    pub const RINGGRID: &str = "ringgrid 0.18.0";
 }
 
 /// A calibration target and the detector that finds it. The set is closed:

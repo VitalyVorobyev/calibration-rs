@@ -93,7 +93,7 @@ let json = serde_json::to_string(&target).unwrap();
 assert!(json.contains(r#""coding":{"plain":{"origin_dots":true}}"#));
 ```
 
-The optional `center_method` picks how each marker's centre is estimated. The default, `"ellipse"`, takes the projective centre of the fitted inner and outer ellipses: fast, and accurate on sharp images. On a blurred or low-contrast image the edge points of a ring carry a blur- and code-dependent bias; `"photometric"` instead fits the marker's pixels with the printed ring (and code) pattern, blurred by a fitted Gaussian, and removes that bias. It works on coded and plain markers alike. It costs roughly 2.5 times the detection time, and it returns only the markers the fit refined, so a marker that could not be fitted is dropped rather than mixed in at lower accuracy. It stays opt-in until its benefit on real calibration data is established. It does not report a per-point covariance, so the calibration stays unweighted.
+The optional `center_method` picks how each marker's centre is estimated. The default, `"ellipse"`, takes the projective centre of the fitted inner and outer ellipses: fast, and accurate on sharp images. On a blurred or low-contrast image the edge points of a ring carry a blur- and code-dependent bias; `"photometric"` instead fits the marker's pixels with the printed ring (and code) pattern, blurred by a fitted Gaussian, and removes that bias. It works on coded and plain markers alike. It costs roughly 2.5 times the detection time, and it returns only the markers the fit refined, so a marker that could not be fitted is dropped rather than mixed in at lower accuracy. It stays opt-in until its benefit on real calibration data is established. It does not report a per-point covariance, so the calibration stays unweighted; it does report each marker's [measured blur](#measured-blur).
 
 ```toml
 [target]
@@ -107,9 +107,12 @@ marker_ring_width_m = 0.0004
 center_method = "photometric"
 ```
 
-The optional `min_confidence` (in `[0, 1]`) raises the detector's floor on the confidence of a reported marker; left out, the detector's own floor of 0.03 applies. The confidence is a product of factors in `[0, 1]`, the same for both centre methods: the decode and outer-fit quality, the rim coverage, the inner-edge agreement, the edge sharpness `1 / (1 + (w / 3 px)²)` with `w` the width of the marker's outer edge, and the distance to the image border. Each factor is at most 1, so a floor `c` bounds every one of them: a kept marker's outer edge is at most `3 · √(1/c − 1)` px wide (0.17: 6.6 px, 0.38: 3.8 px). The confidence ranks how far a centre can be trusted; it is not a predicted centre error.
+The optional `min_confidence` (in `[0, 1]`) raises the detector's floor on the confidence of a reported marker; left out, the detector's own floor of 0.03 applies. The confidence is a product of factors in `[0, 1]`: the decode and outer-fit quality and the distance to the image border, times factors that depend on the centre method. Each factor is at most 1, so a floor `c` bounds every one of them:
 
-A floor trades markers for centre accuracy, and the trade depends on the images: where focus varies across the field, the defocused markers have wider edges and so lower confidence, while on a sharp capture a floor of this size may remove nothing. A floor is part of the detection-cache key, and an out-of-range value is rejected before detection.
+- **Edge-fitted centres (`"ellipse"`).** The factors are the rim coverage, the inner-edge agreement and the edge sharpness `1 / (1 + (w / 3 px)²)` with `w` the width of the marker's outer edge, so a kept marker's outer edge is at most `3 · √(1/c − 1)` px wide (0.17: 6.6 px, 0.38: 3.8 px).
+- **Photometric centres.** The factor is the centre's precision `1 / (1 + σ_c / 0.03 px)`, with `σ_c` the predicted centre error per axis: the fit's covariance plus the bias that a blur gradient across the marker leaves uncorrected. A kept marker has `σ_c ≤ 0.03 · (1/c − 1)` px: 0.17 keeps `σ_c ≤ 0.15` px, 0.38 keeps `σ_c ≤ 0.05` px.
+
+A floor trades markers for centre accuracy, and the trade depends on the images: where focus varies across the field, the defocused markers have wider edges or larger predicted errors and so lower confidence, while on a sharp capture a floor of this size may remove nothing. A floor is part of the detection-cache key, and an out-of-range value is rejected before detection.
 
 ```toml
 [target]
@@ -121,7 +124,10 @@ min_confidence = 0.17
 
 ### Measured blur
 
-The chessboard and PuzzleBoard targets can also measure the blur at each corner: set `measure_blur = true` in the `[target]` table (`ChessboardConfig::measure_blur`, `PuzzleboardConfig::measure_blur`). Each corner then carries the blur in `Feature::blur` (a `FeatureBlur`), and every observation built from the features carries it per point (`CorrespondenceView::blur`, a `PointBlur`; in JSON the view's optional `blur` list, `null` for a point without one). It is a measurement carried with the points: no calibration reads it, and the points and their covariances are the same with or without it.
+A feature can carry the blur the detector measured at it, in `Feature::blur` (a `FeatureBlur`), and every observation built from the features carries it per point (`CorrespondenceView::blur`, a `PointBlur`; in JSON the view's optional `blur` list, `null` for a point without one). It is a measurement carried with the points: no calibration reads it, and the points and their covariances are the same with or without it. Two kinds of target measure it:
+
+- **Chessboard and PuzzleBoard corners**, on request: set `measure_blur = true` in the `[target]` table (`ChessboardConfig::measure_blur`, `PuzzleboardConfig::measure_blur`).
+- **Ring-grid markers with photometric centres** (`center_method = "photometric"`), always: the blur is a by-product of the photometric fit, so it needs no flag and costs nothing more.
 
 ```toml
 [target]
@@ -138,11 +144,13 @@ At each corner the image is fitted with the printed squares (and a PuzzleBoard's
 - **`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴. It allows for residuals correlated between neighbouring pixels, and a combination of `Σ` the print around a corner constrains weakly (with one edge direction, the width along that edge) shows as a large variance.
 - **Accuracy.** On boards rendered through a known Gaussian lens blur of 1 and 2 px, the mean of `tr Σ / 2` over the corners is within 0.2 % of `σ² + 1/12`, and the corners scatter about it as their stated standard errors say. Under a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the Gaussian that blurs the print most like the lens does, not the PSF's second moment; it then depends on the cell size and the pattern, so compare values measured on the same board. An image whose black or white is clipped at 0 or 255 reads as sharper than it is.
 - **Missing values.** A corner has no blur when the estimate declines it rather than give a number its standard error does not cover: when σ exceeds 0.3 of the cell or the blur reaches print outside the detection (corners at its edge see less of the board), when the corner is sharper than the pixel aperture (an in-camera sharpened image) or its blur is not resolved, or when too few labelled neighbours fix the local geometry.
-- **Cost.** A few milliseconds per corner, single-threaded: a board of 476 corners adds about 1 to 2 s per image, which is why it is off by default. The PuzzleBoard is measured on the image as given, not on the upscaled copy it is detected on, at the reported corner positions. ChArUco and ring-grid targets do not measure blur.
+- **Cost.** A few milliseconds per corner, single-threaded: a board of 476 corners adds about 1 to 2 s per image, which is why it is off by default. The PuzzleBoard is measured on the image as given, not on the upscaled copy it is detected on, at the reported corner positions. ChArUco targets do not measure blur.
+
+A ring-grid marker's blur is the Gaussian point-spread function of its photometric fit, a width `σ` and an anisotropy `[a, b]` with `Σ = σ² [[1 + a, b], [b, 1 − a]]`, so `√(tr Σ / 2) = σ`; `cov` is the covariance of `(σ, a, b)` carried through that map. Like the corners' `Σ` it includes the pixel's area integration. For a Gaussian lens PSF of 0.7 to 3 px on markers of outer radius 17 px or more, `σ` is within ±0.5 % of `√(σ_psf² + 1/12)`; it reads low below that blur and on thin or small plain rings, and under a non-Gaussian PSF it is the width of the Gaussian edge that best matches the image. Its `cov` holds for differences between the markers of one image: the markers of an image can share one offset in `σ` that it does not contain (about 0.001 px on coded targets, up to a few hundredths of a pixel on plain rings), so compare blur within an image or allow one offset per image. A marker has no blur when its fitted width exceeds a quarter of its outer radius, where the ring's own features blur together and `σ` reads high.
 
 [Focus and Depth of Field](focus.md) fits the plane of sharp focus to it.
 
-In Python, `Features.blur_psf_px` `(N, 3)` and `Features.blur_cov` `(N, 3, 3)` hold it (NaN rows for a corner without one, `None` when no corner has one), and `Features.to_observation()` carries it into `Observation.blur` as `PointBlur` values.
+In Python, `Features.blur_psf_px` `(N, 3)` and `Features.blur_cov` `(N, 3, 3)` hold it (NaN rows for a feature without one, `None` when no feature has one), and `Features.to_observation()` carries it into `Observation.blur` as `PointBlur` values.
 
 ## Corner Detector Overrides
 
