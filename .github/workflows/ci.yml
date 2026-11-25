@@ -67,9 +67,14 @@ jobs:
           sha256sum < "$fixture" | awk '{print $1}' |
             diff -u <(awk '$2 == "01.png" {print $1}' regression/fetch/kuka_1.sha256) -
           cp "$fixture" data/kuka_1/01.png
-          # The workspace-wide feature set of the step above, so nothing
-          # rebuilds; only the detector's ignored tests match the filter.
-          cargo test --workspace --all-features --lib -- --ignored chessboard::tests::
+          # Run the detector's test binary from the step above: any other
+          # `cargo test` selection resolves features differently and
+          # rebuilds ~100 crates. `--no-run` with the same flags only lists it.
+          exe=$(cargo test --workspace --all-features --no-run --message-format=json |
+            jq -r 'select(.reason == "compiler-artifact" and .profile.test
+              and .target.name == "vision_calibration_detect"
+              and (.target.kind | index("lib"))) | .executable')
+          "$exe" --ignored chessboard::tests::
 
       # The app's schema-driven config forms, the input/export schemas in
       # `schemas/` and the Python package's TypedDicts are all generated from
