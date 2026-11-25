@@ -429,16 +429,15 @@ pub fn ransac_fit_with_control<E: Estimator>(
                             refined_residuals.push(r);
                         }
                     }
-                    let refined_rms = rms(&refined_residuals);
+                    // The least-squares refit is the better estimate of the
+                    // model; keep it unless it loses part of the consensus.
+                    // (Its RMS is not compared: a minimal sample's model
+                    // can score a lower inlier RMS by chance, and keeping it
+                    // would return a minimal-sample fit.)
                     if opts.accepts(refined_inliers.len(), data.len())
-                        && is_better_model(
-                            true,
-                            refined_inliers.len(),
-                            refined_rms,
-                            inliers.len(),
-                            sample_rms,
-                        )
+                        && refined_inliers.len() >= inliers.len()
                     {
+                        let refined_rms = rms(&refined_residuals);
                         model_refit = m2;
                         final_rms = refined_rms;
                         accepted_refit = true;
@@ -477,8 +476,45 @@ pub fn ransac_fit_with_control<E: Estimator>(
         }
     }
 
+    // Final least-squares refit on the winning consensus, repeated while it
+    // grows the consensus: among models with the same inlier count the loop
+    // keeps the lowest RMS, which can be a refit on an earlier, smaller
+    // consensus rather than the fit to the inliers it reports.
+    if opts.refit_on_inliers && best.success {
+        for _ in 0..FINAL_REFIT_ROUNDS {
+            let Some(m2) = E::refit(data, &best.inliers) else {
+                break;
+            };
+            refined_inliers.clear();
+            refined_residuals.clear();
+            for (i, datum) in data.iter().enumerate() {
+                let r = E::residual(&m2, datum);
+                if r <= opts.thresh {
+                    refined_inliers.push(i);
+                    refined_residuals.push(r);
+                }
+            }
+            if !opts.accepts(refined_inliers.len(), data.len())
+                || refined_inliers.len() < best.inliers.len()
+            {
+                break;
+            }
+            let unchanged = refined_inliers == best.inliers;
+            best.model = Some(m2);
+            best.inlier_rms = rms(&refined_residuals);
+            std::mem::swap(&mut best.inliers, &mut refined_inliers);
+            if unchanged {
+                break;
+            }
+        }
+    }
+
     Ok(best)
 }
+
+/// Bound on the final refit rounds (each refits on the consensus the
+/// previous round found; they stop as soon as it no longer changes).
+const FINAL_REFIT_ROUNDS: usize = 5;
 
 #[cfg(test)]
 mod tests {

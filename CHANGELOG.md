@@ -167,9 +167,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps the one with the lowest reprojection error; it returns
   `GeometryError::Singular` when no candidate puts every point in front of the
   camera. RANSAC scores every candidate a minimal solver returns, refits only
-  a consensus that can beat the best, keeps a refit only when it is better
-  (more inliers, or as many with a lower RMS), and only ever lowers its
-  adaptive iteration bound. The essential-matrix estimator rejects a sample
+  a consensus that can beat the best, keeps a refit only when it keeps the
+  whole consensus, only ever lowers its adaptive iteration bound, and ends
+  with a least-squares refit on the winning consensus (repeated while the
+  consensus grows), so the model it returns is the fit to the inliers it
+  reports. The essential-matrix estimator rejects a sample
   with three collinear image points in either view. Equidistant
   initialization runs Nelder–Mead seeded and unseeded and keeps the lower
   cost. The Levenberg–Marquardt relative-step stop applies to the first

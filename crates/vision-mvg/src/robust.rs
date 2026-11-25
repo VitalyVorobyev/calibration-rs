@@ -947,6 +947,69 @@ mod tests {
         ));
     }
 
+    /// With noisy inliers many models tie on the inlier count; the result
+    /// must still be the least-squares refit on the inliers it reports, not a
+    /// refit on an earlier, smaller consensus.
+    #[test]
+    fn homography_ransac_returns_the_refit_on_its_inliers() {
+        let truth = Mat3::new(1.05, 0.02, 12.0, -0.03, 0.97, -7.0, 1e-5, -2e-5, 1.0);
+        for data_seed in 0..8_u64 {
+            // SplitMix64: deterministic uniform numbers in [0, 1).
+            let mut state = data_seed;
+            let mut uniform = move || {
+                state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                let mut z = state;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                (z ^ (z >> 31)) as f64 / u64::MAX as f64
+            };
+            let corrs: Vec<_> = (0..100)
+                .map(|i| {
+                    let pt1 = Pt2::new(600.0 * uniform(), 600.0 * uniform());
+                    let pt2 = if i % 5 == 0 {
+                        Pt2::new(600.0 * uniform(), 600.0 * uniform())
+                    } else {
+                        let p = crate::homography::homography_transfer(&truth, &pt1);
+                        // ±0.35 px uniform noise (σ ≈ 0.2 px).
+                        Pt2::new(p.x + 0.7 * (uniform() - 0.5), p.y + 0.7 * (uniform() - 0.5))
+                    };
+                    Correspondence2D::new(pt1, pt2)
+                })
+                .collect();
+            for ransac_seed in 0..4_u64 {
+                let opts = RansacOptions::new(2.0)
+                    .with_min_inliers(20)
+                    .with_seed(ransac_seed);
+                let est = estimate_homography(&corrs, &opts).unwrap();
+                let case = format!("data {data_seed}, ransac {ransac_seed}");
+                assert!(
+                    est.inliers.iter().all(|i| i % 5 != 0),
+                    "{case}: outlier kept"
+                );
+                assert!(
+                    est.inliers.len() >= 75,
+                    "{case}: {} inliers",
+                    est.inliers.len()
+                );
+
+                let (src, dst): (Vec<_>, Vec<_>) = est
+                    .inliers
+                    .iter()
+                    .map(|&i| (corrs[i].pt1, corrs[i].pt2))
+                    .unzip();
+                let refit = vision_geometry::homography::dlt_homography(&src, &dst).unwrap();
+                let (h, refit) = (
+                    est.homography / est.homography[(2, 2)],
+                    refit / refit[(2, 2)],
+                );
+                assert!(
+                    (h - refit).abs().max() < 1e-9,
+                    "{case}: {h} vs the refit {refit}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn homography_ransac_with_outliers() {
         let rot = Rotation3::from_euler_angles(0.05, -0.03, 0.02);
