@@ -71,12 +71,11 @@ dataset, the KUKA detector tests (fetch `data/kuka_1/01.png` with Git LFS or
 use the pinned publisher download in CI, then run
 `cargo test -p vision-calibration-detect --lib -- --ignored`), the regression
 suite (`calib-bench suite check` on both backends, `suite compare`) and the
-suite images' checksums, the uncertainty gates (release-mode `--ignored`
-tests: Monte-Carlo, rig laser
-points, dense cloud, second-order error, tilted rig, tilt conditioning,
-robot-frame points,
-robot-error estimate, next-view prediction, feature covariance; the
-`uncertainty-gates` job lists the commands), the install smoke test (the
+suite images' checksums, the uncertainty gates (the release-mode
+`--ignored` Monte-Carlo and other release-only tests:
+`python3 scripts/uncertainty_gates.py` lists them, builds them once and
+runs them in parallel; a new Monte-Carlo test is `#[ignore]`d and added
+there), the install smoke test (the
 wheel's examples and `vcal` run outside the checkout), the Python runtime
 tests, and the app jobs (§12). No new warnings; `#[allow(...)]` only with a
 stated reason.

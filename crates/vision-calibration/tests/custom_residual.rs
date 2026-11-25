@@ -157,6 +157,7 @@ fn a_problem_starts_from_the_closed_form_initializers() -> anyhow::Result<()> {
 }
 
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn the_stated_sigma_matches_the_scatter_of_the_estimates() {
     let truth = truth();
     let runs = 120;

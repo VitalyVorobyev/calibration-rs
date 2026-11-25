@@ -136,6 +136,7 @@ fn points(rng: &mut Rng, n: usize) -> Vec<Pt3> {
 /// Pooled over the points, the scatter of each coordinate over the predicted
 /// standard deviation is 1.
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn point_covariance_matches_the_scatter_of_pixel_noise() {
     let rig = stereo(pinhole(), negligible_covariance());
     let mut rng = Rng(7);

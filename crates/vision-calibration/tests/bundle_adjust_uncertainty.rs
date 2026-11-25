@@ -186,6 +186,7 @@ fn rig_nees(rig: &CalibratedRig) -> (f64, usize) {
 }
 
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn consider_carries_the_calibration_into_points_and_poses() {
     let clock = Instant::now();
     let points = scene_points();
@@ -230,6 +231,7 @@ fn consider_carries_the_calibration_into_points_and_poses() {
 }
 
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn prior_refines_the_cameras_and_says_how_well() {
     let clock = Instant::now();
     let points = scene_points();
