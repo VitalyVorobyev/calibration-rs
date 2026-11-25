@@ -84,7 +84,9 @@ pub fn save_baseline(dir: &Path, baseline: &BaselineFit) -> Result<PathBuf> {
 /// and always flagged.
 pub fn compare_to_baseline(fit: &Fit, baseline: &BaselineFit, rel_tol: f64) -> Vec<String> {
     let mut regressions = Vec::new();
-    let worse = |current: f64, frozen: f64| current > frozen * (1.0 + rel_tol) + 1e-12;
+    let worse = |current: f64, frozen: f64| {
+        !(current.is_finite() && frozen.is_finite() && current <= frozen * (1.0 + rel_tol) + 1e-12)
+    };
 
     if worse(fit.overall.mean, baseline.overall.mean) {
         regressions.push(format!(
@@ -213,5 +215,18 @@ mod tests {
         assert_eq!(loaded.overall.count, 1000);
         assert!(load_baseline(&dir, "missing").unwrap().is_none());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn non_finite_metrics_are_flagged_as_regressions() {
+        let fit = fit_with_mean(0.25);
+        let baseline = BaselineFit::new("ds", "abc", "0", &fit);
+        let mut nan_fit = fit_with_mean(0.25);
+        nan_fit.overall = ReprojectionStats::from_summary(f64::NAN, 0.275, 0.75, 1000);
+        let regs = compare_to_baseline(&nan_fit, &baseline, 0.05);
+        assert!(
+            regs.iter().any(|r| r.contains("overall mean")),
+            "expected overall mean NaN regression, got {regs:?}"
+        );
     }
 }

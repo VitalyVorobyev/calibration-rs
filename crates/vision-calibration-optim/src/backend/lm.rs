@@ -13,10 +13,11 @@ use nalgebra::DVector;
 use vision_calibration_core::Progress;
 
 const LM_INITIAL_TRUST_REGION_RADIUS: f64 = 1e4;
+const LM_MIN_DAMPING: f64 = 1e-12;
 const LM_MAX_STEP_ATTEMPTS: usize = 32;
-/// Stop once a step is this small relative to the parameters
+/// Stop once an accepted step is this small relative to the parameters
 /// (`‖dx‖ ≤ ε(‖x‖ + ε)`, Ceres' `parameter_tolerance`): it can no longer
-/// change them, accepted or not.
+/// move them appreciably.
 const LM_RELATIVE_STEP_TOLERANCE: f64 = 1e-8;
 
 /// Defaults for the [`BackendSolveOptions`] thresholds left as `None`.
@@ -167,15 +168,17 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         let mut step_negligible = false;
         for step_attempt in 0..LM_MAX_STEP_ATTEMPTS {
             let Some(lm_step) = normal.solve_damped(damping) else {
-                damping *= 2.0;
+                damping = (damping * 2.0).max(LM_MIN_DAMPING);
                 continue;
             };
             let dx = unscale(&lm_step, scaling);
             if !dx.iter().all(|v| v.is_finite()) {
-                damping *= 2.0;
+                damping = (damping * 2.0).max(LM_MIN_DAMPING);
                 continue;
             }
-            if dx.norm() <= LM_RELATIVE_STEP_TOLERANCE * (x_norm + LM_RELATIVE_STEP_TOLERANCE) {
+            if step_attempt == 0
+                && dx.norm() <= LM_RELATIVE_STEP_TOLERANCE * (x_norm + LM_RELATIVE_STEP_TOLERANCE)
+            {
                 step_negligible = true;
                 break;
             }
@@ -200,7 +203,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
                 break;
             }
 
-            damping *= 2.0;
+            damping = (damping * 2.0).max(LM_MIN_DAMPING);
         }
         // The robust objective is Σρ; reports use the solve report's ½Σρ.
         control.report(Progress::iteration(
@@ -482,6 +485,74 @@ mod tests {
         assert_eq!(
             failure,
             Some(LmFailure::NonFiniteLinearization { iteration: 2 })
+        );
+    }
+
+    #[test]
+    fn sharp_turn_after_many_good_steps_does_not_underflow_damping() {
+        // Take ~65 good damped-free steps along a quadratic curve (driving
+        // damping down to `LM_MIN_DAMPING`), then overshoot the finite-domain
+        // wall so retries must restore damping from `LM_MIN_DAMPING` without
+        // stalling at `0.0`.
+        struct GentleThenTurn {
+            threshold: f64,
+        }
+        impl LinearizationEngine for GentleThenTurn {
+            type State = DVector<f64>;
+            fn free_dim(&self) -> usize {
+                1
+            }
+            fn cost(&self, x: &DVector<f64>) -> f64 {
+                if x[0] > self.threshold {
+                    f64::NAN
+                } else {
+                    (x[0] - (self.threshold - 1e-4)).powi(2)
+                }
+            }
+            fn linearize(&self, x: &DVector<f64>) -> (faer::Mat<f64>, SparseColMat<usize, f64>) {
+                let target = self.threshold - 1e-4;
+                // First take ~65 small under-steps with unit scaling near J=1
+                // and steep Jacobian 2.5, then switch to 0.5 near threshold so
+                // the undamped Gauss-Newton step overshoots into the NaN wall.
+                let slope = if x[0] < target - 0.01 { 2.5 } else { 0.5 };
+                let r = faer::Mat::from_fn(1, 1, |_, _| x[0] - target);
+                let j = SparseColMat::try_new_from_triplets(1, 1, &[Triplet::new(0, 0, slope)])
+                    .unwrap();
+                (r, j)
+            }
+            fn retract(&self, x: &DVector<f64>, dx: &DVector<f64>) -> DVector<f64> {
+                x + dx
+            }
+            fn norm(&self, x: &DVector<f64>) -> f64 {
+                x.norm()
+            }
+        }
+        let mut opts = options(150);
+        opts.min_abs_decrease = Some(0.0);
+        opts.min_rel_decrease = Some(0.0);
+        opts.min_error = Some(1e-18);
+        let sol = levenberg_marquardt(
+            &GentleThenTurn { threshold: 1.0 },
+            DVector::from_element(1, 0.0),
+            &opts,
+        )
+        .unwrap();
+        assert_ne!(sol.termination, SolveTermination::NoAcceptedStep);
+        assert!(sol.cost < 1e-16, "cost={}", sol.cost);
+    }
+
+    #[test]
+    fn rejected_tiny_damped_step_does_not_trigger_relative_step() {
+        // When every step from x0 = 1.0 lands in a NaN region, increasing
+        // damping eventually makes ‖dx‖ ≤ tol; LM must report NoAcceptedStep
+        // (not RelativeStep from a rejected tiny damped step).
+        let engine = Shift {
+            finite_only_at: Some(1.0),
+            ..Shift::to(0.0)
+        };
+        assert_eq!(
+            stop(&engine, 1.0, &options(10)),
+            (SolveTermination::NoAcceptedStep, 1)
         );
     }
 }

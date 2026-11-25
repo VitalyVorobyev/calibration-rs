@@ -512,9 +512,10 @@ export interface DisparityResult {
    */
   planeInliers: number;
   /**
-   * Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent.
+   * Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent;
+   * `None` when fewer than 3 finite disparities are available or the fit is degenerate.
    */
-  planeRms: number;
+  planeRms?: number | null;
   /**
    * Reprojected 3D point cloud (reference-camera frame, metres).
    */
@@ -850,10 +851,12 @@ export interface LaserFeatureResidual {
    */
   residual_m?: number | null;
   /**
-   * Distance from `observed_px` to the projected laser line, in pixels:
-   * the line-distance residual the laser solve minimizes, measured on the
-   * undistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the
-   * laser and target planes have no line in common.
+   * Distance (non-negative) from `observed_px` to the projected laser
+   * line, in pixels: the magnitude of the line-distance residual the laser
+   * solve minimizes, measured on the undistorted image plane and scaled by
+   * `sqrt(fx·fy)`. For parallel laser and target planes the line is their
+   * common vanishing line. `None` if the planes share no line with a
+   * finite image (see the module documentation).
    */
   residual_px?: number | null;
   /**
@@ -1596,6 +1599,14 @@ export interface RigLaserlineDeviceExport {
    * reprojection.
    */
   mean_reproj_error?: number;
+  /**
+   * Per-camera mean target reprojection errors (pixels) against the frozen
+   * upstream, in camera order, over every target view of the camera
+   * (`per_cam_stats[i].mean_reproj_error` averages only the views that also
+   * have laser pixels); `0.0` for a camera with no projected feature, and
+   * empty in exports serialized before this field existed.
+   */
+  per_cam_reproj_errors?: number[];
   /**
    * Per-camera stats (reprojection + laser residuals).
    */

@@ -10,6 +10,18 @@ interface PointCloudViewProps {
   colors: Float32Array;
 }
 
+let nextCloudId = 0;
+const cloudIds = new WeakMap<Float32Array, number>();
+
+function cloudKey(positions: Float32Array): number {
+  let id = cloudIds.get(positions);
+  if (id === undefined) {
+    id = ++nextCloudId;
+    cloudIds.set(positions, id);
+  }
+  return id;
+}
+
 /** Orbitable WebGL point cloud reprojected from the disparity map. Lazy-loaded
  * (Three.js is heavy) and framed automatically from the cloud bounds. */
 export function PointCloudView({ positions, colors }: PointCloudViewProps) {
@@ -17,9 +29,10 @@ export function PointCloudView({ positions, colors }: PointCloudViewProps) {
   const frame = useMemo(() => computeFrame(positions), [positions]);
 
   return (
-    // Remount on a new cloud so the auto-framed camera re-applies.
+    // Remount on each computed cloud instance so the auto-framed camera re-applies
+    // even when two captures happen to match point count.
     <Canvas
-      key={positions.length}
+      key={cloudKey(positions)}
       camera={{ position: frame.cameraPos, fov: 40, near: 0.001, far: 100 }}
       gl={{ antialias: true }}
       style={{ background: theme.background }}

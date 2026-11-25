@@ -392,6 +392,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:

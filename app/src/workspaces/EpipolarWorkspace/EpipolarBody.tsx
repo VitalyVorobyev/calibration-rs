@@ -163,14 +163,13 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
     return relativeCameraPose(cs[cameraA]!, cs[cameraB]!);
   }, [data, cameraA, cameraB]);
 
+  const dotSize = showFeatures ? 6 : showTieLines ? 4 : null;
   const markersA: OverlayPoint[] = [
-    ...(showFeatures ? featureDots(undistortedA, 6) : []),
-    ...(showTieLines ? featureDots(undistortedA, 4) : []),
+    ...(dotSize !== null ? featureDots(undistortedA, dotSize) : []),
     ...(picked ? [{ px: picked.px, color: "var(--signal)", size: 8 }] : []),
   ];
   const markersB: OverlayPoint[] = [
-    ...(showFeatures ? featureDots(undistortedB, 6) : []),
-    ...(showTieLines ? featureDots(undistortedB, 4) : []),
+    ...(dotSize !== null ? featureDots(undistortedB, dotSize) : []),
     ...(ghostInB ? [{ px: ghostInB.observed_px, color: "var(--signal)", size: 8 }] : []),
     ...(overlay?.epipole_b
       ? [{ px: overlay.epipole_b, color: "var(--defect)", size: 7 }]

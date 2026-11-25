@@ -132,11 +132,12 @@ pub use crate::problems::laserline_rig_bundle::{
 };
 #[doc(hidden)]
 pub use crate::problems::planar_intrinsics::{
-    PlanarIntrinsicsSolveOptions, optimize_planar_intrinsics,
+    PlanarIntrinsicsSolveOptions, optimize_planar_intrinsics, optimize_planar_intrinsics_warm_start,
 };
 #[doc(hidden)]
 pub use crate::problems::rig_extrinsics::{
     RigExtrinsicsDataset, RigExtrinsicsSolveOptions, optimize_rig_extrinsics,
+    optimize_rig_extrinsics_warm_start,
 };
 #[doc(hidden)]
 pub use crate::problems::rig_handeye_laserline_bundle::{

@@ -32,7 +32,9 @@ pub async fn load_export<R: Runtime>(
     app: AppHandle<R>,
     path: String,
 ) -> Result<LoadExportResult, String> {
-    let loaded = ops::read_export(Path::new(&path))?;
+    let loaded = tauri::async_runtime::spawn_blocking(move || ops::read_export(Path::new(&path)))
+        .await
+        .map_err(|e| format!("load export task panicked: {e}"))??;
     if let Some(images) = &loaded.image_root {
         crate::assets::allow_dir(&app, images)?;
     }
@@ -62,7 +64,9 @@ pub async fn set_active_export(
 /// directly.
 #[tauri::command]
 pub async fn load_text_file(path: String) -> Result<String, String> {
-    ops::read_text_file(Path::new(&path))
+    tauri::async_runtime::spawn_blocking(move || ops::read_text_file(Path::new(&path)))
+        .await
+        .map_err(|e| format!("load text file task panicked: {e}"))?
 }
 
 /// Make the sample dataset `id` (one of
@@ -101,9 +105,13 @@ fn fetch_sample(id: &str, cache: &Path) -> Result<String, String> {
 /// This is the same inference `vcal init` uses.
 #[tauri::command]
 pub async fn sniff_folder(folder: String) -> Result<serde_json::Value, String> {
-    let spec = vision_calibration::dataset::sniff_folder(std::path::Path::new(&folder))
-        .map_err(|e| e.to_string())?;
-    serde_json::to_value(&spec).map_err(|e| format!("serialize manifest: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        let spec = vision_calibration::dataset::sniff_folder(std::path::Path::new(&folder))
+            .map_err(|e| e.to_string())?;
+        serde_json::to_value(&spec).map_err(|e| format!("serialize manifest: {e}"))
+    })
+    .await
+    .map_err(|e| format!("sniff folder task panicked: {e}"))?
 }
 
 /// Read an image file and render it into a camera's undistorted pixel
@@ -117,17 +125,26 @@ pub async fn load_undistorted_image(
     roi: Option<PixelRect>,
     cache: State<'_, ExportCache>,
 ) -> Result<Response, String> {
-    ops::load_undistorted_image(&cache, Path::new(&path), camera, roi).map(Response::new)
+    let cached = cache
+        .snapshot()
+        .ok_or_else(|| "no export loaded yet".to_string())?;
+    let png = tauri::async_runtime::spawn_blocking(move || {
+        crate::epipolar::undistort_image_png(&cached.value, Path::new(&path), camera, roi)
+    })
+    .await
+    .map_err(|e| format!("undistort image task panicked: {e}"))??;
+    Ok(Response::new(png))
 }
 
 /// Map raw/distorted camera pixels into the undistorted pixel frame
-/// used by the Epipolar workspace.
+/// used by the Epipolar workspace (`None` where back-projection has no
+/// finite unit-depth ray).
 #[tauri::command]
 pub async fn undistort_points(
     camera: usize,
     points_px: Vec<[f64; 2]>,
     cache: State<'_, ExportCache>,
-) -> Result<Vec<[f64; 2]>, String> {
+) -> Result<Vec<Option<[f64; 2]>>, String> {
     ops::undistort_points(&cache, camera, points_px)
 }
 
@@ -189,7 +206,18 @@ pub async fn projection_uncertainty(
     image_height: u32,
     cache: State<'_, ExportCache>,
 ) -> Result<ProjectionUncertainty, String> {
-    ops::projection_uncertainty(&cache, camera, [image_width, image_height])
+    let cached = cache
+        .snapshot()
+        .ok_or_else(|| "no export loaded yet".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::uncertainty::projection_uncertainty(
+            &cached.value,
+            camera,
+            [image_width, image_height],
+        )
+    })
+    .await
+    .map_err(|e| format!("projection uncertainty task panicked: {e}"))?
 }
 
 #[cfg(test)]

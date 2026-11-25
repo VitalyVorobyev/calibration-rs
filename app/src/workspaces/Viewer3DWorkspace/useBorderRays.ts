@@ -35,14 +35,17 @@ export function useBorderRays(
     const px = imageBorderPixels(width, height, BORDER_SAMPLES_PER_EDGE);
     const pointsPx: [number, number][] = [];
     for (let i = 0; i < px.length; i += 2) pointsPx.push([px[i]!, px[i + 1]!]);
-    call<[number, number][] | null>("undistort_points", {
+    call<([number, number] | null)[] | null>("undistort_points", {
       camera: cameraIndex,
       pointsPx,
     })
       .then((out) => {
         if (cancelled || !Array.isArray(out) || out.length !== pointsPx.length) return;
-        const flat = out.flat();
-        if (!flat.every(Number.isFinite)) return;
+        const flat: number[] = [];
+        for (const pt of out) {
+          if (!pt || !Number.isFinite(pt[0]) || !Number.isFinite(pt[1])) return;
+          flat.push(pt[0], pt[1]);
+        }
         setExact({ for: pinhole, rays: raysFromUndistortedPixels(k, flat) });
       })
       .catch(() => {

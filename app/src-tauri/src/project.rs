@@ -20,6 +20,7 @@
 //! contents.
 
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -244,16 +245,62 @@ pub fn save_run(dir: &Path, name: &str, record: RunRecord) -> Result<RunSummary,
     let dataset_dir = canonical_dir(&record.dataset_dir)?;
     let mut export = record.export;
     rebase_image_root(&mut export, &dataset_dir, &project);
-    std::fs::create_dir_all(&run_dir).map_err(|e| ProjectError::io(&run_dir, e))?;
-    write_json(&run_dir.join("manifest.json"), &record.manifest)?;
-    write_json(&run_dir.join("config.json"), &record.config)?;
-    write_json(&run_dir.join("export.json"), &export)?;
-    write_json(&run_dir.join("diagnostics.json"), &record.diagnostics)?;
-    write_report(&run_dir, name, &record.manifest, &export, &dataset_dir)?;
+    let runs_dir = project.join(RUNS_DIR);
+    std::fs::create_dir_all(&runs_dir).map_err(|e| ProjectError::io(&runs_dir, e))?;
+    let mut staging = StagingDir::create(&runs_dir, name)?;
+    write_json(&staging.path().join("manifest.json"), &record.manifest)?;
+    write_json(&staging.path().join("config.json"), &record.config)?;
+    write_json(&staging.path().join("export.json"), &export)?;
+    write_json(
+        &staging.path().join("diagnostics.json"),
+        &record.diagnostics,
+    )?;
+    write_report(
+        staging.path(),
+        name,
+        &record.manifest,
+        &export,
+        &dataset_dir,
+    )?;
+    std::fs::rename(staging.path(), &run_dir).map_err(|e| ProjectError::io(&run_dir, e))?;
+    staging.disarm();
     Ok(RunSummary {
         name: name.to_owned(),
         diagnostics: Some(record.diagnostics),
     })
+}
+
+static STAGING_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Scoped staging folder inside `runs/` removed automatically on drop unless renamed.
+struct StagingDir {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl StagingDir {
+    fn create(parent: &Path, name: &str) -> Result<Self, ProjectError> {
+        let seq = STAGING_SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!(".staging-{name}-{}-{seq}", std::process::id()));
+        std::fs::create_dir(&path).map_err(|e| ProjectError::io(&path, e))?;
+        Ok(Self { path, armed: true })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for StagingDir {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 }
 
 /// The saved runs of the project in `dir`, sorted by name. A folder under
@@ -266,7 +313,10 @@ fn list_runs(dir: &Path) -> Result<Vec<RunSummary>, ProjectError> {
     let entries = std::fs::read_dir(&runs_dir).map_err(|e| ProjectError::io(&runs_dir, e))?;
     let mut runs: Vec<RunSummary> = entries
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().join("export.json").is_file())
+        .filter(|entry| {
+            !entry.file_name().to_string_lossy().starts_with('.')
+                && entry.path().join("export.json").is_file()
+        })
         .map(|entry| RunSummary {
             name: entry.file_name().to_string_lossy().into_owned(),
             diagnostics: read_json(&entry.path().join("diagnostics.json")).ok(),
@@ -717,6 +767,21 @@ mod tests {
         create(tmp.path(), tmp.path(), &manifest()).unwrap();
         std::fs::create_dir_all(tmp.path().join(RUNS_DIR).join("scratch")).unwrap();
         assert!(open(tmp.path()).unwrap().runs.is_empty());
+    }
+
+    #[test]
+    fn staging_dir_cleans_up_on_drop_and_is_hidden_from_list_runs() {
+        let tmp = tempfile::tempdir().unwrap();
+        create(tmp.path(), tmp.path(), &manifest()).unwrap();
+        let runs_dir = tmp.path().join(RUNS_DIR);
+        std::fs::create_dir_all(&runs_dir).unwrap();
+        let staged_path = {
+            let staging = StagingDir::create(&runs_dir, "run-partial").unwrap();
+            write_json(&staging.path().join("export.json"), &json!({})).unwrap();
+            assert!(open(tmp.path()).unwrap().runs.is_empty());
+            staging.path().to_path_buf()
+        };
+        assert!(!staged_path.exists());
     }
 
     #[test]

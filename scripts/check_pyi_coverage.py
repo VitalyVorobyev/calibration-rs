@@ -24,7 +24,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PY_PKG = REPO_ROOT / "crates/vision-calibration-py/python/vision_calibration"
-RUST_LIB = REPO_ROOT / "crates/vision-calibration-py/src/lib.rs"
+RUST_SRC = REPO_ROOT / "crates/vision-calibration-py/src"
 
 
 def extract_all(init_py: Path) -> set[str]:
@@ -60,19 +60,80 @@ def extract_pyi_symbols(pyi: Path) -> set[str]:
     return symbols
 
 
-def extract_rust_pyfunctions(lib_rs: Path) -> set[str]:
-    text = lib_rs.read_text()
+def extract_rust_pyfunctions(rust_dir: Path) -> set[str]:
     names: set[str] = set()
-    for m in re.finditer(r"m\.add_function\(wrap_pyfunction!\(\s*(\w+)\s*,\s*m\s*\)\?\)\?;", text):
-        names.add(m.group(1))
+    for rs_path in sorted(rust_dir.glob("*.rs")):
+        text = rs_path.read_text()
+        for m in re.finditer(
+            r"m\.add_function\(wrap_pyfunction!\(\s*(\w+)\s*,\s*m\s*\)\?\)\?;",
+            text,
+        ):
+            names.add(m.group(1))
     return names
 
 
 GENERATED_TYPES = "_generated_types.py"
 
-# Native functions the package surfaces under another public name; the stub
-# must declare that name instead of the native one.
+# Native functions surfaced under another top-level name in `__init__.pyi`.
 NATIVE_SURFACED_AS = {"library_version": "__version__"}
+
+# Native functions surfaced on typed Python submodules/methods as
+# ``native_name -> (module_filename, public_symbol_or_Class.method)``.
+NATIVE_SUBMODULE_SURFACE: dict[str, tuple[str, str]] = {
+    "cache_key_from_inputs": ("detect.py", "CacheKey.from_inputs"),
+    "cache_key_file_name": ("detect.py", "CacheKey.file_name"),
+    "vcal_main": ("cli.py", "main"),
+    "sample_catalogue": ("samples.py", "catalogue"),
+    "fetch_sample": ("samples.py", "fetch"),
+    "sample_cache_dir": ("samples.py", "cache_dir"),
+    "camera_image_sizes": ("dataset_runner.py", "camera_image_sizes"),
+    "build_planar_input": ("dataset_runner.py", "build_planar_input"),
+    "build_single_cam_handeye_input": ("dataset_runner.py", "build_single_cam_handeye_input"),
+    "build_rig_extrinsics_input": ("dataset_runner.py", "build_rig_extrinsics_input"),
+    "build_rig_handeye_input": ("dataset_runner.py", "build_rig_handeye_input"),
+    "build_laserline_device_input": ("dataset_runner.py", "build_laserline_device_input"),
+    "build_rig_laserline_device_input": ("dataset_runner.py", "build_rig_laserline_device_input"),
+    "build_rig_handeye_laserline_input": ("dataset_runner.py", "build_rig_handeye_laserline_input"),
+    "mvg_reprojection_noise": ("mvg.py", "reprojection_noise"),
+    "mvg_estimate_essential": ("mvg.py", "estimate_essential"),
+    "mvg_recover_relative_pose": ("mvg.py", "recover_relative_pose"),
+    "mvg_recover_relative_pose_robust": ("mvg.py", "recover_relative_pose_robust"),
+    "mvg_triangulate": ("mvg.py", "triangulate"),
+    "mvg_estimate_pose": ("mvg.py", "estimate_pose"),
+    "mvg_bundle_adjust": ("mvg.py", "bundle_adjust"),
+    "mvg_triangulate_laser": ("mvg.py", "triangulate_laser"),
+    "mvg_distance": ("mvg.py", "distance"),
+    "mvg_angle": ("mvg.py", "angle"),
+    "mvg_fit_plane": ("mvg.py", "fit_plane"),
+    "mvg_point_to_plane": ("mvg.py", "point_to_plane"),
+    "mvg_rectify": ("mvg.py", "rectify"),
+    "mvg_match_block": ("mvg.py", "match_block"),
+    "mvg_estimate_homography": ("mvg.py", "estimate_homography"),
+}
+
+# Native functions kept strictly internal/test-only (not part of the typed Python API).
+NATIVE_INTERNAL = {"mvg_defaults", "load_manifest"}
+
+
+def module_has_symbol(mod_path: Path, dotted: str) -> bool:
+    tree = ast.parse(mod_path.read_text())
+    parts = dotted.split(".")
+    if len(parts) == 1:
+        name = parts[0]
+        return any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == name
+            for node in tree.body
+        )
+    cls_name, method_name = parts
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == cls_name:
+            return any(
+                isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and sub.name == method_name
+                for sub in node.body
+            )
+    return False
 
 
 def hand_written_typed_dicts(pkg: Path) -> list[str]:
@@ -105,10 +166,21 @@ def main() -> int:
 
     all_syms = extract_all(init_py)
     pyi_syms = extract_pyi_symbols(init_pyi)
-    rust_syms = {NATIVE_SURFACED_AS.get(n, n) for n in extract_rust_pyfunctions(RUST_LIB)}
+    rust_fns = extract_rust_pyfunctions(RUST_SRC)
 
     missing_from_pyi = sorted(all_syms - pyi_syms)
-    untyped_rust = sorted(rust_syms - pyi_syms)
+    untyped_rust: list[str] = []
+    for name in sorted(rust_fns):
+        if name in NATIVE_INTERNAL:
+            continue
+        if name in NATIVE_SUBMODULE_SURFACE:
+            mod_name, sym = NATIVE_SUBMODULE_SURFACE[name]
+            if not module_has_symbol(PY_PKG / mod_name, sym):
+                untyped_rust.append(f"{name} (expected {mod_name}:{sym})")
+            continue
+        surfaced = NATIVE_SURFACED_AS.get(name, name)
+        if surfaced not in pyi_syms:
+            untyped_rust.append(name)
 
     ok = True
     if missing_from_pyi:
@@ -131,7 +203,7 @@ def main() -> int:
         for entry in hand_written:
             print(f"  - {entry}")
     if ok:
-        print(f"pyi coverage OK ({len(all_syms)} __all__ entries, {len(rust_syms)} pyfunctions)")
+        print(f"pyi coverage OK ({len(all_syms)} __all__ entries, {len(rust_fns)} pyfunctions)")
         return 0
     if args.check:
         return 1

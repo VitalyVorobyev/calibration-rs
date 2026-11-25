@@ -423,8 +423,8 @@ fn unpack_params(
 /// running optimization.
 ///
 /// `robot_deltas`, when provided, must contain one tangent correction per
-/// view and uses the same left-multiply convention as the optimizer:
-/// `T_B_G_corr = exp(delta_i) * T_B_G_i`.
+/// view and uses the same right-multiply convention as the optimizer:
+/// `T_B_G_corr = T_B_G_i * exp(delta_i)`.
 ///
 /// # Errors
 ///
@@ -444,6 +444,16 @@ fn compute_stats(
     robot_deltas: Option<&[[Real; 6]]>,
 ) -> Result<(f64, Vec<RigHandeyeLaserlinePerCamStats>), Error> {
     use crate::factors::laserline::{laser_line_distance_residual, laser_point_to_plane_residual};
+
+    if let Some(deltas) = robot_deltas
+        && deltas.len() != dataset.num_views()
+    {
+        return Err(Error::invalid_input(format!(
+            "robot_deltas has {} entries, expected {} (one per view)",
+            deltas.len(),
+            dataset.num_views()
+        )));
+    }
 
     let cam_models = camera_models(&params.cameras)?;
     let specs = params
@@ -472,11 +482,12 @@ fn compute_stats(
     let mut per_cam_reproj_count = vec![0usize; dataset.num_cameras];
     let mut per_cam_reproj_max = vec![0.0f64; dataset.num_cameras];
     let mut per_cam_reproj_hist = vec![[0usize; 5]; dataset.num_cameras];
-    let mut per_cam_laser_pt_sq_sum = vec![0.0f64; dataset.num_cameras];
+    let mut per_cam_laser_pt_sum = vec![0.0f64; dataset.num_cameras];
     let mut per_cam_laser_pt_max = vec![0.0f64; dataset.num_cameras];
     let mut per_cam_laser_m_hist = vec![[0usize; 5]; dataset.num_cameras];
-    let mut per_cam_laser_px_sq_sum = vec![0.0f64; dataset.num_cameras];
+    let mut per_cam_laser_px_sum = vec![0.0f64; dataset.num_cameras];
     let mut per_cam_laser_px_max = vec![0.0f64; dataset.num_cameras];
+    let mut per_cam_laser_px_count = vec![0usize; dataset.num_cameras];
     let mut per_cam_laser_count = vec![0usize; dataset.num_cameras];
 
     let handeye_fwd = params.handeye;
@@ -540,6 +551,7 @@ fn compute_stats(
                 plane_n_dvecs[cam_idx].clone(),
                 plane_d_dvecs[cam_idx].clone(),
             ]);
+            let preserves_lines = specs[cam_idx].projection.preserves_lines();
             for px in pixels {
                 let laser_px = [px.x, px.y];
                 let r_m = laser_point_to_plane_residual(
@@ -549,24 +561,29 @@ fn compute_stats(
                     laser_px,
                     1.0,
                 );
-                let r_px = laser_line_distance_residual(
-                    specs[cam_idx],
-                    &chain,
-                    &chain_params,
-                    laser_px,
-                    1.0,
-                );
                 let m = r_m[0];
-                let p = r_px[0];
-                if m.is_finite() && p.is_finite() && m.abs() < 1e5 && p.abs() < 1e5 {
+                if m.is_finite() && m.abs() < 1e5 {
                     let m_abs = m.abs();
-                    let p_abs = p.abs();
-                    per_cam_laser_pt_sq_sum[cam_idx] += m_abs * m_abs;
-                    per_cam_laser_px_sq_sum[cam_idx] += p_abs * p_abs;
+                    per_cam_laser_pt_sum[cam_idx] += m_abs;
                     per_cam_laser_pt_max[cam_idx] = per_cam_laser_pt_max[cam_idx].max(m_abs);
-                    per_cam_laser_px_max[cam_idx] = per_cam_laser_px_max[cam_idx].max(p_abs);
                     per_cam_laser_m_hist[cam_idx][bucket_laser_m(m_abs)] += 1;
                     per_cam_laser_count[cam_idx] += 1;
+                }
+                if preserves_lines {
+                    let r_px = laser_line_distance_residual(
+                        specs[cam_idx],
+                        &chain,
+                        &chain_params,
+                        laser_px,
+                        1.0,
+                    );
+                    let p = r_px[0];
+                    if p.is_finite() && p.abs() < 1e5 {
+                        let p_abs = p.abs();
+                        per_cam_laser_px_sum[cam_idx] += p_abs;
+                        per_cam_laser_px_max[cam_idx] = per_cam_laser_px_max[cam_idx].max(p_abs);
+                        per_cam_laser_px_count[cam_idx] += 1;
+                    }
                 }
             }
         }
@@ -581,14 +598,16 @@ fn compute_stats(
                 0.0
             };
             let laser_count = per_cam_laser_count[cam_idx];
-            let (mean_laser_error_m, mean_laser_error_px) = if laser_count > 0 {
-                let n = laser_count as f64;
-                (
-                    (per_cam_laser_pt_sq_sum[cam_idx] / n).sqrt(),
-                    (per_cam_laser_px_sq_sum[cam_idx] / n).sqrt(),
-                )
+            let mean_laser_error_m = if laser_count > 0 {
+                per_cam_laser_pt_sum[cam_idx] / laser_count as f64
             } else {
-                (0.0, 0.0)
+                0.0
+            };
+            let px_count = per_cam_laser_px_count[cam_idx];
+            let mean_laser_error_px = if px_count > 0 {
+                per_cam_laser_px_sum[cam_idx] / px_count as f64
+            } else {
+                0.0
             };
             RigHandeyeLaserlinePerCamStats {
                 mean_reproj_error,

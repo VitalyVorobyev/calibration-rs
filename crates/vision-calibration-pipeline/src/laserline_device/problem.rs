@@ -296,18 +296,47 @@ impl ProblemType for LaserlineDeviceProblem {
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         config.solver.validate()?;
         config.intrinsics_init.validate()?;
-        if config.optimize.reprojection_weight <= 0.0 {
-            return Err(Error::invalid_input("reprojection_weight must be positive"));
+        if !(config.optimize.reprojection_weight.is_finite()
+            && config.optimize.reprojection_weight > 0.0)
+        {
+            return Err(Error::invalid_input(
+                "reprojection_weight must be finite and positive",
+            ));
         }
-        if config.optimize.laser_weight <= 0.0 {
-            return Err(Error::invalid_input("laser_weight must be positive"));
+        if !(config.optimize.laser_weight.is_finite() && config.optimize.laser_weight > 0.0) {
+            return Err(Error::invalid_input(
+                "laser_weight must be finite and positive",
+            ));
         }
+        crate::common::config::validate_robust_loss(
+            config.optimize.reprojection_loss,
+            "optimize.reprojection_loss",
+        )?;
+        crate::common::config::validate_robust_loss(
+            config.optimize.laser_loss,
+            "optimize.laser_loss",
+        )?;
         config.camera.validate_single_camera()?;
         check_laser_residual(
             config.optimize.laser_residual_type,
             config.camera.model,
             "optimize.laser_residual_type",
         )
+    }
+
+    fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
+        if let Some(&bad) = config
+            .optimize
+            .fix_poses
+            .iter()
+            .find(|&&i| i >= input.num_views())
+        {
+            return Err(Error::invalid_input(format!(
+                "optimize.fix_poses index {bad} out of bounds for {} views",
+                input.num_views()
+            )));
+        }
+        Ok(())
     }
 
     fn export(
@@ -328,7 +357,10 @@ impl ProblemType for LaserlineDeviceProblem {
 
         let laser = compute_laserline_feature_residuals(input, params)?;
         per_feature_residuals.laser_hist_per_cam = Some(vec![build_feature_histogram(
-            laser.features.iter().filter_map(|r| r.residual_px),
+            laser
+                .features
+                .iter()
+                .filter_map(|r| r.residual_px.map(f64::abs)),
         )]);
         per_feature_residuals.laser = laser.features;
         per_feature_residuals.laser_lines = laser.lines;
@@ -459,7 +491,7 @@ mod tests {
             let res_m = r.residual_m.expect("ray must hit target plane");
             let res_px = r.residual_px.expect("line endpoints must be recoverable");
             assert!(res_m.abs() < 1e-6, "residual_m {res_m}");
-            assert!(res_px < 1e-6, "residual_px {res_px}");
+            assert!(res_px.abs() < 1e-6, "residual_px {res_px}");
         }
         let target_hist = &export
             .diagnostics

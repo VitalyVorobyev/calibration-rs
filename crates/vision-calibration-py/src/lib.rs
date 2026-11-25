@@ -128,8 +128,8 @@ fn projection_uncertainty(
 ) -> PyResult<Py<PyAny>> {
     let image_size: [u32; 2] = parse_payload(image_size, "image_size")?;
     let export = parse_cameras(export, "export")?;
-    let map = export
-        .projection_uncertainty(camera, image_size)
+    let map = py
+        .detach(|| export.projection_uncertainty(camera, image_size))
         .map_err(analysis_err)?;
     let output = pythonize(py, &map)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
@@ -176,11 +176,12 @@ fn assess(
     let image_sizes: Vec<[u32; 2]> =
         parse_optional_payload(image_sizes, "image_sizes")?.unwrap_or_default();
     let export = parse_cameras(export, "export")?;
-    let report = vision_calibration::analysis::assess(export.as_ref(), &image_sizes, &thresholds)
+    let report = py
+        .detach(|| vision_calibration::analysis::assess(export.as_ref(), &image_sizes, &thresholds))
         .map_err(|err| match &err {
-        vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
-        _ => runtime_err(err.to_string()),
-    })?;
+            vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
+            _ => runtime_err(err.to_string()),
+        })?;
     let output = pythonize(py, &report)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
     Ok(output.unbind())
@@ -213,6 +214,7 @@ fn assess(
 ///     shape.
 #[pyfunction(signature = (export, image_sizes=None, title=None, camera_names=None, thresholds=None))]
 fn html_report(
+    py: Python<'_>,
     export: &Bound<'_, PyAny>,
     image_sizes: Option<&Bound<'_, PyAny>>,
     title: Option<String>,
@@ -228,12 +230,11 @@ fn html_report(
     let image_sizes: Vec<[u32; 2]> =
         parse_optional_payload(image_sizes, "image_sizes")?.unwrap_or_default();
     let export = parse_cameras(export, "export")?;
-    vision_calibration::analysis::html_report(export.as_ref(), &image_sizes, &options).map_err(
-        |err| match &err {
+    py.detach(|| vision_calibration::analysis::html_report(export.as_ref(), &image_sizes, &options))
+        .map_err(|err| match &err {
             vision_calibration::Error::InvalidInput { .. } => value_err(err.to_string()),
             _ => runtime_err(err.to_string()),
-        },
-    )
+        })
 }
 
 /// A pipeline error as a Python exception: an input the caller can fix (a
@@ -330,9 +331,16 @@ fn predict_with_views(
 ) -> PyResult<Py<PyAny>> {
     let export = planar_export(export)?;
     let (candidates, points, image_size) = next_view_inputs(candidates, target_points, image_size)?;
-    let predicted =
-        vision_calibration::analysis::predict_with_views(&export, &candidates, &points, image_size)
-            .map_err(analysis_err)?;
+    let predicted = py
+        .detach(|| {
+            vision_calibration::analysis::predict_with_views(
+                &export,
+                &candidates,
+                &points,
+                image_size,
+            )
+        })
+        .map_err(analysis_err)?;
     let output = pythonize(py, &predicted)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
     Ok(output.unbind())
@@ -357,9 +365,11 @@ fn rank_candidates(
 ) -> PyResult<Py<PyAny>> {
     let export = planar_export(export)?;
     let (candidates, points, image_size) = next_view_inputs(candidates, target_points, image_size)?;
-    let ranked =
-        vision_calibration::analysis::rank_candidates(&export, &candidates, &points, image_size)
-            .map_err(analysis_err)?;
+    let ranked = py
+        .detach(|| {
+            vision_calibration::analysis::rank_candidates(&export, &candidates, &points, image_size)
+        })
+        .map_err(analysis_err)?;
     let output = pythonize(py, &ranked)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
     Ok(output.unbind())
@@ -439,13 +449,16 @@ fn predict_with_robot_poses(
 ) -> PyResult<Py<PyAny>> {
     let export = rig_handeye_export(export)?;
     let (candidates, points, sizes) = robot_pose_inputs(candidates, target_points, image_sizes)?;
-    let predicted = vision_calibration::analysis::predict_with_robot_poses(
-        &export,
-        &candidates,
-        &points,
-        &sizes,
-    )
-    .map_err(analysis_err)?;
+    let predicted = py
+        .detach(|| {
+            vision_calibration::analysis::predict_with_robot_poses(
+                &export,
+                &candidates,
+                &points,
+                &sizes,
+            )
+        })
+        .map_err(analysis_err)?;
     let output = pythonize(py, &predicted)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
     Ok(output.unbind())
@@ -470,9 +483,11 @@ fn rank_robot_poses(
 ) -> PyResult<Py<PyAny>> {
     let export = rig_handeye_export(export)?;
     let (candidates, points, sizes) = robot_pose_inputs(candidates, target_points, image_sizes)?;
-    let ranked =
-        vision_calibration::analysis::rank_robot_poses(&export, &candidates, &points, &sizes)
-            .map_err(analysis_err)?;
+    let ranked = py
+        .detach(|| {
+            vision_calibration::analysis::rank_robot_poses(&export, &candidates, &points, &sizes)
+        })
+        .map_err(analysis_err)?;
     let output = pythonize(py, &ranked)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
     Ok(output.unbind())
@@ -515,7 +530,10 @@ fn candidate_poses(
     let grid: vision_calibration::analysis::CandidateGrid = parse_payload(grid, "grid")?;
     let points = parse_target_points(target_points)?;
     let image_size = parse_payload(image_size, "image_size")?;
-    let poses = vision_calibration::analysis::candidate_poses(&camera, &points, image_size, &grid)
+    let poses = py
+        .detach(|| {
+            vision_calibration::analysis::candidate_poses(&camera, &points, image_size, &grid)
+        })
         .map_err(analysis_err)?;
     let output = pythonize(py, &poses)
         .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
@@ -643,9 +661,16 @@ fn fit_focus(
     use vision_calibration::core::{CameraParams, Iso3};
     use vision_calibration::planar_intrinsics::PlanarIntrinsicsInput;
 
+    if let Some(limit) = blur_limit_px
+        && !(limit.is_finite() && limit > 0.0)
+    {
+        return Err(value_err(format!(
+            "blur_limit_px must be finite and positive, got {limit}"
+        )));
+    }
     let input: PlanarIntrinsicsInput = session::parse_checked(input, "input")?;
-    let camera: CameraParams = parse_payload(camera, "camera")?;
-    let poses: Vec<Iso3> = parse_payload(cam_se3_target, "cam_se3_target")?;
+    let camera: CameraParams = session::parse_checked(camera, "camera")?;
+    let poses: Vec<Iso3> = session::parse_checked(cam_se3_target, "cam_se3_target")?;
     let opts = FocusOptions::new(blur_limit_px, view_jackknife);
     let diagnostic = py
         .detach(|| vision_calibration::analysis::fit_focus(&input, &camera, &poses, &opts))

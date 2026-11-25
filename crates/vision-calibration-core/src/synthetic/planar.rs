@@ -18,11 +18,10 @@ use std::ops::RangeInclusive;
 /// Points are ordered deterministically in row-major order (Y major):
 /// `(x = 0..nx-1, y = 0..ny-1)`.
 pub fn grid_points(nx: usize, ny: usize, spacing: Real) -> Vec<Pt3> {
-    grid_points_range(
-        0..=(nx.saturating_sub(1) as i32),
-        0..=(ny.saturating_sub(1) as i32),
-        spacing,
-    )
+    if nx == 0 || ny == 0 {
+        return Vec::new();
+    }
+    grid_points_range(0..=(nx - 1) as i32, 0..=(ny - 1) as i32, spacing)
 }
 
 /// Generate a planar grid of 2D points with `nx * ny` points.
@@ -30,11 +29,10 @@ pub fn grid_points(nx: usize, ny: usize, spacing: Real) -> Vec<Pt3> {
 /// Points are ordered deterministically in row-major order (Y major):
 /// `(x = 0..nx-1, y = 0..ny-1)`.
 pub fn grid_points_2d(nx: usize, ny: usize, spacing: Real) -> Vec<Pt2> {
-    grid_points_range_2d(
-        0..=(nx.saturating_sub(1) as i32),
-        0..=(ny.saturating_sub(1) as i32),
-        spacing,
-    )
+    if nx == 0 || ny == 0 {
+        return Vec::new();
+    }
+    grid_points_range_2d(0..=(nx - 1) as i32, 0..=(ny - 1) as i32, spacing)
 }
 
 /// Generate a planar grid of 3D points (Z=0) over integer index ranges.
@@ -231,6 +229,14 @@ mod tests {
         assert_eq!(pts[0], Pt3::new(0.0, 0.0, 0.0));
         assert_eq!(pts[1], Pt3::new(0.5, 0.0, 0.0));
         assert_eq!(pts[2], Pt3::new(0.0, 0.5, 0.0));
+    }
+
+    #[test]
+    fn grid_points_zero_dimension_returns_empty() {
+        for (nx, ny) in [(0, 0), (0, 4), (4, 0)] {
+            assert!(grid_points(nx, ny, 0.05).is_empty(), "3d ({nx}, {ny})");
+            assert!(grid_points_2d(nx, ny, 0.05).is_empty(), "2d ({nx}, {ny})");
+        }
     }
 
     #[test]

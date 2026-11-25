@@ -428,3 +428,34 @@ fn mvg_bundle_adjust_reachable() {
         vision_calibration::mvg::bundle_adjust::Scale::Rig,
     );
 }
+
+#[test]
+fn facade_camera_traits_refine_essential_linear_and_validate_reachable() {
+    fn assert_traits<
+        P: core::ProjectionModel<core::Real>,
+        D: core::DistortionModel<core::Real>,
+        S: core::SensorModel<core::Real>,
+        K: core::IntrinsicsModel<core::Real>,
+    >(
+        cam: &core::Camera<core::Real, P, D, S, K>,
+    ) where
+        core::Camera<core::Real, P, D, S, K>: core::CameraProject,
+    {
+        let _ = cam.project_point(&core::Pt3::new(0.0, 0.0, 1.0));
+    }
+
+    let k = core::FxFyCxCy {
+        fx: 800.0,
+        fy: 800.0,
+        cx: 400.0,
+        cy: 300.0,
+    };
+    let cam = core::Camera::new(core::Pinhole, core::NoDistortion, core::IdentitySensor, k);
+    assert_traits(&cam);
+
+    let _ = mvg::refine::refine_homography;
+    let _ = mvg::solvers::essential_linear;
+    let _ = dataset::validate;
+    let _ = core::ImageManifest::new("images", vec![core::FrameRef::new(0, 0, "00.png")]);
+    let _ = core::PixelRect::new(0, 0, 640, 480);
+}

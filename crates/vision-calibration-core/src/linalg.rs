@@ -18,7 +18,9 @@
 //! Hartley & Zisserman, *Multiple View Geometry in Computer Vision*, 2nd ed.
 
 use crate::{Iso3, Mat3, Mat4, Pt2, Pt3, Real, Vec3};
-use nalgebra::{DMatrix, DVector, Matrix3x4, Rotation3, Schur, Translation3, UnitQuaternion};
+use nalgebra::{
+    DMatrix, DVector, Matrix3x4, Matrix4, Rotation3, Schur, Translation3, UnitQuaternion,
+};
 
 /// Errors returned by the fallible primitives in this module.
 ///
@@ -44,7 +46,7 @@ pub enum MathError {
 /// matrix such that `p_norm = T * p_homogeneous`, or `None` if input is empty
 /// or all points coincide.
 pub fn normalize_points_2d(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
-    if points.is_empty() {
+    if points.is_empty() || points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) {
         return None;
     }
 
@@ -57,20 +59,31 @@ pub fn normalize_points_2d(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
     }
     cx /= n;
     cy /= n;
+    if !cx.is_finite() || !cy.is_finite() {
+        return None;
+    }
 
     let mut mean_dist = 0.0;
     for p in points {
         let dx = p.x - cx;
         let dy = p.y - cy;
-        mean_dist += (dx * dx + dy * dy).sqrt();
+        let peak = dx.abs().max(dy.abs());
+        mean_dist += if peak > 1e150 || (peak > 0.0 && peak < 1e-150) {
+            dx.hypot(dy)
+        } else {
+            (dx * dx + dy * dy).sqrt()
+        };
     }
     mean_dist /= n;
 
-    if mean_dist <= f64::EPSILON {
+    if !mean_dist.is_finite() || mean_dist <= f64::EPSILON {
         return None;
     }
 
     let scale = (2.0_f64).sqrt() / mean_dist;
+    if !scale.is_finite() {
+        return None;
+    }
     let t = Mat3::new(
         scale,
         0.0,
@@ -99,7 +112,11 @@ pub fn normalize_points_2d(points: &[Pt2]) -> Option<(Vec<Pt2>, Mat3)> {
 /// Returns `Some((normalized_points, transform_matrix))` where `T` is a 4×4
 /// matrix, or `None` if input is empty or all points coincide.
 pub fn normalize_points_3d(points: &[Pt3]) -> Option<(Vec<Pt3>, Mat4)> {
-    if points.is_empty() {
+    if points.is_empty()
+        || points
+            .iter()
+            .any(|p| !p.x.is_finite() || !p.y.is_finite() || !p.z.is_finite())
+    {
         return None;
     }
 
@@ -115,21 +132,32 @@ pub fn normalize_points_3d(points: &[Pt3]) -> Option<(Vec<Pt3>, Mat4)> {
     cx /= n;
     cy /= n;
     cz /= n;
+    if !cx.is_finite() || !cy.is_finite() || !cz.is_finite() {
+        return None;
+    }
 
     let mut mean_dist = 0.0;
     for p in points {
         let dx = p.x - cx;
         let dy = p.y - cy;
         let dz = p.z - cz;
-        mean_dist += (dx * dx + dy * dy + dz * dz).sqrt();
+        let peak = dx.abs().max(dy.abs()).max(dz.abs());
+        mean_dist += if peak > 1e150 || (peak > 0.0 && peak < 1e-150) {
+            dx.hypot(dy).hypot(dz)
+        } else {
+            (dx * dx + dy * dy + dz * dz).sqrt()
+        };
     }
     mean_dist /= n;
 
-    if mean_dist <= Real::EPSILON {
+    if !mean_dist.is_finite() || mean_dist <= Real::EPSILON {
         return None;
     }
 
     let scale = (3.0_f64).sqrt() / mean_dist;
+    if !scale.is_finite() {
+        return None;
+    }
     let t = Mat4::new(
         scale,
         0.0,
@@ -159,41 +187,62 @@ pub fn normalize_points_3d(points: &[Pt3]) -> Option<(Vec<Pt3>, Mat4)> {
 
 /// Solve quadratic equation `ax² + bx + c = 0` for real roots.
 ///
-/// Returns sorted, deduplicated real roots.
+/// Returns sorted, deduplicated real roots; none for a non-finite
+/// coefficient.
 pub fn solve_quadratic_real(a: Real, b: Real, c: Real) -> Vec<Real> {
-    let eps = 1e-12;
-    if a.abs() < eps {
-        if b.abs() < eps {
+    if ![a, b, c].iter().all(|v| v.is_finite()) {
+        return Vec::new();
+    }
+    let scale = a.abs().max(b.abs()).max(c.abs());
+    if scale == 0.0 {
+        return Vec::new();
+    }
+    let (a, b, c) = (a / scale, b / scale, c / scale);
+    if a.abs() <= 1e-12 {
+        if b.abs() <= 1e-12 {
             return Vec::new();
         }
-        return vec![-c / b];
+        let r = -c / b;
+        return if r.is_finite() { vec![r] } else { Vec::new() };
     }
+
     let disc = b * b - 4.0 * a * c;
-    if disc.abs() < eps {
-        return vec![-b / (2.0 * a)];
+    let disc_scale = (b * b).max((4.0 * a * c).abs()).max(1e-300);
+    if disc.abs() <= 1e-14 * disc_scale {
+        let r = -b / (2.0 * a);
+        return if r.is_finite() { vec![r] } else { Vec::new() };
     }
     if disc < 0.0 {
         return Vec::new();
     }
     let sqrt_disc = disc.sqrt();
-    let r1 = (-b + sqrt_disc) / (2.0 * a);
-    let r2 = (-b - sqrt_disc) / (2.0 * a);
-    if (r1 - r2).abs() < 1e-8 {
-        vec![r1]
+    // Citardauq's formula avoids catastrophic cancellation when b^2 >> 4ac.
+    let q = -0.5 * (b + if b >= 0.0 { sqrt_disc } else { -sqrt_disc });
+    let (r1, r2) = if q.abs() > 0.0 {
+        (q / a, c / q)
     } else {
-        let mut roots = vec![r1, r2];
-        roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        roots
-    }
+        ((-b + sqrt_disc) / (2.0 * a), (-b - sqrt_disc) / (2.0 * a))
+    };
+    let mut roots: Vec<Real> = [r1, r2].into_iter().filter(|r| r.is_finite()).collect();
+    roots.sort_by(f64::total_cmp);
+    roots.dedup_by(|x, y| (*x - *y).abs() <= 1e-8 * (1.0 + x.abs().max(y.abs())));
+    roots
 }
 
 /// Solve cubic equation `ax³ + bx² + cx + d = 0` for real roots.
 ///
 /// Uses Cardano's formula with depressed cubic transformation.
-/// Returns sorted, deduplicated real roots.
+/// Returns sorted, deduplicated real roots; none for a non-finite
+/// coefficient.
 pub fn solve_cubic_real(a: Real, b: Real, c: Real, d: Real) -> Vec<Real> {
-    let eps = 1e-12;
-    if a.abs() < eps {
+    if ![a, b, c, d].iter().all(|v| v.is_finite()) {
+        return Vec::new();
+    }
+    let scale = a.abs().max(b.abs()).max(c.abs()).max(d.abs());
+    if scale == 0.0 {
+        return Vec::new();
+    }
+    if a.abs() <= 1e-12 * scale {
         return solve_quadratic_real(b, c, d);
     }
 
@@ -201,34 +250,48 @@ pub fn solve_cubic_real(a: Real, b: Real, c: Real, d: Real) -> Vec<Real> {
     let b = b * a_inv;
     let c = c * a_inv;
     let d = d * a_inv;
+    if ![b, c, d].iter().all(|v| v.is_finite()) {
+        return Vec::new();
+    }
 
     let p = c - b * b / 3.0;
     let q = 2.0 * b * b * b / 27.0 - b * c / 3.0 + d;
 
-    let disc = (q * 0.5) * (q * 0.5) + (p / 3.0) * (p / 3.0) * (p / 3.0);
+    let half_q = q * 0.5;
+    let p_third = p / 3.0;
+    let term1 = half_q * half_q;
+    let term2 = p_third * p_third * p_third;
+    let disc = term1 + term2;
+    let disc_scale = term1.abs().max(term2.abs()).max(1e-300);
     let shift = b / 3.0;
 
     let mut roots = Vec::new();
-    if disc > eps {
+    if disc > 1e-14 * disc_scale {
         let sqrt_disc = disc.sqrt();
-        let u = (-q * 0.5 + sqrt_disc).signum() * (-q * 0.5 + sqrt_disc).abs().powf(1.0 / 3.0);
-        let v = (-q * 0.5 - sqrt_disc).signum() * (-q * 0.5 - sqrt_disc).abs().powf(1.0 / 3.0);
+        let u = (-half_q + sqrt_disc).cbrt();
+        let v = (-half_q - sqrt_disc).cbrt();
         roots.push(u + v - shift);
-    } else if disc.abs() <= eps {
-        let u = (-q * 0.5).signum() * (-q * 0.5).abs().powf(1.0 / 3.0);
-        roots.push(2.0 * u - shift);
-        roots.push(-u - shift);
-    } else {
-        let r = (-p / 3.0).sqrt();
-        let phi = ((-q * 0.5) / (r * r * r)).clamp(-1.0, 1.0).acos();
+    } else if disc <= 0.0 && p < 0.0 {
+        let r = (-p_third).sqrt();
+        let denom = r * r * r;
+        let phi = if denom > 0.0 {
+            (-half_q / denom).clamp(-1.0, 1.0).acos()
+        } else {
+            0.0
+        };
         let two_r = 2.0 * r;
         roots.push(two_r * (phi / 3.0).cos() - shift);
         roots.push(two_r * ((phi + 2.0 * std::f64::consts::PI) / 3.0).cos() - shift);
         roots.push(two_r * ((phi + 4.0 * std::f64::consts::PI) / 3.0).cos() - shift);
+    } else {
+        let u = (-half_q).cbrt();
+        roots.push(2.0 * u - shift);
+        roots.push(-u - shift);
     }
 
-    roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    roots.dedup_by(|a, b| (*a - *b).abs() < 1e-8);
+    roots.retain(|r| r.is_finite());
+    roots.sort_by(f64::total_cmp);
+    roots.dedup_by(|x, y| (*x - *y).abs() <= 1e-8 * (1.0 + x.abs().max(y.abs())));
     roots
 }
 
@@ -243,32 +306,38 @@ pub fn solve_quartic_real(a: Real, b: Real, c: Real, d: Real, e: Real) -> Vec<Re
     if ![a, b, c, d, e].iter().all(|v| v.is_finite()) {
         return Vec::new();
     }
-    let eps = 1e-12;
-    if a.abs() < eps {
+    let scale = a.abs().max(b.abs()).max(c.abs()).max(d.abs()).max(e.abs());
+    if scale == 0.0 {
+        return Vec::new();
+    }
+    if a.abs() <= 1e-12 * scale {
         return solve_cubic_real(b, c, d, e);
     }
 
-    let mut comp = DMatrix::<Real>::zeros(4, 4);
-    comp[(0, 0)] = -b / a;
-    comp[(0, 1)] = -c / a;
-    comp[(0, 2)] = -d / a;
-    comp[(0, 3)] = -e / a;
-    comp[(1, 0)] = 1.0;
-    comp[(2, 1)] = 1.0;
-    comp[(3, 2)] = 1.0;
+    let (c0, c1, c2, c3) = (-b / a, -c / a, -d / a, -e / a);
+    if ![c0, c1, c2, c3].iter().all(|v| v.is_finite()) {
+        return Vec::new();
+    }
+
+    let comp = Matrix4::<Real>::new(
+        c0, c1, c2, c3, //
+        1.0, 0.0, 0.0, 0.0, //
+        0.0, 1.0, 0.0, 0.0, //
+        0.0, 0.0, 1.0, 0.0, //
+    );
 
     let schur = Schur::new(comp);
     let eigvals = schur.complex_eigenvalues();
 
     let mut roots = Vec::new();
     for val in eigvals.iter() {
-        if val.im.abs() < 1e-8 {
+        if val.im.abs() < 1e-8 && val.re.is_finite() {
             roots.push(val.re);
         }
     }
 
-    roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    roots.dedup_by(|a, b| (*a - *b).abs() < 1e-8);
+    roots.sort_by(f64::total_cmp);
+    roots.dedup_by(|x, y| (*x - *y).abs() <= 1e-8 * (1.0 + x.abs().max(y.abs())));
     roots
 }
 
@@ -356,6 +425,9 @@ pub fn null_space(a: &DMatrix<Real>) -> Result<NullSpaceSolution, MathError> {
         return Err(MathError::Singular);
     }
     let ata = a.transpose() * a;
+    if ata.iter().any(|v| !v.is_finite()) {
+        return Err(MathError::Singular);
+    }
     let eigen = ata.symmetric_eigen();
     if eigen.eigenvalues.iter().any(|v| !v.is_finite()) {
         return Err(MathError::Singular);
@@ -642,5 +714,40 @@ mod tests {
         let mut m = Mat3::identity();
         m[(1, 2)] = f64::NAN;
         assert!(project_to_so3(&m).is_err());
+    }
+
+    #[test]
+    fn cubic_small_separation_and_non_finite_roots() {
+        // x^3 - 3e-4 x = 0 has disc = -1e-12 and 3 distinct real roots: ±sqrt(3e-4), 0.
+        let roots = solve_cubic_real(1.0, 0.0, -3e-4, 0.0);
+        let s = (3e-4_f64).sqrt();
+        assert_eq!(roots.len(), 3, "got {roots:?}");
+        assert!((roots[0] + s).abs() < 1e-12);
+        assert!(roots[1].abs() < 1e-12);
+        assert!((roots[2] - s).abs() < 1e-12);
+
+        assert!(solve_quadratic_real(f64::NAN, 1.0, 1.0).is_empty());
+        assert!(solve_cubic_real(1.0, f64::INFINITY, 1.0, 1.0).is_empty());
+        assert!(solve_quartic_real(1e-200, 0.0, 0.0, 0.0, 1e200).is_empty());
+
+        // Small-scale quadratic without absolute eps cutoff, and no cancellation.
+        let q = solve_quadratic_real(1e-13, -3e-13, 2e-13);
+        assert_eq!(q.len(), 2, "got {q:?}");
+        assert!((q[0] - 1.0).abs() < 1e-9);
+        assert!((q[1] - 2.0).abs() < 1e-9);
+
+        let q_cancel = solve_quadratic_real(1.0, -1e9, 1.0);
+        assert_eq!(q_cancel.len(), 2);
+        assert!((q_cancel[0] - 1e-9).abs() < 1e-18);
+    }
+
+    #[test]
+    fn normalize_rejects_nan_and_overflow() {
+        assert!(normalize_points_2d(&[Pt2::new(0.0, 0.0), Pt2::new(f64::NAN, 1.0)]).is_none());
+        assert!(
+            normalize_points_3d(&[Pt3::new(0.0, 0.0, 0.0), Pt3::new(1.0, f64::INFINITY, 0.0)])
+                .is_none()
+        );
+        assert!(normalize_points_2d(&[Pt2::new(-1e308, 0.0), Pt2::new(1e308, 0.0)]).is_none());
     }
 }

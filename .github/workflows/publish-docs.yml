@@ -25,8 +25,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rust-docs
 
       - name: Install mdBook
         uses: taiki-e/install-action@v2
@@ -46,7 +44,7 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: |
-          cargo doc --workspace --all-features --no-deps
+          cargo doc --workspace --all-features --no-deps --locked
           echo '<meta http-equiv="refresh" content="0; url=vision_calibration/index.html">' > target/doc/index.html
           mdbook build book
 

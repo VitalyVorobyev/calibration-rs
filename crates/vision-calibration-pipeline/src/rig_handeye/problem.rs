@@ -465,6 +465,18 @@ impl ProblemType for RigHandeyeProblem {
         config.intrinsics_init.validate()?;
         config.handeye_init.validate()?;
         config.handeye_optimize.robot_poses.validate()?;
+        crate::common::config::validate_robust_loss(
+            config.intrinsics_optimize.reprojection_loss,
+            "intrinsics_optimize.reprojection_loss",
+        )?;
+        crate::common::config::validate_robust_loss(
+            config.rig.reprojection_loss,
+            "rig.reprojection_loss",
+        )?;
+        crate::common::config::validate_robust_loss(
+            config.handeye_optimize.reprojection_loss,
+            "handeye_optimize.reprojection_loss",
+        )?;
         validate_rig_cameras(&config.camera, &config.camera_overrides)
     }
 

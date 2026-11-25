@@ -146,24 +146,50 @@ fn solve_stage(
     )
 }
 
+fn solve_stage_warm(
+    dataset: &PlanarDataset,
+    params: &PlanarIntrinsicsParams,
+    opts: PlanarIntrinsicsSolveOptions,
+    backend_opts: &BackendSolveOptions,
+    iters: usize,
+) -> Result<PlanarIntrinsicsEstimate, Error> {
+    super::planar_intrinsics::optimize_planar_intrinsics_with_cov(
+        dataset,
+        params,
+        opts,
+        BackendSolveOptions {
+            max_iters: iters,
+            ..backend_opts.clone()
+        },
+        false,
+    )
+}
+
 /// Uniformly stride each view down to at most `max_corners` correspondences.
 /// Used to make the multi-start tilt sweep cheap; the winning basin is always
 /// refined on the full, unsubsampled data. `max_corners == 0` keeps every corner.
 fn subsample_dataset(dataset: &PlanarDataset, max_corners: usize) -> PlanarDataset {
+    let cap = max_corners.max(4);
     let views = dataset
         .views
         .iter()
         .map(|v| {
             let n = v.obs.points_3d.len();
-            if max_corners == 0 || n <= max_corners {
+            if max_corners == 0 || n <= cap {
                 return v.clone();
             }
-            let stride = n.div_ceil(max_corners);
-            let p3 = v.obs.points_3d.iter().step_by(stride).copied().collect();
-            let p2 = v.obs.points_2d.iter().step_by(stride).copied().collect();
-            View::without_meta(
-                CorrespondenceView::new(p3, p2).expect("subsampled view keeps ≥4 corners"),
-            )
+            let indices: Vec<usize> = (0..cap).map(|k| k * (n - 1) / (cap - 1)).collect();
+            let p3 = indices.iter().map(|&i| v.obs.points_3d[i]).collect();
+            let p2 = indices.iter().map(|&i| v.obs.points_2d[i]).collect();
+            let obs = match v.obs.covariances() {
+                Some(covs) => {
+                    let c = indices.iter().map(|&i| covs[i]).collect();
+                    CorrespondenceView::new_with_covariances(p3, p2, c)
+                        .expect("subsampled view preserves observation count and >=4 corners")
+                }
+                None => CorrespondenceView::new(p3, p2).expect("subsampled view keeps >=4 corners"),
+            };
+            View::without_meta(obs)
         })
         .collect();
     PlanarDataset::new(views).expect("subsampled dataset is non-empty")
@@ -176,8 +202,12 @@ fn frozen_pp_opts(
     bounds: CameraBounds,
 ) -> PlanarIntrinsicsSolveOptions {
     let mut fix = final_opts.fix.clone();
-    fix.intrinsics = Some(vec!["cx".to_string(), "cy".to_string()]);
-    fix.sensor = Some(Vec::new());
+    let intrinsics = fix.intrinsics.get_or_insert_with(Vec::new);
+    for label in ["cx", "cy"] {
+        if !intrinsics.iter().any(|existing| existing == label) {
+            intrinsics.push(label.to_string());
+        }
+    }
     PlanarIntrinsicsSolveOptions {
         robust_loss: final_opts.robust_loss,
         fix,
@@ -245,7 +275,7 @@ pub fn optimize_scheimpflug_intrinsics_staged(
     for &tilt_x in &staged_opts.tilt_x_seeds {
         for &tilt_y in &staged_opts.tilt_y_seeds {
             let seed = with_tilt(initial, ScheimpflugParams { tilt_x, tilt_y });
-            match solve_stage(
+            match solve_stage_warm(
                 &sweep_dataset,
                 &seed,
                 frozen_pp_opts(&final_opts, init_bounds),

@@ -1,7 +1,9 @@
-use numpy::{PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyReadonlyArray2, PyReadonlyArrayDyn, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyList, PySequence, PyString, PyTuple};
+use pyo3::types::{
+    PyBool, PyByteArray, PyBytes, PyDict, PyFloat, PyInt, PyList, PySequence, PyString, PyTuple,
+};
 
 pub(crate) fn value_err(message: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(message.to_string())
@@ -39,12 +41,34 @@ fn walk(name: &str, value: &Bound<'_, PyAny>, depth: u32) -> PyResult<()> {
     if depth > MAX_DEPTH {
         return Ok(());
     }
-    if value.is_none() || value.is_instance_of::<PyString>() {
+    if value.is_none()
+        || value.is_instance_of::<PyString>()
+        || value.is_instance_of::<PyBool>()
+        || value.is_instance_of::<PyInt>()
+        || value.is_instance_of::<PyBytes>()
+        || value.is_instance_of::<PyByteArray>()
+    {
         return Ok(());
     }
     if let Ok(f) = value.cast::<PyFloat>() {
         let v: f64 = f.extract()?;
         if !v.is_finite() {
+            return Err(value_err(format!(
+                "{name}: non-finite float ({v}); inputs must contain only finite values"
+            )));
+        }
+        return Ok(());
+    }
+    if let Ok(arr) = value.extract::<PyReadonlyArrayDyn<'_, f64>>() {
+        if let Some(v) = arr.as_array().iter().copied().find(|v| !v.is_finite()) {
+            return Err(value_err(format!(
+                "{name}: non-finite float ({v}); inputs must contain only finite values"
+            )));
+        }
+        return Ok(());
+    }
+    if let Ok(arr) = value.extract::<PyReadonlyArrayDyn<'_, f32>>() {
+        if let Some(v) = arr.as_array().iter().copied().find(|v| !v.is_finite()) {
             return Err(value_err(format!(
                 "{name}: non-finite float ({v}); inputs must contain only finite values"
             )));
@@ -80,6 +104,14 @@ fn walk(name: &str, value: &Bound<'_, PyAny>, depth: u32) -> PyResult<()> {
             walk(&format!("{name}[{i}]"), &item, depth + 1)?;
         }
         return Ok(());
+    }
+    // Catch numpy float scalars (np.float64/32/16) and other Python numeric scalars.
+    if let Ok(v) = value.extract::<f64>()
+        && !v.is_finite()
+    {
+        return Err(value_err(format!(
+            "{name}: non-finite float ({v}); inputs must contain only finite values"
+        )));
     }
     Ok(())
 }

@@ -1000,6 +1000,13 @@ pub struct SolveOptions {
     pub control: RunControl,
 }
 
+impl SolveOptions {
+    /// Construct default solver options (`TinySolver`, 100 iterations).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl Default for SolveOptions {
     /// tiny-solver, 100 iterations, no control.
     fn default() -> Self {
@@ -1184,6 +1191,7 @@ pub fn solve(problem: &Problem, options: &SolveOptions) -> Result<Solution, Erro
             (Some(c), ParamUncertainty::Available(estimate)) => match &c.sigma {
                 Some(sigma) => {
                     add_consider_share(problem, c, sigma, &solution.params, estimate)?;
+                    estimate.second_order = None;
                     uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels)
                 }
                 None => Uncertainty::Unavailable {

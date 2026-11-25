@@ -6,30 +6,7 @@
 
 use crate::math::ensure_finite;
 use crate::{GeometryError, Result};
-use nalgebra::SMatrix;
-use vision_calibration_core::{Mat3, Real, Vec3};
-
-/// Enforce essential matrix constraints via SVD projection.
-///
-/// Projects a 3×3 matrix onto the essential matrix manifold by forcing
-/// the singular values to be (σ, σ, 0) where σ is the mean of the first
-/// two singular values.
-pub(crate) fn enforce_essential_constraints(e: &Mat3) -> Result<Mat3> {
-    let svd = e.svd(true, true);
-    let u = svd
-        .u
-        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
-    let v_t = svd
-        .v_t
-        .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
-
-    let s1 = svd.singular_values[0];
-    let s2 = svd.singular_values[1];
-    let s = 0.5 * (s1 + s2);
-
-    let s_mat = SMatrix::<Real, 3, 3>::from_diagonal(&nalgebra::Vector3::new(s, s, 0.0));
-    Ok(u * s_mat * v_t)
-}
+use vision_calibration_core::{Mat3, Vec3};
 
 /// One of the four relative poses an essential matrix decomposes into.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,8 +24,8 @@ pub struct PoseCandidate {
 /// cheirality checks on triangulated points. The translation is unit-length
 /// (direction only).
 ///
-/// Returns `Err` if `E` is degenerate before the essential-constraint projection.
-/// The check is performed on the **raw** input matrix to catch rank-1 inputs such
+/// Returns `Err` if `E` is degenerate before projection onto the essential manifold.
+/// The check is performed on the **raw** singular values to catch rank-1 inputs such
 /// as `diag(1, 0, 0)` that would otherwise slip through to `(σ/2, σ/2, 0)` after
 /// projection and produce an arbitrary translation direction:
 ///
@@ -60,30 +37,16 @@ pub struct PoseCandidate {
 /// so the threshold of 0.1 is conservative.
 pub fn decompose_essential(e: &Mat3) -> Result<Vec<PoseCandidate>> {
     ensure_finite("essential matrix", e.iter())?;
-    // Degeneracy check on the RAW input — before projection.
-    // This catches rank-1 inputs like diag(1,0,0) that survive projection
-    // to (σ/2, σ/2, 0) and would yield an arbitrary translation direction.
-    {
-        let sv = e.svd(false, false).singular_values;
-        let s0 = sv[0];
-        let s1 = sv[1];
-        if s0 < 1e-10 {
-            return Err(GeometryError::degenerate(
-                "degenerate essential matrix: translation is unobservable \
-                 (rank-deficient or zero E)",
-            ));
-        }
-        if s1 / s0 < 0.1 {
-            return Err(GeometryError::degenerate(
-                "degenerate essential matrix: translation is unobservable \
-                 (rank-deficient or zero E)",
-            ));
-        }
+    let svd = e.svd(true, true);
+    let s0 = svd.singular_values[0];
+    let s1 = svd.singular_values[1];
+    if s0 < 1e-10 || s1 / s0 < 0.1 {
+        return Err(GeometryError::degenerate(
+            "degenerate essential matrix: translation is unobservable \
+             (rank-deficient or zero E)",
+        ));
     }
 
-    let e = enforce_essential_constraints(e)?;
-
-    let svd = e.svd(true, true);
     let mut u = svd
         .u
         .ok_or_else(|| GeometryError::numerical("SVD failed"))?;

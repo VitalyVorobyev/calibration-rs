@@ -27,6 +27,13 @@ use super::problem::RigLaserlineDeviceProblem;
 #[non_exhaustive]
 pub struct PlaneInitOptions {}
 
+impl PlaneInitOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Options for the laser-plane optimization step.
 ///
 /// These options override session config for a single step invocation.
@@ -38,6 +45,13 @@ pub struct PlaneOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+impl PlaneOptimizeOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Manual seeds for rig laserline device calibration.
@@ -53,6 +67,13 @@ pub struct PlaneOptimizeOptions {
 pub struct PlaneManualInit {
     /// Per-camera laser planes (camera frame). `None` runs the linear fit.
     pub laser_planes_cam: Option<Vec<LaserPlane>>,
+}
+
+impl PlaneManualInit {
+    /// Construct an unseeded [`PlaneManualInit`] (runs linear plane initialization).
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Typed return value of [`step_init`] / [`step_init_with_seed`].

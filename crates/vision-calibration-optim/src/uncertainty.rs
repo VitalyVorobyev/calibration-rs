@@ -116,6 +116,7 @@ pub(crate) fn labelled(
             let reason = match reason {
                 UnavailableReason::NotConverged => UncertaintyUnavailable::NotConverged,
                 UnavailableReason::NoRedundancy => UncertaintyUnavailable::NoRedundancy,
+                UnavailableReason::NotComputed => UncertaintyUnavailable::NotComputed,
                 UnavailableReason::RankDeficient { unobservable } => {
                     UncertaintyUnavailable::RankDeficient {
                         unobservable: dedup(unobservable.iter().map(label)),

@@ -1,4 +1,5 @@
 import { createHashRouter, Navigate } from "react-router";
+import { RouteErrorFallback } from "./components/ErrorBoundary";
 import { DesktopOnly } from "./shell/DesktopOnly";
 import { Shell } from "./shell/Shell";
 import { DepthWorkspace } from "./workspaces/DepthWorkspace";
@@ -14,6 +15,7 @@ export const router = createHashRouter([
   {
     path: "/",
     element: <Shell />,
+    errorElement: <RouteErrorFallback />,
     children: [
       { index: true, element: <Navigate to="/diagnose" replace /> },
       { path: "diagnose", element: <DiagnoseWorkspace /> },

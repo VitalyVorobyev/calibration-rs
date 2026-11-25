@@ -220,6 +220,17 @@ pub trait Estimator {
     /// Return `None` if the subset is degenerate or fitting fails.
     fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model>;
 
+    /// Fit all candidate models from a subset of data indices.
+    ///
+    /// Solvers that return multiple algebraic roots (such as the five-point
+    /// essential-matrix solver) should override this so RANSAC scores every
+    /// candidate against the full dataset.
+    ///
+    /// Default: delegates to [`fit`](Self::fit).
+    fn fit_candidates(data: &[Self::Datum], sample_indices: &[usize]) -> Vec<Self::Model> {
+        Self::fit(data, sample_indices).into_iter().collect()
+    }
+
     /// Residual/error for one datum (e.g. reprojection error, distance).
     ///
     /// This should be a **non-negative scalar** (a distance, not a squared
@@ -309,10 +320,24 @@ fn is_better_model(
     )
 )]
 pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> RansacResult<E::Model> {
+    ransac_fit_with_control::<E>(data, opts, &crate::RunControl::default())
+        .expect("default RunControl cannot be cancelled")
+}
+
+/// Like [`ransac_fit`], but polls `control` at the start of every iteration and
+/// returns `Err(Cancelled)` promptly if cancelled.
+#[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
+#[doc(hidden)]
+pub fn ransac_fit_with_control<E: Estimator>(
+    data: &[E::Datum],
+    opts: &RansacOptions,
+    control: &crate::RunControl,
+) -> std::result::Result<RansacResult<E::Model>, crate::Cancelled> {
+    control.check()?;
     let mut best: RansacResult<E::Model> = RansacResult::default();
 
     if data.len() < E::MIN_SAMPLES {
-        return best;
+        return Ok(best);
     }
 
     let all_indices: Vec<usize> = (0..data.len()).collect();
@@ -324,12 +349,15 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
 
     let mut inliers = Vec::<usize>::new();
     let mut inlier_residuals = Vec::<f64>::new();
+    let mut cand_inliers = Vec::<usize>::new();
+    let mut cand_residuals = Vec::<f64>::new();
 
     let mut refined_inliers = Vec::<usize>::new();
     let mut refined_residuals = Vec::<f64>::new();
 
     let mut num_iters = 0;
     while num_iters < dynamic_max_iters {
+        control.check()?;
         num_iters += 1;
         // Draw a random sample of MIN_SAMPLES indices
         all_indices
@@ -342,64 +370,87 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
             continue;
         }
 
-        let Some(model) = E::fit(data, &sample_idxs) else {
+        let candidates = E::fit_candidates(data, &sample_idxs);
+        if candidates.is_empty() {
             continue;
-        };
+        }
 
-        // Find inliers
-        inliers.clear();
-        inlier_residuals.clear();
-        inliers.reserve(data.len());
-        inlier_residuals.reserve(data.len());
-
-        for (i, datum) in data.iter().enumerate() {
-            let r = E::residual(&model, datum);
-            if r <= opts.thresh {
-                inliers.push(i);
-                inlier_residuals.push(r);
+        // Score every candidate against all data and keep the strongest consensus.
+        let mut best_cand: Option<(E::Model, f64)> = None;
+        for cand in candidates {
+            cand_inliers.clear();
+            cand_residuals.clear();
+            cand_inliers.reserve(data.len());
+            cand_residuals.reserve(data.len());
+            for (i, datum) in data.iter().enumerate() {
+                let r = E::residual(&cand, datum);
+                if r <= opts.thresh {
+                    cand_inliers.push(i);
+                    cand_residuals.push(r);
+                }
+            }
+            let cand_rms = rms(&cand_residuals);
+            let better = match &best_cand {
+                None => true,
+                Some((_, best_cand_rms)) => is_better_model(
+                    true,
+                    cand_inliers.len(),
+                    cand_rms,
+                    inliers.len(),
+                    *best_cand_rms,
+                ),
+            };
+            if better {
+                std::mem::swap(&mut inliers, &mut cand_inliers);
+                std::mem::swap(&mut inlier_residuals, &mut cand_residuals);
+                best_cand = Some((cand, cand_rms));
             }
         }
+        let Some((model, sample_rms)) = best_cand else {
+            continue;
+        };
 
         if !opts.accepts(inliers.len(), data.len()) {
             continue;
         }
 
         let mut model_refit = model;
-        let (final_inliers, final_residuals) = if opts.refit_on_inliers {
-            refined_inliers.clear();
-            refined_inliers.extend_from_slice(&inliers);
-            refined_residuals.clear();
-            refined_residuals.extend_from_slice(&inlier_residuals);
-
-            if let Some(m2) = E::refit(data, &refined_inliers) {
-                // Recompute inliers for the refined model
-                refined_inliers.clear();
-                refined_residuals.clear();
-                for (i, datum) in data.iter().enumerate() {
-                    let r = E::residual(&m2, datum);
-                    if r <= opts.thresh {
-                        refined_inliers.push(i);
-                        refined_residuals.push(r);
+        let mut final_rms = sample_rms;
+        let final_inliers =
+            if opts.refit_on_inliers && (!best.success || inliers.len() >= best.inliers.len()) {
+                let mut accepted_refit = false;
+                if let Some(m2) = E::refit(data, &inliers) {
+                    refined_inliers.clear();
+                    refined_residuals.clear();
+                    for (i, datum) in data.iter().enumerate() {
+                        let r = E::residual(&m2, datum);
+                        if r <= opts.thresh {
+                            refined_inliers.push(i);
+                            refined_residuals.push(r);
+                        }
+                    }
+                    // The least-squares refit is the better estimate of the
+                    // model; keep it unless it loses part of the consensus.
+                    // (Its RMS is not compared: a minimal sample's model
+                    // can score a lower inlier RMS by chance, and keeping it
+                    // would return a minimal-sample fit.)
+                    if opts.accepts(refined_inliers.len(), data.len())
+                        && refined_inliers.len() >= inliers.len()
+                    {
+                        let refined_rms = rms(&refined_residuals);
+                        model_refit = m2;
+                        final_rms = refined_rms;
+                        accepted_refit = true;
                     }
                 }
-                if opts.accepts(refined_inliers.len(), data.len()) {
-                    model_refit = m2;
+                if accepted_refit {
+                    &refined_inliers
                 } else {
-                    // The refit lost the consensus the options ask for:
-                    // keep the sample's model and its inliers.
-                    refined_inliers.clear();
-                    refined_inliers.extend_from_slice(&inliers);
-                    refined_residuals.clear();
-                    refined_residuals.extend_from_slice(&inlier_residuals);
+                    &inliers
                 }
-            }
-
-            (&refined_inliers, &refined_residuals)
-        } else {
-            (&inliers, &inlier_residuals)
-        };
-
-        let final_rms = rms(final_residuals);
+            } else {
+                &inliers
+            };
 
         if is_better_model(
             best.success,
@@ -413,20 +464,57 @@ pub fn ransac_fit<E: Estimator>(data: &[E::Datum], opts: &RansacOptions) -> Rans
             best.inliers = final_inliers.clone();
             best.inlier_rms = final_rms;
             best.iters = num_iters;
-        }
 
-        let inlier_ratio = final_inliers.len() as f64 / data.len() as f64;
-        dynamic_max_iters = calculate_iterations(
-            opts.confidence,
-            inlier_ratio,
-            E::MIN_SAMPLES,
-            num_iters,
-            opts.max_iters,
-        );
+            let inlier_ratio = best.inliers.len() as f64 / data.len() as f64;
+            dynamic_max_iters = dynamic_max_iters.min(calculate_iterations(
+                opts.confidence,
+                inlier_ratio,
+                E::MIN_SAMPLES,
+                num_iters,
+                opts.max_iters,
+            ));
+        }
     }
 
-    best
+    // Final least-squares refit on the winning consensus, repeated while it
+    // grows the consensus: among models with the same inlier count the loop
+    // keeps the lowest RMS, which can be a refit on an earlier, smaller
+    // consensus rather than the fit to the inliers it reports.
+    if opts.refit_on_inliers && best.success {
+        for _ in 0..FINAL_REFIT_ROUNDS {
+            let Some(m2) = E::refit(data, &best.inliers) else {
+                break;
+            };
+            refined_inliers.clear();
+            refined_residuals.clear();
+            for (i, datum) in data.iter().enumerate() {
+                let r = E::residual(&m2, datum);
+                if r <= opts.thresh {
+                    refined_inliers.push(i);
+                    refined_residuals.push(r);
+                }
+            }
+            if !opts.accepts(refined_inliers.len(), data.len())
+                || refined_inliers.len() < best.inliers.len()
+            {
+                break;
+            }
+            let unchanged = refined_inliers == best.inliers;
+            best.model = Some(m2);
+            best.inlier_rms = rms(&refined_residuals);
+            std::mem::swap(&mut best.inliers, &mut refined_inliers);
+            if unchanged {
+                break;
+            }
+        }
+    }
+
+    Ok(best)
 }
+
+/// Bound on the final refit rounds (each refits on the consensus the
+/// previous round found; they stop as soon as it no longer changes).
+const FINAL_REFIT_ROUNDS: usize = 5;
 
 #[cfg(test)]
 mod tests {
@@ -616,6 +704,44 @@ mod tests {
         let res = ransac_fit::<LosingRefit>(&data, &default_opts());
         assert!(res.success);
         assert!(res.inliers.len() >= default_opts().min_inliers);
+        let model = res.model.unwrap();
+        assert!((model.slope - 2.0).abs() < 1e-9, "{model:?}");
+    }
+
+    /// A refit that keeps >= min_inliers but loses one inlier compared to the
+    /// sample model must not replace the stronger sample model.
+    struct SlightlyWorseRefit;
+
+    impl Estimator for SlightlyWorseRefit {
+        type Datum = (f64, f64);
+        type Model = LineModel;
+        const MIN_SAMPLES: usize = 2;
+
+        fn fit(data: &[Self::Datum], sample_indices: &[usize]) -> Option<Self::Model> {
+            LineEstimator::fit(data, sample_indices)
+        }
+        fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
+            LineEstimator::residual(model, datum)
+        }
+        fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
+            LineEstimator::is_degenerate(data, sample_indices)
+        }
+        fn refit(_data: &[Self::Datum], _inliers: &[usize]) -> Option<Self::Model> {
+            // Hits points 0..10 (slope 2, intercept 1) slightly tilted so the
+            // farthest point drops outside thresh = 0.05.
+            Some(LineModel {
+                slope: 2.01,
+                intercept: 0.99,
+            })
+        }
+    }
+
+    #[test]
+    fn refit_never_replaces_a_stronger_sample_model() {
+        let data: Vec<(f64, f64)> = (0..20).map(|i| (i as f64, 2.0 * i as f64 + 1.0)).collect();
+        let res = ransac_fit::<SlightlyWorseRefit>(&data, &default_opts());
+        assert!(res.success);
+        assert_eq!(res.inliers.len(), 20);
         let model = res.model.unwrap();
         assert!((model.slope - 2.0).abs() < 1e-9, "{model:?}");
     }

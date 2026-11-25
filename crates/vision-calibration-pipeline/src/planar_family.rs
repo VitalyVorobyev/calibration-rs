@@ -157,6 +157,13 @@ pub struct IntrinsicsManualInit {
     pub cam_se3_target: Option<Vec<Iso3>>,
 }
 
+impl IntrinsicsManualInit {
+    /// Construct an unseeded [`IntrinsicsManualInit`] (every group auto-initialized).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// One camera's initial estimate from [`init_camera_with_seed`].
 #[derive(Debug, Clone)]
 pub(crate) struct CameraInit {

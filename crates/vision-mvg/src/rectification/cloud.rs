@@ -193,7 +193,7 @@ impl StereoRectification {
         }
         let share = match rig.uncertainty().covariance() {
             None => Err(UncertaintyUnavailable::CalibrationWithoutCovariance),
-            Some(covariance) => Ok(self.calibration_share(rig, covariance)?),
+            Some(covariance) => self.calibration_share(rig, covariance)?,
         };
 
         // X = rig_se3_left · rect_r_leftᵀ · P_rect, one rotation for both.
@@ -229,7 +229,7 @@ impl StereoRectification {
         &self,
         rig: &CalibratedRig,
         covariance: &vision_calibration_core::ParameterCovariance,
-    ) -> Result<CalibrationShare> {
+    ) -> Result<std::result::Result<CalibrationShare, UncertaintyUnavailable>> {
         let mut index: Vec<usize> = Vec::new();
         let mut side = |s: usize| -> Result<Side> {
             let k = self.cameras[s];
@@ -260,12 +260,15 @@ impl StereoRectification {
         };
         let sides = [side(0)?, side(1)?];
         let m = index.len();
-        Ok(CalibrationShare {
+        if m == 0 {
+            return Ok(Err(UncertaintyUnavailable::CalibrationWithoutCovariance));
+        }
+        Ok(Ok(CalibrationShare {
             sides,
             rect_r_right: self.rect_r_cam[1],
             k_rect: self.k_rect,
             sigma_c: DMatrix::from_fn(m, m, |a, b| covariance.covariance[index[a]][index[b]]),
-        })
+        }))
     }
 }
 
@@ -414,9 +417,13 @@ impl DenseCloud {
         }
         let mut sigma = &g * &share.sigma_c * g.transpose();
         let var_d = self.sigma_d * self.sigma_d;
-        for (row, g_i) in g_d.iter().enumerate() {
-            let mut block = sigma.fixed_view_mut::<3, 3>(3 * row, 3 * row);
-            block += g_i * g_i.transpose() * var_d;
+        for a in 0..k {
+            for b in 0..k {
+                if indices[a] == indices[b] {
+                    let mut block = sigma.fixed_view_mut::<3, 3>(3 * a, 3 * b);
+                    block += g_d[a] * g_d[b].transpose() * var_d;
+                }
+            }
         }
         // Symmetrise away the rounding of the products.
         Ok((&sigma + sigma.transpose()) * 0.5)

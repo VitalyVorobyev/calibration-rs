@@ -297,6 +297,16 @@ impl<'a> RigPlanner<'a> {
                 "the result held every parameter fixed: there is no uncertainty to plan for",
             ));
         }
+        if covariance.covariance.len() != n
+            || covariance
+                .covariance
+                .iter()
+                .any(|row| row.len() != n || row.iter().any(|v| !v.is_finite()))
+        {
+            return Err(Error::invalid_input(format!(
+                "covariance matrix must be {n}×{n} and finite"
+            )));
+        }
         let covariance_matrix = DMatrix::from_fn(n, n, |i, j| covariance.covariance[i][j]);
         let information = invert_spd(&covariance_matrix)
             .ok_or_else(|| Error::numerical("the result's covariance is not positive definite"))?;

@@ -175,6 +175,8 @@ export interface SelectionSlice {
 
 export type AppState = ExportSlice & SelectionSlice;
 
+let loadRequestSeq = 0;
+
 export const useStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
     // --- Export slice ---
@@ -195,13 +197,17 @@ export const useStore = create<AppState>()(
         set({ loadError: NO_BACKEND });
         return;
       }
+      const seq = ++loadRequestSeq;
       let result: LoadExportResult;
       try {
         result = await call<LoadExportResult>("load_export", { path });
       } catch (e) {
-        set({ loadError: `Could not load export: ${String(e)}` });
+        if (seq === loadRequestSeq) {
+          set({ loadError: `Could not load export: ${String(e)}` });
+        }
         return;
       }
+      if (seq !== loadRequestSeq) return;
       const data = result.export;
       const materialized = materializeExport(data, result.export_dir);
       if (!materialized.ok) {
@@ -217,11 +223,14 @@ export const useStore = create<AppState>()(
       try {
         await call<null>("set_active_export", { export: data });
       } catch (e) {
-        set({
-          loadError: `Could not commit export to backend cache: ${String(e)}`,
-        });
+        if (seq === loadRequestSeq) {
+          set({
+            loadError: `Could not commit export to backend cache: ${String(e)}`,
+          });
+        }
         return;
       }
+      if (seq !== loadRequestSeq) return;
 
       set({
         exportPath: path,
@@ -245,6 +254,7 @@ export const useStore = create<AppState>()(
     },
 
     acceptLiveRunExport: (exportValue, exportDir) => {
+      loadRequestSeq += 1;
       const data = exportValue as AnyExport;
       const materialized = materializeExport(data, exportDir);
       if (!materialized.ok) {
@@ -272,7 +282,8 @@ export const useStore = create<AppState>()(
       });
     },
 
-    resetExport: () =>
+    resetExport: () => {
+      loadRequestSeq += 1;
       set({
         exportPath: null,
         exportDir: null,
@@ -285,7 +296,8 @@ export const useStore = create<AppState>()(
         posesByCamera: new Map(),
         camerasByPose: new Map(),
         loadError: null,
-      }),
+      });
+    },
 
     setLoadError: (msg) => set({ loadError: msg }),
 

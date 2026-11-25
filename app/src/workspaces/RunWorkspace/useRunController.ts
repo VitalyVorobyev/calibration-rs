@@ -3,7 +3,7 @@
  * `export.json`; without a project the export goes straight to the viewers.
  * Either way the app then routes to Diagnose. */
 import { toast } from "@vitavision/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { cancelRun, runCalibration, type RunSuccess } from "../../lib/runCalibration";
 import { runExportPath } from "../../project/projectApi";
@@ -15,6 +15,11 @@ import { newRunId, statusFromResponse, withProgress, type RunStatus } from "./ru
 /** How long the success banner shows before the hand-off to Diagnose. */
 const HANDOFF_MS = 600;
 
+/** The run in flight, if any. Module-scoped so it survives the workspace
+ * unmounting and remounting: a second run cannot start while the first is
+ * still saving or loading its result. */
+let activeRunId: string | null = null;
+
 export interface RunController {
   status: RunStatus;
   setStatus: (status: RunStatus) => void;
@@ -25,8 +30,21 @@ export interface RunController {
 export function useRunController(): RunController {
   const navigate = useNavigate();
   const [status, setStatus] = useState<RunStatus>({ kind: "idle" });
+  const handoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (handoffTimerRef.current !== null) {
+        clearTimeout(handoffTimerRef.current);
+      }
+    };
+  }, []);
 
   const run = async () => {
+    if (activeRunId !== null) return;
     const { manifest, config, manifestDir } = useRunSetup.getState();
     if (!manifestDir) {
       setStatus({
@@ -36,7 +54,12 @@ export function useRunController(): RunController {
       });
       return;
     }
+    if (handoffTimerRef.current !== null) {
+      clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = null;
+    }
     const runId = newRunId();
+    activeRunId = runId;
     setStatus({
       kind: "running",
       runId,
@@ -67,9 +90,18 @@ export function useRunController(): RunController {
       }
       const savedAs = await deliver(response, { manifest, config, manifestDir });
       setStatus(statusFromResponse(response, savedAs));
-      setTimeout(() => void navigate("/diagnose"), HANDOFF_MS);
+      // The user left the Run workspace meanwhile: no hand-off.
+      if (!mountedRef.current) return;
+      handoffTimerRef.current = setTimeout(() => {
+        handoffTimerRef.current = null;
+        void navigate("/diagnose");
+      }, HANDOFF_MS);
     } catch (e) {
       setStatus({ kind: "error", category: "ipc", message: String(e) });
+    } finally {
+      if (activeRunId === runId) {
+        activeRunId = null;
+      }
     }
   };
 

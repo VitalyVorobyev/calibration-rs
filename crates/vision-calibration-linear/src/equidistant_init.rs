@@ -127,6 +127,9 @@ pub fn estimate_equidistant_intrinsics(
     );
     for (_, pixels) in &views {
         for p in *pixels {
+            if !p.x.is_finite() || !p.y.is_finite() {
+                return Err(Error::invalid_input("pixel observations must be finite"));
+            }
             lo = Pt2::new(lo.x.min(p.x), lo.y.min(p.y));
             hi = Pt2::new(hi.x.max(p.x), hi.y.max(p.y));
         }
@@ -170,13 +173,20 @@ pub fn estimate_equidistant_intrinsics(
     free.extend(opts.fit_k1.then_some(3));
     free.extend(opts.fit_k2.then_some(4));
     if free.len() > 3 {
+        let mut x_joint = nelder_mead(x, steps, &free, &|cand| search.cost(&views, cand));
         let (k, distortion) = search.camera(&x);
         if let Some((_, poses)) = fit(&views, &k, &distortion)
             && let Some((f, k1, k2)) = fit_radial(&views, &poses, &k, opts)
         {
-            (x[0], x[3], x[4]) = (f.ln(), k1, k2);
+            let seeded = [f.ln(), x[1], x[2], k1, k2];
+            if search.cost(&views, &seeded).is_finite() {
+                let x_seeded = nelder_mead(seeded, steps, &free, &|cand| search.cost(&views, cand));
+                if search.cost(&views, &x_seeded) < search.cost(&views, &x_joint) {
+                    x_joint = x_seeded;
+                }
+            }
         }
-        x = nelder_mead(x, steps, &free, &|x| search.cost(&views, x));
+        x = x_joint;
     }
 
     let (intrinsics, distortion) = search.camera(&x);
@@ -285,7 +295,11 @@ fn fit_radial(
     }
     let a = ata.cholesky()?.solve(&atb);
     let f = a[0];
-    (f > 0.0 && f.is_finite()).then(|| (f, a[1] / f, a[2] / f))
+    if !f.is_finite() || f <= 0.0 || !a[1].is_finite() || !a[2].is_finite() {
+        return None;
+    }
+    let (k1, k2) = (a[1] / f, a[2] / f);
+    (k1.is_finite() && k2.is_finite()).then_some((f, k1, k2))
 }
 
 /// Minimize `cost` with the Nelder–Mead simplex from `start`, moving only

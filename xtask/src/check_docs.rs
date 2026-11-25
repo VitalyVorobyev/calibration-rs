@@ -171,7 +171,13 @@ fn user_facing_files(root: &Path) -> Result<Vec<DocFile>> {
         }
     }
 
-    for krate in published_crates(root)? {
+    let mut crates = published_crates(root)?;
+    let py_crate = root.join("crates/vision-calibration-py");
+    if py_crate.is_dir() && !crates.contains(&py_crate) {
+        crates.push(py_crate);
+    }
+    crates.sort();
+    for krate in crates {
         let readme = krate.join("README.md");
         if readme.is_file() {
             files.push(DocFile {

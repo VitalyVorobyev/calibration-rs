@@ -27,7 +27,7 @@ use crate::single_cam_handeye::SingleCamHandeyeExport;
 /// Implemented by every `*Export` and by
 /// [`CalibrationExport`](crate::dataset_runner::CalibrationExport); the trait
 /// is sealed, so it cannot be implemented outside this crate.
-pub trait CalibratedCameras: super::sealed::Sealed {
+pub trait CalibratedCameras: super::sealed::Sealed + Send + Sync {
     /// Each camera's model, in camera order.
     fn camera_params(&self) -> Vec<CameraParams>;
 

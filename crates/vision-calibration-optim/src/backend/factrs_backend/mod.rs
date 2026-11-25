@@ -41,23 +41,22 @@ impl OptimBackend for FactrsBackend {
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution, Error> {
-        self.solve_with(ir, initial, opts, true)
+        self.solve_with(ir, initial, opts, super::CovarianceMode::Full)
     }
 }
 
 impl FactrsBackend {
-    /// [`OptimBackend::solve`], with the covariance's second-order
-    /// prediction only when `second_order` is set.
+    /// [`OptimBackend::solve`], parameterized by [`super::CovarianceMode`].
     pub(super) fn solve_with(
         &self,
         ir: &ProblemIR,
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
-        second_order: bool,
+        cov_mode: super::CovarianceMode,
     ) -> Result<BackendSolution, Error> {
         let compiled = compile::compile(ir, initial)?;
         let engine = FactrsEngine::new(&compiled);
-        solve_on(ir, &engine, compiled.values.clone(), opts, second_order)
+        solve_on(ir, &engine, compiled.values.clone(), opts, cov_mode)
     }
 }
 

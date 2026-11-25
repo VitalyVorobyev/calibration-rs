@@ -298,7 +298,9 @@ pub(crate) fn mvg_recover_relative_pose(
 ) -> PyResult<Py<PyAny>> {
     let rig = rig_of(result)?;
     let matches: Vec<PixelMatch> = parse_checked(matches, "matches")?;
-    let pose = recover_relative_pose(&rig, cameras, &matches).map_err(mvg_err)?;
+    let pose = py
+        .detach(|| recover_relative_pose(&rig, cameras, &matches))
+        .map_err(mvg_err)?;
     to_py(py, &pose)
 }
 
@@ -443,7 +445,9 @@ pub(crate) fn mvg_triangulate_laser(
     let rig = rig_of(result)?;
     let captures = captures_of(rig_se3_world, robot)?;
     let observations: Vec<LaserObservation> = parse_checked(observations, "observations")?;
-    let found = triangulate_laser(&rig, captures.captures(), &observations).map_err(mvg_err)?;
+    let found = py
+        .detach(|| triangulate_laser(&rig, captures.captures(), &observations))
+        .map_err(mvg_err)?;
     to_py(py, &found)
 }
 
@@ -459,6 +463,9 @@ fn point_set(
     let pts = points_of(points, "points")?;
     let shape = covariance.shape();
     let data = covariance.as_slice()?;
+    if data.iter().any(|v| !v.is_finite()) {
+        return Err(value_err("covariance: non-finite value"));
+    }
     PointSet::new(pts, DMatrix::from_row_slice(shape[0], shape[1], data)).map_err(mvg_err)
 }
 
@@ -471,7 +478,10 @@ pub(crate) fn mvg_distance(
     b: usize,
 ) -> PyResult<Py<PyAny>> {
     let set = point_set(&points, &covariance)?;
-    to_py(py, &metrology::distance(&set, a, b).map_err(mvg_err)?)
+    let dist = py
+        .detach(|| metrology::distance(&set, a, b))
+        .map_err(mvg_err)?;
+    to_py(py, &dist)
 }
 
 #[pyfunction]
@@ -484,7 +494,10 @@ pub(crate) fn mvg_angle(
     b: usize,
 ) -> PyResult<Py<PyAny>> {
     let set = point_set(&points, &covariance)?;
-    to_py(py, &metrology::angle(&set, a, vertex, b).map_err(mvg_err)?)
+    let angle = py
+        .detach(|| metrology::angle(&set, a, vertex, b))
+        .map_err(mvg_err)?;
+    to_py(py, &angle)
 }
 
 #[pyfunction]
@@ -495,7 +508,10 @@ pub(crate) fn mvg_fit_plane(
     indices: Vec<usize>,
 ) -> PyResult<Py<PyAny>> {
     let set = point_set(&points, &covariance)?;
-    to_py(py, &metrology::fit_plane(&set, &indices).map_err(mvg_err)?)
+    let fit = py
+        .detach(|| metrology::fit_plane(&set, &indices))
+        .map_err(mvg_err)?;
+    to_py(py, &fit)
 }
 
 #[pyfunction]
@@ -507,10 +523,10 @@ pub(crate) fn mvg_point_to_plane(
     p: usize,
 ) -> PyResult<Py<PyAny>> {
     let set = point_set(&points, &covariance)?;
-    to_py(
-        py,
-        &metrology::point_to_plane(&set, &plane, p).map_err(mvg_err)?,
-    )
+    let dist = py
+        .detach(|| metrology::point_to_plane(&set, &plane, p))
+        .map_err(mvg_err)?;
+    to_py(py, &dist)
 }
 
 // ---------------------------------------------------------------------------
@@ -788,18 +804,23 @@ impl PyDenseCloud {
 /// Rectify two cameras of a calibration.
 #[pyfunction(signature = (result, cameras, k_rect=None, scale=1.0))]
 pub(crate) fn mvg_rectify(
+    py: Python<'_>,
     result: &Bound<'_, PyAny>,
     cameras: [usize; 2],
     k_rect: Option<&Bound<'_, PyAny>>,
     scale: f64,
 ) -> PyResult<PyStereoRectification> {
+    if !scale.is_finite() {
+        return Err(value_err(format!("scale must be finite, got {scale}")));
+    }
     let rig = rig_of(result)?;
     let mut options = RectifyOptions::default();
     options.k_rect = parse_optional_checked::<FxFyCxCy<f64>>(k_rect, "k_rect")?;
     options.scale = scale;
-    Ok(PyStereoRectification {
-        inner: rectify(&rig, cameras, &options).map_err(mvg_err)?,
-    })
+    let inner = py
+        .detach(|| rectify(&rig, cameras, &options))
+        .map_err(mvg_err)?;
+    Ok(PyStereoRectification { inner })
 }
 
 /// Block-matching settings as Python states them: every field.
@@ -871,7 +892,10 @@ pub(crate) fn mvg_estimate_homography(
         .iter()
         .map(|c| Correspondence2D::new(Pt2::new(c[0], c[1]), Pt2::new(c[2], c[3])))
         .collect();
-    let estimate = estimate_homography(&corrs, &ransac_of(ransac)?).map_err(mvg_err)?;
+    let ransac_opts = ransac_of(ransac)?;
+    let estimate = py
+        .detach(|| estimate_homography(&corrs, &ransac_opts))
+        .map_err(mvg_err)?;
     to_py(
         py,
         &HomographyPayload {

@@ -317,6 +317,11 @@ impl LaserlinePlaneSolver {
             }
 
             let t = -ray_origin_target.z / ray_dir_target.z;
+            if !t.is_finite() || t <= 0.0 {
+                return Err(Error::invalid_input(
+                    "ray intersects target plane behind camera",
+                ));
+            }
             let pt_target = ray_origin_target + ray_dir_target * t;
 
             // 4. Transform back to camera frame
@@ -338,6 +343,9 @@ fn fit_plane<'a>(
     let mut n = 0usize;
     let mut centroid = Vector3::zeros();
     for pt in points.clone() {
+        if !pt.x.is_finite() || !pt.y.is_finite() || !pt.z.is_finite() {
+            return Err(Error::invalid_input("3D points must be finite"));
+        }
         centroid += pt.coords;
         n += 1;
     }
@@ -345,6 +353,9 @@ fn fit_plane<'a>(
         return Err(Error::InsufficientData { need: 3, got: n });
     }
     centroid /= n as f64;
+    if !centroid.iter().all(|v| v.is_finite()) {
+        return Err(Error::invalid_input("3D points overflowed centroid"));
+    }
 
     // Build 3x3 covariance matrix of centered points
     let mut cov = nalgebra::Matrix3::zeros();
@@ -352,34 +363,33 @@ fn fit_plane<'a>(
         let centered = pt.coords - centroid;
         cov += centered * centered.transpose();
     }
+    if !cov.iter().all(|v| v.is_finite()) {
+        return Err(Error::invalid_input(
+            "3D point scatter matrix is non-finite",
+        ));
+    }
 
     // Smallest eigenvector of covariance matrix is plane normal
     let eigen = cov.symmetric_eigen();
+    if !eigen.eigenvalues.iter().all(|v| v.is_finite()) {
+        return Err(Error::invalid_input("plane eigen decomposition failed"));
+    }
 
     // Sort eigenvalues to identify smallest and second-smallest
     let mut indexed_eigenvalues = [0, 1, 2].map(|i| (i, eigen.eigenvalues[i]));
     indexed_eigenvalues.sort_by(|a, b| a.1.total_cmp(&b.1));
 
-    let (min_idx, min_eigenvalue) = indexed_eigenvalues[0];
+    let (min_idx, _min_eigenvalue) = indexed_eigenvalues[0];
     let (_second_idx, second_eigenvalue) = indexed_eigenvalues[1];
     let (_max_idx, max_eigenvalue) = indexed_eigenvalues[2];
 
-    // Check for collinearity: points are collinear if the smallest eigenvalue
-    // is negligible AND the second-smallest is significant (i.e., rank 1).
-    // For a proper plane, we expect rank 2: two significant eigenvalues.
-    // For collinear points (rank 1): only one significant eigenvalue.
-    // The ratio of second-smallest to largest should be significant for planes.
+    // Scale-invariant collinearity check: for a proper 2D plane the second-largest
+    // scatter eigenvalue must remain non-negligible relative to the largest.
     const RANK_THRESHOLD: f64 = 1e-8;
-    if max_eigenvalue > RANK_THRESHOLD {
-        // Relative threshold: check if points span 2D (plane) or 1D (line)
-        let rank1_ratio = second_eigenvalue / max_eigenvalue;
-        if rank1_ratio < RANK_THRESHOLD {
-            return Err(Error::invalid_input(
-                "collinear points: cannot fit plane to points along a single line",
-            ));
-        }
-    } else if min_eigenvalue.abs() < RANK_THRESHOLD && second_eigenvalue < RANK_THRESHOLD {
-        // All eigenvalues near zero: degenerate (all points at same location)
+    if !max_eigenvalue.is_finite()
+        || max_eigenvalue <= Real::EPSILON * Real::EPSILON
+        || second_eigenvalue / max_eigenvalue < RANK_THRESHOLD
+    {
         return Err(Error::invalid_input(
             "collinear points: cannot fit plane to points along a single line",
         ));
@@ -801,6 +811,42 @@ mod tests {
             all.rmse > 1e-3,
             "the stray pixels should spoil the closed-form fit: rmse {}",
             all.rmse
+        );
+    }
+
+    #[test]
+    fn plane_from_submillimeter_non_collinear_points() {
+        let points = vec![
+            Pt3::new(0.0, 0.0, 0.5),
+            Pt3::new(2e-4, 0.0, 0.5),
+            Pt3::new(0.0, 2e-4, 0.5),
+            Pt3::new(2e-4, 2e-4, 0.5),
+            Pt3::new(1e-4, 1e-4, 0.5),
+        ];
+        let result = LaserlinePlaneSolver::from_points_3d(&points).unwrap();
+        assert!((result.normal.z.abs() - 1.0).abs() < 1e-6);
+        assert!((result.distance.abs() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn compute_3d_points_rejects_behind_camera_ray() {
+        let camera = make_test_camera();
+        // Target plane at z = -1.0 (behind the camera). A forward pixel ray hits it at t < 0.
+        let view = PlaneFitView {
+            laser_pixels: vec![
+                Pt2::new(600.0, 480.0),
+                Pt2::new(640.0, 480.0),
+                Pt2::new(680.0, 480.0),
+            ],
+            cam_se3_target: Iso3::translation(0.0, 0.0, -1.0),
+        };
+        let err = LaserlinePlaneSolver::from_views(&[view], &camera).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                crate::Error::InvalidInput { .. } | crate::Error::InsufficientData { .. }
+            ),
+            "expected error for behind-camera ray intersection, got {err:?}"
         );
     }
 }

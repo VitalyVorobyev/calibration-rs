@@ -221,6 +221,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
 
     let mut drift = Vec::new();
     let mut files = 0;
+    let mut expected_json = std::collections::BTreeSet::new();
 
     // The manifest field reference in the book, rendered from the schema.
     write_text_or_check(
@@ -241,21 +242,32 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         for entry in emitted {
-            write_or_check(
-                &dir.join(format!("{}.json", entry.name)),
-                &entry.schema,
-                check,
-                &mut drift,
-            )?;
+            let schema_path = dir.join(format!("{}.json", entry.name));
+            expected_json.insert(schema_path.clone());
+            write_or_check(&schema_path, &entry.schema, check, &mut drift)?;
             files += 1;
             if let Some(default) = &entry.default {
-                write_or_check(
-                    &dir.join(format!("{}.default.json", entry.name)),
-                    default,
-                    check,
-                    &mut drift,
-                )?;
+                let default_path = dir.join(format!("{}.default.json", entry.name));
+                expected_json.insert(default_path.clone());
+                write_or_check(&default_path, default, check, &mut drift)?;
                 files += 1;
+            }
+        }
+    }
+    if check {
+        for dir in [&app_dir, &api_dir, &suite_dir] {
+            if !dir.is_dir() {
+                continue;
+            }
+            for entry in
+                std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))?
+            {
+                let path = entry?.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json")
+                    && !expected_json.contains(&path)
+                {
+                    drift.push(Drift::Orphan(path));
+                }
             }
         }
     }
@@ -387,6 +399,9 @@ enum Drift {
     /// checked out with the wrong line endings, not left stale. Re-emitting
     /// fixes nothing — `.gitattributes`' `eol=lf` rule is what prevents this.
     LineEndings(PathBuf),
+    /// A `.json` file exists in a generated-schema directory that is no
+    /// longer emitted by `emit-schemas`.
+    Orphan(PathBuf),
 }
 
 impl Drift {
@@ -396,6 +411,7 @@ impl Drift {
             Self::LineEndings(path) => {
                 eprintln!("line-ending drift (CRLF on disk): {}", path.display());
             }
+            Self::Orphan(path) => eprintln!("orphan generated schema: {}", path.display()),
         }
     }
 }

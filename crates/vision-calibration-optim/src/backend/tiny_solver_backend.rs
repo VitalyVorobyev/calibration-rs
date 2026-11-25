@@ -138,24 +138,23 @@ impl OptimBackend for TinySolverBackend {
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
     ) -> Result<BackendSolution, Error> {
-        self.solve_with(ir, initial, opts, true)
+        self.solve_with(ir, initial, opts, super::CovarianceMode::Full)
     }
 }
 
 impl TinySolverBackend {
-    /// [`OptimBackend::solve`], with the covariance's second-order
-    /// prediction only when `second_order` is set.
+    /// [`OptimBackend::solve`], parameterized by [`super::CovarianceMode`].
     pub(super) fn solve_with(
         &self,
         ir: &ProblemIR,
         initial: &HashMap<String, DVector<f64>>,
         opts: &BackendSolveOptions,
-        second_order: bool,
+        cov_mode: super::CovarianceMode,
     ) -> Result<BackendSolution, Error> {
         let compiled = self.compile(ir, initial)?;
         let blocks = compiled.problem.initialize_parameter_blocks(initial);
         let engine = TinySolverEngine::new(&compiled.problem, &compiled.non_finite, &blocks);
-        solve_on(ir, &engine, blocks, opts, second_order)
+        solve_on(ir, &engine, blocks, opts, cov_mode)
     }
 }
 
@@ -919,11 +918,11 @@ mod tests {
                 vec![-418.41360965271605, -199.73884917208755],
             ),
             (p2p(LaserChain::SinglePose), vec![0.721897348979456]),
-            (line(LaserChain::SinglePose), vec![2841.74611718797]),
+            (line(LaserChain::SinglePose), vec![-2841.74611718797]),
             (p2p(laser_he), vec![1.9389626687488233]),
-            (line(laser_he), vec![4657.542541258955]),
+            (line(laser_he), vec![-4657.542541258954]),
             (p2p(laser_hed), vec![1.9416558566988162]),
-            (line(laser_hed), vec![4651.171929495054]),
+            (line(laser_hed), vec![-4651.171929495054]),
         ];
 
         for (factor, expected) in cases {

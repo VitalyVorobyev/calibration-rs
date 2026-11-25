@@ -29,6 +29,9 @@ pub struct HomographyDecomposition {
 pub fn homography_transfer(h: &Mat3, pt: &Pt2) -> Pt2 {
     let p = nalgebra::Vector3::new(pt.x, pt.y, 1.0);
     let hp = h * p;
+    if !hp.z.is_finite() || hp.z.abs() < 1e-12 {
+        return Pt2::new(Real::NAN, Real::NAN);
+    }
     Pt2::new(hp.x / hp.z, hp.y / hp.z)
 }
 
@@ -87,10 +90,8 @@ pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
 
     // Pure rotation: all eigenvalues ≈ 1.
     if (l1 - l3).abs() < 1e-8 {
-        let mut r = h_n;
-        if r.determinant() < 0.0 {
-            r = -r;
-        }
+        let h_pos = if h_n.determinant() < 0.0 { -h_n } else { h_n };
+        let r = vision_calibration_core::linalg::project_to_so3(&h_pos)?;
         return Ok(vec![HomographyDecomposition {
             r,
             t: Vec3::zeros(),
@@ -99,9 +100,9 @@ pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
     }
 
     // Candidate plane normals from eigendecomposition.
-    let c1 = ((1.0 - l3) / (l1 - l3)).sqrt();
-    let c3 = ((l1 - 1.0) / (l1 - l3)).sqrt();
-    let normals: [Vec3; 2] = [c1 * v1 + c3 * v3, c1 * v1 - c3 * v3];
+    let c1 = ((1.0 - l3).max(0.0) / (l1 - l3)).sqrt();
+    let c3 = ((l1 - 1.0).max(0.0) / (l1 - l3)).sqrt();
+    let normals: [Vec3; 2] = [c3 * v1 + c1 * v3, c3 * v1 - c1 * v3];
 
     let mut results = Vec::with_capacity(4);
 
@@ -128,7 +129,8 @@ pub fn decompose_homography(h: &Mat3) -> Result<Vec<HomographyDecomposition>> {
         let vt = svd_r.v_t.ok_or_else(|| Error::numerical("SVD failed"))?;
         let mut r = u * vt;
         if r.determinant() < 0.0 {
-            r = -r;
+            let d = Mat3::from_diagonal(&Vec3::new(1.0, 1.0, -1.0));
+            r = u * d * vt;
         }
 
         // t/d = (H_n - R) * n.
@@ -252,7 +254,7 @@ mod tests {
                 1.0
             };
             let n_cos = decomp.normal.normalize().dot(&n_gt.normalize()).abs();
-            ang_deg < 1.0 && t_cos > 0.99 && n_cos > 0.99
+            ang_deg < 1e-6 && t_cos > 1.0 - 1e-9 && n_cos > 1.0 - 1e-9
         })
     }
 
@@ -317,5 +319,21 @@ mod tests {
         let pt2 = homography_transfer(&h, &pt);
         assert!((pt2.x - pt.x).abs() < 1e-15);
         assert!((pt2.y - pt.y).abs() < 1e-15);
+    }
+
+    #[test]
+    fn decompose_homography_handles_pure_normal_motion() {
+        // Choose t parallel to R * n so the singular values of H_n have two
+        // coincident 1s or near-normal structure where swapped c1/c3 fails.
+        let r_gt = *nalgebra::Rotation3::from_euler_angles(0.2, -0.35, 0.15).matrix();
+        let n_gt = Vec3::new(0.3, -0.2, 0.93).normalize();
+        let t_gt = r_gt * n_gt * 0.4;
+        let d = 1.2;
+        let h = homography_from_pose_and_plane(&r_gt, &t_gt, &n_gt, d);
+        let decomps = decompose_homography(&h).unwrap();
+        assert!(
+            recovers(&decomps, &r_gt, &t_gt, &n_gt),
+            "failed on pure-normal motion t || R*n"
+        );
     }
 }

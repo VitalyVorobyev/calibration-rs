@@ -352,6 +352,22 @@ pub enum DeviceSpecError {
         id: String,
     },
 
+    /// Two laser planes reference the same camera.
+    #[error("duplicate laser plane for camera id `{id}`")]
+    DuplicateLaserPlaneId {
+        /// The offending id.
+        id: String,
+    },
+
+    /// A numeric field is NaN or infinite.
+    #[error("{context}: {field} must be finite")]
+    NonFiniteField {
+        /// Owning section or camera id.
+        context: String,
+        /// The offending field name.
+        field: &'static str,
+    },
+
     /// A laser-plane normal is not unit length.
     #[error("laser plane for camera `{camera_id}`: normal must be unit length (norm {norm})")]
     NonUnitLaserNormal {
@@ -380,7 +396,7 @@ impl DeviceSpec {
     /// Structural validation: fail-fast on transcription errors
     /// Called by [`DeviceSpec::from_path`].
     pub fn validate(&self) -> Result<(), DeviceSpecError> {
-        if self.version > DEVICE_SPEC_VERSION {
+        if self.version == 0 || self.version > DEVICE_SPEC_VERSION {
             return Err(DeviceSpecError::UnsupportedVersion {
                 got: self.version,
                 max: DEVICE_SPEC_VERSION,
@@ -389,6 +405,20 @@ impl DeviceSpec {
         if self.cameras.is_empty() {
             return Err(DeviceSpecError::NoCameras);
         }
+        let check_finite = |context: &str, field: &'static str, values: &[f64]| {
+            if values.iter().all(|v| v.is_finite()) {
+                Ok(())
+            } else {
+                Err(DeviceSpecError::NonFiniteField {
+                    context: context.to_string(),
+                    field,
+                })
+            }
+        };
+        let check_pose = |context: &str, pose: &NominalPoseSpec| -> Result<(), DeviceSpecError> {
+            check_finite(context, "rpy_deg", &pose.rpy_deg)?;
+            check_finite(context, "translation_mm", &pose.translation_mm)
+        };
         let mut seen = std::collections::BTreeSet::new();
         for cam in &self.cameras {
             if !seen.insert(cam.id.as_str()) {
@@ -408,6 +438,16 @@ impl DeviceSpec {
                     });
                 }
             }
+            if let Some(pp) = &cam.principal_point_px {
+                check_finite(&format!("camera `{}`", cam.id), "principal_point_px", pp)?;
+            }
+            if let Some(tilt) = &cam.scheimpflug {
+                check_finite(
+                    &format!("camera `{}` scheimpflug", cam.id),
+                    "tilt",
+                    &[tilt.tilt_x_deg, tilt.tilt_y_deg],
+                )?;
+            }
         }
         if let Some(rig) = &self.rig {
             let mut mounted = std::collections::BTreeSet::new();
@@ -422,15 +462,35 @@ impl DeviceSpec {
                         id: mount.id.clone(),
                     });
                 }
+                check_pose(&format!("rig camera `{}`", mount.id), &mount.rig_se3_cam)?;
             }
+            if let Some(handeye) = &rig.handeye {
+                match handeye {
+                    HandeyeMountSpec::EyeInHand { gripper_se3_rig } => {
+                        check_pose("rig handeye gripper_se3_rig", gripper_se3_rig)?;
+                    }
+                    HandeyeMountSpec::EyeToHand { rig_se3_base } => {
+                        check_pose("rig handeye rig_se3_base", rig_se3_base)?;
+                    }
+                }
+            }
+            let mut seen_planes = std::collections::BTreeSet::new();
             for plane in rig.laser_planes.as_deref().unwrap_or_default() {
                 if self.camera(&plane.camera_id).is_none() {
                     return Err(DeviceSpecError::UnknownRigCameraId {
                         id: plane.camera_id.clone(),
                     });
                 }
+                if !seen_planes.insert(plane.camera_id.as_str()) {
+                    return Err(DeviceSpecError::DuplicateLaserPlaneId {
+                        id: plane.camera_id.clone(),
+                    });
+                }
+                let ctx = format!("laser plane `{}`", plane.camera_id);
+                check_finite(&ctx, "normal", &plane.normal)?;
+                check_finite(&ctx, "distance_mm", &[plane.distance_mm])?;
                 let norm = plane.normal.iter().map(|c| c * c).sum::<f64>().sqrt();
-                if (norm - 1.0).abs() > 1e-6 {
+                if !norm.is_finite() || (norm - 1.0).abs() > 1e-6 {
                     return Err(DeviceSpecError::NonUnitLaserNormal {
                         camera_id: plane.camera_id.clone(),
                         norm,
@@ -630,6 +690,37 @@ mod tests {
         assert!(matches!(
             bad_normal.validate(),
             Err(DeviceSpecError::NonUnitLaserNormal { .. })
+        ));
+
+        let mut v0 = full_spec();
+        v0.version = 0;
+        assert!(matches!(
+            v0.validate(),
+            Err(DeviceSpecError::UnsupportedVersion { got: 0, .. })
+        ));
+
+        let mut dup_plane = full_spec();
+        dup_plane
+            .rig
+            .as_mut()
+            .unwrap()
+            .laser_planes
+            .as_mut()
+            .unwrap()
+            .push(LaserPlaneSpec::new("cam1", [0.0, 0.0, 1.0], 100.0));
+        assert!(matches!(
+            dup_plane.validate(),
+            Err(DeviceSpecError::DuplicateLaserPlaneId { .. })
+        ));
+
+        let mut nan_pp = full_spec();
+        nan_pp.cameras[0].principal_point_px = Some([f64::NAN, 270.0]);
+        assert!(matches!(
+            nan_pp.validate(),
+            Err(DeviceSpecError::NonFiniteField {
+                field: "principal_point_px",
+                ..
+            })
         ));
     }
 

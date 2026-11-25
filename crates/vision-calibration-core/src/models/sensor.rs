@@ -80,13 +80,35 @@ impl Default for ScheimpflugParams {
 impl ScheimpflugParams {
     /// Build a homography matching OpenCV's tilted sensor model.
     ///
-    /// Panics if the generated homography is not invertible.
-    pub fn compile(&self) -> HomographySensor<f64> {
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::InvalidInput`] if either tilt angle is
+    /// non-finite, or [`crate::Error::Singular`] if the tilt is too close to
+    /// `±π/2` for the sensor homography to be invertible.
+    pub fn try_compile(&self) -> Result<HomographySensor<f64>, crate::Error> {
+        if !self.tilt_x.is_finite() || !self.tilt_y.is_finite() {
+            return Err(crate::Error::invalid_input(
+                "Scheimpflug tilt angles must be finite",
+            ));
+        }
         let h = tilt_projection_matrix(self.tilt_x, self.tilt_y);
-        let h_inv = h
-            .try_inverse()
-            .expect("Scheimpflug homography not invertible");
-        HomographySensor { h, h_inv }
+        if !h.iter().all(|v| v.is_finite()) || h.determinant().abs() <= 1e-18 {
+            return Err(crate::Error::Singular);
+        }
+        let h_inv = h.try_inverse().ok_or(crate::Error::Singular)?;
+        Ok(HomographySensor { h, h_inv })
+    }
+
+    /// Build a homography matching OpenCV's tilted sensor model.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tilt angles are non-finite or too close to `±π/2` for the
+    /// generated homography to be invertible. Use [`try_compile`](Self::try_compile)
+    /// for fallible construction from untrusted input.
+    pub fn compile(&self) -> HomographySensor<f64> {
+        self.try_compile()
+            .expect("Scheimpflug homography not invertible")
     }
 }
 

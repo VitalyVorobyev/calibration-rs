@@ -8,8 +8,7 @@
 
 use crate::math::{dlt_rank_ok, ensure_finite};
 use crate::{GeometryError, Result};
-use nalgebra::{DMatrix, Matrix3x4};
-use vision_calibration_core::linalg::null_space;
+use nalgebra::{Matrix3x4, Matrix4};
 use vision_calibration_core::{Iso3, Pt3, Real, Vec3};
 
 /// Linear (DLT) triangulation from N ≥ 2 views, on bearings.
@@ -20,10 +19,9 @@ use vision_calibration_core::{Iso3, Pt3, Real, Vec3};
 /// normalized coordinates is one. The returned point is in the world frame.
 ///
 /// With `P = [R | t]` and unit bearing `b`, the point `X` satisfies
-/// `b × (P X) = 0`; the three rows of `[b]× P` (rank 2) of every view stack into
-/// a `3N×4` system. It is solved via [`null_space`] (the smallest-singular
-/// direction, from the `AᵀA` symmetric eigendecomposition rather than a dense
-/// SVD — see [`null_space`] for why the SVD path is deliberately avoided).
+/// `b × (P X) = 0`; accumulating `AᵀA` across the 3 rows `[b]× P` of every
+/// view reduces the `3N×4` system to a fixed stack-allocated 4×4 normal matrix
+/// without heap allocation, solved via its smallest-eigenvalue eigenvector.
 ///
 /// # Errors
 ///
@@ -52,8 +50,8 @@ pub fn triangulate_point_linear(cam_se3_world: &[Iso3], bearings: &[Vec3]) -> Re
         });
     }
 
-    let mut a = DMatrix::<Real>::zeros(3 * cam_se3_world.len(), 4);
-    for (i, (pose, b)) in cam_se3_world.iter().zip(bearings.iter()).enumerate() {
+    let mut ata = Matrix4::<Real>::zeros();
+    for (pose, b) in cam_se3_world.iter().zip(bearings.iter()) {
         let norm = b.norm();
         if !(norm.is_finite() && norm > 0.0) {
             return Err(GeometryError::degenerate(
@@ -67,22 +65,42 @@ pub fn triangulate_point_linear(cam_se3_world: &[Iso3], bearings: &[Vec3]) -> Re
         p.fixed_view_mut::<3, 3>(0, 0).copy_from(r.matrix());
         p.set_column(3, &pose.translation.vector);
         let rows = skew * p;
-        a.view_mut((3 * i, 0), (3, 4)).copy_from(&rows);
+        ata += rows.transpose() * rows;
     }
 
-    let ns = null_space(&a)?;
+    if ata.iter().any(|v| !v.is_finite()) {
+        return Err(GeometryError::degenerate(
+            "non-finite normal matrix during triangulation",
+        ));
+    }
+    let eigen = ata.symmetric_eigen();
+    if eigen.eigenvalues.iter().any(|v| !v.is_finite()) {
+        return Err(GeometryError::degenerate(
+            "non-finite eigenvalues during triangulation",
+        ));
+    }
+    let min_idx = (0..4)
+        .min_by(|&a, &b| eigen.eigenvalues[a].total_cmp(&eigen.eigenvalues[b]))
+        .expect("fixed 4 eigenvalues");
+    let mut singular_values = [
+        eigen.eigenvalues[0].max(0.0).sqrt(),
+        eigen.eigenvalues[1].max(0.0).sqrt(),
+        eigen.eigenvalues[2].max(0.0).sqrt(),
+        eigen.eigenvalues[3].max(0.0).sqrt(),
+    ];
+    singular_values.sort_by(|a, b| b.total_cmp(a));
 
     // The 4-column DLT triangulation matrix is well-posed at rank 3 (1-D null
     // space). Identical cameras or coincident rays collapse the boundary
     // singular value toward zero.
-    if !dlt_rank_ok(&ns.singular_values, 4, 1, 1e-7) {
+    if !dlt_rank_ok(&singular_values, 4, 1, 1e-7) {
         return Err(GeometryError::degenerate(
             "zero-parallax / rank-deficient triangulation system \
              (identical cameras or coincident rays)",
         ));
     }
 
-    let x_h = &ns.vector;
+    let x_h = eigen.eigenvectors.column(min_idx);
     let w = x_h[3];
     if w.abs() <= Real::EPSILON {
         return Err(GeometryError::degenerate(

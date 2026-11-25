@@ -235,7 +235,25 @@ fn check_failures(suite: &Suite, entry: &SuiteEntry, options: CheckOptions) -> R
             .into_iter()
             .map(|d| format!("{}: {} → {}", d.path, d.expected, d.actual))
             .collect(),
-        Gate::Sigma(k) => beyond(&changes, k, "changed by"),
+        Gate::Sigma(k) => {
+            if !(k.is_finite() && k > 0.0) {
+                vec![format!(
+                    "Gate::Sigma threshold must be finite and positive, got {k}"
+                )]
+            } else if changes.is_empty() {
+                vec!["sigma gate has no reference parameter covariance to check against".into()]
+            } else {
+                let mut errs = beyond(&changes, k, "changed by");
+                let ref_avail = reference.export.pointer("/uncertainty/status")
+                    == Some(&Value::String("available".into()));
+                let cur_avail = export.pointer("/uncertainty/status")
+                    == Some(&Value::String("available".into()));
+                if ref_avail && !cur_avail {
+                    errs.push("actual export lost parameter covariance availability".into());
+                }
+                errs
+            }
+        }
     };
     let truth_errors = match entry.synthetic {
         Some(_) => truth_errors(&export, &load_truth(suite, &entry.id)?)?,

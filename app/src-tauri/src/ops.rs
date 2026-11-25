@@ -35,20 +35,29 @@ pub struct LoadedExport {
     pub image_root: Option<PathBuf>,
 }
 
+/// The folder an export path resolves against (`.` for a bare file name).
+fn export_parent_dir(path: &Path) -> Result<&Path, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("export path has no parent directory: {}", path.display()))?;
+    if parent.as_os_str().is_empty() {
+        Ok(Path::new("."))
+    } else {
+        Ok(parent)
+    }
+}
+
 /// Read and parse a calibration export JSON file and check its schema
 /// version. Does not cache it: the frontend validates the export first and
 /// then calls `set_active_export`.
 pub fn read_export(path: &Path) -> Result<LoadedExport, String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("export path has no parent directory: {}", path.display()))?
-        .to_path_buf();
+    let parent = export_parent_dir(path)?;
     let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let export: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", path.display()))?;
     vision_calibration::common::check_export_version(&export.to_string())
         .map_err(|e| format!("{}: {e}", path.display()))?;
-    let export_dir = dunce::canonicalize(&parent)
+    let export_dir = dunce::canonicalize(parent)
         .map_err(|e| format!("canonicalize {}: {e}", parent.display()))?;
     let image_root = image_root(&export, &export_dir);
     Ok(LoadedExport {
@@ -93,7 +102,7 @@ pub fn undistort_points(
     cache: &ExportCache,
     camera: usize,
     points_px: Vec<[f64; 2]>,
-) -> Result<Vec<[f64; 2]>, String> {
+) -> Result<Vec<Option<[f64; 2]>>, String> {
     cache.with(|export| epipolar::undistort_points(export, camera, points_px))
 }
 
@@ -180,5 +189,17 @@ mod tests {
         let cache = ExportCache::new();
         let err = undistort_points(&cache, 0, vec![[0.0, 0.0]]).unwrap_err();
         assert_eq!(err, "no export loaded yet");
+    }
+
+    #[test]
+    fn bare_relative_export_filename_resolves_parent_to_dot() {
+        assert_eq!(
+            export_parent_dir(Path::new("export.json")).unwrap(),
+            Path::new(".")
+        );
+        assert_eq!(
+            export_parent_dir(Path::new("runs/a/export.json")).unwrap(),
+            Path::new("runs/a")
+        );
     }
 }

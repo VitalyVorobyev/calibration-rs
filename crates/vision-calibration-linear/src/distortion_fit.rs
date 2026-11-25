@@ -37,6 +37,7 @@
 //! - OpenCV calibration implementation
 
 use crate::Error;
+use crate::math::ridge_lstsq;
 use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{BrownConrady5, Mat3, Pt2, Real, Vec2, Vec3, View};
@@ -70,9 +71,16 @@ impl Default for DistortionFitOptions {
     fn default() -> Self {
         Self {
             fix_tangential: false,
-            fix_k3: true, // Conservative default: 3-parameter radial only
+            fix_k3: true, // Conservative default: k1, k2, p1, p2 (k3 fixed)
             iters: 8,
         }
+    }
+}
+
+impl DistortionFitOptions {
+    /// Construct default linear distortion-fit options (`fix_k3 = true`, `iters = 8`).
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -110,10 +118,10 @@ pub type DistortionView = View<MetaHomography>;
 ///
 /// # Errors
 ///
-/// - `NotEnoughPoints`: Insufficient points for the requested parameter count
-/// - `IntrinsicsNotInvertible`: K matrix is singular
-/// - `DegenerateConfiguration`: All points near image center (no radial diversity)
-/// - `SvdFailed`: Numerical issues during linear solve
+/// - [`Error::InsufficientData`]: Insufficient points for the requested parameter count
+/// - [`Error::Singular`]: `K` matrix is singular or the normal system is singular
+/// - [`Error::InvalidInput`]: All points near image center (no radial diversity)
+/// - [`Error::Numerical`]: Non-finite distortion parameters computed
 ///
 /// # Coordinate Conventions
 ///
@@ -188,6 +196,7 @@ pub fn estimate_distortion_from_homographies(
     let mut b = nalgebra::DVector::<Real>::zeros(2 * total_points);
 
     let mut row_idx = 0;
+    let mut max_r2 = 0.0;
     for view in views {
         for (board_pt, pixel_obs) in view.obs.points_3d.iter().zip(&view.obs.points_2d) {
             // Compute ideal pixel via homography
@@ -224,6 +233,9 @@ pub fn estimate_distortion_from_homographies(
             let x = n_ideal.x;
             let y = n_ideal.y;
             let r2 = x * x + y * y;
+            if r2 > max_r2 {
+                max_r2 = r2;
+            }
             let r4 = r2 * r2;
             let r6 = r4 * r2;
 
@@ -275,53 +287,23 @@ pub fn estimate_distortion_from_homographies(
         }
     }
 
-    // Check for degenerate configuration (all r² too small)
-    let mut max_r2 = 0.0;
-    for view in views {
-        for board_pt in &view.obs.points_2d {
-            let board_h = Vec3::new(board_pt.x, board_pt.y, 1.0);
-            let pixel_ideal_h = view.meta.homography * board_h;
-            let pixel_ideal = Pt2::new(
-                pixel_ideal_h.x / pixel_ideal_h.z,
-                pixel_ideal_h.y / pixel_ideal_h.z,
-            );
-            let n_ideal_h = k_inv * Vec3::new(pixel_ideal.x, pixel_ideal.y, 1.0);
-            let n_ideal = Vec2::new(n_ideal_h.x / n_ideal_h.z, n_ideal_h.y / n_ideal_h.z);
-            let r2 = n_ideal.x * n_ideal.x + n_ideal.y * n_ideal.y;
-            if r2 > max_r2 {
-                max_r2 = r2;
-            }
-        }
-    }
-
-    if max_r2 < 1e-6 {
+    if !max_r2.is_finite() || max_r2 < 1e-6 {
         return Err(Error::invalid_input(
             "degenerate configuration for distortion estimation",
         ));
     }
 
-    // Solve the overdetermined system `A x = b`. `A` is tall (2N×k) — N can
-    // exceed several thousand correspondences on a dense target — but `k` is tiny
-    // (≤5). A full SVD of `A` accumulates its U factor across every row, which is
-    // pathologically slow on dense data (the same failure mode as the homography
-    // DLT). Instead form the k×k normal matrix `AᵀA` (O(N·k²)) and solve it with
-    // Tikhonov (ridge) damping: λ on the diagonal regularizes a near-singular
-    // distortion design the way a full SVD would via small-singular-value
-    // truncation, while LU — unlike an SVD solve — cannot hang on a degenerate or
-    // non-finite system. λ is scaled to the matrix so it is negligible when the
-    // design is well-posed. The distortion init is refined later in BA.
-    let at = a.transpose();
-    let mut ata = &at * &a;
-    let atb = &at * &b;
-    let max_diag = (0..n_params).fold(0.0_f64, |m, i| m.max(ata[(i, i)]));
+    // Solve the overdetermined system `A x = b` via ridge-regularized normal equations.
+    let max_diag = (0..n_params)
+        .map(|j| a.column(j).norm_squared())
+        .fold(0.0_f64, f64::max);
     let lambda = 1e-9 * max_diag.max(1.0);
-    for i in 0..n_params {
-        ata[(i, i)] += lambda;
+    let x = ridge_lstsq(&a, &b, lambda)?;
+    if x.iter().any(|v| !v.is_finite()) {
+        return Err(Error::numerical(
+            "distortion normal-equations solve produced non-finite parameters",
+        ));
     }
-    let x = ata
-        .lu()
-        .solve(&atb)
-        .ok_or_else(|| Error::numerical("distortion normal-equations solve failed"))?;
 
     // Extract parameters
     let mut col_idx = 0;
@@ -543,5 +525,52 @@ mod tests {
         );
         assert!(dist_est.p1.abs() < 0.01, "p1 order of magnitude reasonable");
         assert!(dist_est.p2.abs() < 0.01, "p2 order of magnitude reasonable");
+    }
+
+    #[test]
+    fn degenerate_zero_radius_board_is_rejected() {
+        let kmtx = make_kmtx();
+        let dist_gt = BrownConrady5 {
+            k1: -0.2,
+            k2: 0.05,
+            k3: 0.0,
+            p1: 0.0,
+            p2: 0.0,
+            iters: 8,
+        };
+        // Points tightly clustered around the optical axis (max r^2 << 1e-6)
+        // while their pixel projections sit near (cx, cy) = (640, 360).
+        let mut board_points = Vec::new();
+        for i in 0..7 {
+            for j in 0..7 {
+                board_points.push(Pt3::new(i as Real * 1e-5, j as Real * 1e-5, 0.0));
+            }
+        }
+        let poses = vec![
+            (
+                Rotation3::from_euler_angles(0.05, 0.0, 0.02),
+                Vector3::new(0.0, 0.0, 1.0),
+            ),
+            (
+                Rotation3::from_euler_angles(-0.02, 0.04, -0.03),
+                Vector3::new(0.0, 0.0, 1.2),
+            ),
+        ];
+        let mut views = Vec::new();
+        for (rot, t) in poses {
+            let (h, pixels) =
+                synthetic_homography_with_distortion(&kmtx, &dist_gt, rot, t, &board_points);
+            views.push(DistortionView::new(
+                CorrespondenceView::new(board_points.clone(), pixels).unwrap(),
+                MetaHomography { homography: h },
+            ));
+        }
+        let opts = DistortionFitOptions {
+            fix_tangential: true,
+            fix_k3: true,
+            iters: 8,
+        };
+        let err = estimate_distortion_from_homographies(&kmtx, &views, opts).unwrap_err();
+        assert!(matches!(err, crate::Error::InvalidInput { .. }), "{err:?}");
     }
 }

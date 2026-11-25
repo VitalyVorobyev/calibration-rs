@@ -524,12 +524,14 @@ fn parse_counted_matrices(
                 .map_err(|_| parse_err(i / 16, format!("{tok:?} is not a number")))
         })
         .collect::<Result<_, _>>()?;
-    if values.len() != 16 * count {
+    let expected = count
+        .checked_mul(16)
+        .ok_or_else(|| parse_err(0, format!("counted4x4 count {count} overflows usize")))?;
+    if values.len() != expected {
         return Err(parse_err(
             0,
             format!(
-                "counted4x4 declares {count} matrices ({} values) but holds {} values",
-                16 * count,
+                "counted4x4 declares {count} matrices ({expected} values) but holds {} values",
                 values.len()
             ),
         ));
@@ -691,6 +693,14 @@ fn rotation_from_values(
                     "the upper-left 3×3 is not a rotation (det {:.6}, |RᵀR − I| {off:.2e}; \
                      tolerance {ROTATION_TOL:e})",
                     m.determinant()
+                ));
+            }
+            let bottom = [values[12], values[13], values[14], values[15] - 1.0];
+            let bottom_err = bottom.iter().map(|v| v.abs()).fold(0.0_f64, f64::max);
+            if bottom_err > ROTATION_TOL {
+                return Err(format!(
+                    "the 4×4 bottom row must be [0, 0, 0, 1] (max deviation {bottom_err:.2e}; \
+                     tolerance {ROTATION_TOL:e})"
                 ));
             }
             // The SVD polar projection, not nalgebra's iterative
@@ -1230,5 +1240,14 @@ mod tests {
         far[15] = 1.0;
         far[3] = f64::INFINITY;
         assert!(rotation_from_values(RotationFormat::Matrix4x4RowMajor, &far).is_err());
+
+        // A non-affine bottom row in a 4x4 matrix.
+        let mut bad_bottom = [0.0; 16];
+        bad_bottom[0] = 1.0;
+        bad_bottom[5] = 1.0;
+        bad_bottom[10] = 1.0;
+        bad_bottom[12] = 0.25;
+        bad_bottom[15] = 1.0;
+        assert!(rotation_from_values(RotationFormat::Matrix4x4RowMajor, &bad_bottom).is_err());
     }
 }

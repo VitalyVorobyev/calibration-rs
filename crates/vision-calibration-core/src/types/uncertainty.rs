@@ -229,14 +229,18 @@ impl ParameterCovariance {
     /// Standard deviation of a shared parameter.
     pub fn std_dev(&self, label: &str) -> Option<f64> {
         let i = self.index(label)?;
-        Some(self.covariance[i][i].max(0.0).sqrt())
+        let var = self.covariance.get(i)?.get(i).copied()?;
+        Some(var.max(0.0).sqrt())
     }
 
     /// Correlation coefficient of two shared parameters, in `[-1, 1]`.
     pub fn correlation(&self, a: &str, b: &str) -> Option<f64> {
         let (i, j) = (self.index(a)?, self.index(b)?);
-        let denom = (self.covariance[i][i] * self.covariance[j][j]).sqrt();
-        (denom > 0.0).then(|| (self.covariance[i][j] / denom).clamp(-1.0, 1.0))
+        let vii = self.covariance.get(i)?.get(i).copied()?;
+        let vjj = self.covariance.get(j)?.get(j).copied()?;
+        let vij = self.covariance.get(i)?.get(j).copied()?;
+        let denom = (vii * vjj).sqrt();
+        (denom > 0.0).then(|| (vij / denom).clamp(-1.0, 1.0))
     }
 }
 

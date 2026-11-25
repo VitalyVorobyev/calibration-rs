@@ -109,7 +109,9 @@ impl GrayImage {
     pub fn get(&self, x: usize, y: usize) -> u8 {
         debug_assert!(
             x < self.width && y < self.height,
-            "GrayImage::get out of bounds"
+            "GrayImage::get out of bounds: ({x}, {y}) for {}×{}",
+            self.width,
+            self.height
         );
         self.data[y * self.width + x]
     }
@@ -166,6 +168,11 @@ impl DisparityMap {
     ///
     /// [`Error::InvalidInput`] if `data.len() != width * height`.
     pub fn new(width: usize, height: usize, data: Vec<f32>) -> Result<Self> {
+        if width == 0 || height == 0 {
+            return Err(Error::invalid_input(format!(
+                "DisparityMap: a map needs at least one pixel, got {width}×{height}"
+            )));
+        }
         if Some(data.len()) != width.checked_mul(height) {
             return Err(Error::invalid_input(format!(
                 "DisparityMap: {width}×{height} needs {} values, got {}",
@@ -202,22 +209,41 @@ impl DisparityMap {
 
     /// Construct a map filled with a single value (use `f32::NAN` for all-invalid).
     pub fn filled(width: usize, height: usize, value: f32) -> Self {
+        assert!(
+            width > 0 && height > 0,
+            "DisparityMap: a map needs at least one pixel, got {width}×{height}"
+        );
+        let len = width
+            .checked_mul(height)
+            .expect("DisparityMap dimensions overflow usize");
         Self {
             width,
             height,
-            data: vec![value; width * height],
+            data: vec![value; len],
         }
     }
 
     /// Read one disparity value.
     #[inline]
     pub fn get(&self, x: usize, y: usize) -> f32 {
+        assert!(
+            x < self.width && y < self.height,
+            "DisparityMap::get out of bounds: ({x}, {y}) for {}×{}",
+            self.width,
+            self.height
+        );
         self.data[y * self.width + x]
     }
 
     /// Write one disparity value.
     #[inline]
     pub fn set(&mut self, x: usize, y: usize, value: f32) {
+        assert!(
+            x < self.width && y < self.height,
+            "DisparityMap::set out of bounds: ({x}, {y}) for {}×{}",
+            self.width,
+            self.height
+        );
         self.data[y * self.width + x] = value;
     }
 
@@ -309,6 +335,13 @@ impl Default for BlockMatchOptions {
     }
 }
 
+impl BlockMatchOptions {
+    /// Construct default ZNCC stereo block-matching options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Summed-area table
 // ---------------------------------------------------------------------------
@@ -323,18 +356,41 @@ struct SummedArea {
 }
 
 impl SummedArea {
+    /// Allocate an empty integral buffer sized for `width × height`.
+    fn zeroed(width: usize, height: usize) -> Self {
+        let stride = width + 1;
+        Self {
+            width,
+            sat: vec![0.0f64; stride * (height + 1)],
+        }
+    }
+
     /// Build the table from a per-pixel value function.
     fn build(width: usize, height: usize, value: impl Fn(usize, usize) -> f64) -> Self {
+        let mut table = Self::zeroed(width, height);
+        table.reset_from(width, height, value);
+        table
+    }
+
+    /// Refill this integral buffer in place for `width × height` without reallocating.
+    fn reset_from(&mut self, width: usize, height: usize, value: impl Fn(usize, usize) -> f64) {
         let stride = width + 1;
-        let mut sat = vec![0.0f64; stride * (height + 1)];
+        let needed = stride * (height + 1);
+        self.width = width;
+        if self.sat.len() != needed {
+            self.sat.resize(needed, 0.0);
+        }
+        // Top border row is zero; left column of each row is zero.
+        self.sat[..stride].fill(0.0);
         for y in 0..height {
+            let prev = y * stride;
+            let curr = (y + 1) * stride;
+            self.sat[curr] = 0.0;
             for x in 0..width {
-                sat[(y + 1) * stride + (x + 1)] =
-                    value(x, y) + sat[y * stride + (x + 1)] + sat[(y + 1) * stride + x]
-                        - sat[y * stride + x];
+                self.sat[curr + x + 1] =
+                    value(x, y) + self.sat[prev + x + 1] + self.sat[curr + x] - self.sat[prev + x];
             }
         }
-        Self { width, sat }
     }
 
     /// Sum over the `(2r+1)×(2r+1)` window centred at `(cx, cy)`.
@@ -368,8 +424,10 @@ const INVALID_CORR: f32 = f32::NEG_INFINITY;
 /// # Errors
 ///
 /// Returns [`Error::InvalidInput`] if the two images differ in size, if
-/// `block_size` is even or zero, if `num_disparities <= 0`, or if either image
-/// is smaller than the matching window.
+/// `block_size` is even or zero, if `num_disparities <= 0`, if the disparity
+/// range lies so far from zero that pixel indices shifted by it (plus or minus
+/// twice the image width) leave the `i32` range, if a threshold or penalty is
+/// out of its range, or if either image is smaller than the matching window.
 pub fn match_block(
     left: &GrayImage,
     right: &GrayImage,
@@ -394,6 +452,50 @@ pub fn match_block(
             opts.num_disparities
         )));
     }
+    // The search evaluates `x ∓ d` and `x ∓ d ± r` for every pixel column `x`,
+    // window radius `r < w` and disparity `d` in the range; keeping the range
+    // two image widths inside `i32` keeps every such index representable.
+    let width_margin = i64::try_from(w).unwrap_or(i64::MAX).saturating_mul(2);
+    let d_lo = i64::from(opts.min_disparity);
+    let d_hi = d_lo + i64::from(opts.num_disparities);
+    if d_lo.saturating_sub(width_margin) < -i64::from(i32::MAX)
+        || d_hi.saturating_add(width_margin) > i64::from(i32::MAX)
+    {
+        return Err(Error::invalid_input(format!(
+            "disparity range [{}, {d_hi}) is too far from zero for a {w}-pixel-wide image",
+            opts.min_disparity
+        )));
+    }
+    if !opts.min_correlation.is_finite() {
+        return Err(Error::invalid_input(format!(
+            "min_correlation must be finite, got {}",
+            opts.min_correlation
+        )));
+    }
+    if !opts.uniqueness_ratio.is_finite() || opts.uniqueness_ratio < 0.0 {
+        return Err(Error::invalid_input(format!(
+            "uniqueness_ratio must be finite and non-negative, got {}",
+            opts.uniqueness_ratio
+        )));
+    }
+    if !opts.lr_max_diff.is_finite() || opts.lr_max_diff < 0.0 {
+        return Err(Error::invalid_input(format!(
+            "lr_max_diff must be finite and non-negative, got {}",
+            opts.lr_max_diff
+        )));
+    }
+    if !opts.sgm_p1.is_finite() || opts.sgm_p1 < 0.0 {
+        return Err(Error::invalid_input(format!(
+            "sgm_p1 must be finite and non-negative, got {}",
+            opts.sgm_p1
+        )));
+    }
+    if !opts.sgm_p2.is_finite() || opts.sgm_p2 < opts.sgm_p1 {
+        return Err(Error::invalid_input(format!(
+            "sgm_p2 ({}) must be finite and >= sgm_p1 ({})",
+            opts.sgm_p2, opts.sgm_p1
+        )));
+    }
     let r = opts.block_size / 2;
     if w < opts.block_size || h < opts.block_size {
         return Err(Error::invalid_input(format!(
@@ -415,15 +517,30 @@ pub fn match_block(
         v * v
     });
 
-    // Left-referenced disparity: a left pixel matches the right image at x - d.
-    let left_disp = solve_direction(left, right, &il, &ill, &ir, &irr, -1, r, opts);
+    // Pixel-major L-to-R ZNCC volume computed once and reused for both passes.
+    let zncc = zncc_cost_volume_l2r(left, right, &il, &ill, &ir, &irr, r, opts);
+    let num_d = opts.num_disparities as usize;
+    let left_disp = if opts.semi_global {
+        let agg = aggregate_sgm(&zncc, w, h, num_d, opts.sgm_p1, opts.sgm_p2);
+        select_sgm(&zncc, &agg, w, h, num_d, r, opts)
+    } else {
+        select_block(&zncc, w, h, num_d, r, opts)
+    };
 
     if !opts.lr_consistency {
         return DisparityMap::new(w, h, left_disp);
     }
 
-    // Right-referenced disparity: a right pixel matches the left image at xr + d.
-    let right_disp = solve_direction(right, left, &ir, &irr, &il, &ill, 1, r, opts);
+    // Derive right-referenced disparities from `zncc_l2r` via the identity
+    // ZNCC(right(xr), left(xr + d)) == ZNCC(left(xr + d), right(xr)),
+    // skipping a second integral-table sweep and `sqrt` evaluation.
+    let right_disp = if opts.semi_global {
+        let zncc_r2l = remap_zncc_r2l(&zncc, w, h, num_d, r, opts.min_disparity);
+        let agg_r = aggregate_sgm(&zncc_r2l, w, h, num_d, opts.sgm_p1, opts.sgm_p2);
+        select_sgm(&zncc_r2l, &agg_r, w, h, num_d, r, opts)
+    } else {
+        select_block_r2l(&zncc, w, h, num_d, r, opts)
+    };
 
     // Cross-check: keep a left disparity only if the right map agrees.
     let mut out = left_disp;
@@ -448,82 +565,51 @@ pub fn match_block(
     DisparityMap::new(w, h, out)
 }
 
-/// Compute a one-directional disparity map.
-///
-/// `a` is the reference image, `b` the target; for each `a` pixel the matcher
-/// searches `b` at `x + sign * d` for `d` in the configured range. `sign` is
-/// `-1` when `a` is the left image (match leftward) and `+1` when `a` is the
-/// right image (match rightward). Returns disparity magnitudes (`>= 0`) with
-/// `NaN` for rejected pixels.
+/// Build the per-pixel pixel-major ZNCC cost volume `cost[(y*w + x)*num_d + k]`
+/// (higher is better; [`INVALID_CORR`] where the window cannot be evaluated).
 #[allow(clippy::too_many_arguments)]
-fn solve_direction(
-    a: &GrayImage,
-    b: &GrayImage,
-    ia: &SummedArea,
-    iaa: &SummedArea,
-    ib: &SummedArea,
-    ibb: &SummedArea,
-    sign: i32,
+fn zncc_cost_volume_l2r(
+    left: &GrayImage,
+    right: &GrayImage,
+    il: &SummedArea,
+    ill: &SummedArea,
+    ir: &SummedArea,
+    irr: &SummedArea,
     r: usize,
     opts: &BlockMatchOptions,
 ) -> Vec<f32> {
-    let (w, h) = (a.width, a.height);
-    let num_d = opts.num_disparities as usize;
-    let zncc = zncc_cost_volume(a, b, ia, iaa, ib, ibb, sign, r, opts);
-    if opts.semi_global {
-        let agg = aggregate_sgm(&zncc, w, h, num_d, opts.sgm_p1, opts.sgm_p2);
-        select_sgm(&agg, w, h, num_d, r, opts)
-    } else {
-        select_block(&zncc, w, h, num_d, r, opts)
-    }
-}
-
-/// Build the per-pixel ZNCC cost volume `cost[k*(w*h) + y*w + x]` (higher is
-/// better; [`INVALID_CORR`] where the window cannot be evaluated).
-#[allow(clippy::too_many_arguments)]
-fn zncc_cost_volume(
-    a: &GrayImage,
-    b: &GrayImage,
-    ia: &SummedArea,
-    iaa: &SummedArea,
-    ib: &SummedArea,
-    ibb: &SummedArea,
-    sign: i32,
-    r: usize,
-    opts: &BlockMatchOptions,
-) -> Vec<f32> {
-    let (w, h) = (a.width, a.height);
+    let (w, h) = (left.width, left.height);
     let num_d = opts.num_disparities as usize;
     let n = ((2 * r + 1) * (2 * r + 1)) as f64;
-    let mut cost = vec![INVALID_CORR; num_d * w * h];
+    let mut cost = vec![INVALID_CORR; w * h * num_d];
+    let mut iab = SummedArea::zeroed(w, h);
 
     for k in 0..num_d {
         let disp = opts.min_disparity + k as i32;
-        // Cross-correlation term a(x,y) * b(x + sign*disp, y), summed-area table
-        // rebuilt per disparity (it is the only disparity-dependent term).
-        let iab = SummedArea::build(w, h, |x, y| {
-            let tx = x as i32 + sign * disp;
+        // Cross-correlation term left(x, y) * right(x - disp, y); single SAT buffer reused.
+        iab.reset_from(w, h, |x, y| {
+            let tx = x as i32 - disp;
             if tx >= 0 && (tx as usize) < w {
-                a.get(x, y) as f64 * b.get(tx as usize, y) as f64
+                left.get(x, y) as f64 * right.get(tx as usize, y) as f64
             } else {
                 0.0
             }
         });
 
-        let plane = k * w * h;
         for y in r..h - r {
+            let row_base = y * w;
             for x in r..w - r {
-                let tx = x as i32 + sign * disp;
-                // The b-window must lie fully inside the image.
+                let tx = x as i32 - disp;
+                // The right window must lie fully inside the image.
                 if tx - (r as i32) < 0 || tx + (r as i32) >= w as i32 {
                     continue;
                 }
                 let cxb = tx as usize;
 
-                let s_a = ia.window_sum(x, y, r);
-                let s_aa = iaa.window_sum(x, y, r);
-                let s_b = ib.window_sum(cxb, y, r);
-                let s_bb = ibb.window_sum(cxb, y, r);
+                let s_a = il.window_sum(x, y, r);
+                let s_aa = ill.window_sum(x, y, r);
+                let s_b = ir.window_sum(cxb, y, r);
+                let s_bb = irr.window_sum(cxb, y, r);
                 let s_ab = iab.window_sum(x, y, r);
 
                 let var_a = n * s_aa - s_a * s_a;
@@ -533,11 +619,82 @@ fn zncc_cost_volume(
                 }
                 let cov = n * s_ab - s_a * s_b;
                 let zncc = cov / (var_a.sqrt() * var_b.sqrt());
-                cost[plane + y * w + x] = zncc as f32;
+                cost[(row_base + x) * num_d + k] = zncc as f32;
             }
         }
     }
     cost
+}
+
+/// Remap L-to-R ZNCC into R-to-L pixel-major order via `R(xr) <-> L(xr + disp)`.
+fn remap_zncc_r2l(
+    zncc_l2r: &[f32],
+    w: usize,
+    h: usize,
+    num_d: usize,
+    r: usize,
+    min_disparity: i32,
+) -> Vec<f32> {
+    let mut r2l = vec![INVALID_CORR; w * h * num_d];
+    let x_lo = r as i32;
+    let x_hi = (w - r) as i32;
+    for y in r..h - r {
+        let row_base = y * w;
+        for xr in r..w - r {
+            let dst = &mut r2l[(row_base + xr) * num_d..][..num_d];
+            for (k, slot) in dst.iter_mut().enumerate() {
+                let x = xr as i32 + (min_disparity + k as i32);
+                if x >= x_lo && x < x_hi {
+                    *slot = zncc_l2r[(row_base + x as usize) * num_d + k];
+                }
+            }
+        }
+    }
+    r2l
+}
+
+#[inline]
+fn select_block_pixel(costs: impl Fn(usize) -> f32, num_d: usize, opts: &BlockMatchOptions) -> f32 {
+    let mut best_k = usize::MAX;
+    let mut best = INVALID_CORR;
+    for k in 0..num_d {
+        let c = costs(k);
+        if c > best {
+            best = c;
+            best_k = k;
+        }
+    }
+    if best_k == usize::MAX || best < opts.min_correlation {
+        return f32::NAN;
+    }
+    let mut second = INVALID_CORR;
+    for k in 0..num_d {
+        if k.abs_diff(best_k) <= 1 {
+            continue;
+        }
+        let c = costs(k);
+        if c > second {
+            second = c;
+        }
+    }
+    if second.is_finite() && best - second < opts.uniqueness_ratio {
+        return f32::NAN;
+    }
+    let mut d = (opts.min_disparity + best_k as i32) as f32;
+    if opts.subpixel && best_k > 0 && best_k + 1 < num_d {
+        let cm = costs(best_k - 1);
+        let cp = costs(best_k + 1);
+        if cm.is_finite() && cp.is_finite() {
+            let denom = cm + cp - 2.0 * best;
+            if denom.abs() > 1e-6 {
+                let delta = 0.5 * (cm - cp) / denom;
+                if delta.abs() < 1.0 {
+                    d += delta;
+                }
+            }
+        }
+    }
+    d
 }
 
 /// Block-matching selection: winner-take-all on raw ZNCC + min-correlation +
@@ -551,52 +708,43 @@ fn select_block(
     opts: &BlockMatchOptions,
 ) -> Vec<f32> {
     let mut disp_map = vec![f32::NAN; w * h];
-    let area = w * h;
     for y in r..h - r {
+        let row_base = y * w;
         for x in r..w - r {
-            let base = y * w + x;
-            let mut best_k = usize::MAX;
-            let mut best = INVALID_CORR;
-            for k in 0..num_d {
-                let c = cost[k * area + base];
-                if c > best {
-                    best = c;
-                    best_k = k;
-                }
-            }
-            if best_k == usize::MAX || best < opts.min_correlation {
-                continue;
-            }
-            // Best non-adjacent competitor for the uniqueness test.
-            let mut second = INVALID_CORR;
-            for k in 0..num_d {
-                if k.abs_diff(best_k) <= 1 {
-                    continue;
-                }
-                let c = cost[k * area + base];
-                if c > second {
-                    second = c;
-                }
-            }
-            if second.is_finite() && best - second < opts.uniqueness_ratio {
-                continue; // ambiguous
-            }
+            let slice = &cost[(row_base + x) * num_d..][..num_d];
+            disp_map[row_base + x] = select_block_pixel(|k| slice[k], num_d, opts);
+        }
+    }
+    disp_map
+}
 
-            let mut d = (opts.min_disparity + best_k as i32) as f32;
-            if opts.subpixel && best_k > 0 && best_k + 1 < num_d {
-                let cm = cost[(best_k - 1) * area + base];
-                let cp = cost[(best_k + 1) * area + base];
-                if cm.is_finite() && cp.is_finite() {
-                    let denom = cm + cp - 2.0 * best;
-                    if denom.abs() > 1e-6 {
-                        let delta = 0.5 * (cm - cp) / denom;
-                        if delta.abs() < 1.0 {
-                            d += delta;
-                        }
+/// Zero-copy R-to-L winner-take-all directly from the L-to-R ZNCC cost volume.
+fn select_block_r2l(
+    cost_l2r: &[f32],
+    w: usize,
+    h: usize,
+    num_d: usize,
+    r: usize,
+    opts: &BlockMatchOptions,
+) -> Vec<f32> {
+    let mut disp_map = vec![f32::NAN; w * h];
+    let x_lo = r as i32;
+    let x_hi = (w - r) as i32;
+    for y in r..h - r {
+        let row_base = y * w;
+        for xr in r..w - r {
+            disp_map[row_base + xr] = select_block_pixel(
+                |k| {
+                    let x = xr as i32 + (opts.min_disparity + k as i32);
+                    if x >= x_lo && x < x_hi {
+                        cost_l2r[(row_base + x as usize) * num_d + k]
+                    } else {
+                        INVALID_CORR
                     }
-                }
-            }
-            disp_map[base] = d;
+                },
+                num_d,
+                opts,
+            );
         }
     }
     disp_map
@@ -618,87 +766,136 @@ fn matching_cost(zncc: f32) -> f32 {
 /// entries during SGM aggregation.
 const COST_INVALID: f32 = 2.0;
 
-/// Semi-global aggregation of the ZNCC cost volume along 8 paths.
+/// Accumulate one pixel step along a scan direction from predecessor `prev` into
+/// `curr`, adding the resulting path costs into `agg_px`.
+#[inline]
+fn sgm_step_pixel(
+    zncc_px: &[f32],
+    prev: &[f32],
+    curr: &mut [f32],
+    agg_px: &mut [f32],
+    p1: f32,
+    p2: f32,
+) {
+    let num_d = zncc_px.len();
+    let mut min_prev = f32::INFINITY;
+    for &v in prev {
+        min_prev = min_prev.min(v);
+    }
+    let fallback = min_prev + p2;
+    for k in 0..num_d {
+        let c = matching_cost(zncc_px[k]);
+        let l_same = prev[k];
+        let l_lo = if k > 0 {
+            prev[k - 1] + p1
+        } else {
+            f32::INFINITY
+        };
+        let l_hi = if k + 1 < num_d {
+            prev[k + 1] + p1
+        } else {
+            f32::INFINITY
+        };
+        let best = l_same.min(l_lo).min(l_hi).min(fallback);
+        let l = c + best - min_prev;
+        curr[k] = l;
+        agg_px[k] += l;
+    }
+}
+
+/// Start a path at this pixel: its path cost is the raw matching cost.
+#[inline]
+fn sgm_start_pixel(zncc_px: &[f32], curr: &mut [f32], agg_px: &mut [f32]) {
+    for k in 0..zncc_px.len() {
+        let c = matching_cost(zncc_px[k]);
+        curr[k] = c;
+        agg_px[k] += c;
+    }
+}
+
+/// Semi-global aggregation of the pixel-major ZNCC cost volume along 8 paths.
 ///
 /// Returns an aggregated cost volume (lower is better) where each entry sums the
 /// Hirschmüller path costs `L_r` over the 8 cardinal/diagonal directions. Low-
 /// texture pixels inherit a disparity from their textured neighbours through the
-/// `p1`/`p2` smoothness term.
+/// `p1`/`p2` smoothness term. Two reusable rolling row buffers keep the scratch
+/// memory at `O(w * num_d)`.
 fn aggregate_sgm(zncc: &[f32], w: usize, h: usize, num_d: usize, p1: f32, p2: f32) -> Vec<f32> {
-    let area = w * h;
-    let mut agg = vec![0.0f32; num_d * area];
-    let mut lr = vec![0.0f32; num_d * area]; // path cost for the current direction
-    const DIRS: [(i32, i32); 8] = [
-        (1, 0),
-        (-1, 0),
-        (0, 1),
-        (0, -1),
-        (1, 1),
-        (1, -1),
-        (-1, 1),
-        (-1, -1),
-    ];
-    for &(dx, dy) in &DIRS {
-        // Visit pixels so that the predecessor (x-dx, y-dy) is always done first.
-        let ys: Vec<usize> = if dy >= 0 {
-            (0..h).collect()
-        } else {
-            (0..h).rev().collect()
-        };
-        let xs: Vec<usize> = if dx >= 0 {
-            (0..w).collect()
-        } else {
-            (0..w).rev().collect()
-        };
-        for &y in &ys {
-            for &x in &xs {
-                let idx = y * w + x;
+    let mut agg = vec![0.0f32; w * h * num_d];
+    let mut prev_row = vec![0.0f32; w * num_d];
+    let mut curr_row = vec![0.0f32; w * num_d];
+
+    // 1. Horizontal passes: (1, 0) and (-1, 0), rolling two pixel buffers.
+    for dx in [1i32, -1i32] {
+        for y in 0..h {
+            let row_base = y * w;
+            // One pixel of each row buffer (both hold at least `num_d` values,
+            // also on a 1-pixel-wide image, where the path is a single start).
+            let mut prev_buf = &mut prev_row[..num_d];
+            let mut curr_buf = &mut curr_row[..num_d];
+            for step in 0..w {
+                let x = if dx > 0 { step } else { w - 1 - step };
+                let base = (row_base + x) * num_d;
+                if step == 0 {
+                    sgm_start_pixel(
+                        &zncc[base..base + num_d],
+                        curr_buf,
+                        &mut agg[base..base + num_d],
+                    );
+                } else {
+                    sgm_step_pixel(
+                        &zncc[base..base + num_d],
+                        prev_buf,
+                        curr_buf,
+                        &mut agg[base..base + num_d],
+                        p1,
+                        p2,
+                    );
+                }
+                std::mem::swap(&mut prev_buf, &mut curr_buf);
+            }
+        }
+    }
+
+    // 2. Vertical and diagonal passes using rolling row buffers.
+    const DY_DIRS: [(i32, i32); 6] = [(0, 1), (1, 1), (-1, 1), (0, -1), (1, -1), (-1, -1)];
+    for &(dx, dy) in &DY_DIRS {
+        for y_step in 0..h {
+            let y = if dy > 0 { y_step } else { h - 1 - y_step };
+            let row_base = y * w;
+            let has_prev_row = y_step > 0;
+            for x in 0..w {
+                let base = (row_base + x) * num_d;
                 let px = x as i32 - dx;
-                let py = y as i32 - dy;
-                if px < 0 || px >= w as i32 || py < 0 || py >= h as i32 {
-                    // Path start: L_r = matching cost.
-                    for k in 0..num_d {
-                        let c = matching_cost(zncc[k * area + idx]);
-                        lr[k * area + idx] = c;
-                        agg[k * area + idx] += c;
-                    }
-                    continue;
-                }
-                let pidx = py as usize * w + px as usize;
-                let mut min_prev = f32::INFINITY;
-                for k in 0..num_d {
-                    min_prev = min_prev.min(lr[k * area + pidx]);
-                }
-                for k in 0..num_d {
-                    let c = matching_cost(zncc[k * area + idx]);
-                    let l_same = lr[k * area + pidx];
-                    let l_lo = if k > 0 {
-                        lr[(k - 1) * area + pidx] + p1
-                    } else {
-                        f32::INFINITY
-                    };
-                    let l_hi = if k + 1 < num_d {
-                        lr[(k + 1) * area + pidx] + p1
-                    } else {
-                        f32::INFINITY
-                    };
-                    let best = l_same.min(l_lo).min(l_hi).min(min_prev + p2);
-                    // Subtracting min_prev keeps the accumulated path cost bounded.
-                    let l = c + best - min_prev;
-                    lr[k * area + idx] = l;
-                    agg[k * area + idx] += l;
+                let curr_slice = &mut curr_row[x * num_d..(x + 1) * num_d];
+                if !has_prev_row || px < 0 || px >= w as i32 {
+                    sgm_start_pixel(
+                        &zncc[base..base + num_d],
+                        curr_slice,
+                        &mut agg[base..base + num_d],
+                    );
+                } else {
+                    let p_off = px as usize * num_d;
+                    sgm_step_pixel(
+                        &zncc[base..base + num_d],
+                        &prev_row[p_off..p_off + num_d],
+                        curr_slice,
+                        &mut agg[base..base + num_d],
+                        p1,
+                        p2,
+                    );
                 }
             }
+            std::mem::swap(&mut prev_row, &mut curr_row);
         }
     }
     agg
 }
 
-/// SGM selection: winner-take-all (argmin) on the aggregated cost + optional
-/// parabolic sub-pixel refinement. A pixel with no evaluable raw correlation at
-/// any disparity is left invalid rather than fabricated; everything else relies
-/// on the left-right check and search window for filtering.
+/// SGM selection: winner-take-all (argmin) on the pixel-major aggregated cost
+/// + optional parabolic sub-pixel refinement.
 fn select_sgm(
+    zncc: &[f32],
     agg: &[f32],
     w: usize,
     h: usize,
@@ -706,15 +903,19 @@ fn select_sgm(
     r: usize,
     opts: &BlockMatchOptions,
 ) -> Vec<f32> {
-    let area = w * h;
     let mut disp_map = vec![f32::NAN; w * h];
     for y in r..h - r {
+        let row_base = y * w;
         for x in r..w - r {
-            let base = y * w + x;
+            let base = (row_base + x) * num_d;
+            let z_slice = &zncc[base..base + num_d];
+            if !z_slice.iter().any(|v| v.is_finite()) {
+                continue;
+            }
+            let a_slice = &agg[base..base + num_d];
             let mut best_k = 0usize;
             let mut best = f32::INFINITY;
-            for k in 0..num_d {
-                let c = agg[k * area + base];
+            for (k, &c) in a_slice.iter().enumerate() {
                 if c < best {
                     best = c;
                     best_k = k;
@@ -722,8 +923,8 @@ fn select_sgm(
             }
             let mut d = (opts.min_disparity + best_k as i32) as f32;
             if opts.subpixel && best_k > 0 && best_k + 1 < num_d {
-                let cm = agg[(best_k - 1) * area + base];
-                let cp = agg[(best_k + 1) * area + base];
+                let cm = a_slice[best_k - 1];
+                let cp = a_slice[best_k + 1];
                 let denom = cm + cp - 2.0 * best;
                 if denom.abs() > 1e-6 {
                     let delta = 0.5 * (cm - cp) / denom;
@@ -732,7 +933,7 @@ fn select_sgm(
                     }
                 }
             }
-            disp_map[base] = d;
+            disp_map[row_base + x] = d;
         }
     }
     disp_map
@@ -950,16 +1151,23 @@ mod tests {
         // A flat (zero-variance) image yields undefined correlation everywhere,
         // so every pixel must be invalid rather than spuriously matched.
         let flat = GrayImage::new(40, 30, vec![128; 40 * 30]).unwrap();
-        let est = match_block(
-            &flat,
-            &flat.clone(),
-            &BlockMatchOptions {
-                num_disparities: 16,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(est.valid_count(), 0, "flat image must produce no matches");
+        for semi_global in [false, true] {
+            let est = match_block(
+                &flat,
+                &flat.clone(),
+                &BlockMatchOptions {
+                    num_disparities: 16,
+                    semi_global,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                est.valid_count(),
+                0,
+                "flat image (semi_global={semi_global}) must produce no matches"
+            );
+        }
     }
 
     #[test]
@@ -967,8 +1175,92 @@ mod tests {
         assert!(GrayImage::new(0, 0, Vec::new()).is_err());
         assert!(GrayImage::new(3, 2, vec![0; 5]).is_err());
         assert!(GrayImage::new(usize::MAX, 2, vec![0; 5]).is_err());
+        assert!(DisparityMap::new(0, 0, Vec::new()).is_err());
+        assert!(DisparityMap::new(0, 3, Vec::new()).is_err());
         assert!(DisparityMap::new(3, 2, vec![0.0; 7]).is_err());
+        let a = GrayImage::new(20, 20, vec![0; 400]).unwrap();
+        for bad in [
+            BlockMatchOptions {
+                sgm_p1: -0.1,
+                ..Default::default()
+            },
+            BlockMatchOptions {
+                sgm_p1: 0.5,
+                sgm_p2: 0.2,
+                ..Default::default()
+            },
+            BlockMatchOptions {
+                min_correlation: f32::NAN,
+                ..Default::default()
+            },
+            BlockMatchOptions {
+                min_disparity: i32::MAX,
+                num_disparities: 8,
+                ..Default::default()
+            },
+        ] {
+            assert!(match_block(&a, &a, &bad).is_err());
+        }
         let one = GrayImage::new(1, 1, vec![7]).unwrap();
         assert_eq!(one.bilinear(5.0, -3.0), 7.0);
+    }
+
+    #[test]
+    fn rejects_disparity_ranges_that_would_overflow_pixel_indices() {
+        let (left, right, _) = synth(32, 24, |_, _| 3.0);
+        // `min + num` fits in `i32`, but `x + d` for the last column does not.
+        for (min_disparity, num_disparities) in [
+            (i32::MAX - 16, 8),
+            (i32::MIN, 8),
+            (i32::MIN + 40, 8),
+            (i32::MAX - 70, 8),
+        ] {
+            for semi_global in [false, true] {
+                let opts = BlockMatchOptions {
+                    min_disparity,
+                    num_disparities,
+                    block_size: 5,
+                    semi_global,
+                    ..Default::default()
+                };
+                assert!(
+                    match_block(&left, &right, &opts).is_err(),
+                    "range [{min_disparity}, +{num_disparities}) must be rejected"
+                );
+            }
+        }
+        // Far but representable ranges are searched (and simply find nothing).
+        for min_disparity in [i32::MAX - 200, i32::MIN + 200] {
+            let opts = BlockMatchOptions {
+                min_disparity,
+                num_disparities: 8,
+                block_size: 5,
+                semi_global: true,
+                ..Default::default()
+            };
+            let est = match_block(&left, &right, &opts).unwrap();
+            assert_eq!(est.valid_count(), 0);
+        }
+    }
+
+    #[test]
+    fn one_pixel_wide_images_match_without_panicking() {
+        let data: Vec<u8> = (0..9).map(|y| texture_u8(0, y)).collect();
+        let left = GrayImage::new(1, 9, data.clone()).unwrap();
+        let right = GrayImage::new(1, 9, data).unwrap();
+        for semi_global in [false, true] {
+            for lr_consistency in [false, true] {
+                let opts = BlockMatchOptions {
+                    min_disparity: 0,
+                    num_disparities: 4,
+                    block_size: 1,
+                    semi_global,
+                    lr_consistency,
+                    ..Default::default()
+                };
+                let est = match_block(&left, &right, &opts).unwrap();
+                assert_eq!((est.width(), est.height()), (1, 9));
+            }
+        }
     }
 }

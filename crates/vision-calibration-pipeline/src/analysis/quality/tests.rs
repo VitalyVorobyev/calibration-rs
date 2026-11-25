@@ -1202,3 +1202,24 @@ fn html_report_is_one_self_contained_deterministic_page() {
     // A size per camera or none, as `assess` takes them.
     assert!(html_report(&export, &[IMAGE, IMAGE], &options).is_err());
 }
+
+#[test]
+fn non_finite_metrics_fail_checks() {
+    let mut export = calibrate(&well_covered_poses());
+    export.mean_reproj_error = f64::NAN;
+    if let Uncertainty::Available(ref mut covariance) = export.uncertainty {
+        covariance.covariance[0][0] = f64::NAN;
+    }
+    let report = assess(&export, &[IMAGE], &QualityThresholds::default()).unwrap();
+    let failed: Vec<_> = report
+        .checks
+        .iter()
+        .filter(|c| c.status == CheckStatus::Fail)
+        .map(|c| c.kind)
+        .collect();
+    assert!(
+        !failed.is_empty(),
+        "expected at least one failed check on NaN metrics"
+    );
+    assert_eq!(report.verdict, Verdict::Fail);
+}

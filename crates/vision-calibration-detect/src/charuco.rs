@@ -113,9 +113,18 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
     validate_charuco_layout(cfg.rows, cfg.cols, &cfg.dictionary)?;
     let dictionary = builtins::builtin_dictionary(&cfg.dictionary)
         .expect("validated above; builtin lookup is deterministic");
-    if !(cfg.marker_size_m > 0.0 && cfg.marker_size_m <= cfg.square_size_m) {
+    if !(cfg.square_size_m.is_finite() && cfg.square_size_m > 0.0) {
         return Err(DetectError::InvalidConfig(format!(
-            "marker_size_m ({}) must be in (0, square_size_m = {}]",
+            "square_size_m ({}) must be finite and > 0",
+            cfg.square_size_m
+        )));
+    }
+    if !(cfg.marker_size_m.is_finite()
+        && cfg.marker_size_m > 0.0
+        && cfg.marker_size_m <= cfg.square_size_m)
+    {
+        return Err(DetectError::InvalidConfig(format!(
+            "marker_size_m ({}) must be finite and in (0, square_size_m = {}]",
             cfg.marker_size_m, cfg.square_size_m
         )));
     }
@@ -137,7 +146,7 @@ fn params_for(cfg: &CharucoConfig) -> Result<CharucoParams, DetectError> {
     // Re-detection left at the default would drop the override (a threshold,
     // the Radon strategy, the covariance) for the corners it replaces.
     params.chess = chess_config_for_override(cfg.chess_corners)?;
-    apply_board_override(cfg.chess_corners, &mut params.chessboard);
+    apply_board_override(cfg.chess_corners, &mut params.chessboard)?;
     Ok(params)
 }
 
@@ -158,7 +167,13 @@ pub(crate) fn detect(
     // the chessboard detector on a blank image.
     let detection = match detector.detect_with_corners(&detect::gray_view(luma), &corners) {
         Ok(detection) => detection,
-        Err(_) => return Ok(Vec::new()),
+        Err(err) if err.is_not_found() => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(DetectError::Backend {
+                detector: "charuco",
+                message: err.to_string(),
+            });
+        }
     };
 
     // `target_position` is metric because the board spec's

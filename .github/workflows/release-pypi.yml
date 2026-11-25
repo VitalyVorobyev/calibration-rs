@@ -82,6 +82,8 @@ jobs:
           test -f crates/vision-calibration-py/python/vision_calibration/_generated_types.py
           test -f crates/vision-calibration-py/python/vision_calibration/py.typed
           python -m compileall crates/vision-calibration-py/python/vision_calibration
+          python scripts/check_pyi_coverage.py --check
+          python scripts/check_binding_parity.py --check
 
       - name: Build extension and run Python runtime tests
         run: |

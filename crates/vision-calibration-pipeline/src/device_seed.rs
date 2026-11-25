@@ -74,6 +74,22 @@ pub enum DeviceSeedError {
         /// The offending view index.
         view: usize,
     },
+
+    /// The device spec itself failed validation (e.g. non-positive focal
+    /// length or pixel pitch, or non-finite values).
+    #[error(transparent)]
+    InvalidSpec(#[from] DeviceSpecError),
+
+    /// A view's per-camera pose list did not match `camera_ids`.
+    #[error("view {view} has {got} camera pose entries, expected {expected}")]
+    ViewCameraCountMismatch {
+        /// The offending view index.
+        view: usize,
+        /// Number of pose entries supplied.
+        got: usize,
+        /// Number of camera ids supplied.
+        expected: usize,
+    },
 }
 
 /// Seed for a planar intrinsics session whose camera model has a
@@ -89,6 +105,7 @@ pub fn scheimpflug_seed(
     spec: &DeviceSpec,
     camera_id: &str,
 ) -> Result<IntrinsicsManualInit, DeviceSeedError> {
+    spec.validate()?;
     let cam = lookup(spec, camera_id)?;
     Ok(IntrinsicsManualInit {
         intrinsics: Some(intrinsics_from_camera(cam)),
@@ -108,6 +125,7 @@ pub fn rig_intrinsics_seed(
     spec: &DeviceSpec,
     camera_ids: &[&str],
 ) -> Result<RigIntrinsicsManualInit, DeviceSeedError> {
+    spec.validate()?;
     let cams = camera_ids
         .iter()
         .map(|id| lookup(spec, id))
@@ -130,6 +148,7 @@ pub fn nominal_cam_se3_rig(
     spec: &DeviceSpec,
     camera_ids: &[&str],
 ) -> Result<Vec<Iso3>, DeviceSeedError> {
+    spec.validate()?;
     let rig = spec.rig.as_ref().ok_or(DeviceSeedError::MissingRigLayout)?;
     camera_ids
         .iter()
@@ -162,6 +181,15 @@ pub fn rig_layout_seed(
     cam_se3_target: &[Vec<Option<Iso3>>],
 ) -> Result<RigManualInit, DeviceSeedError> {
     let cam_se3_rig = nominal_cam_se3_rig(spec, camera_ids)?;
+    for (view, cams) in cam_se3_target.iter().enumerate() {
+        if cams.len() != camera_ids.len() {
+            return Err(DeviceSeedError::ViewCameraCountMismatch {
+                view,
+                got: cams.len(),
+                expected: camera_ids.len(),
+            });
+        }
+    }
     let rig_se3_target = cam_se3_target
         .iter()
         .enumerate()
@@ -188,6 +216,7 @@ pub fn handeye_seed(
     spec: &DeviceSpec,
     expected_mode: HandeyeMode,
 ) -> Result<HandeyeManualInit, DeviceSeedError> {
+    spec.validate()?;
     let rig = spec.rig.as_ref().ok_or(DeviceSeedError::MissingRigLayout)?;
     let mount = rig
         .handeye
@@ -457,6 +486,30 @@ mod tests {
         assert!(matches!(
             handeye_seed(&no_he, HandeyeMode::EyeToHand),
             Err(DeviceSeedError::MissingHandeye)
+        ));
+    }
+
+    #[test]
+    fn device_seed_rejects_invalid_spec_and_camera_count_mismatch() {
+        let mut bad = rig_spec();
+        bad.version = 0;
+        assert!(matches!(
+            scheimpflug_seed(&bad, "cam0"),
+            Err(DeviceSeedError::InvalidSpec(_))
+        ));
+        assert!(matches!(
+            rig_layout_seed(&bad, &["cam0", "cam1"], &[]),
+            Err(DeviceSeedError::InvalidSpec(_))
+        ));
+
+        let spec = rig_spec();
+        assert!(matches!(
+            rig_layout_seed(&spec, &["cam0", "cam1"], &[vec![Some(Iso3::identity())]]),
+            Err(DeviceSeedError::ViewCameraCountMismatch {
+                view: 0,
+                got: 1,
+                expected: 2,
+            })
         ));
     }
 }

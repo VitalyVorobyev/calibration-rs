@@ -69,6 +69,13 @@ pub struct RigIntrinsicsManualInit {
     pub per_cam_sensors: Option<Vec<ScheimpflugParams>>,
 }
 
+impl RigIntrinsicsManualInit {
+    /// Construct an unseeded [`RigIntrinsicsManualInit`] (auto-initializes every camera).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Manual seeds for the **rig extrinsics stage**.
 ///
 /// The camera-from-rig and rig-from-target poses are geometrically coupled,
@@ -78,6 +85,13 @@ pub struct RigIntrinsicsManualInit {
 pub struct RigManualInit {
     /// The seeded poses. `None` runs the linear extrinsics fit.
     pub poses: Option<RigPoses>,
+}
+
+impl RigManualInit {
+    /// Construct an unseeded [`RigManualInit`] (runs linear extrinsics initialization).
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Seeded rig poses: one `T_C_R` per camera and one `T_R_T` per view.
@@ -313,6 +327,7 @@ pub(crate) fn optimize_intrinsics<P: RigStages>(
     let mut tilted = TiltedRecovery::default();
 
     for (cam_idx, camera) in cameras.iter().enumerate() {
+        backend_opts.control.check()?;
         let camera_config = P::camera_for(config, cam_idx);
         let cam_views = camera_views(input, cam_idx);
         let (planar_dataset, valid_indices) = views_to_planar_dataset(&cam_views).map_err(|e| {

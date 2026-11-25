@@ -500,21 +500,19 @@ pub fn fit_focus(
                 continue;
             };
             let sigma = blur.sigma_px();
-            let c = blur.cov();
-            // σ² = (xx + yy)/2, so var(σ²) = (c_xx,xx + 2·c_xx,yy + c_yy,yy)/4
-            // and var(σ) = var(σ²)/(4σ²); a positive semi-definite `cov`
-            // makes it non-negative.
-            let var = (c[0][0] + 2.0 * c[0][2] + c[2][2]) / (16.0 * sigma * sigma);
-            if var.is_finite() && var > 0.0 {
-                weighted += 1;
-            } else {
-                unweighted += 1;
+            if !(sigma.is_finite() && sigma > 0.0) {
+                continue;
             }
             let x = (pose * p3).coords;
             let Some(point) = geometry.point(&model, &x) else {
                 unprojected += 1;
                 continue;
             };
+            let c = blur.cov();
+            // σ² = (xx + yy)/2, so var(σ²) = (c_xx,xx + 2·c_xx,yy + c_yy,yy)/4
+            // and var(σ) = var(σ²)/(4σ²); a positive semi-definite `cov`
+            // makes it non-negative.
+            let var = (c[0][0] + 2.0 * c[0][2] + c[2][2]) / (16.0 * sigma * sigma);
             obs.push(Obs {
                 view: v,
                 r: point.r,
@@ -525,18 +523,9 @@ pub fn fit_focus(
             view_points[v] += 1;
         }
     }
-    if weighted + unweighted == 0 {
-        return Ok(FocusDiagnostic::NoBlur);
-    }
-    if weighted > 0 && unweighted > 0 {
-        return Err(Error::MixedBlurCovariance {
-            with: weighted,
-            without: unweighted,
-        });
-    }
-    let stated_weights = unweighted == 0;
 
-    // Views with enough points get an offset column; the rest are dropped.
+    // Views with enough points get an offset column; drop sparse views first
+    // so dropped/unprojected points do not taint covariance-mode consistency.
     let mut column = vec![None; dataset.views.len()];
     let mut fitted_views = 0;
     for (v, &n) in view_points.iter().enumerate() {
@@ -549,7 +538,22 @@ pub fn fit_focus(
     for o in &mut obs {
         // Checked by the retain above.
         o.view = column[o.view].unwrap_or(0);
+        if o.var.is_finite() && o.var > 0.0 {
+            weighted += 1;
+        } else {
+            unweighted += 1;
+        }
     }
+    if weighted + unweighted == 0 {
+        return Ok(FocusDiagnostic::NoBlur);
+    }
+    if weighted > 0 && unweighted > 0 {
+        return Err(Error::MixedBlurCovariance {
+            with: weighted,
+            without: unweighted,
+        });
+    }
+    let stated_weights = unweighted == 0;
     // One offset per fitted view, their sum zero: a blur level common to
     // every view is the in-focus blur's.
     let params = MODEL_PARAMS + fitted_views.saturating_sub(1);
@@ -1141,7 +1145,7 @@ fn view_jackknife(
             return undetermined;
         };
         let values = model_values(&theta);
-        if !values.iter().all(|v| v.is_finite()) || theta[0] == 0.0 {
+        if !values.iter().all(|v| v.is_finite()) || theta[0].abs() <= 1e-12 {
             return undetermined;
         }
         estimates.push(values);
@@ -1153,6 +1157,11 @@ fn view_jackknife(
         .map(|e| (e - mean) * (e - mean).transpose())
         .sum::<SMatrix<Real, 5, 5>>()
         * ((v - 1.0) / v);
+    if !cov5.iter().all(|c| c.is_finite()) {
+        return FocusJackknife::Undetermined {
+            view: column.iter().position(Option::is_some).unwrap_or(0),
+        };
+    }
     let th = full;
     let pi = geometry.plane(th);
     let cov_pi = cov5.fixed_view::<3, 3>(0, 0).into_owned();

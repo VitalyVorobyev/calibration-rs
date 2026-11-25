@@ -507,6 +507,12 @@ impl<P: ProblemType> CalibrationSession<P> {
             )));
         }
 
+        P::validate_config(&session.config)?;
+        if let Some(input) = &session.input {
+            P::validate_input(input)?;
+            P::validate_input_config(input, &session.config)?;
+        }
+
         Ok(session)
     }
 }
@@ -527,10 +533,19 @@ mod tests {
     // Mock Problem Type for Testing
     // ─────────────────────────────────────────────────────────────────────────
 
-    #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     struct MockConfig {
         scale: f64,
         max_iters: usize,
+    }
+
+    impl Default for MockConfig {
+        fn default() -> Self {
+            Self {
+                scale: 1.0,
+                max_iters: 50,
+            }
+        }
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -956,5 +971,20 @@ mod tests {
 
         assert_eq!(session.metadata.created_at, created);
         assert!(session.metadata.last_modified >= initial_modified);
+    }
+
+    #[test]
+    fn from_json_rejects_invalid_config_and_input() {
+        let mut session = CalibrationSession::<MockProblem>::new();
+        session.set_input(MockInput { data: vec![1.0] }).unwrap();
+        let json = session.to_json().unwrap();
+
+        let bad_cfg = json.replace("\"max_iters\": 50", "\"max_iters\": 0");
+        let err_cfg = CalibrationSession::<MockProblem>::from_json(&bad_cfg).unwrap_err();
+        assert!(err_cfg.to_string().contains("max_iters"), "{err_cfg}");
+
+        let bad_in = json.replace("\"data\": [\n      1.0\n    ]", "\"data\": []");
+        let err_in = CalibrationSession::<MockProblem>::from_json(&bad_in).unwrap_err();
+        assert!(err_in.to_string().contains("empty"), "{err_in}");
     }
 }

@@ -221,6 +221,13 @@ impl Default for LaserExtractionSpec {
     }
 }
 
+impl LaserExtractionSpec {
+    /// Construct default laser-line extraction settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Laser scan direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(JsonSchema))]
@@ -600,6 +607,13 @@ pub struct DetectorSpec {
     pub min_features_per_view: Option<usize>,
 }
 
+impl DetectorSpec {
+    /// Construct empty detector overrides (built-in detector defaults).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// The corner detector a chessboard-like detector runs. The manifest's copy
 /// of the detector's corner strategy (see [`DetectorSpec`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -670,6 +684,13 @@ pub struct ChessCornersDetectorSpec {
     /// sets it for another target is an error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covariance: Option<CornerCovarianceSpec>,
+}
+
+impl ChessCornersDetectorSpec {
+    /// Construct empty ChESS detector overrides (built-in detector defaults).
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].

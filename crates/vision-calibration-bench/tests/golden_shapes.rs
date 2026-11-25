@@ -140,7 +140,9 @@ impl Bump {
 /// `GOLDEN_BLESS` is set.
 fn check(name: &str, value: &Value, bump: Bump) -> Value {
     let path = golden_dir().join(name);
+    // Compare what blessing writes: the truncated value.
     let fresh = truncated(value);
+    let got = shape(&fresh);
     if blessing() {
         std::fs::create_dir_all(golden_dir()).unwrap();
         let mut text = serde_json::to_string_pretty(&fresh).unwrap();
@@ -156,7 +158,7 @@ fn check(name: &str, value: &Value, bump: Bump) -> Value {
         )
     });
     let golden: Value = serde_json::from_str(&text).unwrap();
-    let (want, got) = (shape(&golden), shape(&fresh));
+    let want = shape(&golden);
     if want != got {
         let mut diff = Vec::new();
         for (key, types) in &want {
@@ -220,16 +222,25 @@ fn golden<P: ProblemType>(
     session.set_config(config).unwrap();
     session.set_input(input).unwrap();
     run(&mut session).unwrap_or_else(|e| panic!("{name}: calibration failed: {e}"));
-    let export = serde_json::to_value(session.export().unwrap()).unwrap();
-    let session_json: Value = serde_json::from_str(&session.to_json().unwrap()).unwrap();
+    let export_value = serde_json::to_value(session.export().unwrap()).unwrap();
+    let session_str = session.to_json().unwrap();
+    let session_json: Value = serde_json::from_str(&session_str).unwrap();
     let config = serde_json::to_value(P::Config::default()).unwrap();
 
-    check(&format!("{name}.export.json"), &export, Bump::Export(ty));
+    check(
+        &format!("{name}.export.json"),
+        &export_value,
+        Bump::Export(ty),
+    );
+    let _: P::Export = serde_json::from_value(export_value)
+        .unwrap_or_else(|e| panic!("{name}.export.json round-trip deserialize failed: {e}"));
     check(
         &format!("{name}.session.json"),
         &session_json,
         Bump::Session(ty),
     );
+    let _ = CalibrationSession::<P>::from_json(&session_str)
+        .unwrap_or_else(|e| panic!("{name}.session.json round-trip deserialize failed: {e}"));
     let golden_config = check(&format!("{name}.config.json"), &config, Bump::Session(ty));
     check_reads_back::<P::Config>(&format!("{name}.config.json"), &golden_config);
 }

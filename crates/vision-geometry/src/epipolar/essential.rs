@@ -52,6 +52,8 @@ fn design_row(b1: &Vec3, b2: &Vec3) -> Result<[Real; 9]> {
 /// Unlike fundamental matrix solvers, this does **not** apply Hartley
 /// normalization — calibrated coordinates are already well-conditioned.
 pub fn essential_5point(b1: &[Vec3], b2: &[Vec3]) -> Result<Vec<Mat3>> {
+    ensure_finite("first-view bearing", b1.iter().flat_map(|v| v.iter()))?;
+    ensure_finite("second-view bearing", b2.iter().flat_map(|v| v.iter()))?;
     let (pts1, pts2) = (b1, b2);
     if pts1.len() != pts2.len() {
         return Err(GeometryError::CountMismatch {
@@ -73,16 +75,16 @@ pub fn essential_5point(b1: &[Vec3], b2: &[Vec3]) -> Result<Vec<Mat3>> {
         }
     }
 
-    let mut a_work = a.clone();
-    if a_work.nrows() < a_work.ncols() {
-        let rows = a_work.nrows();
-        let cols = a_work.ncols();
-        let mut a_pad = DMatrix::<Real>::zeros(cols, cols);
-        a_pad.view_mut((0, 0), (rows, cols)).copy_from(&a_work);
-        a_work = a_pad;
-    }
+    let mut a_work = DMatrix::<Real>::zeros(9, 9);
+    a_work.view_mut((0, 0), (5, 9)).copy_from(&a);
 
     let svd = a_work.svd(true, true);
+    let sv: Vec<Real> = svd.singular_values.iter().cloned().collect();
+    if !dlt_rank_ok(&sv, 9, 4, 1e-7) {
+        return Err(GeometryError::degenerate(
+            "rank-deficient 5-point system: degenerate or duplicate bearings",
+        ));
+    }
     let v_t = svd
         .v_t
         .ok_or_else(|| GeometryError::numerical("SVD failed"))?;
@@ -126,17 +128,23 @@ pub fn essential_5point(b1: &[Vec3], b2: &[Vec3]) -> Result<Vec<Mat3>> {
     action[(8, 9)] = 1.0;
 
     let action = action.transpose();
+    if action.iter().any(|v| !v.is_finite()) {
+        return Err(GeometryError::numerical("Polynomial solve failed"));
+    }
 
     let schur = Schur::new(action.clone());
     let eigvals = schur.complex_eigenvalues();
 
-    let mut solutions = Vec::new();
-    for val in eigvals.iter() {
-        if val.im.abs() > 1e-8 {
-            continue;
-        }
-        let z = val.re;
+    let mut real_z: Vec<Real> = eigvals
+        .iter()
+        .filter(|val| val.im.abs() <= 1e-8 && val.re.is_finite())
+        .map(|val| val.re)
+        .collect();
+    real_z.sort_by(f64::total_cmp);
+    real_z.dedup_by(|a, b| (*a - *b).abs() <= 1e-7 * (1.0 + a.abs().max(b.abs())));
 
+    let mut solutions = Vec::new();
+    for z in real_z {
         let mut a_eval = action.clone();
         for i in 0..10 {
             a_eval[(i, i)] -= z;
@@ -155,10 +163,18 @@ pub fn essential_5point(b1: &[Vec3], b2: &[Vec3]) -> Result<Vec<Mat3>> {
         let x = vec[6] / v9;
         let y = vec[7] / v9;
         let z_vec = vec[8] / v9;
+        if !x.is_finite()
+            || !y.is_finite()
+            || !z_vec.is_finite()
+            || (z_vec - z).abs() > 1e-2 * (1.0 + z.abs())
+        {
+            continue;
+        }
 
         let e = e1 * x + e2 * y + e3 * z_vec + e4;
-
-        solutions.push((z_vec, e));
+        if e.iter().all(|v| v.is_finite()) {
+            solutions.push((z_vec, e));
+        }
     }
 
     if solutions.is_empty() {

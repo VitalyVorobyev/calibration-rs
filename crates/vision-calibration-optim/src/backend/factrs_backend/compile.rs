@@ -450,6 +450,9 @@ impl Compiled {
                     .get_unchecked_mut(Key(index as u64))
                     .expect("compiled variable");
                 for &(c, lower, upper) in &var.bounds {
+                    if var.fixed.contains(&c) {
+                        continue;
+                    }
                     v.0[c] = v.0[c].max(lower).min(upper);
                 }
             }, _ => unreachable!("vector dims are checked when the variable is created"));

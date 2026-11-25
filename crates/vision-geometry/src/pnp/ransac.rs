@@ -37,13 +37,25 @@ pub fn dlt_ransac(
         reason: e.to_string(),
     })?;
     let n = world.len();
-    if n < 6 || image.len() != n {
+    if image.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: image.len(),
+        });
+    }
+    if n < 6 {
         return Err(GeometryError::InsufficientData { need: 6, got: n });
     }
     // Coplanar or collinear world points defeat every sample, whatever the
-    // outliers: say so instead of reporting no consensus. Such a set leaves
-    // the solve on all the points degenerate too, which is cheap to check.
-    if let Err(err @ GeometryError::Degenerate { .. }) = dlt::dlt(world, image, k) {
+    // outliers: say so instead of reporting no consensus. Invalid inputs
+    // (non-finite coords, singular K) also fail fast here instead of burning
+    // all RANSAC iterations.
+    if let Err(
+        err @ (GeometryError::Degenerate { .. }
+        | GeometryError::InvalidInput { .. }
+        | GeometryError::Singular),
+    ) = dlt::dlt(world, image, k)
+    {
         return Err(err);
     }
 
@@ -99,9 +111,7 @@ pub fn dlt_ransac(
 
     let res = ransac_fit::<PnpEst>(&data, opts);
     if !res.success {
-        return Err(GeometryError::numerical(
-            "ransac failed to find a consensus PnP solution",
-        ));
+        return Err(GeometryError::NoConsensus);
     }
     Ok(PoseEstimate {
         cam_se3_world: res.model.expect("success guarantees a model"),

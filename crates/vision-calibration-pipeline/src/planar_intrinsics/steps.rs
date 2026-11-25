@@ -17,7 +17,8 @@ use vision_calibration_core::{
 use vision_calibration_optim::{
     BackendSolveOptions, CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions, RobustLoss, ScheimpflugStagedInitOptions, SolveTermination,
-    optimize_planar_intrinsics, optimize_scheimpflug_intrinsics_staged, with_leading_radial,
+    optimize_planar_intrinsics, optimize_planar_intrinsics_warm_start,
+    optimize_scheimpflug_intrinsics_staged, with_leading_radial,
 };
 
 use crate::planar_family::{init_camera_with_seed, unsupported_sensor};
@@ -54,6 +55,13 @@ impl Default for IntrinsicsFilterOptions {
             min_points_per_view: 4,
             remove_sparse_views: true,
         }
+    }
+}
+
+impl IntrinsicsFilterOptions {
+    /// Construct default outlier-filtering options (2.0 px threshold, at least 4 points per view).
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -167,11 +175,14 @@ pub fn step_init_with_seed(
         }
     };
 
-    let state = &mut session.state;
-    state.initial_camera = Some(init.camera.clone());
-    state.initial_sensor_manual = sensor_manual;
-    state.initial_poses = Some(init.cam_se3_target.clone());
-    state.clear_optimization();
+    {
+        let state = &mut session.state;
+        state.initial_camera = Some(init.camera.clone());
+        state.initial_sensor_manual = sensor_manual;
+        state.initial_poses = Some(init.cam_se3_target.clone());
+        state.clear_optimization();
+    }
+    session.clear_output();
 
     session.log_success_with_notes("init", format!("{}{experimental}", init.log_note()));
     Ok(IntrinsicsInitResult {
@@ -410,6 +421,7 @@ fn optimize_tilted(
     let pose_adapt_iters = pre_iters.min(20);
     let mut best_prefit: Option<PlanarIntrinsicsEstimate> = None;
     for &k1_seed in &k1_seeds {
+        backend_opts.control.check()?;
         // Sweep the leading barrel coefficient (k1 for BC5/Rational8/ThinPrism9,
         // lambda for Division1).
         let seed_initial = PlanarIntrinsicsParams::new(
@@ -423,7 +435,7 @@ fn optimize_tilted(
         // fixed. Without this, the Gauss-Newton gradient in A1 is computed with
         // poses biased for k1=0, which can push k1 back toward zero even when
         // the correct basin is at k1≈-0.43.
-        let Ok(a0) = optimize_planar_intrinsics(
+        let a0 = match optimize_planar_intrinsics_warm_start(
             dataset,
             &seed_initial,
             pose_only.clone(),
@@ -431,11 +443,13 @@ fn optimize_tilted(
                 max_iters: pose_adapt_iters,
                 ..backend_opts.clone()
             },
-        ) else {
-            continue;
+        ) {
+            Ok(a0) => a0,
+            Err(vision_calibration_optim::Error::Cancelled) => return Err(Error::Cancelled),
+            Err(_) => continue,
         };
         // Sub-step A1: free k1 (and k2) from the pose-adapted starting point.
-        if let Ok(candidate) = optimize_planar_intrinsics(
+        match optimize_planar_intrinsics_warm_start(
             dataset,
             &a0.params,
             free_low_order_radial.clone(),
@@ -443,16 +457,21 @@ fn optimize_tilted(
                 max_iters: pre_iters,
                 ..backend_opts.clone()
             },
-        ) && candidate.mean_reproj_error.is_finite()
-        {
-            let better = best_prefit
-                .as_ref()
-                .is_none_or(|b| candidate.mean_reproj_error < b.mean_reproj_error);
-            if better {
-                best_prefit = Some(candidate);
+        ) {
+            Ok(candidate) if candidate.mean_reproj_error.is_finite() => {
+                let better = best_prefit
+                    .as_ref()
+                    .is_none_or(|b| candidate.mean_reproj_error < b.mean_reproj_error);
+                if better {
+                    best_prefit = Some(candidate);
+                }
             }
+            Ok(_) => {}
+            Err(vision_calibration_optim::Error::Cancelled) => return Err(Error::Cancelled),
+            Err(_) => {}
         }
     }
+    backend_opts.control.check()?;
     let prefit = best_prefit
         .ok_or_else(|| Error::numerical("all k1 Phase-A seeds failed to converge".to_string()))?;
 
@@ -543,6 +562,7 @@ pub fn step_filter(
         let mut points_2d = Vec::new();
         let mut cov_px = Vec::new();
         let mut blur = Vec::new();
+        let mut view_removed = 0usize;
 
         for (i, (p3d, p2d)) in view
             .obs
@@ -553,7 +573,7 @@ pub fn step_filter(
         {
             let p_cam = pose.transform_point(p3d);
             let Some(projected) = camera.project_camera_point(&p_cam.coords) else {
-                total_removed += 1;
+                view_removed += 1;
                 continue;
             };
 
@@ -566,11 +586,12 @@ pub fn step_filter(
                 }
                 blur.push(view.obs.blur(i));
             } else {
-                total_removed += 1;
+                view_removed += 1;
             }
         }
 
         if points_3d.len() >= opts.min_points_per_view {
+            total_removed += view_removed;
             let obs = if view.obs.covariances().is_some() {
                 CorrespondenceView::new_with_covariances(points_3d, points_2d, cov_px)?
             } else {
@@ -579,10 +600,11 @@ pub fn step_filter(
             .with_blur(blur)?;
             filtered_views.push(View::without_meta(obs));
         } else if !opts.remove_sparse_views {
-            // Keep sparse views if requested
+            // Keep sparse views intact as requested (no points removed from them).
             filtered_views.push(view.clone());
+        } else {
+            total_removed += view.obs.points_3d.len();
         }
-        // else: view is removed entirely
     }
 
     let views_removed = input.views.len() - filtered_views.len();
@@ -1348,5 +1370,52 @@ mod tests {
         };
         let init = step_init_with_seed(&mut session, manual, None).unwrap();
         assert_eq!(init.camera.distortion.values(), seed.values());
+    }
+
+    #[test]
+    fn step_init_with_seed_clears_output_and_filter_counts_sparse_views_once() {
+        let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        session.set_input(make_test_dataset()).unwrap();
+        super::super::run_calibration(&mut session).unwrap();
+        assert!(session.has_output());
+
+        let init = step_init(&mut session, None).unwrap();
+        let manual = IntrinsicsManualInit {
+            intrinsics: Some(init.camera.intrinsics),
+            ..Default::default()
+        };
+        super::super::run_calibration(&mut session).unwrap();
+        assert!(session.has_output());
+        step_init_with_seed(&mut session, manual, None).unwrap();
+        assert!(!session.has_output());
+
+        let mut cfg = super::super::PlanarIntrinsicsConfig::default();
+        cfg.solver.max_iters = 20;
+        let mut s = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+        s.set_config(cfg).unwrap();
+        let mut dataset = make_test_dataset();
+        let view0_len = dataset.views[0].obs.len();
+        // Perturb one point moderately so linear init still succeeds while its
+        // residual trips filtering and triggers sparse-view removal.
+        dataset.views[0].obs.points_2d[0].x += 50.0;
+        s.set_input(dataset).unwrap();
+        let opts = super::super::IntrinsicsFilterOptions {
+            max_reproj_error: 5.0,
+            min_points_per_view: view0_len,
+            remove_sparse_views: true,
+        };
+        step_init(&mut s, None).unwrap();
+        step_optimize(&mut s, None).unwrap();
+        step_filter(&mut s, Some(opts)).unwrap();
+        let removed_entry = s
+            .log
+            .last()
+            .and_then(|e| e.notes.as_deref())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            removed_entry.contains(&format!("removed {view0_len} points, 1 views")),
+            "{removed_entry}"
+        );
     }
 }

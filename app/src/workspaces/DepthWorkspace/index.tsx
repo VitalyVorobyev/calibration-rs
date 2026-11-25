@@ -7,7 +7,7 @@ import {
   Select,
   ToggleChip,
 } from "@vitavision/ui";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { NoImageList } from "../../components/NoImageList";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useStore } from "../../store";
@@ -52,9 +52,13 @@ export function DepthWorkspace() {
 
   const [semiGlobal, setSemiGlobal] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>("overlay");
-  const [result, setResult] = useState<DisparityResult | null>(null);
+  const [resultState, setResultState] = useState<{
+    key: string;
+    result: DisparityResult | null;
+    error: string | null;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const requestSeqRef = useRef(0);
 
   const frameA = useMemo(
     () => frames.find((f) => f.pose === selectedPose && f.camera === cameraA) ?? null,
@@ -64,6 +68,9 @@ export function DepthWorkspace() {
     () => frames.find((f) => f.pose === selectedPose && f.camera === cameraB) ?? null,
     [frames, selectedPose, cameraB],
   );
+  const selectionKey = `${poseValues.length}|${selectedPose}|${cameraA}|${cameraB}|${frameA?.abs_path ?? ""}|${frameB?.abs_path ?? ""}`;
+  const result = resultState?.key === selectionKey ? resultState.result : null;
+  const error = resultState?.key === selectionKey ? resultState.error : null;
   const cloud = useMemo(
     () =>
       result
@@ -121,8 +128,14 @@ export function DepthWorkspace() {
 
   const compute = async () => {
     if (!frameA?.abs_path || !frameB?.abs_path) return;
+    const seq = ++requestSeqRef.current;
+    const key = selectionKey;
     setLoading(true);
-    setError(null);
+    setResultState((prev) =>
+      prev?.key === key
+        ? { key, result: prev.result, error: null }
+        : { key, result: null, error: null },
+    );
     try {
       const res = await call<DisparityResult>("compute_disparity", {
         pathA: frameA.abs_path,
@@ -132,12 +145,17 @@ export function DepthWorkspace() {
         pose: selectedPose,
         params: { blockSize: BLOCK_SIZE, semiGlobal, downscale: DOWNSCALE },
       });
-      setResult(res);
+      if (requestSeqRef.current === seq) {
+        setResultState({ key, result: res, error: null });
+      }
     } catch (e) {
-      setError(String(e));
-      setResult(null);
+      if (requestSeqRef.current === seq) {
+        setResultState({ key, result: null, error: String(e) });
+      }
     } finally {
-      setLoading(false);
+      if (requestSeqRef.current === seq) {
+        setLoading(false);
+      }
     }
   };
 
@@ -247,7 +265,10 @@ export function DepthWorkspace() {
             label="disparity"
             value={`${result.dispMin.toFixed(1)}–${result.dispMax.toFixed(1)} px`}
           />
-          <Stat label="planarity RMS" value={`${result.planeRms.toFixed(2)} px`} />
+          <Stat
+            label="planarity RMS"
+            value={result.planeRms == null ? "—" : `${result.planeRms.toFixed(2)} px`}
+          />
           <Stat label="plane inliers" value={`${result.planeInliers}`} />
           <Stat label="cloud points" value={`${result.pointCloud.count}`} />
           <Stat label="baseline" value={`${(result.baselineM * 1000).toFixed(0)} mm`} />

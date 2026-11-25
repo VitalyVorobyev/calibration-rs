@@ -34,6 +34,13 @@ pub struct DeviceInitOptions {
     pub iterations: Option<usize>,
 }
 
+impl DeviceInitOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Manual initialization seeds for laserline device calibration.
 ///
 /// All fields are `Option<T>`:
@@ -68,6 +75,13 @@ pub struct DeviceManualInit {
     pub laser_plane: Option<LaserPlane>,
 }
 
+impl DeviceManualInit {
+    /// Construct an unseeded [`DeviceManualInit`] (every group auto-initialized).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Options for the optimization step.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -77,6 +91,13 @@ pub struct DeviceOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+impl DeviceOptimizeOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

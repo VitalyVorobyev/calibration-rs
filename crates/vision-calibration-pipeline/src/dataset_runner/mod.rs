@@ -881,7 +881,7 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let mut bi = b.chars().peekable();
     loop {
         match (ai.peek().copied(), bi.peek().copied()) {
-            (None, None) => return Ordering::Equal,
+            (None, None) => return a.cmp(b),
             (None, Some(_)) => return Ordering::Less,
             (Some(_), None) => return Ordering::Greater,
             (Some(ca), Some(cb)) => {

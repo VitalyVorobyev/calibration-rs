@@ -336,12 +336,21 @@ fn print_unresolved(unresolved: &[String], out: &mut dyn Write) {
     }
 }
 
+/// The directory a manifest's relative paths resolve against (`.` for a
+/// bare file name).
+fn manifest_base_dir(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
+
 /// The manifest at `path` and the directory its relative paths resolve
 /// against.
 fn load(path: &Path) -> Result<(DatasetSpec, PathBuf)> {
     // The error names the manifest.
     let spec = DatasetSpec::from_path(path)?;
-    let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let base = manifest_base_dir(path);
     Ok((spec, base))
 }
 
@@ -434,7 +443,10 @@ fn calibrate(
         }
     }
     if let Uncertainty::Unavailable { reason } = uncertainty {
-        say!("no parameter covariance: {}", name(reason));
+        say!(
+            "no parameter covariance: {}",
+            format_uncertainty_unavailable(reason)
+        );
     }
 
     let report = assess(export, &run.image_sizes, &QualityThresholds::default())?;
@@ -590,6 +602,37 @@ fn sample(command: SampleCommand) -> Result<()> {
     Ok(())
 }
 
+/// Format an [`UncertaintyUnavailable`] reason into readable CLI prose.
+fn format_uncertainty_unavailable(
+    reason: &vision_calibration::core::UncertaintyUnavailable,
+) -> String {
+    use vision_calibration::core::UncertaintyUnavailable;
+    match reason {
+        UncertaintyUnavailable::RankDeficient { unobservable } => {
+            if unobservable.is_empty() {
+                "rank_deficient".to_string()
+            } else {
+                format!("rank_deficient (unobservable: {})", unobservable.join(", "))
+            }
+        }
+        UncertaintyUnavailable::AtBound { labels } => {
+            if labels.is_empty() {
+                "at_bound".to_string()
+            } else {
+                format!("at_bound (labels: {})", labels.join(", "))
+            }
+        }
+        _ => match serde_json::to_value(reason) {
+            Ok(serde_json::Value::Object(map)) => map
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| name(reason)),
+            _ => name(reason),
+        },
+    }
+}
+
 /// The name a value serializes to (`planar_intrinsics`, `warn`): the
 /// spelling of the JSON files and the manifest.
 fn name(value: &impl Serialize) -> String {
@@ -597,5 +640,36 @@ fn name(value: &impl Serialize) -> String {
         Ok(serde_json::Value::String(name)) => name,
         Ok(other) => other.to_string(),
         Err(_) => "?".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vision_calibration::core::UncertaintyUnavailable;
+
+    #[test]
+    fn bare_manifest_filename_resolves_base_dir_to_dot() {
+        assert_eq!(manifest_base_dir(Path::new("dataset.toml")), Path::new("."));
+        assert_eq!(
+            manifest_base_dir(Path::new("sub/dataset.toml")),
+            Path::new("sub")
+        );
+    }
+
+    #[test]
+    fn uncertainty_unavailable_formats_struct_and_unit_variants_cleanly() {
+        assert_eq!(
+            format_uncertainty_unavailable(&UncertaintyUnavailable::NotComputed),
+            "not_computed"
+        );
+        let rank = format_uncertainty_unavailable(&UncertaintyUnavailable::RankDeficient {
+            unobservable: vec!["fx".into(), "k1".into()],
+        });
+        assert_eq!(rank, "rank_deficient (unobservable: fx, k1)");
+        let bound = format_uncertainty_unavailable(&UncertaintyUnavailable::AtBound {
+            labels: vec!["k2".into()],
+        });
+        assert_eq!(bound, "at_bound (labels: k2)");
     }
 }

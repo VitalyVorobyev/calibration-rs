@@ -214,6 +214,23 @@ fn build_rig_extrinsics_ir(
             dataset.num_views()
         )));
     }
+    if !opts.fix_extrinsics.is_empty() && opts.fix_extrinsics.len() != dataset.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "fix_extrinsics len {} must be 0 or num_cameras {}",
+            opts.fix_extrinsics.len(),
+            dataset.num_cameras
+        )));
+    }
+    if let Some(&bad) = opts
+        .fix_rig_poses
+        .iter()
+        .find(|&&i| i >= dataset.num_views())
+    {
+        return Err(Error::invalid_input(format!(
+            "fix_rig_poses index {bad} out of bounds for {} views",
+            dataset.num_views()
+        )));
+    }
 
     let mut ir = ProblemIR::new();
     let mut initial_map = HashMap::new();
@@ -312,9 +329,35 @@ pub fn optimize_rig_extrinsics(
     opts: RigExtrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<RigExtrinsicsEstimate, Error> {
+    optimize_rig_extrinsics_with_cov(dataset, initial, opts, backend_opts, true)
+}
+
+/// Intermediate warm-start variant of [`optimize_rig_extrinsics`] that skips
+/// covariance estimation.
+#[doc(hidden)]
+pub fn optimize_rig_extrinsics_warm_start(
+    dataset: RigExtrinsicsDataset,
+    initial: RigExtrinsicsParams,
+    opts: RigExtrinsicsSolveOptions,
+    backend_opts: BackendSolveOptions,
+) -> Result<RigExtrinsicsEstimate, Error> {
+    optimize_rig_extrinsics_with_cov(dataset, initial, opts, backend_opts, false)
+}
+
+fn optimize_rig_extrinsics_with_cov(
+    dataset: RigExtrinsicsDataset,
+    initial: RigExtrinsicsParams,
+    opts: RigExtrinsicsSolveOptions,
+    backend_opts: BackendSolveOptions,
+    compute_covariance: bool,
+) -> Result<RigExtrinsicsEstimate, Error> {
     let (specs, fixed) = resolve_camera_fix(&initial.cameras, &opts.fix)?;
     let (ir, initial_map) = build_rig_extrinsics_ir(&dataset, &initial, &fixed, &opts)?;
-    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
+    let solution = if compute_covariance {
+        backend::solve(&ir, &initial_map, &backend_opts)?
+    } else {
+        backend::solve_without_covariance(&ir, &initial_map, &backend_opts)?
+    };
 
     let cameras = specs
         .iter()

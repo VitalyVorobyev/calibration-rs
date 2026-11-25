@@ -20,9 +20,7 @@
 use crate::factors::camera_blocks::CameraBlocks;
 use crate::factors::reprojection_model::{se3_exp, se3_from_block};
 use crate::ir::{CameraModelSpec, HandeyeMode, LaserChain};
-use nalgebra::{
-    DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector2, Vector3,
-};
+use nalgebra::{DVector, DVectorView, Quaternion, RealField, SVector, UnitQuaternion, Vector3};
 
 /// Generic residual for laser plane constraint (point-to-plane distance).
 ///
@@ -126,94 +124,6 @@ pub(crate) fn laser_point_to_plane_core<T: RealField>(
     SVector::<T, 1>::new(residual)
 }
 
-/// Helper: Compute point on line of intersection of two planes.
-///
-/// Given two planes n1·p + d1 = 0 and n2·p + d2 = 0, and their intersection
-/// direction v = n1 × n2, find a point p0 on the line of intersection.
-///
-/// Uses the method of choosing the coordinate with the largest direction component
-/// and solving a 2x2 system for numerical stability.
-fn compute_line_origin<T: RealField>(
-    n1: &Vector3<T>,
-    d1: &T,
-    n2: &Vector3<T>,
-    d2: &T,
-    v: &Vector3<T>,
-) -> Vector3<T> {
-    // Find the coordinate with largest absolute value in v for numerical stability
-    let abs_vx = v.x.clone().abs();
-    let abs_vy = v.y.clone().abs();
-    let abs_vz = v.z.clone().abs();
-
-    if abs_vz >= abs_vx.clone() && abs_vz >= abs_vy.clone() {
-        // z has largest component, solve for x and y
-        // n1.x * x + n1.y * y = -d1 - n1.z * 0
-        // n2.x * x + n2.y * y = -d2 - n2.z * 0
-        let det = n1.x.clone() * n2.y.clone() - n1.y.clone() * n2.x.clone();
-        let eps = T::from_f64(1e-12).unwrap();
-        if det.clone().abs() < eps {
-            return Vector3::new(T::zero(), T::zero(), T::zero());
-        }
-        let x = ((-d1.clone()) * n2.y.clone() - (-d2.clone()) * n1.y.clone()) / det.clone();
-        let y = (n1.x.clone() * (-d2.clone()) - n2.x.clone() * (-d1.clone())) / det;
-        Vector3::new(x, y, T::zero())
-    } else if abs_vy >= abs_vx {
-        // y has largest component, solve for x and z
-        let det = n1.x.clone() * n2.z.clone() - n1.z.clone() * n2.x.clone();
-        let eps = T::from_f64(1e-12).unwrap();
-        if det.clone().abs() < eps {
-            return Vector3::new(T::zero(), T::zero(), T::zero());
-        }
-        let x = ((-d1.clone()) * n2.z.clone() - (-d2.clone()) * n1.z.clone()) / det.clone();
-        let z = (n1.x.clone() * (-d2.clone()) - n2.x.clone() * (-d1.clone())) / det;
-        Vector3::new(x, T::zero(), z)
-    } else {
-        // x has largest component, solve for y and z
-        let det = n1.y.clone() * n2.z.clone() - n1.z.clone() * n2.y.clone();
-        let eps = T::from_f64(1e-12).unwrap();
-        if det.clone().abs() < eps {
-            return Vector3::new(T::zero(), T::zero(), T::zero());
-        }
-        let y = ((-d1.clone()) * n2.z.clone() - (-d2.clone()) * n1.z.clone()) / det.clone();
-        let z = (n1.y.clone() * (-d2.clone()) - n2.y.clone() * (-d1.clone())) / det;
-        Vector3::new(T::zero(), y, z)
-    }
-}
-
-/// Helper: Project 3D line onto z=1 normalized plane.
-///
-/// Given a 3D line parameterized as L(s) = p0 + s*v, computes the projection
-/// of this line onto the z=1 plane in camera coordinates.
-///
-/// Returns (origin_2d, direction_2d) where both are in normalized camera coordinates.
-fn project_line_to_normalized_plane<T: RealField>(
-    p0: &Vector3<T>,
-    v: &Vector3<T>,
-) -> (Vector2<T>, Vector2<T>) {
-    // Project origin point onto z=1: [x/z, y/z]
-    let p0_norm = Vector2::new(p0.x.clone() / p0.z.clone(), p0.y.clone() / p0.z.clone());
-
-    // Project direction: derivative of [x(s)/z(s), y(s)/z(s)] at s=0
-    // x(s) = p0.x + s*v.x, z(s) = p0.z + s*v.z
-    // x_norm(s) = x(s)/z(s)
-    // dx_norm/ds|_{s=0} = (v.x * z - x * v.z) / z^2 at s=0
-    //                    = (v.x * p0.z - p0.x * v.z) / p0.z^2
-    let z2_inv = T::one() / (p0.z.clone() * p0.z.clone());
-    let v_norm_x = (v.x.clone() * p0.z.clone() - p0.x.clone() * v.z.clone()) * z2_inv.clone();
-    let v_norm_y = (v.y.clone() * p0.z.clone() - p0.y.clone() * v.z.clone()) * z2_inv;
-
-    // Normalize direction vector
-    let v_norm_len =
-        (v_norm_x.clone() * v_norm_x.clone() + v_norm_y.clone() * v_norm_y.clone()).sqrt();
-    let eps = T::from_f64(1e-12).unwrap();
-    if v_norm_len.clone() < eps {
-        return (p0_norm, Vector2::new(T::one(), T::zero()));
-    }
-    let v_norm = Vector2::new(v_norm_x / v_norm_len.clone(), v_norm_y / v_norm_len);
-
-    (p0_norm, v_norm)
-}
-
 /// Model-generic core of the line-distance laser residual.
 ///
 /// # Parameters
@@ -300,28 +210,20 @@ pub(crate) fn laser_line_distance<T: RealField>(
     let n_target_c = rot_matrix.matrix().column(2).into_owned();
     let d_target_c = -n_target_c.dot(&pose_t);
 
-    // Intersection line direction; parallel planes have none.
-    let v_3d = n_c.cross(&n_target_c);
-    let v_norm_3d = v_3d.norm();
+    // Projective 2D line of the two planes' intersection on z = 1:
+    // elimination of Z from n_c·p + d_c = 0 and n_target_c·p + d_target_c = 0
+    // gives (n_c * d_target_c - n_target_c * d_c) · [x_u, y_u, 1] = 0.
+    // Smooth everywhere with no axis-selection branch or abs() cusp.
+    let line = n_c * d_target_c - n_target_c * d_c;
+    let line_norm2 = line.x.clone() * line.x.clone() + line.y.clone() * line.y.clone();
     let epsilon = T::from_f64(1e-9).unwrap();
-    if v_norm_3d < epsilon {
+    if line_norm2 < epsilon.clone() * epsilon {
         return None;
     }
-    let v_3d_unit = v_3d / v_norm_3d;
-
-    // A point on the line, which must not lie in the camera's z = 0 plane.
-    let p0_3d = compute_line_origin(&n_c, &d_c, &n_target_c, &d_target_c, &v_3d_unit);
-    if p0_3d.z.clone().abs() < epsilon {
-        return None;
-    }
-
-    let (p0_norm, v_norm) = project_line_to_normalized_plane(&p0_3d, &v_3d_unit);
+    let line_norm = line_norm2.sqrt();
     let [x_u, y_u]: [T; 2] = camera.pixel_to_normalized(laser_pixel).coords.into();
-
-    // |v_norm × (pixel - p0_norm)|, the 2D cross product.
-    let cross =
-        v_norm.x.clone() * (y_u - p0_norm.y.clone()) - v_norm.y.clone() * (x_u - p0_norm.x.clone());
-    Some(cross.abs() * (fx * fy).sqrt())
+    let dist_norm = (line.x.clone() * x_u + line.y.clone() * y_u + line.z.clone()) / line_norm;
+    Some(dist_norm * (fx * fy).sqrt())
 }
 
 /// Build `cam_se3_target` from the hand-eye chain for a rig-level laser factor.
@@ -726,42 +628,6 @@ mod tests {
         assert!((y_u - y_norm).abs() < 1e-8, "y_u mismatch: {}", y_u);
     }
 
-    #[test]
-    fn test_line_projection_geometry() {
-        use nalgebra::Vector3;
-
-        // Simple case: line parallel to XY plane at z=1
-        let p0 = Vector3::new(1.0, 0.5, 1.0);
-        let v = Vector3::new(1.0, 0.0, 0.0); // Direction along x-axis
-
-        let (p0_norm, v_norm) = project_line_to_normalized_plane(&p0, &v);
-
-        assert!((p0_norm.x - 1.0_f64).abs() < 1e-10);
-        assert!((p0_norm.y - 0.5_f64).abs() < 1e-10);
-        assert!((v_norm.x - 1.0_f64).abs() < 1e-10);
-        assert!(v_norm.y.abs() < 1e-10_f64);
-    }
-
-    #[test]
-    fn test_compute_line_origin_simple() {
-        use nalgebra::Vector3;
-
-        let n1 = Vector3::new(0.0, 0.0, 1.0); // XY plane normal
-        let d1 = 0.0;
-        let n2 = Vector3::new(1.0, 0.0, 0.0); // YZ plane normal
-        let d2 = 0.0;
-        let v = n1.cross(&n2); // Direction: (0, 1, 0)
-
-        let p0 = compute_line_origin(&n1, &d1, &n2, &d2, &v);
-
-        let plane1_dist: f64 = n1.dot(&p0) + d1;
-        let plane2_dist: f64 = n2.dot(&p0) + d2;
-        assert!(plane1_dist.abs() < 1e-10);
-        assert!(plane2_dist.abs() < 1e-10);
-        assert!(p0.x.abs() < 1e-10);
-        assert!(p0.z.abs() < 1e-10);
-    }
-
     /// Compose ground-truth `cam_se3_target` via the hand-eye chain in each
     /// mode and check that `compose_cam_se3_target_with_delta_generic`
     /// produces the same transform. This pins down chain semantics and guards
@@ -1082,5 +948,109 @@ mod tests {
         let line_corrected =
             laser_line_distance_residual(SPEC, &chain_corrected, &base_params, laser_pixel, w);
         assert!((line_delta[0] - line_corrected[0]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn laser_line_distance_handles_tilted_target_past_45_deg_with_vertical_plane() {
+        // Vertical laser plane (n = [1, 0, 0], d = 0) and a target tilted 60 deg about X
+        // make the intersection line mostly vertical along the camera Z/Y plane where the old
+        // Z=0 intercept solver picked p0.z = 0 and rejected valid visible pixels.
+        let intr = DVector::from_vec(vec![800.0, 800.0, 640.0, 360.0]);
+        let dist = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0, 0.0]);
+        let sensor = DVector::from_vec(vec![0.0, 0.0]);
+        let cam = CameraBlocks::new(
+            SPEC,
+            intr.as_slice(),
+            &[],
+            dist.as_slice(),
+            sensor.as_slice(),
+        );
+        let pose_iso = Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, 0.6),
+            UQ::from_axis_angle(&Vector3::x_axis(), 60.0_f64.to_radians()),
+        );
+        let pose = pack(&pose_iso);
+        let plane_normal = DVector::from_vec(vec![1.0, 0.0, 0.0]);
+        let plane_distance = DVector::from_vec(vec![0.0]);
+
+        // Intersection line lies in x = 0 in camera frame -> projects to u = cx = 640.0.
+        let on_line = laser_line_distance(
+            &cam,
+            pose.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            [640.0, 420.0],
+        )
+        .expect("intersection line is visible and well-defined");
+        assert!(on_line.abs() < 1e-12, "got {on_line}");
+
+        let off_line = laser_line_distance(
+            &cam,
+            pose.as_view(),
+            plane_normal.as_view(),
+            plane_distance.as_view(),
+            [643.5, 420.0],
+        )
+        .expect("intersection line is visible");
+        assert!((off_line.abs() - 3.5).abs() < 1e-9, "got {off_line}");
+    }
+
+    #[test]
+    fn laser_line_distance_is_smooth_across_zero_for_dual_numbers() {
+        use num_dual::Dual64;
+        // Smoothness across zero is required for exact first derivatives and second_order
+        // curvature (previous .abs() had a non-differentiable kink at distance == 0).
+        let intr: Vec<Dual64> = [800.0, 800.0, 640.0, 360.0]
+            .into_iter()
+            .map(Dual64::from)
+            .collect();
+        let dist = DVector::from_element(5, Dual64::from(0.0));
+        let sensor = DVector::from_element(2, Dual64::from(0.0));
+        let cam = CameraBlocks::new(
+            SPEC,
+            intr.as_slice(),
+            &[],
+            dist.as_slice(),
+            sensor.as_slice(),
+        );
+        let pose_iso = Isometry3::from_parts(
+            Translation3::new(0.0, 0.0, 0.6),
+            UQ::from_axis_angle(&Vector3::x_axis(), 0.4),
+        );
+        let pose_f = pack(&pose_iso);
+        let pose_d = DVector::from_iterator(7, pose_f.iter().copied().map(Dual64::from));
+        let pn = DVector::from_vec(vec![
+            Dual64::from(1.0),
+            Dual64::from(0.0),
+            Dual64::from(0.0),
+        ]);
+        // Perturb plane_d about 0 so the exact pixel [640.0, 360.0] has residual == 0.
+        let pd = DVector::from_vec(vec![Dual64::new(0.0, 1.0)]);
+
+        let res_plus = laser_line_dist_core(
+            &cam,
+            pose_d.as_view(),
+            pn.as_view(),
+            pd.as_view(),
+            [640.0, 360.0],
+            1.0,
+        );
+        let pd_neg = DVector::from_vec(vec![Dual64::new(-1e-7, 1.0)]);
+        let res_minus = laser_line_dist_core(
+            &cam,
+            pose_d.as_view(),
+            pn.as_view(),
+            pd_neg.as_view(),
+            [640.0, 360.0],
+            1.0,
+        );
+        assert!(res_plus[0].re.abs() < 1e-12);
+        assert!(res_plus[0].eps.is_finite() && res_plus[0].eps.abs() > 1e2);
+        assert!(
+            (res_plus[0].eps - res_minus[0].eps).abs() < 1e-3,
+            "derivative jumped across 0: {} vs {}",
+            res_plus[0].eps,
+            res_minus[0].eps
+        );
     }
 }

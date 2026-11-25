@@ -96,6 +96,13 @@ pub struct QualityThresholds {
     pub max_sigma_inflation: f64,
 }
 
+impl QualityThresholds {
+    /// Construct default calibration quality-assessment thresholds.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl Default for QualityThresholds {
     fn default() -> Self {
         Self {
@@ -684,7 +691,13 @@ fn variance_test(
     let upper = chi_square_quantile(1.0 - alpha / 2.0, effective_dof) / effective_dof;
     let summary =
         format!("{measured} = {ratio:.3}, accepted range [{lower:.3}, {upper:.3}] at α = {alpha}");
-    let (status, threshold, message) = if ratio > upper {
+    let (status, threshold, message) = if !ratio.is_finite() {
+        (
+            CheckStatus::Fail,
+            upper,
+            format!("{summary}; the measured variance ratio is not finite"),
+        )
+    } else if ratio > upper {
         (
             CheckStatus::Fail,
             upper,
@@ -727,7 +740,12 @@ fn covariance_linearity(uncertainty: &Uncertainty, thresholds: &QualityThreshold
          scatter {ratio:.2}× its stated σ (NEES per parameter {:.2})",
         second.nees_ratio
     );
-    let (status, message) = if ratio > limit {
+    let (status, message) = if !ratio.is_finite() {
+        (
+            CheckStatus::Fail,
+            format!("{summary}: second-order scatter prediction is not finite"),
+        )
+    } else if ratio > limit {
         (
             CheckStatus::Warn,
             format!(
@@ -793,7 +811,9 @@ fn projection_sigma<E: CalibratedCameras + ?Sized>(
         }
     };
     let limit = thresholds.max_projection_sigma_px;
-    let status = if map.max > limit {
+    let status = if !map.max.is_finite() {
+        CheckStatus::Fail
+    } else if map.max > limit {
         CheckStatus::Warn
     } else {
         CheckStatus::Pass
@@ -885,11 +905,11 @@ fn view_outliers(
         );
     };
     let sigma = level.value();
-    if sigma <= 0.0 {
+    if !sigma.is_finite() || sigma <= 0.0 {
         return QualityCheck::not_applicable(
             kind,
             Some(camera),
-            "the reprojection noise is zero, so residuals cannot be normalized",
+            "the reprojection noise is not finite or zero, so residuals cannot be normalized",
         );
     }
     // A whitened noise level normalizes the whitened errors, a pixel one the
@@ -980,8 +1000,14 @@ fn parameter_correlation(
     let c = &covariance.covariance;
     let mut worst = 0.0_f64;
     let mut pairs = Vec::new();
+    let mut non_finite = false;
     for (n, &i) in indices.iter().enumerate() {
         for &j in &indices[n + 1..] {
+            if !c[i][i].is_finite() || !c[j][j].is_finite() || !c[i][j].is_finite() {
+                non_finite = true;
+                pairs.push(format!("{}/{}", covariance.labels[i], covariance.labels[j]));
+                continue;
+            }
             let denom = (c[i][i] * c[j][j]).sqrt();
             if denom.is_nan()
                 || denom <= 0.0
@@ -996,7 +1022,15 @@ fn parameter_correlation(
             }
         }
     }
-    let (status, message) = if pairs.is_empty() {
+    let (status, message) = if non_finite {
+        (
+            CheckStatus::Fail,
+            format!(
+                "non-finite covariance entries in parameter pair(s): {}",
+                pairs.join(", ")
+            ),
+        )
+    } else if pairs.is_empty() {
         (
             CheckStatus::Pass,
             format!("no two parameters correlate above {limit} (largest |ρ| = {worst:.3})"),
@@ -1066,9 +1100,16 @@ fn parameter_conditioning(
     let mut worst: Option<(usize, f64)> = None;
     let mut clauses = Vec::new();
     let mut subjects = Vec::new();
+    let mut non_finite = false;
     for a in 0..n {
         let excluded = left_out(a, n, &name);
         let inflation = conditioning.inflation_without(a, &excluded);
+        if !inflation.is_finite() {
+            non_finite = true;
+            subjects.push(labels[indices[a]].clone());
+            clauses.push(format!("{} has non-finite σ inflation", labels[indices[a]]));
+            continue;
+        }
         if worst.is_none_or(|(_, w)| inflation > w) {
             worst = Some((a, inflation));
         }
@@ -1093,10 +1134,16 @@ fn parameter_conditioning(
         subjects.push(labels[indices[a]].clone());
     }
     let Some((worst_at, worst_inflation)) = worst else {
+        if non_finite {
+            return QualityCheck::new(kind, Some(camera), CheckStatus::Fail, clauses.join("; "))
+                .naming(subjects);
+        }
         // `indices` is not empty, so the loop always sets a worst parameter.
         return QualityCheck::not_applicable(kind, Some(camera), "no parameter to assess");
     };
-    let (status, message) = if clauses.is_empty() {
+    let (status, message) = if non_finite {
+        (CheckStatus::Fail, clauses.join("; "))
+    } else if clauses.is_empty() {
         (
             CheckStatus::Pass,
             format!(

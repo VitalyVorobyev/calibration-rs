@@ -1807,10 +1807,12 @@ class LaserFeatureResidual(TypedDict):
     """
 
     residual_px: float | None
-    """Distance from `observed_px` to the projected laser line, in pixels:
-    the line-distance residual the laser solve minimizes, measured on the
-    undistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the
-    laser and target planes have no line in common.
+    """Distance (non-negative) from `observed_px` to the projected laser
+    line, in pixels: the magnitude of the line-distance residual the laser
+    solve minimizes, measured on the undistorted image plane and scaled by
+    `sqrt(fx·fy)`. For parallel laser and target planes the line is their
+    common vanishing line. `None` if the planes share no line with a
+    finite image (see the module documentation).
     """
 
     view: int
@@ -3563,6 +3565,14 @@ class RigLaserlineDeviceExport(TypedDict):
     """Mean target reprojection error (pixels) against the frozen
     upstream. Diagnostic echo — this problem type does not optimize
     reprojection.
+    """
+
+    per_cam_reproj_errors: list[float]
+    """Per-camera mean target reprojection errors (pixels) against the frozen
+    upstream, in camera order, over every target view of the camera
+    (`per_cam_stats[i].mean_reproj_error` averages only the views that also
+    have laser pixels); `0.0` for a camera with no projected feature, and
+    empty in exports serialized before this field existed.
     """
 
     per_cam_stats: list[LaserlineStats]

@@ -78,18 +78,33 @@ pub(crate) fn detect(
     cfg: &ChessboardConfig,
     luma: &image::GrayImage,
 ) -> Result<Vec<Feature>, DetectError> {
+    if cfg.rows < 2 || cfg.cols < 2 || cfg.rows > i32::MAX as u32 || cfg.cols > i32::MAX as u32 {
+        return Err(DetectError::InvalidConfig(format!(
+            "chessboard rows={} cols={} must be in 2..={}",
+            cfg.rows,
+            cfg.cols,
+            i32::MAX
+        )));
+    }
+    if !(cfg.square_size_m.is_finite() && cfg.square_size_m > 0.0) {
+        return Err(DetectError::InvalidConfig(format!(
+            "chessboard square_size_m ({}) must be finite and > 0",
+            cfg.square_size_m
+        )));
+    }
+
     // The underlying detector auto-labels corners from
     // intersection clustering — `rows`/`cols` from our config are
     // used only for output validation, not as input parameters.
     let mut board_params = ChessboardParams::default();
-    apply_board_override(cfg.chess_corners, &mut board_params);
+    apply_board_override(cfg.chess_corners, &mut board_params)?;
     let chess_cfg = chess_config_for_override(cfg.chess_corners)?;
 
     // No board in frame is "no features", not an error. Every other
     // `DetectError` variant is a genuine backend failure and propagates.
     let detection = match detect::detect_chessboard(luma, &chess_cfg, &board_params) {
         Ok(detection) => detection,
-        Err(detect::DetectError::NoDetection { .. }) => return Ok(Vec::new()),
+        Err(err) if err.is_not_found() => return Ok(Vec::new()),
         Err(err) => {
             return Err(DetectError::Backend {
                 detector: "chessboard",

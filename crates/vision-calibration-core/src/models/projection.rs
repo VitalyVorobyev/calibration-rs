@@ -120,31 +120,55 @@ impl<T: RealField> ProjectionModel<T> for Equidistant {
 
     fn project(&self, p_c: &Vector3<T>) -> Point2<T> {
         let (x, y, z) = (p_c.x.clone(), p_c.y.clone(), p_c.z.clone());
-        let rho = (x.clone() * x.clone() + y.clone() * y.clone()).sqrt();
-        let norm = (rho.clone() * rho.clone() + z.clone() * z.clone()).sqrt();
-        let axis = T::from_f64(EQUIDISTANT_AXIS).unwrap() * norm;
-        // θ / ρ; on the axis its limit 1 / z, whose derivative is that of
-        // θ / ρ to first order.
-        let scale = if rho > axis {
-            rho.clone().atan2(z) / rho
+        let rho2 = x.clone() * x.clone() + y.clone() * y.clone();
+        let norm2 = rho2.clone() + z.clone() * z.clone();
+        let axis = T::from_f64(EQUIDISTANT_AXIS).unwrap();
+        let axis2 = axis.clone() * axis * norm2;
+
+        // Near the +z axis (θ ≈ 0), θ/ρ → 1/z * (1 - ρ²/(3z²)), avoiding sqrt(0)
+        // and 0/0 atan2 singularities under dual numbers.
+        if z > T::zero() && rho2 <= axis2 {
+            let three = T::from_f64(3.0).unwrap();
+            let z2 = z.clone() * z.clone();
+            let scale = (T::one() - rho2 / (three * z2)) / z;
+            return Point2::new(x * scale.clone(), y * scale);
+        }
+        // Straight backward (x = y = 0, z <= 0) is outside the domain; keep finite
+        // without calling sqrt(0) under dual numbers.
+        if rho2 <= T::zero() {
+            return Point2::origin();
+        }
+
+        let rho = rho2.sqrt();
+        // Split around |z| < rho so the quotient fed to atan() never divides by
+        // zero (avoiding num-dual's Dual::atan2(y, 0.0) NaN derivative at z = 0).
+        let theta = if z.clone().abs() < rho {
+            T::from_f64(std::f64::consts::FRAC_PI_2).unwrap() - (z / rho.clone()).atan()
+        } else if z > T::zero() {
+            (rho.clone() / z).atan()
         } else {
-            let eps = T::from_f64(1e-300).unwrap();
-            T::one() / if z > eps.clone() { z } else { eps }
+            T::from_f64(std::f64::consts::PI).unwrap() - (rho.clone() / (-z)).atan()
         };
+        let scale = theta / rho;
         Point2::new(x * scale.clone(), y * scale)
     }
 
     fn unproject(&self, n: &Point2<T>) -> Ray<T> {
-        let theta = (n.x.clone() * n.x.clone() + n.y.clone() * n.y.clone()).sqrt();
-        // sin θ / θ, with its limit 1 on the axis.
-        let sinc = if theta > T::from_f64(EQUIDISTANT_AXIS).unwrap() {
-            theta.clone().sin() / theta.clone()
+        let theta2 = n.x.clone() * n.x.clone() + n.y.clone() * n.y.clone();
+        let axis = T::from_f64(EQUIDISTANT_AXIS).unwrap();
+        let axis2 = axis.clone() * axis;
+        // Avoid sqrt(0) at (0, 0) under dual numbers via second-order Taylor series.
+        let (sinc, cos_theta) = if theta2 > axis2 {
+            let theta = theta2.sqrt();
+            (theta.clone().sin() / theta.clone(), theta.cos())
         } else {
-            T::one()
+            let half = T::from_f64(0.5).unwrap();
+            let sixth = T::from_f64(1.0 / 6.0).unwrap();
+            (T::one() - theta2.clone() * sixth, T::one() - theta2 * half)
         };
         Ray {
             origin: Vector3::zeros(),
-            direction: Vector3::new(n.x.clone() * sinc.clone(), n.y.clone() * sinc, theta.cos()),
+            direction: Vector3::new(n.x.clone() * sinc.clone(), n.y.clone() * sinc, cos_theta),
         }
     }
 
@@ -195,5 +219,19 @@ mod tests {
             );
         }
         assert!(!Equidistant.in_domain(&Vector3::new(0.0, 0.0, -1.0)));
+    }
+
+    #[test]
+    fn equidistant_near_negative_z_axis_stays_on_pi_circle() {
+        let p = Vector3::new(1e-10_f64, 0.0, -1.0);
+        assert!(Equidistant.in_domain(&p));
+        let n: Point2<f64> = Equidistant.project(&p);
+        assert!((n.x - std::f64::consts::PI).abs() < 1e-9, "got {n:?}");
+        assert!(n.y.abs() < 1e-15);
+
+        let behind = Vector3::new(0.0_f64, 0.0, -1.0);
+        let n_behind: Point2<f64> = Equidistant.project(&behind);
+        assert!(n_behind.x.is_finite() && n_behind.y.is_finite());
+        assert!(n_behind.coords.norm() < 1e-12);
     }
 }

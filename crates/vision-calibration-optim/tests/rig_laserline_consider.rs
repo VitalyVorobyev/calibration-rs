@@ -18,7 +18,7 @@ use vision_calibration_core::synthetic::poses::{
 };
 use vision_calibration_core::{
     BrownConrady5, CameraParams, CorrespondenceView, FxFyCxCy, Iso3, LaserPlane,
-    ParameterCovariance, Pt2, Uncertainty, make_pinhole_camera, pinhole_camera_params,
+    ParameterCovariance, Pt2, Uncertainty, make_pinhole_camera, pinhole_camera_params, se3_adjoint,
 };
 use vision_calibration_optim::{
     BackendSolveOptions, HandeyeMode, RigLaserlineDataset, RigLaserlineEstimate,
@@ -494,6 +494,127 @@ fn the_handeye_chain_maps_into_the_target_poses() {
                             j[a] * j[b]
                         );
                     }
+                }
+            }
+        }
+    }
+}
+
+/// With a full covariance — every pair of the kept parameters, the hand-eye
+/// and the target's pose correlated — the mapped covariance is the dense
+/// `M Σ Mᵀ`, block by block: kept × kept, view × kept and every view × view
+/// block (diagonal and off-diagonal), hand-eye × target cross terms
+/// included. Checked in both modes and with either pose held.
+#[test]
+fn the_handeye_map_matches_the_dense_product_for_a_full_covariance() {
+    let handeye = make_iso((0.1, -0.05, 0.15), (0.05, 0.03, 0.15));
+    let target = make_iso((0.0, 0.2, 0.0), (0.4, -0.1, 0.2));
+    let stations = [
+        make_iso((0.3, 0.0, 0.1), (0.1, 0.0, 0.5)),
+        make_iso((-0.2, 0.25, -0.3), (-0.05, 0.1, 0.45)),
+        make_iso((0.15, -0.3, 0.2), (0.0, -0.08, 0.55)),
+    ];
+    // Deterministic SplitMix64 in [-1, 1).
+    let mut state = 0x5eed_u64;
+    let mut uniform = move || {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        (z >> 11) as f64 / (1u64 << 52) as f64 - 1.0
+    };
+    for mode in [HandeyeMode::EyeInHand, HandeyeMode::EyeToHand] {
+        let (handeye_name, target_name) = match mode {
+            HandeyeMode::EyeInHand => ("gripper_se3_rig", "base_se3_target"),
+            HandeyeMode::EyeToHand => ("rig_se3_base", "gripper_se3_target"),
+        };
+        let poses: Vec<Iso3> = stations
+            .iter()
+            .map(|b| match mode {
+                HandeyeMode::EyeInHand => handeye.inverse() * b.inverse() * target,
+                HandeyeMode::EyeToHand => handeye * b * target,
+            })
+            .collect();
+        for (with_handeye, with_target) in [(true, true), (true, false), (false, true)] {
+            // Kept parameters interleaved with the poses.
+            let mut labels = vec!["cam0.fx".to_string()];
+            if with_handeye {
+                labels.extend(pose_labels(handeye_name));
+            }
+            labels.push("cam1.k1".into());
+            if with_target {
+                labels.extend(pose_labels(target_name));
+            }
+            labels.push("cam0.k1".into());
+            let n = labels.len();
+            let a = DMatrix::from_fn(n, n, |_, _| uniform());
+            let sigma = &a * a.transpose() + DMatrix::identity(n, n) * 0.1;
+            let calibration = Uncertainty::Available(ParameterCovariance::new(
+                labels.clone(),
+                (0..n)
+                    .map(|i| (0..n).map(|j| sigma[(i, j)]).collect())
+                    .collect(),
+                Vec::new(),
+                100,
+                90,
+            ));
+            let mapped =
+                handeye_upstream_uncertainty(&calibration, mode, &handeye, 2, &poses).unwrap();
+            let mapped = mapped.covariance().unwrap();
+
+            // The dense map: kept parameters by identity, each view's pose by
+            // its adjoint on the hand-eye and identity on the target's pose.
+            let at = |name: &str| -> Option<Vec<usize>> {
+                let at: Vec<usize> = pose_labels(name)
+                    .iter()
+                    .filter_map(|l| labels.iter().position(|x| x == l))
+                    .collect();
+                (!at.is_empty()).then_some(at)
+            };
+            let (handeye_at, target_at) = (at(handeye_name), at(target_name));
+            let kept = ["cam0.fx", "cam1.k1", "cam0.k1"];
+            let m_rows = kept.len() + 6 * poses.len();
+            let mut map = DMatrix::zeros(m_rows, n);
+            let mut row_labels: Vec<String> = Vec::new();
+            for (r, name) in kept.iter().enumerate() {
+                map[(r, labels.iter().position(|l| l == name).unwrap())] = 1.0;
+                row_labels.push((*name).to_string());
+            }
+            for (v, pose) in poses.iter().enumerate() {
+                let first = kept.len() + 6 * v;
+                row_labels.extend(pose_labels(&format!("view{v}.rig_se3_target")));
+                if let Some(cols) = &handeye_at {
+                    let ad = match mode {
+                        HandeyeMode::EyeInHand => -se3_adjoint(&pose.inverse()),
+                        HandeyeMode::EyeToHand => se3_adjoint(&(pose.inverse() * handeye)),
+                    };
+                    for r in 0..6 {
+                        for (c, &col) in cols.iter().enumerate() {
+                            map[(first + r, col)] = ad[(r, c)];
+                        }
+                    }
+                }
+                if let Some(cols) = &target_at {
+                    for (r, &col) in cols.iter().enumerate() {
+                        map[(first + r, col)] += 1.0;
+                    }
+                }
+            }
+            let dense = &map * &sigma * map.transpose();
+            let scale = dense.amax();
+
+            assert_eq!(mapped.labels, row_labels, "{mode:?}");
+            for i in 0..m_rows {
+                for j in 0..m_rows {
+                    let (got, want) = (mapped.covariance[i][j], dense[(i, j)]);
+                    assert!(
+                        (got - want).abs() <= 1e-12 * scale,
+                        "{mode:?} hand-eye {with_handeye} target {with_target} \
+                         ({}, {}): {got:e} vs {want:e}",
+                        row_labels[i],
+                        row_labels[j]
+                    );
                 }
             }
         }

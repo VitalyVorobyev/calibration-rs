@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import signal
 import sys
 from collections.abc import Sequence
 
@@ -27,10 +26,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     with its status: 0 done, 1 an error, 2 a wrong command line, 3 a ``run``
     whose quality verdict is fail."""
     args = sys.argv[1:] if argv is None else list(argv)
-    # The calibration runs in Rust without returning to Python, so Python's
-    # Ctrl-C handler would only fire once it is done: let the signal end the
-    # process instead.
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
     raise SystemExit(_native.vcal_main(["vcal", *args]))
 
 

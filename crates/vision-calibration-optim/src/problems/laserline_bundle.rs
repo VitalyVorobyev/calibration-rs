@@ -61,10 +61,20 @@ impl LaserlineMeta {
     /// # Errors
     ///
     /// Returns [`Error::InsufficientData`] if `laser_pixels` is empty.
-    /// Returns [`Error::InvalidInput`] if weight count mismatches pixel count, or if any weight is negative.
+    /// Returns [`Error::InvalidInput`] if any pixel coordinate is non-finite, weight count mismatches
+    /// pixel count, or any weight is negative or non-finite.
     pub fn validate(&self) -> Result<(), Error> {
         if self.laser_pixels.is_empty() {
             return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
+        if !self
+            .laser_pixels
+            .iter()
+            .all(|p| p.x.is_finite() && p.y.is_finite())
+        {
+            return Err(Error::invalid_input(
+                "laser pixel coordinates must be finite",
+            ));
         }
         if !self.laser_weights.is_empty() {
             if self.laser_weights.len() != self.laser_pixels.len() {
@@ -74,8 +84,14 @@ impl LaserlineMeta {
                     self.laser_pixels.len()
                 )));
             }
-            if !self.laser_weights.iter().all(|w| *w >= 0.0) {
-                return Err(Error::invalid_input("laser weights must be non-negative"));
+            if !self
+                .laser_weights
+                .iter()
+                .all(|w| w.is_finite() && *w >= 0.0)
+            {
+                return Err(Error::invalid_input(
+                    "laser weights must be finite and non-negative",
+                ));
             }
         }
         Ok(())
@@ -541,13 +557,16 @@ impl LaserCameraModel {
             residual.feature = feature;
             residual.observed_px = [px.x, px.y];
             residual.residual_m = point.map(|p| plane.point_distance(&p));
+            // The solver's residual is signed (smooth through zero); the
+            // exported record is its magnitude.
             residual.residual_px = laser_line_distance(
                 &self.blocks(),
                 pose_vec.as_view(),
                 normal.as_view(),
                 distance.as_view(),
                 [px.x, px.y],
-            );
+            )
+            .map(f64::abs);
             out.features.push(residual);
             points.extend(point);
         }
@@ -846,6 +865,12 @@ fn build_laserline_ir(
             "dataset has {} views but {} initial poses",
             dataset.num_views(),
             initial.cam_se3_target.len()
+        )));
+    }
+    if let Some(&bad) = opts.fix_poses.iter().find(|&&i| i >= dataset.num_views()) {
+        return Err(Error::invalid_input(format!(
+            "fix_poses index {bad} out of bounds for {} views",
+            dataset.num_views()
         )));
     }
     for (idx, view) in dataset.views.iter().enumerate() {
@@ -1200,9 +1225,53 @@ mod tests {
             );
             let res_px = r.residual_px.expect("the planes meet in a line");
             assert!(
-                res_px < 1.0e-6,
+                res_px.abs() < 1.0e-6,
                 "feature {i} residual_px {res_px} not within 1e-6"
             );
+        }
+    }
+
+    /// The exported line distance is a magnitude on both sides of the line.
+    #[test]
+    fn exported_laser_residual_px_is_unsigned_on_both_sides_of_the_line() {
+        // Camera at the origin (f = 800, c = (320, 240)), target plane z = 1,
+        // laser plane y = 0.1: the laser line is the image row v = 320.
+        let intrinsics = FxFyCxCy {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 320.0,
+            cy: 240.0,
+        };
+        let cam_se3_target = Iso3::from_parts(
+            nalgebra::Translation3::new(0.0, 0.0, 1.0),
+            nalgebra::UnitQuaternion::identity(),
+        );
+        let plane =
+            LaserPlane::new((nalgebra::Vector3::new(0.0, 1.0, 0.0)).normalize(), -0.1).unwrap();
+        let laser_pixels = vec![Pt2::new(250.0, 317.0), Pt2::new(400.0, 323.0)];
+        let target_view = CorrespondenceView::new(
+            vec![Pt3::new(0.0, 0.0, 0.0); 4],
+            vec![Pt2::new(100.0, 100.0); 4],
+        )
+        .unwrap();
+        let dataset = LaserlineDataset::new(vec![View::new(
+            target_view,
+            LaserlineMeta {
+                laser_pixels,
+                laser_weights: Vec::new(),
+            },
+        )])
+        .unwrap();
+        let params = LaserlineParams::new(
+            bc_camera(intrinsics, BrownConrady5::default(), SensorParams::Identity),
+            vec![cam_se3_target],
+            plane,
+        )
+        .unwrap();
+        let records = compute_laserline_feature_residuals(&dataset, &params).unwrap();
+        for r in &records.features {
+            let px = r.residual_px.expect("the planes meet in a line");
+            assert!((px - 3.0).abs() < 1e-9, "feature {}: {px} px", r.feature);
         }
     }
 
@@ -1304,7 +1373,7 @@ mod tests {
         assert_eq!(line.len(), LASER_LINE_SAMPLES);
         for r in &records.features {
             let px = r.residual_px.unwrap();
-            assert!(px < 1e-6, "feature {}: residual {px} px", r.feature);
+            assert!(px.abs() < 1e-6, "feature {}: residual {px} px", r.feature);
             let m = r.residual_m.unwrap();
             assert!(m.abs() < 1e-9, "feature {}: residual {m} m", r.feature);
             let off = polyline_distance(r.observed_px, line);

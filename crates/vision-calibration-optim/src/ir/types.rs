@@ -165,14 +165,16 @@ impl RobustLoss {
             RobustLoss::None => 1.0,
             RobustLoss::Huber { scale: k } => {
                 if s > k * k {
-                    (k / s.sqrt()).max(f64::MIN)
+                    (k / s.sqrt()).max(f64::MIN_POSITIVE)
                 } else {
                     1.0
                 }
             }
-            RobustLoss::Cauchy { scale: k } => (1.0 / (1.0 + s * (1.0 / (k * k)))).max(f64::MIN),
+            RobustLoss::Cauchy { scale: k } => {
+                (1.0 / (1.0 + s * (1.0 / (k * k)))).max(f64::MIN_POSITIVE)
+            }
             RobustLoss::Arctan { scale: k } => {
-                (1.0 / (1.0 + s * s * (1.0 / (k * k)))).max(f64::MIN)
+                (1.0 / (1.0 + s * s * (1.0 / (k * k)))).max(f64::MIN_POSITIVE)
             }
         }
     }
@@ -945,6 +947,30 @@ impl ProblemIR {
                     residual.residual_dim,
                     residual.factor.residual_dim()
                 )));
+            }
+            if let FactorKind::LaserPointToPlane { w, .. } | FactorKind::LaserLineDistance { w, .. } =
+                &residual.factor
+                && !(w.is_finite() && *w >= 0.0)
+            {
+                return Err(Error::invalid_input(format!(
+                    "residual {r_idx}: laser weight {w} must be finite and non-negative"
+                )));
+            }
+            if let FactorKind::Se3TangentPrior {
+                sqrt_info,
+                residual_sigma,
+            } = &residual.factor
+            {
+                if !(residual_sigma.is_finite() && *residual_sigma > 0.0) {
+                    return Err(Error::invalid_input(format!(
+                        "residual {r_idx}: prior residual_sigma {residual_sigma} must be finite and positive"
+                    )));
+                }
+                if !sqrt_info.iter().all(|v| v.is_finite() && *v >= 0.0) {
+                    return Err(Error::invalid_input(format!(
+                        "residual {r_idx}: prior sqrt_info must be finite and non-negative"
+                    )));
+                }
             }
             if let FactorKind::LaserLineDistance { model, .. } = &residual.factor
                 && !model.projection.preserves_lines()

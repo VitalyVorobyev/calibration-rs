@@ -26,8 +26,9 @@ use vision_calibration_linear::prelude::*;
 use vision_calibration_optim::{
     BackendSolveOptions, CameraBounds, PlanarIntrinsicsEstimate, PlanarIntrinsicsParams,
     PlanarIntrinsicsSolveOptions, RigExtrinsicsParams, RigExtrinsicsSolveOptions, RobustLoss,
-    ScheimpflugStagedInitOptions, SolveReport, SolveTermination, optimize_planar_intrinsics,
-    optimize_rig_extrinsics, optimize_scheimpflug_intrinsics_staged,
+    ScheimpflugStagedInitOptions, SolveReport, SolveTermination,
+    optimize_planar_intrinsics_warm_start, optimize_rig_extrinsics_warm_start,
+    optimize_scheimpflug_intrinsics_staged,
 };
 
 use super::{rig_distortion, rig_tilt, tilted_planar_params};
@@ -203,6 +204,7 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
     }
 
     for (params, _) in seeds {
+        backend_opts.control.check()?;
         let staged = ScheimpflugStagedInitOptions {
             tilt_x_seeds: vec![rig_tilt(&params.camera).tilt_x],
             tilt_y_seeds: vec![rig_tilt(&params.camera).tilt_y],
@@ -231,6 +233,7 @@ fn optimize_scheimpflug_intrinsics_auto_multistart(
                 }
             }
             Ok(_) => {}
+            Err(vision_calibration_optim::Error::Cancelled) => return Err(Error::Cancelled),
             Err(e) => {
                 last_err = Some(Error::numerical(format!(
                     "Scheimpflug intrinsics optimization failed for camera {cam_idx}: {e}"
@@ -281,6 +284,7 @@ fn recover_bad_scheimpflug_cameras_from_nominal(
             .ok();
 
     for item in work_items {
+        backend_opts.control.check()?;
         let cam_idx = item.cam_idx;
         if per_cam_reproj_errors
             .get(cam_idx)
@@ -480,7 +484,7 @@ fn recover_one_scheimpflug_camera_from_nominal(
         .take(SCHEIMPFLUG_NOMINAL_TOP_LOCAL_CANDIDATES)
         .cloned()
     {
-        let candidate = optimize_planar_intrinsics(
+        let candidate = optimize_planar_intrinsics_warm_start(
             &item.dataset,
             &scored_seed.params,
             nominal_pose_only_solve_opts(solve_opts.clone()),
@@ -491,7 +495,7 @@ fn recover_one_scheimpflug_camera_from_nominal(
         )
         .unwrap_or_else(|_| scheimpflug_estimate_from_scored_seed(scored_seed));
 
-        let candidate = optimize_planar_intrinsics(
+        let candidate = optimize_planar_intrinsics_warm_start(
             &item.dataset,
             &candidate.params,
             nominal_tight_refine_solve_opts(solve_opts.clone(), nominal),
@@ -625,7 +629,7 @@ fn optimize_bad_scheimpflug_camera_against_good_rig(
         fix_extrinsics,
         fix_rig_poses: (0..num_views).collect(),
     };
-    let Ok(result) = optimize_rig_extrinsics(
+    let Ok(result) = optimize_rig_extrinsics_warm_start(
         dataset,
         initial,
         solve_opts,

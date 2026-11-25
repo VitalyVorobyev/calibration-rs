@@ -65,7 +65,11 @@ pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
 
     let mut images: Vec<ImageFile> = Vec::new();
     let mut others: Vec<PathBuf> = Vec::new();
-    walk(root, root, &mut images, &mut others)?;
+    let mut visited = std::collections::HashSet::new();
+    if let Ok(canon) = std::fs::canonicalize(root) {
+        visited.insert(canon);
+    }
+    walk(root, root, &mut visited, &mut images, &mut others)?;
 
     let cameras = group_cameras(&images);
     if cameras.is_empty() {
@@ -191,6 +195,9 @@ pub fn sniff_folder(root: &Path) -> Result<DatasetSpec, SniffError> {
 /// One discovered image file, with its path relative to the sniff root.
 struct ImageFile {
     rel: PathBuf,
+    /// Original on-disk extension (preserves case for case-sensitive filesystems).
+    raw_ext: String,
+    /// Lowercase extension used to group images of the same format.
     ext: String,
 }
 
@@ -202,11 +209,12 @@ struct CameraGroup {
 }
 
 /// Recursively collect image files (into `images`) and every other regular
-/// file (into `others`), skipping dotfiles and dot-directories. Paths are
-/// stored relative to `root`.
+/// file (into `others`), skipping dotfiles, dot-directories and symlink cycles.
+/// Paths are stored relative to `root`.
 fn walk(
     dir: &Path,
     root: &Path,
+    visited: &mut std::collections::HashSet<PathBuf>,
     images: &mut Vec<ImageFile>,
     others: &mut Vec<PathBuf>,
 ) -> Result<(), SniffError> {
@@ -214,11 +222,16 @@ fn walk(
         path: dir.to_path_buf(),
         source,
     })?;
-    for entry in entries {
-        let entry = entry.map_err(|source| SniffError::Io {
+    // Sorted: which of a symlinked directory and its target is walked (and
+    // recorded) first must not depend on the filesystem's listing order.
+    let mut entries = entries
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| SniffError::Io {
             path: dir.to_path_buf(),
             source,
         })?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
         let name = entry.file_name();
         if name.to_string_lossy().starts_with('.') {
             continue; // skip .DS_Store, .git, hidden dirs, etc.
@@ -228,14 +241,21 @@ fn walk(
             path: path.clone(),
             source,
         })?;
-        if file_type.is_dir() {
-            walk(&path, root, images, others)?;
-        } else if file_type.is_file() {
+        let is_symlink = file_type.is_symlink();
+        if file_type.is_dir() || (is_symlink && path.is_dir()) {
+            let Ok(canon) = std::fs::canonicalize(&path) else {
+                continue;
+            };
+            if visited.insert(canon) {
+                walk(&path, root, visited, images, others)?;
+            }
+        } else if file_type.is_file() || (is_symlink && path.is_file()) {
             let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
             match path.extension().and_then(|e| e.to_str()) {
-                Some(ext) if is_image_ext(ext) => images.push(ImageFile {
+                Some(raw_ext) if is_image_ext(raw_ext) => images.push(ImageFile {
                     rel,
-                    ext: ext.to_ascii_lowercase(),
+                    raw_ext: raw_ext.to_string(),
+                    ext: raw_ext.to_ascii_lowercase(),
                 }),
                 _ => others.push(rel),
             }
@@ -265,13 +285,12 @@ fn group_cameras(images: &[ImageFile]) -> Vec<CameraGroup> {
     let mut groups = Vec::with_capacity(by_dir.len());
     for (dir, imgs) in by_dir {
         let ext = dominant_ext(&imgs);
-        let glob = glob_for(&dir, &ext);
-        // Count only the images the emitted `*.{ext}` glob will actually
-        // expand to, not every image in the directory. Otherwise a mixed-
-        // extension group (e.g. 3 PNG + 1 JPG) would report 4 and could be
-        // paired `by_index` against a 4-long stream the glob only fills with
-        // 3 — a count mismatch the runner hits later.
-        let count = imgs.iter().filter(|img| img.ext == ext).count();
+        // Count only images of the dominant format (case-insensitive) and build
+        // a glob pattern that matches every case variant present on disk.
+        let matching: Vec<&ImageFile> = imgs.iter().copied().filter(|img| img.ext == ext).collect();
+        let ext_glob = case_glob_ext(&ext, &matching);
+        let glob = glob_for(&dir, &ext_glob);
+        let count = matching.len();
         let id = if single {
             "cam0".to_string()
         } else {
@@ -280,6 +299,29 @@ fn group_cameras(images: &[ImageFile]) -> Vec<CameraGroup> {
         groups.push(CameraGroup { id, glob, count });
     }
     groups
+}
+
+/// If all matching files share one exact-case extension (e.g. `"png"` or
+/// `"PNG"`), emit it verbatim; if mixed cases exist in one directory, emit a
+/// per-letter `[pP][nN][gG]` class so case-sensitive filesystems find them all.
+fn case_glob_ext(lower_ext: &str, matching: &[&ImageFile]) -> String {
+    let Some(first) = matching.first().map(|img| img.raw_ext.as_str()) else {
+        return lower_ext.to_string();
+    };
+    if matching.iter().all(|img| img.raw_ext == first) {
+        return first.to_string();
+    }
+    lower_ext
+        .chars()
+        .map(|c| {
+            let up = c.to_ascii_uppercase();
+            if up != c {
+                format!("[{c}{up}]")
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
 }
 
 /// Most common extension in a group (ties broken alphabetically for
@@ -358,6 +400,9 @@ fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Option<PoseFile> {
             continue;
         };
         let nonempty: Vec<&str> = contents.lines().filter(|l| !l.trim().is_empty()).collect();
+        if nonempty.is_empty() {
+            continue;
+        }
         let ext = rel
             .extension()
             .and_then(|e| e.to_str())
@@ -373,16 +418,22 @@ fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Option<PoseFile> {
                 RobotPoseFormat::Rowmajor4x4
             }
             _ if counted4x4_count(&contents).is_some() => RobotPoseFormat::Counted4x4,
-            _ => RobotPoseFormat::Csv,
+            _ if nonempty[0].contains(',') => RobotPoseFormat::Csv,
+            _ => continue,
         };
 
         // The pose count drives by-index pairing. For rowmajor4x4 each
-        // non-empty line is one pose; for CSV the header row is not a pose.
+        // non-empty line is one pose; for CSV the header row is not a pose;
+        // for JSON count array elements when valid JSON array.
         let count = match format {
             RobotPoseFormat::Rowmajor4x4 => nonempty.len(),
             RobotPoseFormat::Counted4x4 => counted4x4_count(&contents).unwrap_or(0),
             RobotPoseFormat::Csv => nonempty.len().saturating_sub(1),
-            RobotPoseFormat::Json | RobotPoseFormat::Jsonl => nonempty.len(),
+            RobotPoseFormat::Json => match serde_json::from_str::<serde_json::Value>(&contents) {
+                Ok(serde_json::Value::Array(arr)) => arr.len(),
+                _ => continue,
+            },
+            RobotPoseFormat::Jsonl => nonempty.len(),
         };
 
         return Some(PoseFile {
@@ -400,12 +451,16 @@ fn detect_pose_file(root: &Path, others: &[PathBuf]) -> Option<PoseFile> {
 fn counted4x4_count(contents: &str) -> Option<usize> {
     let mut tokens = contents.split_whitespace();
     let count: usize = tokens.next()?.parse().ok()?;
+    let expected = count.checked_mul(16)?;
     let mut values = 0usize;
     for token in tokens {
-        token.parse::<f64>().ok()?;
+        let v: f64 = token.parse().ok()?;
+        if !v.is_finite() {
+            return None;
+        }
         values += 1;
     }
-    (count > 0 && values == 16 * count).then_some(count)
+    (count > 0 && values == expected).then_some(count)
 }
 
 /// Is this line 16 whitespace-separated floats (a flattened row-major 4x4)?
@@ -688,5 +743,27 @@ mod tests {
         assert_eq!(spec.topology, ProblemKind::RigExtrinsics);
         assert!(spec.robot_poses.is_none());
         assert!(spec.unresolved.contains(&"topology".to_string()));
+    }
+
+    #[test]
+    fn json_poses_uppercase_extensions_and_counted_overflow() {
+        let dir = TempDir::new("jsoncase");
+        dir.touch("01.PNG");
+        dir.touch("02.png");
+        dir.write(
+            "robot_poses.json",
+            "[\n  {\"x\": 0, \"y\": 0, \"z\": 0},\n  {\"x\": 1, \"y\": 0, \"z\": 0}\n]\n",
+        );
+
+        let spec = sniff_folder(&dir.path).unwrap();
+        assert_eq!(cam_glob(&spec, "cam0"), "*.[pP][nN][gG]");
+        assert!(matches!(spec.pose_pairing, Some(PosePairing::ByIndex)));
+
+        let upper_dir = TempDir::new("upper");
+        upper_dir.touch("01.PNG");
+        let upper_spec = sniff_folder(&upper_dir.path).unwrap();
+        assert_eq!(cam_glob(&upper_spec, "cam0"), "*.PNG");
+
+        assert_eq!(counted4x4_count(&format!("{} 1", usize::MAX)), None);
     }
 }

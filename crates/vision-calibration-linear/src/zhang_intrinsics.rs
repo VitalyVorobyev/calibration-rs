@@ -9,8 +9,8 @@ use nalgebra::{DMatrix, Vector3};
 use vision_calibration_core::{FxFyCxCy, Mat3, Real};
 
 /// Build the 6-vector v_ij(H) as in Zhang's method.
-/// i, j are 0- or 1-based column indices (we'll use 0/1 for (1,2) and (1,1),(2,2)).
-fn v_ij(hmtx: &Mat3, i: usize, j: usize) -> nalgebra::SVector<Real, 6> {
+/// i, j are 0-based column indices (e.g. `(0, 1)` and `(0, 0)`, `(1, 1)`).
+pub(crate) fn v_ij(hmtx: &Mat3, i: usize, j: usize) -> nalgebra::SVector<Real, 6> {
     let hi = hmtx.column(i);
     let hj = hmtx.column(j);
 
@@ -154,9 +154,26 @@ impl PlanarIntrinsicsLinearInit {
         }
 
         let m = hmtxs.len();
+        let mut min_scale = f64::INFINITY;
+        let mut max_scale = 0.0_f64;
+        for hmtx in hmtxs {
+            let s = hmtx.norm();
+            if !s.is_finite() || s <= Real::EPSILON {
+                return Err(Error::Singular);
+            }
+            min_scale = min_scale.min(s);
+            max_scale = max_scale.max(s);
+        }
+        let normalize_each = max_scale / min_scale > 1e3 || max_scale > 1e6 || min_scale < 1e-6;
         let mut vmtx = DMatrix::<Real>::zeros(2 * m, 6);
 
         for (k, hmtx) in hmtxs.iter().enumerate() {
+            let scaled = if normalize_each {
+                Some(hmtx / hmtx.norm())
+            } else {
+                None
+            };
+            let hmtx = scaled.as_ref().unwrap_or(hmtx);
             let v11 = v_ij(hmtx, 0, 0);
             let v22 = v_ij(hmtx, 1, 1);
             let v12 = v_ij(hmtx, 0, 1);
@@ -222,6 +239,10 @@ impl PlanarIntrinsicsLinearInit {
         let beta = (lambda * b11 / denom).sqrt();
         let gamma = -b12 * alpha * alpha * beta / lambda;
         let u0 = gamma * v0 / beta - b13 * alpha * alpha / lambda;
+
+        if ![alpha, beta, u0, v0].iter().all(|v| v.is_finite()) || alpha <= 0.0 || beta <= 0.0 {
+            return Err(degenerate);
+        }
 
         Ok(FxFyCxCy {
             fx: alpha,
@@ -468,5 +489,39 @@ mod tests {
                 "{err}"
             );
         }
+    }
+
+    #[test]
+    fn mixed_extreme_homography_scales_stay_exact() {
+        let (truth, kmtx) = make_kmtx();
+        let raw = [
+            synthetic_homography(
+                &kmtx,
+                Rotation3::from_euler_angles(0.25, 0.05, 0.1),
+                Vector3::new(0.05, -0.04, 1.0),
+            ),
+            synthetic_homography(
+                &kmtx,
+                Rotation3::from_euler_angles(-0.15, 0.30, -0.2),
+                Vector3::new(-0.06, 0.05, 1.1),
+            ),
+            synthetic_homography(
+                &kmtx,
+                Rotation3::from_euler_angles(0.18, -0.25, 0.35),
+                Vector3::new(0.02, 0.03, 0.95),
+            ),
+            synthetic_homography(
+                &kmtx,
+                Rotation3::from_euler_angles(-0.28, -0.18, -0.15),
+                Vector3::new(-0.03, -0.02, 1.15),
+            ),
+        ];
+        let scales = [1e-6, 1e6, 1e-4, 1e4];
+        let mixed: Vec<Mat3> = raw.iter().zip(scales).map(|(h, s)| h * s).collect();
+        let est = estimate_intrinsics_from_homographies(&mixed).unwrap();
+        assert!((est.fx - truth.fx).abs() / truth.fx < 1e-8);
+        assert!((est.fy - truth.fy).abs() / truth.fy < 1e-8);
+        assert!((est.cx - truth.cx).abs() / truth.fx < 1e-8);
+        assert!((est.cy - truth.cy).abs() / truth.fy < 1e-8);
     }
 }

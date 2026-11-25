@@ -22,7 +22,13 @@ impl<'a> GrayImageView<'a> {
     /// [`DetectError::InvalidConfig`] when `pixels` does not hold exactly
     /// `width × height` bytes.
     pub fn new(width: u32, height: u32, pixels: &'a [u8]) -> Result<Self, DetectError> {
-        let expected = width as usize * height as usize;
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .ok_or_else(|| {
+                DetectError::InvalidConfig(format!(
+                    "grayscale image dimensions {width}x{height} overflow usize"
+                ))
+            })?;
         if pixels.len() != expected {
             return Err(DetectError::InvalidConfig(format!(
                 "a {width}x{height} grayscale image needs {expected} bytes, got {}",
