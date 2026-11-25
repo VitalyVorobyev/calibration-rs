@@ -114,6 +114,7 @@ fn rms(values: impl Iterator<Item = f64>) -> f64 {
 }
 
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn measurement_sigma_matches_scatter_over_calibrations() {
     let cameras = stereo_cameras();
     let start = Instant::now();

@@ -10,6 +10,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Line tables only in debug and test builds: backtraces keep file:line, while
+# the ~80 test binaries link faster and the caches stay under the size limit.
+env:
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+
 jobs:
   build:
     strategy:
@@ -61,7 +67,9 @@ jobs:
           sha256sum < "$fixture" | awk '{print $1}' |
             diff -u <(awk '$2 == "01.png" {print $1}' regression/fetch/kuka_1.sha256) -
           cp "$fixture" data/kuka_1/01.png
-          cargo test -p vision-calibration-detect --lib -- --ignored
+          # The workspace-wide feature set of the step above, so nothing
+          # rebuilds; only the detector's ignored tests match the filter.
+          cargo test --workspace --all-features --lib -- --ignored chessboard::tests::
 
       # The app's schema-driven config forms, the input/export schemas in
       # `schemas/` and the Python package's TypedDicts are all generated from
@@ -196,6 +204,7 @@ jobs:
         with:
           # The cache key does not see Cargo profile changes; bump on one.
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Suite check
         run: >-
@@ -235,6 +244,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Image cache
         uses: actions/cache@v6
@@ -249,8 +259,10 @@ jobs:
           --bin calib-bench -- suite fetch
 
   # The parameter-uncertainty Monte-Carlo gates (a few hundred solves each)
-  # and the next-view prediction gate (dozens of re-solves) are `#[ignore]`d
-  # in the debug test run and run here in release.
+  # and the other release-only gates (next-view prediction, held-out model
+  # comparison, focus diagnostic, split-half honesty) are `#[ignore]`d in the
+  # debug test run and run here in release. `scripts/uncertainty_gates.py`
+  # lists them, builds their binaries once and runs them in parallel.
   uncertainty-gates:
     name: Uncertainty gates
     runs-on: ubuntu-latest
@@ -265,75 +277,10 @@ jobs:
         with:
           # The cache key does not see Cargo profile changes; bump on one.
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Monte-Carlo gates
-        run: >-
-          cargo test --release --locked -p vision-calibration-optim
-          --test uncertainty -- --ignored
-
-      - name: Robotless rig laser gate
-        run: >-
-          cargo test --release --locked -p vision-calibration-optim
-          --test rig_laser_problem -- --ignored
-
-      - name: Rig laser point gate
-        run: >-
-          cargo test --release --locked -p vision-calibration
-          --test rig_laser_uncertainty -- --ignored
-
-      - name: Dense cloud gate
-        run: >-
-          cargo test --release --locked -p vision-calibration
-          --test dense_cloud_uncertainty -- --ignored
-
-      - name: Second-order error gate
-        run: >-
-          cargo test --release --locked -p vision-calibration
-          --test second_order_error -- --ignored
-
-      - name: Tilted rig gate
-        run: >-
-          cargo test --release --locked -p vision-calibration
-          --test rig_extrinsics_scheimpflug -- --ignored
-
-      - name: Tilt conditioning sweep
-        run: >-
-          cargo test --release --locked -p vision-calibration
-          --test quality_tilt_conditioning -- --ignored
-
-      - name: Robot-frame point gate
-        run: >-
-          cargo test --release --locked -p vision-calibration
-          --test handeye_frame_uncertainty -- --ignored
-
-      - name: Robot-error estimate gate
-        run: >-
-          cargo test --release --locked -p vision-calibration-optim
-          --test robot_pose_priors estimated_robot_sigma -- --ignored
-
-      - name: Next-view prediction gate
-        run: >-
-          cargo test --release --locked -p vision-calibration-pipeline
-          --lib analysis::next_view -- --ignored
-
-      - name: Held-out model comparison gate
-        run: >-
-          cargo test --release --locked -p vision-calibration-pipeline
-          --lib analysis::cross_validation -- --ignored
-
-      # The focus fit's stated σ of the plane, blur scale, offsets, image
-      # line and depth of field agree with the scatter over 1000 noise draws.
-      - name: Focus diagnostic gate
-        run: >-
-          cargo test --release --locked -p vision-calibration-pipeline
-          --lib analysis::focus -- --ignored
-
-      # The whitened covariance of a feature-weighted solve agrees with the
-      # scatter of Monte-Carlo solves, single camera and rig (about 70 s).
-      - name: Feature-covariance gate
-        run: >-
-          cargo test --release --locked -p vision-calibration-optim
-          --test feature_covariance -- --ignored
+      - name: Release-only gates
+        run: python3 scripts/uncertainty_gates.py
 
   # Exit criterion 9: the package and `vcal` work from an install, without
   # the source tree. The wheel goes into a fresh venv and the examples run
@@ -352,6 +299,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -395,6 +343,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -418,8 +367,10 @@ jobs:
       - name: Check facade↔binding parity
         run: python3 scripts/check_binding_parity.py --check
 
+      # Release: the runtime tests run calibrations, which take ~25 min
+      # unoptimized and well under a minute optimized.
       - name: Build Python extension
-        run: maturin develop -m crates/vision-calibration-py/Cargo.toml
+        run: maturin develop --release --locked -m crates/vision-calibration-py/Cargo.toml
 
       - name: Validate Python package
         run: python -m compileall crates/vision-calibration-py/python/vision_calibration
@@ -527,6 +478,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cargo fmt (src-tauri)
         run: cargo fmt --manifest-path app/src-tauri/Cargo.toml --check

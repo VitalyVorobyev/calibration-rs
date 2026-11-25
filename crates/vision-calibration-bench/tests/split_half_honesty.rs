@@ -387,6 +387,7 @@ const STATED: usize = 1;
 /// With exactly true independent noise the stated uncertainty is honest,
 /// with and without the per-corner covariance (24 scenes of 15 views).
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn synthetic_truth_gate() {
     let totals = pooled_honesty(24, |seed| scene(seed, 15, 0.0), &[UNIFORM, STATED]);
     assert_honest("truth gate, no covariance", &totals[0]);
@@ -398,6 +399,7 @@ fn synthetic_truth_gate() {
 /// keeps the stated uncertainty honest. Without it `r` is several times 1
 /// (12 scenes of 24 views).
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn synthetic_truth_gate_with_view_errors() {
     let totals = pooled_honesty(12, |seed| scene(seed, 24, 1.5e-8), &[UNIFORM]);
     assert_honest("truth gate with view errors", &totals[0]);

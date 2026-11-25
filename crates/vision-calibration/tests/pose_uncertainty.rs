@@ -79,6 +79,7 @@ fn variances(pose: &ObjectPose) -> [f64; 6] {
 }
 
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn the_calibrations_share_is_in_the_pose_sigma() {
     let clock = Instant::now();
     let mut error = vec![Vec::new(); 6];

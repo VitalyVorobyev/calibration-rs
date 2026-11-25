@@ -20,6 +20,7 @@ use vision_calibration::core::{PointCovariance, Pt2};
 use vision_calibration::mvg::rectification::{RectifiedMatch, RectifyOptions, rectify};
 
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn the_calibrations_share_is_in_the_measured_depth_sigma() {
     let cams = stereo_cameras();
     let points = stereo_test_points();

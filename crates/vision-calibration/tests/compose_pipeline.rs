@@ -226,6 +226,7 @@ fn measure_with(
 /// calibration as consider parameters. A camera held fixed at its
 /// calibrated values understates it.
 #[test]
+#[ignore = "Monte-Carlo gate; run in release with --ignored"]
 fn the_joint_sigma_carries_the_calibration_and_a_fixed_camera_does_not() {
     let truth = truth();
     let part = part();
