@@ -149,4 +149,40 @@ mod tests {
         assert!((n.x.eps + x * r2).abs() < 1e-12, "∂x_u/∂k1 = {}", n.x.eps);
         assert!((n.y.eps + y * r2).abs() < 1e-12, "∂y_u/∂k1 = {}", n.y.eps);
     }
+
+    #[test]
+    fn equidistant_and_division_dual_derivatives_stay_finite_at_singularities() {
+        use nalgebra::{Point2, Vector3};
+        use vision_calibration_core::{DistortionModel, Division, Equidistant, ProjectionModel};
+
+        // Equidistant::project at +z axis (x=0, y=0, z>0) and at z = 0 (90 deg).
+        for (px, pz) in [(0.0, 1.0), (1.0, 0.0)] {
+            let p_x = Vector3::new(Dual64::new(px, 1.0), Dual64::from(0.0), Dual64::from(pz));
+            let p_z = Vector3::new(Dual64::from(px), Dual64::from(0.0), Dual64::new(pz, 1.0));
+            let qx = Equidistant.project(&p_x);
+            let qz = Equidistant.project(&p_z);
+            assert!(qx.x.re.is_finite() && qx.x.eps.is_finite());
+            assert!(qz.x.re.is_finite() && qz.x.eps.is_finite());
+            if pz == 0.0 {
+                assert!((qz.x.eps + 1.0).abs() < 1e-12, "∂n_x/∂z = {}", qz.x.eps);
+            }
+        }
+        // Equidistant::unproject at optical center (0, 0).
+        let n0 = Point2::new(Dual64::new(0.0, 1.0), Dual64::from(0.0));
+        let ray = Equidistant.unproject(&n0);
+        assert!(
+            ray.direction
+                .iter()
+                .all(|v| v.re.is_finite() && v.eps.is_finite())
+        );
+        assert!((ray.direction.x.eps - 1.0).abs() < 1e-12);
+
+        // Division::distort clamped past invertible disc <= 0.
+        let div = Division {
+            lambda: Dual64::new(1.0, 1.0),
+        };
+        let d = div.distort(&Point2::new(Dual64::new(1.0, 1.0), Dual64::from(0.0)));
+        assert!(d.x.re.is_finite() && d.x.eps.is_finite());
+        assert!(d.y.re.is_finite() && d.y.eps.is_finite());
+    }
 }

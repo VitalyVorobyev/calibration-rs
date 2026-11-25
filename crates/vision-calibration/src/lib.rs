@@ -508,16 +508,17 @@ pub mod rig_handeye_laserline {
 pub mod core {
     pub use vision_calibration_core::{
         AnyDistortion, AnyProjection, AnySensor, BrownConrady5, CalibratedRig, Camera, CameraFix,
-        CameraModel, CameraModelSpec, CameraParams, CombinationTerm, CorrespondenceView,
-        DistortionKind, DistortionParams, Division, Equidistant, FixedParams, FrameKind, FrameRef,
-        FxFyCxCy, Handeye, HomographySensor, IdentitySensor, ImageManifest, Iso3, KannalaBrandt4,
-        LaserPlane, Mat3, NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera,
-        PixelRect, PlanarDataset, PointBlur, PointCovariance, ProjectionKind, ProjectionParams,
-        Pt2, Pt3, RationalPolynomial, Ray, Real, ResidualKind, ResidualNoise, RigDataset, RigView,
-        RigViewObs, RobotFrame, RobotPose, ScheimpflugParams, SecondOrderError, SensorKind,
-        SensorModel, SensorParams, ThinPrism, Uncertainty, UncertaintyUnavailable, Vec2, Vec3,
-        View, ViewCovariance, distort_to_pixel, make_pinhole_camera, pinhole_camera_params,
-        pixel_to_normalized,
+        CameraModel, CameraModelSpec, CameraParams, CameraProject, CombinationTerm,
+        CorrespondenceView, DistortionKind, DistortionModel, DistortionParams, Division,
+        Equidistant, FixedParams, FrameKind, FrameRef, FxFyCxCy, Handeye, HomographySensor,
+        IdentitySensor, ImageManifest, IntrinsicsModel, Iso3, KannalaBrandt4, LaserPlane, Mat3,
+        NoDistortion, NoMeta, NoiseLevel, ParameterCovariance, Pinhole, PinholeCamera, PixelRect,
+        PlanarDataset, PointBlur, PointCovariance, ProjectionKind, ProjectionModel,
+        ProjectionParams, Pt2, Pt3, RationalPolynomial, Ray, Real, ResidualKind, ResidualNoise,
+        RigDataset, RigView, RigViewObs, RobotFrame, RobotPose, ScheimpflugParams,
+        SecondOrderError, SensorKind, SensorModel, SensorParams, ThinPrism, Uncertainty,
+        UncertaintyUnavailable, Vec2, Vec3, View, ViewCovariance, distort_to_pixel,
+        make_pinhole_camera, pinhole_camera_params, pixel_to_normalized,
     };
 
     /// The error type carried by [`crate::Error::Core`].
@@ -545,7 +546,7 @@ pub mod dataset {
         LaserExtractionSpec, LaserScanAxis, ManifestError, PoseColumnMap, PoseConvention,
         PosePairing, ProblemKind, RinggridCenterSpec, RinggridCodingSpec, RinggridLatticeSpec,
         RobotPoseFormat, RobotPoseSource, RotationFormat, SniffError, TargetSpec,
-        TransformConvention, TranslationUnits, ValidationError, sniff_folder,
+        TransformConvention, TranslationUnits, ValidationError, sniff_folder, validate,
     };
 
     /// Sample datasets: real calibration images with a ready manifest.
@@ -627,7 +628,7 @@ pub mod mvg {
     pub use vision_calibration_core::RansacOptions;
     pub use vision_mvg::{
         Error, bundle_adjust, dense, homography, laser, metrology, pose, pose_recovery,
-        rectification, residuals, robust, triangulation, types,
+        rectification, refine, residuals, robust, triangulation, types,
     };
 
     /// Deterministic closed-form solvers, on normalized or pixel coordinates.
@@ -645,7 +646,7 @@ pub mod mvg {
         };
         pub use vision_geometry::epipolar::{
             FundamentalEstimate, PoseCandidate, decompose_essential, essential_5point,
-            fundamental_7point, fundamental_8point, fundamental_8point_ransac,
+            essential_linear, fundamental_7point, fundamental_8point, fundamental_8point_ransac,
         };
         pub use vision_geometry::homography::dlt_homography;
         pub use vision_geometry::triangulation::triangulate_point_linear;

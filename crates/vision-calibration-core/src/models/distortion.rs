@@ -39,9 +39,10 @@ impl<T: RealField> DistortionModel<T> for NoDistortion {
 /// Each step is halved (up to 30 times) until it reduces the residual, so a
 /// Newton step never makes the estimate worse. The iteration stops when the
 /// step is below a few ULPs of the point, when the residual is exactly zero,
-/// when the Jacobian is singular, or after `max_iters` steps. Under
-/// dual-number evaluation the tests compare real parts, and the converged
-/// point carries the derivative of the exact inverse.
+/// when no step reduces the residual (converged if it is at its rounding
+/// floor, failed otherwise), when the Jacobian is singular, or after
+/// `max_iters` steps. Under dual-number evaluation the tests compare real
+/// parts, and a converged point carries the derivative of the exact inverse.
 fn newton_undistort<T, F>(n_dist: &Point2<T>, max_iters: u32, eval: F) -> Point2<T>
 where
     T: RealField,
@@ -51,6 +52,11 @@ where
     let half = T::from_f64(0.5).unwrap();
     let tol = T::from_f64(4.0).unwrap() * T::default_epsilon();
     let tol2 = tol.clone() * tol;
+    // The rounding floor of the residual `|distort(n_u) − n_dist|²`: a few
+    // ULPs of the distorted point (observed stalls sit below 1 ULP).
+    let floor = T::from_f64(16.0).unwrap() * T::default_epsilon();
+    let floor2 =
+        floor.clone() * floor * (T::one() + xd.clone() * xd.clone() + yd.clone() * yd.clone());
 
     let mut x = xd.clone();
     let mut y = yd.clone();
@@ -58,14 +64,18 @@ where
     let mut ex = fx - xd.clone();
     let mut ey = fy - yd.clone();
     let mut res2 = ex.clone() * ex.clone() + ey.clone() * ey.clone();
+    let mut converged = false;
+    let mut line_search_failed = false;
 
     for _ in 0..max_iters {
         if res2 == T::zero() {
+            converged = true;
             break;
         }
         let [[a, b], [c, d]] = jac.clone();
         let det = a.clone() * d.clone() - b.clone() * c.clone();
         if det == T::zero() || !det.is_finite() {
+            line_search_failed = true;
             break;
         }
         // δ = J⁻¹·e
@@ -86,31 +96,110 @@ where
             dy *= half.clone();
         }
         let Some((nx, ny, nex, ney, nres2, njac)) = accepted else {
+            // No step reduces the residual. At the rounding floor of the
+            // forward map this is convergence; elsewhere the solve failed.
+            if res2 <= floor2 {
+                converged = true;
+            } else {
+                line_search_failed = true;
+            }
             break;
         };
         let step2 = dx.clone() * dx + dy.clone() * dy;
         (x, y, ex, ey, res2, jac) = (nx, ny, nex, ney, nres2, njac);
         if step2 <= tol2.clone() * (T::one() + x.clone() * x.clone() + y.clone() * y.clone()) {
+            converged = true;
             break;
         }
     }
-    // One more Newton step, without a line search. At a converged point it
-    // moves the value by at most rounding. Under dual-number evaluation the
-    // stopping tests above see only the real part, so the loop can exit
-    // (e.g. at zero distortion, where the residual is exactly zero) before
-    // the derivative part has moved; one step at the converged point sets it
-    // to the derivative of the exact inverse.
-    let [[a, b], [c, d]] = jac;
-    let det = a.clone() * d.clone() - b.clone() * c.clone();
-    if det != T::zero() && det.is_finite() {
-        x -= (d * ex.clone() - b * ey.clone()) / det.clone();
-        y -= (a * ey - c * ex) / det;
+    // One more Newton step, without a line search: always when the loop
+    // converged (including a line search stalled at the rounding floor), and
+    // after `max_iters` only when it does not worsen the residual. Under
+    // dual-number evaluation the stopping tests above see only real parts, so
+    // the loop can exit (e.g. at zero distortion, or at the rounding floor)
+    // before the derivative part has converged; one full step at a point whose
+    // residual is at rounding level sets it to the derivative of the exact
+    // inverse, `−J⁻¹·∂distort/∂θ`, and moves the value by at most rounding.
+    if !line_search_failed {
+        let [[a, b], [c, d]] = jac;
+        let det = a.clone() * d.clone() - b.clone() * c.clone();
+        if det != T::zero() && det.is_finite() {
+            let nx = x.clone() - (d * ex.clone() - b * ey.clone()) / det.clone();
+            let ny = y.clone() - (a * ey - c * ex) / det;
+            if converged {
+                x = nx;
+                y = ny;
+            } else {
+                let ((gx, gy), _) = eval(nx.clone(), ny.clone());
+                let (nex, ney) = (gx - xd, gy - yd);
+                let nres2 = nex.clone() * nex + ney.clone() * ney;
+                if nres2.is_finite() && nres2 <= res2 {
+                    x = nx;
+                    y = ny;
+                }
+            }
+        }
     }
     Point2::new(x, y)
 }
 
+/// Radial polynomial `1 + k1·r² + k2·r⁴ + k3·r⁶` and its derivative wrt `r²`.
+fn radial_poly3_with_deriv<T: RealField>(r2: &T, k: [&T; 3]) -> (T, T) {
+    let r4 = r2.clone() * r2.clone();
+    let two = T::one() + T::one();
+    let three = two.clone() + T::one();
+    let poly = T::one()
+        + k[0].clone() * r2.clone()
+        + k[1].clone() * r4.clone()
+        + k[2].clone() * r4.clone() * r2.clone();
+    let d_poly = k[0].clone() + two * k[1].clone() * r2.clone() + three * k[2].clone() * r4;
+    (poly, d_poly)
+}
+
+/// Forward point `(x·R + x_tan, y·R + y_tan)` and its 2×2 Jacobian for a radial
+/// factor `R(r²)` with derivative `dR = dR/d(r²)` and Brown-Conrady tangential terms.
+fn radial_tangential_forward_and_jacobian<T: RealField>(
+    x: T,
+    y: T,
+    r2: &T,
+    radial: T,
+    d_radial: T,
+    p1: &T,
+    p2: &T,
+) -> ((T, T), [[T; 2]; 2]) {
+    let two = T::one() + T::one();
+    let x2 = x.clone() * x.clone();
+    let y2 = y.clone() * y.clone();
+    let xy = x.clone() * y.clone();
+    let x_tan = two.clone() * p1.clone() * xy.clone()
+        + p2.clone() * (r2.clone() + two.clone() * x2.clone());
+    let y_tan = p1.clone() * (r2.clone() + two.clone() * y2.clone())
+        + two.clone() * p2.clone() * xy.clone();
+    let xd = x.clone() * radial.clone() + x_tan;
+    let yd = y.clone() * radial.clone() + y_tan;
+
+    let six = T::from_f64(6.0).unwrap();
+    let cross = two.clone() * xy * d_radial.clone()
+        + two.clone() * p1.clone() * x.clone()
+        + two.clone() * p2.clone() * y.clone();
+    let jac = [
+        [
+            radial.clone()
+                + two.clone() * x2 * d_radial.clone()
+                + two.clone() * p1.clone() * y.clone()
+                + six.clone() * p2.clone() * x.clone(),
+            cross.clone(),
+        ],
+        [
+            cross,
+            radial + two.clone() * y2 * d_radial + six * p1.clone() * y + two * p2.clone() * x,
+        ],
+    ];
+    ((xd, yd), jac)
+}
+
 /// Jacobian of `(x·R + x_tan, y·R + y_tan)` for a radial factor `R(r²)` with
-/// derivative `dR = dR/d(r²)` and Brown-Conrady tangential terms.
+/// derivative `dR = dR/d(r²)`; shared with [`KannalaBrandt4`].
 fn radial_tangential_jacobian<T: RealField>(
     x: T,
     y: T,
@@ -119,28 +208,12 @@ fn radial_tangential_jacobian<T: RealField>(
     p1: T,
     p2: T,
 ) -> [[T; 2]; 2] {
-    let two = T::one() + T::one();
-    let six = T::from_f64(6.0).unwrap();
-    let cross = two.clone() * x.clone() * y.clone() * d_radial.clone()
-        + two.clone() * p1.clone() * x.clone()
-        + two.clone() * p2.clone() * y.clone();
-    [
-        [
-            radial.clone()
-                + two.clone() * x.clone() * x.clone() * d_radial.clone()
-                + two.clone() * p1.clone() * y.clone()
-                + six.clone() * p2.clone() * x.clone(),
-            cross.clone(),
-        ],
-        [
-            cross,
-            radial + two.clone() * y.clone() * y.clone() * d_radial + six * p1 * y + two * p2 * x,
-        ],
-    ]
+    let r2 = x.clone() * x.clone() + y.clone() * y.clone();
+    radial_tangential_forward_and_jacobian(x, y, &r2, radial, d_radial, &p1, &p2).1
 }
 
 /// Brown-Conrady radial and tangential terms of `(x, y)`: the radial factor
-/// `1 + k1·r² + k2·r⁴ + k3·r⁶` and the tangential offsets.
+/// `1 + k1·r² + k2·r⁴ + k3·r⁶`, the tangential offsets, and `r²`.
 fn brown_conrady_terms<T: RealField>(x: &T, y: &T, k: [&T; 3], p1: &T, p2: &T) -> (T, T, T, T) {
     let r2 = x.clone() * x.clone() + y.clone() * y.clone();
     let r4 = r2.clone() * r2.clone();
@@ -181,18 +254,8 @@ impl<T: RealField> BrownConrady5<T> {
     /// The forward map and its Jacobian, for Newton undistortion.
     fn distort_with_jacobian(&self, x: T, y: T) -> ((T, T), [[T; 2]; 2]) {
         let r2 = x.clone() * x.clone() + y.clone() * y.clone();
-        let r4 = r2.clone() * r2.clone();
-        let two = T::one() + T::one();
-        let three = two.clone() + T::one();
-        let radial = T::one()
-            + self.k1.clone() * r2.clone()
-            + self.k2.clone() * r4.clone()
-            + self.k3.clone() * r4.clone() * r2.clone();
-        let d_radial = self.k1.clone() + two * self.k2.clone() * r2 + three * self.k3.clone() * r4;
-        (
-            self.distort_impl(x.clone(), y.clone()),
-            radial_tangential_jacobian(x, y, radial, d_radial, self.p1.clone(), self.p2.clone()),
-        )
+        let (radial, d_radial) = radial_poly3_with_deriv(&r2, [&self.k1, &self.k2, &self.k3]);
+        radial_tangential_forward_and_jacobian(x, y, &r2, radial, d_radial, &self.p1, &self.p2)
     }
 
     fn distort_impl(&self, x: T, y: T) -> (T, T) {
@@ -250,51 +313,25 @@ impl<T: RealField> RationalPolynomial<T> {
     /// The forward map and its Jacobian, for Newton undistortion.
     fn distort_with_jacobian(&self, x: T, y: T) -> ((T, T), [[T; 2]; 2]) {
         let r2 = x.clone() * x.clone() + y.clone() * y.clone();
-        let r4 = r2.clone() * r2.clone();
-        let two = T::one() + T::one();
-        let three = two.clone() + T::one();
-        let num = T::one()
-            + self.k1.clone() * r2.clone()
-            + self.k2.clone() * r4.clone()
-            + self.k3.clone() * r4.clone() * r2.clone();
-        let den = T::one()
-            + self.k4.clone() * r2.clone()
-            + self.k5.clone() * r4.clone()
-            + self.k6.clone() * r4.clone() * r2.clone();
-        let d_num = self.k1.clone()
-            + two.clone() * self.k2.clone() * r2.clone()
-            + three.clone() * self.k3.clone() * r4.clone();
-        let d_den = self.k4.clone() + two * self.k5.clone() * r2 + three * self.k6.clone() * r4;
+        let (num, d_num) = radial_poly3_with_deriv(&r2, [&self.k1, &self.k2, &self.k3]);
+        let (den, d_den) = radial_poly3_with_deriv(&r2, [&self.k4, &self.k5, &self.k6]);
         let radial = num.clone() / den.clone();
         let d_radial = (d_num * den.clone() - num * d_den) / (den.clone() * den);
-        (
-            self.distort_impl(x.clone(), y.clone()),
-            radial_tangential_jacobian(x, y, radial, d_radial, self.p1.clone(), self.p2.clone()),
-        )
+        radial_tangential_forward_and_jacobian(x, y, &r2, radial, d_radial, &self.p1, &self.p2)
     }
 
     fn distort_impl(&self, x: T, y: T) -> (T, T) {
         let r2 = x.clone() * x.clone() + y.clone() * y.clone();
-        let r4 = r2.clone() * r2.clone();
-        let r6 = r4.clone() * r2.clone();
-
-        let num = T::one()
-            + self.k1.clone() * r2.clone()
-            + self.k2.clone() * r4.clone()
-            + self.k3.clone() * r6.clone();
-        let den =
-            T::one() + self.k4.clone() * r2.clone() + self.k5.clone() * r4 + self.k6.clone() * r6;
+        let (num, _) = radial_poly3_with_deriv(&r2, [&self.k1, &self.k2, &self.k3]);
+        let (den, _) = radial_poly3_with_deriv(&r2, [&self.k4, &self.k5, &self.k6]);
         let radial = num / den;
-
         let two = T::one() + T::one();
         let x2 = x.clone() * x.clone();
         let y2 = y.clone() * y.clone();
         let xy = x.clone() * y.clone();
-
         let x_tan = two.clone() * self.p1.clone() * xy.clone()
             + self.p2.clone() * (r2.clone() + two.clone() * x2);
         let y_tan = self.p1.clone() * (r2 + two.clone() * y2) + two * self.p2.clone() * xy;
-
         (x * radial.clone() + x_tan, y * radial + y_tan)
     }
 }
@@ -354,32 +391,28 @@ impl<T: RealField> ThinPrism<T> {
     /// The forward map and its Jacobian, for Newton undistortion.
     fn distort_with_jacobian(&self, x: T, y: T) -> ((T, T), [[T; 2]; 2]) {
         let r2 = x.clone() * x.clone() + y.clone() * y.clone();
-        let r4 = r2.clone() * r2.clone();
-        let two = T::one() + T::one();
-        let three = two.clone() + T::one();
-        let radial = T::one()
-            + self.k1.clone() * r2.clone()
-            + self.k2.clone() * r4.clone()
-            + self.k3.clone() * r4.clone() * r2.clone();
-        let d_radial = self.k1.clone()
-            + two.clone() * self.k2.clone() * r2.clone()
-            + three * self.k3.clone() * r4;
-        let mut jac = radial_tangential_jacobian(
+        let (radial, d_radial) = radial_poly3_with_deriv(&r2, [&self.k1, &self.k2, &self.k3]);
+        let ((mut xd, mut yd), mut jac) = radial_tangential_forward_and_jacobian(
             x.clone(),
             y.clone(),
+            &r2,
             radial,
             d_radial,
-            self.p1.clone(),
-            self.p2.clone(),
+            &self.p1,
+            &self.p2,
         );
         // Thin-prism terms: s1·r² + s2·r⁴ in x, s3·r² + s4·r⁴ in y.
+        let r4 = r2.clone() * r2.clone();
+        let two = T::one() + T::one();
+        xd += self.s1.clone() * r2.clone() + self.s2.clone() * r4.clone();
+        yd += self.s3.clone() * r2.clone() + self.s4.clone() * r4;
         let dpx = two.clone() * (self.s1.clone() + two.clone() * self.s2.clone() * r2.clone());
         let dpy = two.clone() * (self.s3.clone() + two * self.s4.clone() * r2);
         jac[0][0] += dpx.clone() * x.clone();
         jac[0][1] += dpx * y.clone();
-        jac[1][0] += dpy.clone() * x.clone();
-        jac[1][1] += dpy * y.clone();
-        (self.distort_impl(x, y), jac)
+        jac[1][0] += dpy.clone() * x;
+        jac[1][1] += dpy * y;
+        ((xd, yd), jac)
     }
 
     fn distort_impl(&self, x: T, y: T) -> (T, T) {
@@ -440,14 +473,18 @@ impl<T: RealField> DistortionModel<T> for Division<T> {
         let r_u2 = x.clone() * x.clone() + y.clone() * y.clone();
 
         let four = T::from_f64(4.0).unwrap();
-        // disc = 1 - 4·λ·r_u²; clamp ≥ 0 for inputs beyond the invertible range.
+        // disc = 1 - 4·λ·r_u²; clamp ≥ 0 without calling T::zero().sqrt() under dual numbers.
         let disc = T::one() - four * self.lambda.clone() * r_u2;
-        let disc = if disc < T::zero() { T::zero() } else { disc };
+        let sqrt_disc = if disc <= T::zero() {
+            T::zero()
+        } else {
+            disc.sqrt()
+        };
 
         // scale = (1 - √disc)/(2·λ·r_u²), rationalized to 2/(1 + √disc): no λ in
         // the denominator, analytic at λ = 0 (scale → 1, ∂scale/∂λ → r_u²).
         let two = T::one() + T::one();
-        let scale = two / (T::one() + disc.sqrt());
+        let scale = two / (T::one() + sqrt_disc);
 
         Point2::new(x * scale.clone(), y * scale)
     }
@@ -884,5 +921,28 @@ mod tests {
             iters: 0,
         };
         check("thin prism", |x, y| tp.distort_with_jacobian(x, y));
+    }
+
+    #[test]
+    fn newton_undistort_never_worsens_residual_beyond_fold() {
+        // Past the fold of wide-angle Brown-Conrady barrel (r_d = 1.2 > ~0.945),
+        // the solver must not shoot away on a rejected Newton step.
+        let m = BrownConrady5 {
+            k1: -0.35,
+            k2: 0.15,
+            k3: -0.03,
+            p1: 5e-4,
+            p2: -3e-4,
+            iters: 20,
+        };
+        let d = Point2::new(1.2_f64, 0.0);
+        let u: Point2<f64> = m.undistort(&d);
+        let err_init = (m.distort(&d) - d).norm();
+        let err_out = (m.distort(&u) - d).norm();
+        assert!(u.x.is_finite() && u.y.is_finite());
+        assert!(
+            err_out <= err_init + 1e-12,
+            "worsened {err_init} -> {err_out}"
+        );
     }
 }

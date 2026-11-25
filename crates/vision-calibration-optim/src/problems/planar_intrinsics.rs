@@ -288,6 +288,28 @@ pub fn optimize_planar_intrinsics(
     opts: PlanarIntrinsicsSolveOptions,
     backend_opts: BackendSolveOptions,
 ) -> Result<PlanarIntrinsicsEstimate, Error> {
+    optimize_planar_intrinsics_with_cov(dataset, initial, opts, backend_opts, true)
+}
+
+/// Intermediate warm-start variant of [`optimize_planar_intrinsics`] that skips
+/// covariance estimation.
+#[doc(hidden)]
+pub fn optimize_planar_intrinsics_warm_start(
+    dataset: &PlanarDataset,
+    initial: &PlanarIntrinsicsParams,
+    opts: PlanarIntrinsicsSolveOptions,
+    backend_opts: BackendSolveOptions,
+) -> Result<PlanarIntrinsicsEstimate, Error> {
+    optimize_planar_intrinsics_with_cov(dataset, initial, opts, backend_opts, false)
+}
+
+pub(crate) fn optimize_planar_intrinsics_with_cov(
+    dataset: &PlanarDataset,
+    initial: &PlanarIntrinsicsParams,
+    opts: PlanarIntrinsicsSolveOptions,
+    backend_opts: BackendSolveOptions,
+    compute_covariance: bool,
+) -> Result<PlanarIntrinsicsEstimate, Error> {
     let spec = camera_spec(&initial.camera)?;
     let fixed = opts.fix.resolve(spec)?;
     let (ir, initial_map) = build_planar_reprojection_ir(
@@ -301,7 +323,11 @@ pub fn optimize_planar_intrinsics(
             bounds: opts.bounds.as_ref(),
         },
     )?;
-    let solution = backend::solve(&ir, &initial_map, &backend_opts)?;
+    let solution = if compute_covariance {
+        backend::solve(&ir, &initial_map, &backend_opts)?
+    } else {
+        backend::solve_without_covariance(&ir, &initial_map, &backend_opts)?
+    };
 
     let camera = unpack_camera(&solution.params, spec, None)?;
     let mut poses = Vec::with_capacity(dataset.num_views());

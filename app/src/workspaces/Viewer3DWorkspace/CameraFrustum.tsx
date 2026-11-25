@@ -2,7 +2,7 @@ import { Html } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import { invertIso3, matrixFromIso3 } from "@vitavision/three";
 import { CameraFrustum as FrustumGizmo } from "@vitavision/three-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { Object3D } from "three";
 import type { Iso3Wire, CameraWire } from "../../store/types";
 import { useBorderRays } from "./useBorderRays";
@@ -66,6 +66,13 @@ export function CameraFrustum({
     imageHeight,
   );
   const corners = useMemo(() => farCorners(borderRays, farDepth), [borderRays, farDepth]);
+
+  useEffect(
+    () => () => {
+      document.body.style.cursor = "";
+    },
+    [],
+  );
 
   return (
     // Picks bubble here from the frustum's hull and its apex sphere, so both

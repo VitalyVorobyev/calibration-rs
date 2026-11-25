@@ -604,21 +604,105 @@ fn unread_free_block_leaves_the_solve_unchanged() {
         }
         assert_eq!(solution.params["unread"], start, "{backend:?}");
         assert_eq!(solution.params["unread_pose"], start_pose, "{backend:?}");
-        // The backends differ on the covariance: tiny-solver gives the block
-        // no columns, so it is left out like a fixed one; factrs keeps zero
-        // columns, which the estimate reports unobservable. The public
-        // problem builder reports an unread block itself on both.
         match (backend, solution.uncertainty) {
-            (SolverBackend::TinySolver, ParamUncertainty::Available(estimate)) => {
-                let reference = available(plain.uncertainty);
-                assert_eq!(estimate.coordinates, reference.coordinates);
-                assert_eq!(estimate.matrix, reference.matrix);
-            }
             (
-                SolverBackend::Factrs,
+                SolverBackend::TinySolver | SolverBackend::Factrs,
                 ParamUncertainty::Unavailable(UnavailableReason::RankDeficient { unobservable }),
-            ) => assert_eq!(unobservable, unread_coordinates),
+            ) => assert_eq!(unobservable, unread_coordinates, "{backend:?}"),
             (_, other) => panic!("{backend:?}: {other:?}"),
         }
     }
+}
+
+#[test]
+fn mixed_stated_and_estimated_residuals_use_exact_effective_dof() {
+    use crate::ir::RobustLoss;
+    use crate::problem::{Manifold, Noise, Problem, Residual, SolveOptions, solve};
+    use nalgebra::{DVector, RealField};
+    use vision_calibration_core::ResidualKind;
+
+    struct CoordResidual {
+        coord: usize,
+        target: f64,
+    }
+
+    impl Residual for CoordResidual {
+        fn dim(&self) -> usize {
+            1
+        }
+        fn block_dims(&self) -> Vec<usize> {
+            vec![2]
+        }
+        fn eval<T: RealField>(&self, blocks: &[DVector<T>]) -> DVector<T> {
+            let t = T::from_f64(self.target).unwrap();
+            DVector::from_element(1, blocks[0][self.coord].clone() - t)
+        }
+    }
+
+    // 100 stated-noise priors (sigma = 0.01) pin `a` to 0 (`H_aa = 1e6`),
+    // while 21 estimated-noise observations measure `b` with zero mean and
+    // sum-of-squares = 20 (`dof_obs = 21 - 1 = 20`, so true `sigma_obs = 1.0`).
+    // Coupling `H` preserves exact effective DoF on the estimated family without
+    // letting `m_known = 100` dilute `sigma_obs^2` (`20 / (121 - 2)`).
+    let mut prob = Problem::new();
+    let p = prob
+        .add_block("p", &[0.0, 0.0], Manifold::Euclidean)
+        .unwrap();
+    for _ in 0..100 {
+        prob.add_residual(
+            CoordResidual {
+                coord: 0,
+                target: 0.0,
+            },
+            &[p],
+            RobustLoss::None,
+            Noise::Stated(0.01),
+        )
+        .unwrap();
+    }
+    let obs_family = Noise::Estimated("obs".into());
+    for i in 0..21 {
+        let target = if i < 10 {
+            1.0
+        } else if i < 20 {
+            -1.0
+        } else {
+            0.0
+        };
+        prob.add_residual(
+            CoordResidual { coord: 1, target },
+            &[p],
+            RobustLoss::None,
+            obs_family.clone(),
+        )
+        .unwrap();
+    }
+
+    let sol = solve(&prob, &SolveOptions::default()).unwrap();
+    let obs_kind = ResidualKind::Custom("obs".into());
+    let sigma_obs = sol
+        .noise
+        .iter()
+        .find(|n| n.kind == obs_kind)
+        .unwrap()
+        .level
+        .value();
+    // NoiseLevel reports MAD = 1.4826 * median(|r|) = 1.4826 * 1.0, whereas the
+    // covariance scales residuals by dof_obs = 21 - 1 = 20 so cov[1][1] = 1/21.
+    assert!(
+        (sigma_obs - 1.482602218505602).abs() < 1e-12,
+        "expected MAD sigma_obs = 1.482602218505602, got {sigma_obs}"
+    );
+    let cov = sol.uncertainty.covariance().unwrap();
+    assert!(
+        (cov.covariance[0][0] - 1e-6).abs() < 1e-10,
+        "expected H_aa^-1 = 1e-6, got {}",
+        cov.covariance[0][0]
+    );
+    assert!(
+        (cov.covariance[1][1] - 1.0 / 21.0).abs() < 1e-10,
+        "expected (20 / 20) / 21 = {}, got {}",
+        1.0 / 21.0,
+        cov.covariance[1][1]
+    );
 }

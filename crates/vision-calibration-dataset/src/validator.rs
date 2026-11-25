@@ -3,7 +3,7 @@
 
 use crate::spec::{
     CornerStrategySpec, DATASET_SPEC_VERSION, DatasetSpec, ImageNoiseSpec, ImagePattern,
-    ProblemKind, RobotPoseFormat, RobotPoseSource, RotationFormat,
+    ProblemKind, RinggridCodingSpec, RobotPoseFormat, RobotPoseSource, RotationFormat, TargetSpec,
 };
 use thiserror::Error;
 
@@ -133,6 +133,10 @@ pub enum ValidationError {
     /// Detector override parameters are out of range.
     #[error("detector override: {0}")]
     BadDetectorOverride(String),
+
+    /// Target geometry or dictionary configuration is invalid.
+    #[error("invalid target: {0}")]
+    BadTarget(String),
 }
 
 /// Validate the structural invariants of a manifest. Does not touch
@@ -153,6 +157,18 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
     if needs_robot && spec.robot_poses.is_none() {
         return Err(ValidationError::MissingRobotPoses {
             topology: spec.topology,
+        });
+    }
+    if !needs_robot && spec.robot_poses.is_some() {
+        return Err(ValidationError::FieldUnusedByTopology {
+            topology: spec.topology,
+            field: "robot_poses".into(),
+        });
+    }
+    if !needs_robot && spec.pose_convention.is_some() {
+        return Err(ValidationError::FieldUnusedByTopology {
+            topology: spec.topology,
+            field: "pose_convention".into(),
         });
     }
 
@@ -195,6 +211,8 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
         }
     }
 
+    validate_target(&spec.target)?;
+
     validate_detector_override(spec)?;
 
     validate_laser_fields(spec)?;
@@ -206,6 +224,152 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
         )?;
     }
 
+    Ok(())
+}
+
+fn validate_target(target: &TargetSpec) -> Result<(), ValidationError> {
+    match target {
+        TargetSpec::Chessboard {
+            rows,
+            cols,
+            square_size_m,
+            ..
+        } => {
+            if *rows < 2 || *cols < 2 {
+                return Err(ValidationError::BadTarget(format!(
+                    "chessboard requires rows >= 2 and cols >= 2, got {rows}x{cols}"
+                )));
+            }
+            if !square_size_m.is_finite() || *square_size_m <= 0.0 {
+                return Err(ValidationError::BadTarget(format!(
+                    "chessboard square_size_m must be finite and > 0, got {square_size_m}"
+                )));
+            }
+        }
+        TargetSpec::Charuco {
+            rows,
+            cols,
+            square_size_m,
+            marker_size_m,
+            dictionary,
+        } => {
+            if *rows < 2 || *cols < 2 {
+                return Err(ValidationError::BadTarget(format!(
+                    "charuco requires rows >= 2 and cols >= 2, got {rows}x{cols}"
+                )));
+            }
+            if !square_size_m.is_finite() || *square_size_m <= 0.0 {
+                return Err(ValidationError::BadTarget(format!(
+                    "charuco square_size_m must be finite and > 0, got {square_size_m}"
+                )));
+            }
+            if !marker_size_m.is_finite()
+                || *marker_size_m <= 0.0
+                || *marker_size_m > *square_size_m
+            {
+                return Err(ValidationError::BadTarget(format!(
+                    "charuco marker_size_m ({marker_size_m}) must be finite and in (0, square_size_m = {square_size_m}]"
+                )));
+            }
+            if dictionary.trim().is_empty() {
+                return Err(ValidationError::BadTarget(
+                    "charuco dictionary must not be empty".into(),
+                ));
+            }
+        }
+        TargetSpec::Puzzleboard {
+            layout,
+            cell_size_m,
+            ..
+        } => {
+            let trimmed = layout.trim();
+            let body = trimmed.strip_prefix("puzzle_").unwrap_or(trimmed);
+            let (r_str, c_str) = body.split_once(['x', 'X']).ok_or_else(|| {
+                ValidationError::BadTarget(format!(
+                    "puzzleboard layout {layout:?} must be \"<rows>x<cols>\""
+                ))
+            })?;
+            let rows: u32 = r_str.parse().map_err(|_| {
+                ValidationError::BadTarget(format!(
+                    "puzzleboard layout {layout:?} has non-numeric rows"
+                ))
+            })?;
+            let cols: u32 = c_str.parse().map_err(|_| {
+                ValidationError::BadTarget(format!(
+                    "puzzleboard layout {layout:?} has non-numeric cols"
+                ))
+            })?;
+            if rows < 2 || cols < 2 {
+                return Err(ValidationError::BadTarget(format!(
+                    "puzzleboard layout {layout:?} requires at least 2x2 cells"
+                )));
+            }
+            if !cell_size_m.is_finite() || *cell_size_m <= 0.0 {
+                return Err(ValidationError::BadTarget(format!(
+                    "puzzleboard cell_size_m must be finite and > 0, got {cell_size_m}"
+                )));
+            }
+        }
+        TargetSpec::Ringgrid {
+            pitch_m,
+            rows,
+            long_row_cols,
+            marker_outer_radius_m,
+            marker_inner_radius_m,
+            marker_ring_width_m,
+            coding,
+            min_confidence,
+            ..
+        } => {
+            if *rows == 0 || *long_row_cols == 0 {
+                return Err(ValidationError::BadTarget(format!(
+                    "ringgrid requires rows >= 1 and long_row_cols >= 1, got {rows}x{long_row_cols}"
+                )));
+            }
+            if !pitch_m.is_finite() || *pitch_m <= 0.0 {
+                return Err(ValidationError::BadTarget(format!(
+                    "ringgrid pitch_m must be finite and > 0, got {pitch_m}"
+                )));
+            }
+            if !marker_inner_radius_m.is_finite() || *marker_inner_radius_m <= 0.0 {
+                return Err(ValidationError::BadTarget(format!(
+                    "ringgrid marker_inner_radius_m must be finite and > 0, got {marker_inner_radius_m}"
+                )));
+            }
+            if !marker_outer_radius_m.is_finite()
+                || *marker_outer_radius_m <= *marker_inner_radius_m
+            {
+                return Err(ValidationError::BadTarget(format!(
+                    "ringgrid marker_outer_radius_m ({marker_outer_radius_m}) must be finite and > marker_inner_radius_m ({marker_inner_radius_m})"
+                )));
+            }
+            if !marker_ring_width_m.is_finite() || *marker_ring_width_m < 0.0 {
+                return Err(ValidationError::BadTarget(format!(
+                    "ringgrid marker_ring_width_m must be finite and >= 0, got {marker_ring_width_m}"
+                )));
+            }
+            match coding {
+                RinggridCodingSpec::Coded if *marker_ring_width_m <= 0.0 => {
+                    return Err(ValidationError::BadTarget(
+                        "coded ringgrid requires marker_ring_width_m > 0".into(),
+                    ));
+                }
+                RinggridCodingSpec::Plain { origin_dots: false } => {
+                    return Err(ValidationError::BadTarget(
+                        "plain ringgrid without origin_dots is not supported".into(),
+                    ));
+                }
+                _ => {}
+            }
+            if let Some(c) = min_confidence
+                && !(c.is_finite() && (0.0..=1.0).contains(c))
+            {
+                return Err(ValidationError::BadTarget(format!(
+                    "ringgrid min_confidence must be finite and in [0, 1], got {c}"
+                )));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -226,9 +390,9 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
     if let Some(chess) = &detector.chess_corners
         && let Some(value) = chess.threshold_value
     {
-        if value <= 0.0 {
+        if !(value.is_finite() && value > 0.0) {
             return Err(ValidationError::BadDetectorOverride(format!(
-                "chess_corners.threshold_value must be positive, got {value}"
+                "chess_corners.threshold_value must be finite and positive, got {value}"
             )));
         }
         if chess.strategy == Some(CornerStrategySpec::Radon) && value > 1.0 {
@@ -237,6 +401,14 @@ fn validate_detector_override(spec: &DatasetSpec) -> Result<(), ValidationError>
                  under the radon strategy and must be at most 1, got {value}"
             )));
         }
+    }
+    if let Some(chess) = &detector.chess_corners
+        && let Some(strength) = chess.min_corner_strength
+        && !(strength.is_finite() && strength >= 0.0)
+    {
+        return Err(ValidationError::BadDetectorOverride(format!(
+            "chess_corners.min_corner_strength must be finite and >= 0, got {strength}"
+        )));
     }
     Ok(())
 }
@@ -290,15 +462,17 @@ fn validate_laser_fields(spec: &DatasetSpec) -> Result<(), ValidationError> {
     }
 
     if let Some(laser) = &spec.laser {
-        if laser.sigma <= 0.0 {
+        if !(laser.sigma.is_finite() && laser.sigma > 0.0) {
             return Err(ValidationError::BadLaserExtraction(format!(
-                "sigma must be positive, got {}",
+                "sigma must be finite and positive, got {}",
                 laser.sigma
             )));
         }
-        if laser.pos_thresh <= 0.0 || laser.neg_thresh <= 0.0 {
+        if !(laser.pos_thresh.is_finite() && laser.pos_thresh > 0.0)
+            || !(laser.neg_thresh.is_finite() && laser.neg_thresh > 0.0)
+        {
             return Err(ValidationError::BadLaserExtraction(format!(
-                "edge thresholds must be positive, got pos={} neg={}",
+                "edge thresholds must be finite and positive, got pos={} neg={}",
                 laser.pos_thresh, laser.neg_thresh
             )));
         }
@@ -1153,5 +1327,73 @@ mod tests {
             serde_json::from_str(r#"{"min_points": 120}"#).unwrap();
         assert_eq!(partial.min_points, 120);
         assert_eq!(partial.sigma, 1.2);
+    }
+
+    #[test]
+    fn bad_targets_nan_overrides_and_unused_robot_poses_are_rejected() {
+        let mut small_board = planar_chessboard_minimal();
+        small_board.target = TargetSpec::chessboard(1, 6, 0.025);
+        assert!(matches!(
+            validate(&small_board).unwrap_err(),
+            ValidationError::BadTarget(_)
+        ));
+
+        let mut bad_charuco = planar_chessboard_minimal();
+        bad_charuco.target = TargetSpec::charuco(6, 6, 0.02, 0.03, "DICT_4X4_50");
+        assert!(matches!(
+            validate(&bad_charuco).unwrap_err(),
+            ValidationError::BadTarget(_)
+        ));
+
+        let mut bad_puzzle = planar_chessboard_minimal();
+        bad_puzzle.target = TargetSpec::puzzleboard("not_a_grid", 0.01);
+        assert!(matches!(
+            validate(&bad_puzzle).unwrap_err(),
+            ValidationError::BadTarget(_)
+        ));
+
+        let mut bad_ring = planar_chessboard_minimal();
+        bad_ring.target = TargetSpec::ringgrid(0.01, 5, 5, 0.002, 0.003, 0.001);
+        assert!(matches!(
+            validate(&bad_ring).unwrap_err(),
+            ValidationError::BadTarget(_)
+        ));
+
+        let mut unused_robot = planar_chessboard_minimal();
+        unused_robot.robot_poses = Some(RobotPoseSource {
+            path: "poses.txt".into(),
+            format: RobotPoseFormat::Rowmajor4x4,
+            columns: None,
+            matrix_field: None,
+        });
+        assert!(matches!(
+            validate(&unused_robot).unwrap_err(),
+            ValidationError::FieldUnusedByTopology { ref field, .. } if field == "robot_poses"
+        ));
+
+        let mut nan_thresh = planar_chessboard_minimal();
+        nan_thresh.detector = Some(DetectorSpec {
+            chess_corners: Some(ChessCornersDetectorSpec {
+                threshold_value: Some(f32::NAN),
+                min_corner_strength: None,
+                strategy: None,
+                covariance: None,
+            }),
+            min_features_per_view: None,
+        });
+        assert!(matches!(
+            validate(&nan_thresh).unwrap_err(),
+            ValidationError::BadDetectorOverride(_)
+        ));
+
+        let mut nan_laser = laserline_minimal();
+        nan_laser.laser = Some(crate::spec::LaserExtractionSpec {
+            sigma: f64::NAN,
+            ..Default::default()
+        });
+        assert!(matches!(
+            validate(&nan_laser).unwrap_err(),
+            ValidationError::BadLaserExtraction(_)
+        ));
     }
 }

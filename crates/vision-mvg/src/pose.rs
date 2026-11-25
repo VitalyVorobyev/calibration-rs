@@ -26,7 +26,7 @@ use std::marker::PhantomData;
 use vision_calibration_core::RunControl;
 use vision_calibration_core::{
     CalibratedRig, CameraModel, Estimator, Iso3, PointCovariance, Pt2, Pt3, RansacOptions, Real,
-    Uncertainty, ransac_fit,
+    Uncertainty, ransac_fit_with_control,
 };
 use vision_calibration_optim::RobustLoss;
 use vision_calibration_optim::problem::{
@@ -102,6 +102,13 @@ impl Default for PoseOptions {
             loss: RobustLoss::None,
             control: RunControl::default(),
         }
+    }
+}
+
+impl PoseOptions {
+    /// Construct default pose-estimation options (no RANSAC, squared loss).
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -238,9 +245,12 @@ pub fn estimate_pose(
     }
 
     let start = match &opts.ransac {
-        None => fit_pose(&data, &(0..data.len()).collect::<Vec<_>>())?,
+        None => {
+            opts.control.check()?;
+            fit_pose(&data, &(0..data.len()).collect::<Vec<_>>())?
+        }
         Some(ransac) => {
-            let result = ransac_fit::<StartEstimator>(&data, ransac);
+            let result = ransac_fit_with_control::<StartEstimator>(&data, ransac, &opts.control)?;
             match (result.success, result.model) {
                 (true, Some(pose)) => pose,
                 _ => return Err(Error::NoConsensus),

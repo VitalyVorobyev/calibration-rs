@@ -68,6 +68,12 @@ pub enum Error {
     Core(#[from] CoreError),
 }
 
+impl From<vision_calibration_core::Cancelled> for Error {
+    fn from(_: vision_calibration_core::Cancelled) -> Self {
+        Self::Cancelled
+    }
+}
+
 impl From<MathError> for Error {
     /// Map a shared-solver failure into this crate's typed error.
     fn from(e: MathError) -> Self {

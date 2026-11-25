@@ -187,6 +187,23 @@ pub(crate) fn validate_rig_cameras(
     Ok(())
 }
 
+/// Check that `loss` has a finite positive scale (or is `None`).
+pub(crate) fn validate_robust_loss(loss: RobustLoss, field: &str) -> Result<(), crate::Error> {
+    let (name, scale) = match loss {
+        RobustLoss::None => return Ok(()),
+        RobustLoss::Huber { scale } => ("huber", scale),
+        RobustLoss::Cauchy { scale } => ("cauchy", scale),
+        RobustLoss::Arctan { scale } => ("arctan", scale),
+        _ => return Ok(()),
+    };
+    if !(scale.is_finite() && scale > 0.0) {
+        return Err(crate::Error::invalid_input(format!(
+            "{field} ({name}): scale must be finite and positive, got {scale}"
+        )));
+    }
+    Ok(())
+}
+
 /// Check the workflows have an initializer for `model`: Zhang's method for
 /// a pinhole camera (untilted or Scheimpflug), the bearing-based fisheye
 /// initializer for an untilted equidistant one. Any other combination is
@@ -712,9 +729,9 @@ pub struct HandeyeInitConfig {
 impl HandeyeInitConfig {
     /// Check the stage as the `handeye_init` group of a config.
     pub(crate) fn validate(&self) -> Result<(), crate::Error> {
-        if self.min_motion_angle_deg <= 0.0 {
+        if !(self.min_motion_angle_deg.is_finite() && self.min_motion_angle_deg > 0.0) {
             return Err(crate::Error::invalid_input(
-                "handeye_init.min_motion_angle_deg must be positive",
+                "handeye_init.min_motion_angle_deg must be finite and positive",
             ));
         }
         Ok(())

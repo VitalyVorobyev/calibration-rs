@@ -109,6 +109,10 @@ let opts = RansacOptions::new(3.0)   // threshold in pixels (symmetric transfer 
     .with_max_iters(1000)
     .with_confidence(0.99);
 let estimate = estimate_homography(&corrs, &opts)?;
+
+// Nonlinear refinement of symmetric transfer error
+use vision_calibration::mvg::refine::refine_homography;
+let h_refined = refine_homography(&H, &world_2d, &image_2d)?;
 # Ok(())
 # }
 ```

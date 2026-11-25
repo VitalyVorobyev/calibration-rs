@@ -247,7 +247,26 @@ impl ProblemType for PlanarIntrinsicsProblem {
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         config.solver.validate()?;
         config.intrinsics_init.validate()?;
+        crate::common::config::validate_robust_loss(
+            config.optimize.reprojection_loss,
+            "optimize.reprojection_loss",
+        )?;
         config.camera.validate_single_camera()
+    }
+
+    fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
+        if let Some(&bad) = config
+            .optimize
+            .fix_poses
+            .iter()
+            .find(|&&i| i >= input.num_views())
+        {
+            return Err(Error::invalid_input(format!(
+                "optimize.fix_poses index {bad} out of bounds for {} views",
+                input.num_views()
+            )));
+        }
+        Ok(())
     }
 
     fn export(

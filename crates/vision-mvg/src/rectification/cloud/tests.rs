@@ -547,6 +547,44 @@ fn a_point_set_of_cloud_points_measures_with_the_joint_covariance() {
     );
 }
 
+#[test]
+fn covariance_without_pair_parameters_reports_unavailable_and_duplicates_preserve_difference_variance()
+ {
+    let fix = Fixture::new();
+    // 1. A rig carrying an empty covariance (no parameters for [1, 2]) marks calibration_share unavailable.
+    let empty_cov = ParameterCovariance::new(vec![], vec![], vec![], 0, 0);
+    let rig_empty = CalibratedRig::new(
+        fix.cameras.clone(),
+        fix.cam_se3_rig.clone(),
+        Uncertainty::Available(empty_cov),
+    )
+    .unwrap();
+    let rect = rectify(&rig_empty, [1, 2], &RectifyOptions::default()).unwrap();
+    let cloud_empty = rect
+        .dense_cloud(&rig_empty, &map_of(&MATCHES), 0.2)
+        .unwrap();
+    assert_eq!(
+        cloud_empty.covariance_unavailable(),
+        Some(&UncertaintyUnavailable::CalibrationWithoutCovariance)
+    );
+    assert!(cloud_empty.point_covariance(0).is_none());
+
+    // 2. Repeating an index [0, 0] includes the off-diagonal disparity covariance so Var(X_0 - X_0) == 0.
+    let rig = fix.rig();
+    let cloud = rect.dense_cloud(&rig, &map_of(&MATCHES), 0.2).unwrap();
+    let joint = cloud.covariance(&[0, 0]).unwrap();
+    let b00 = joint.fixed_view::<3, 3>(0, 0);
+    let b01 = joint.fixed_view::<3, 3>(0, 3);
+    let b10 = joint.fixed_view::<3, 3>(3, 0);
+    let b11 = joint.fixed_view::<3, 3>(3, 3);
+    let diff_cov = b00 + b11 - b01 - b10;
+    assert!(
+        diff_cov.norm() < 1e-12,
+        "Var(X_0 - X_0) should vanish even with sigma_d > 0, got {}",
+        diff_cov.norm()
+    );
+}
+
 fn set_points(set: &PointSet) -> Vec<Pt3> {
     (0..set.len()).map(|i| set.point(i).unwrap()).collect()
 }

@@ -40,6 +40,7 @@ fn resolve_manifest(
         });
         return Ok((spec, base));
     }
+    reject_non_finite("manifest", manifest)?;
     let spec: DatasetSpec = pythonize::depythonize(manifest)
         .map_err(|err| value_err(format!("invalid manifest: {err}")))?;
     let base = base_dir.ok_or_else(|| {
@@ -82,7 +83,14 @@ impl PyLaserExtractor {
                 2,
                 &format!("the output of laser extractor {:?}", self.name),
             )?;
-            Ok(points.as_slice()?.as_chunks::<2>().0.to_vec())
+            let slice = points.as_slice()?;
+            if slice.iter().any(|v| !v.is_finite()) {
+                return Err(value_err(format!(
+                    "the output of laser extractor {:?} contains non-finite coordinates",
+                    self.name
+                )));
+            }
+            Ok(slice.as_chunks::<2>().0.to_vec())
         })
     }
 }

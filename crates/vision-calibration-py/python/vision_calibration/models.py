@@ -3023,6 +3023,9 @@ class RigLaserlineDeviceExport(_ExportResiduals):
     laser_planes_rig: list[LaserPlane]
     laser_planes_cam: list[LaserPlane]
     per_cam_stats: list[LaserlineStats]
+    per_cam_reproj_errors: list[float] = field(default_factory=list)
+    """Per-camera mean target reprojection error (pixels) over every target
+    view of the camera, in camera order."""
     uncertainty: ParameterCovariance = field(
         default_factory=lambda: ParameterCovariance(available=False, reason="not_computed")
     )
@@ -3046,6 +3049,9 @@ class RigLaserlineDeviceExport(_ExportResiduals):
             per_cam_stats=[
                 LaserlineStats.from_payload(cast(Mapping[str, Any], s))
                 for s in cast(list[Any], payload["per_cam_stats"])
+            ],
+            per_cam_reproj_errors=[
+                float(v) for v in cast(list[Any], payload.get("per_cam_reproj_errors", []))
             ],
             uncertainty=ParameterCovariance.from_payload(
                 cast(Mapping[str, Any] | None, payload.get("uncertainty"))

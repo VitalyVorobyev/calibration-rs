@@ -167,17 +167,18 @@ impl FeatureBlur {
     }
 }
 
-/// Reject a detection whose image points are not distinct.
+/// Reject a detection whose image or target points are not distinct.
 ///
 /// The targets this crate detects are planar, so the image↔target map is a
-/// homography and therefore injective: one pixel is one board point. A
-/// detection that breaks this has mislabelled its grid.
+/// homography and therefore a bijection on valid correspondences: one pixel
+/// maps to one board point and one board point maps to one pixel. A detection
+/// that repeats either side has mislabelled its grid.
 ///
 /// **The whole detection is rejected** (empty result — the same "no usable
 /// board" signal every detector already uses for an empty frame), not just
-/// the offending correspondences. A duplicated image point is not a local
-/// blemish, it is evidence that the grid walk lost track of which corner it
-/// was on; the labels that did *not* happen to collide come from the same
+/// the offending correspondences. A duplicated image or world point is not a
+/// local blemish, it is evidence that the grid walk lost track of which corner
+/// it was on; the labels that did *not* happen to collide come from the same
 /// broken walk and are no more trustworthy. Dropping only the duplicates
 /// leaves a handful of survivors that reproject in the thousands of pixels
 /// and silently dominate the camera's mean.
@@ -201,20 +202,41 @@ impl FeatureBlur {
 pub fn reject_ambiguous_detection(features: Vec<Feature>) -> Vec<Feature> {
     use std::collections::HashSet;
 
-    // Exact bit equality is the right comparison: these duplicates are the
-    // *same* corner emitted repeatedly, not two independently-refined points
-    // that happen to land close together. A tolerance would risk rejecting
-    // views over genuinely distinct neighbouring corners on a dense board.
-    let mut seen: HashSet<[u64; 2]> = HashSet::with_capacity(features.len());
-    if features.iter().all(|f| seen.insert(key(f))) {
+    // Exact bit equality after normalizing `-0.0 -> +0.0` is the right
+    // comparison: these duplicates are the *same* corner or grid point
+    // emitted repeatedly, not two independently-refined points that happen
+    // to land close together. A tolerance would risk rejecting views over
+    // genuinely distinct neighbouring corners on a dense board.
+    let mut seen_img: HashSet<[u64; 2]> = HashSet::with_capacity(features.len());
+    let mut seen_world: HashSet<[u64; 3]> = HashSet::with_capacity(features.len());
+    if features
+        .iter()
+        .all(|f| seen_img.insert(img_key(f)) && seen_world.insert(world_key(f)))
+    {
         features
     } else {
         Vec::new()
     }
 }
 
-fn key(f: &Feature) -> [u64; 2] {
-    [f.image_xy[0].to_bits(), f.image_xy[1].to_bits()]
+fn norm_bits(x: f64) -> u64 {
+    if x == 0.0 {
+        0.0_f64.to_bits()
+    } else {
+        x.to_bits()
+    }
+}
+
+fn img_key(f: &Feature) -> [u64; 2] {
+    [norm_bits(f.image_xy[0]), norm_bits(f.image_xy[1])]
+}
+
+fn world_key(f: &Feature) -> [u64; 3] {
+    [
+        norm_bits(f.world_xyz[0]),
+        norm_bits(f.world_xyz[1]),
+        norm_bits(f.world_xyz[2]),
+    ]
 }
 
 #[cfg(test)]
@@ -308,5 +330,17 @@ mod tests {
         // carry the same target point: it double-weights that observation.
         let fs = vec![feat(5.0, 5.0, 0.0), feat(5.0, 5.0, 0.0)];
         assert!(reject_ambiguous_detection(fs).is_empty());
+    }
+
+    #[test]
+    fn duplicate_world_xyz_and_signed_zero_reject_the_detection() {
+        let dup_world = vec![feat(5.0, 5.0, 0.01), feat(15.0, 25.0, 0.01)];
+        assert!(reject_ambiguous_detection(dup_world).is_empty());
+
+        let neg_zero = vec![feat(-0.0, 5.0, 0.0), feat(0.0, 5.0, 0.01)];
+        assert!(reject_ambiguous_detection(neg_zero).is_empty());
+
+        let neg_zero_world = vec![feat(5.0, 5.0, -0.0), feat(15.0, 25.0, 0.0)];
+        assert!(reject_ambiguous_detection(neg_zero_world).is_empty());
     }
 }

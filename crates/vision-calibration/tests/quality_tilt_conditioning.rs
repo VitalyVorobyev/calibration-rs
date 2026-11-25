@@ -484,3 +484,29 @@ fn sweep_reports_the_tilt_inflation() {
         }
     }
 }
+
+#[test]
+fn zero_distortion_leaves_scheimpflug_tilt_unobservable() {
+    let mut rejected = PlanarIntrinsicsConfig::default();
+    rejected.camera.model.distortion = DistortionKind::None;
+    rejected.camera.model.sensor = SensorKind::Scheimpflug;
+    let mut session = CalibrationSession::<PlanarIntrinsicsProblem>::new();
+    let err = session
+        .set_config(rejected)
+        .expect_err("distortion-free Scheimpflug must be refused");
+    assert!(
+        err.to_string().contains("needs a distortion model"),
+        "unexpected error: {err}"
+    );
+
+    let cell = Cell {
+        corner_distortion: 0.0,
+        ..Cell::BASELINE
+    };
+    for backend in BACKENDS {
+        let (check, tilt) = run(&cell, backend);
+        assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
+        assert!(tilt > 7.0, "tilt_x ×{tilt:.2}");
+        assert!(check.subjects.contains(&"tilt_x".to_string()));
+    }
+}

@@ -38,8 +38,8 @@ use nalgebra::{
 };
 use serde::Serialize;
 use vision_calibration_core::{
-    CalibratedRig, Estimator, Iso3, Mat3, RansacOptions, Real, RunControl, Uncertainty, Vec3,
-    ransac_fit,
+    CalibratedRig, Estimator, Iso3, Mat3, Pt2, RansacOptions, Real, RunControl, Uncertainty, Vec3,
+    ransac_fit, ransac_fit_with_control,
 };
 use vision_calibration_optim::RobustLoss;
 use vision_calibration_optim::problem::{
@@ -383,14 +383,24 @@ impl Estimator for EssentialEstimator {
             // Minimal or near-minimal case (5, 6, or 7 points): use the 5-point
             // solver on the first five matches, then score all candidates
             // against the full sample_indices set to pick the best one.
-            // RANSAC guarantees n >= MIN_SAMPLES == 5, so n < 5 is unreachable.
-            let b1: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].b1).collect();
-            let b2: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].b2).collect();
-            let candidates = vision_geometry::epipolar::essential_5point(&b1, &b2).ok()?;
+            let candidates = Self::fit_candidates(data, sample_indices);
             best_of(candidates)
         } else {
             None
         }
+    }
+
+    fn fit_candidates(data: &[Self::Datum], sample_indices: &[usize]) -> Vec<Self::Model> {
+        let n = sample_indices.len();
+        if n >= 8 {
+            return Self::fit(data, sample_indices).into_iter().collect();
+        }
+        if n >= 5 {
+            let b1: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].b1).collect();
+            let b2: Vec<_> = sample_indices[..5].iter().map(|&i| data[i].b2).collect();
+            return vision_geometry::epipolar::essential_5point(&b1, &b2).unwrap_or_default();
+        }
+        Vec::new()
     }
 
     fn residual(model: &Self::Model, datum: &Self::Datum) -> f64 {
@@ -398,15 +408,34 @@ impl Estimator for EssentialEstimator {
     }
 
     fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
-        // Three coplanar first-camera rays (a vanishing triple product of their
-        // bearings) make the sample degenerate.
-        if sample_indices.len() < 3 {
+        // Any triple of coplanar rays (a vanishing triple product of their
+        // normalized bearings) in either camera makes the sample degenerate.
+        let n = sample_indices.len();
+        if n < 3 {
             return false;
         }
-        let b0 = data[sample_indices[0]].b1;
-        let b1 = data[sample_indices[1]].b1;
-        let b2 = data[sample_indices[2]].b1;
-        b0.dot(&b1.cross(&b2)).abs() < 1e-9
+        let coplanar_in_view = |get_b: fn(&BearingPair) -> Vec3| -> bool {
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    for k in (j + 1)..n {
+                        let b0 = get_b(&data[sample_indices[i]]);
+                        let b1 = get_b(&data[sample_indices[j]]);
+                        let b2 = get_b(&data[sample_indices[k]]);
+                        let n0 = b0.norm();
+                        let n1 = b1.norm();
+                        let n2 = b2.norm();
+                        if n0 <= 1e-12 || n1 <= 1e-12 || n2 <= 1e-12 {
+                            return true;
+                        }
+                        if b0.dot(&b1.cross(&b2)).abs() < 1e-9 * n0 * n1 * n2 {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        };
+        coplanar_in_view(|d| d.b1) || coplanar_in_view(|d| d.b2)
     }
 }
 
@@ -435,14 +464,34 @@ impl Estimator for HomographyEstimator {
     }
 
     fn is_degenerate(data: &[Self::Datum], sample_indices: &[usize]) -> bool {
-        if sample_indices.len() < 3 {
+        let n = sample_indices.len();
+        if n < 3 {
             return false;
         }
-        let p0 = data[sample_indices[0]].pt1;
-        let p1 = data[sample_indices[1]].pt1;
-        let p2 = data[sample_indices[2]].pt1;
-        let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-        area.abs() < 1e-9
+        let collinear_in_view = |get_pt: fn(&Correspondence2D) -> Pt2| -> bool {
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    for k in (j + 1)..n {
+                        let p0 = get_pt(&data[sample_indices[i]]);
+                        let p1 = get_pt(&data[sample_indices[j]]);
+                        let p2 = get_pt(&data[sample_indices[k]]);
+                        let v1 = p1 - p0;
+                        let v2 = p2 - p0;
+                        let d1 = v1.norm();
+                        let d2 = v2.norm();
+                        if d1 <= 1e-12 || d2 <= 1e-12 {
+                            return true;
+                        }
+                        let area = v1.x * v2.y - v1.y * v2.x;
+                        if area.abs() < 1e-9 * d1 * d2 {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        };
+        collinear_in_view(|d| d.pt1) || collinear_in_view(|d| d.pt2)
     }
 }
 
@@ -559,7 +608,7 @@ struct Settled {
 /// RANSAC, then the refinement of the consensus set, re-selected until it
 /// settles.
 fn settle(pairs: &[BearingPair], opts: &RansacOptions, control: &RunControl) -> Result<Settled> {
-    let result = ransac_fit::<EssentialEstimator>(pairs, opts);
+    let result = ransac_fit_with_control::<EssentialEstimator>(pairs, opts, control)?;
     if !result.success {
         return Err(Error::NoConsensus);
     }
@@ -811,11 +860,19 @@ mod tests {
         const N_IN: usize = 15;
         let mut matches = stereo_matches_with_outliers();
         matches.truncate(N_IN);
+        let r = rig();
+        let gt = gt_pose();
+        let e_gt =
+            gt.translation.vector.cross_matrix() * gt.rotation.to_rotation_matrix().into_inner();
         let mut rng = Lcg(0x9E37_79B9_7F4A_7C15);
-        for _ in 0..6 {
+        while matches.len() < N_IN + 6 {
             let mut px = || Pt2::new(640.0 + 400.0 * rng.next(), 480.0 + 300.0 * rng.next());
-            let (a, b) = (px(), px());
-            matches.push(match_of(a, b));
+            let m = match_of(px(), px());
+            if let Ok(pairs) = bearing_pairs(&r, [0, 0], &[m])
+                && pairs[0].error(&e_gt) > 25.0
+            {
+                matches.push(m);
+            }
         }
         (matches, N_IN)
     }
@@ -1208,5 +1265,25 @@ mod tests {
         eprintln!("RMS at the true E: {rms:.4} sigma; with doubled stated sigma {half:.4}");
         assert!((0.95..=1.05).contains(&rms), "RMS {rms} sigma");
         assert!((half / rms - 0.5).abs() < 1e-9, "{half} vs {rms}");
+    }
+
+    #[test]
+    fn five_point_fit_candidates_and_ransac_cancel() {
+        use vision_calibration_core::CancelToken;
+        let rig = rig();
+        let matches = stereo_matches_with_outliers();
+        let pairs = bearing_pairs(&rig, [0, 0], &matches).unwrap();
+        let candidates = EssentialEstimator::fit_candidates(&pairs, &[0, 1, 2, 3, 4]);
+        assert!(
+            !candidates.is_empty(),
+            "fit_candidates on 5 minimal matches must return candidate models"
+        );
+
+        let token = CancelToken::new();
+        token.cancel();
+        let control = RunControl::new().with_cancel(token);
+        let opts = RansacOptions::new(3.0);
+        let err = estimate_essential(&rig, [0, 0], &matches, &opts, &control).unwrap_err();
+        assert!(matches!(err, Error::Cancelled), "{err:?}");
     }
 }

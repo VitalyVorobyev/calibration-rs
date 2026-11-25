@@ -64,13 +64,7 @@ pub fn estimate_planar_pose_from_h(kmtx: &Mat3, hmtx: &Mat3) -> Result<Iso3, Err
     r_mat.set_column(2, &r3);
 
     // Project onto SO(3) (polar decomposition; see `math::project_to_so3`).
-    let mut r_orth = vision_calibration_core::linalg::project_to_so3(&r_mat)?;
-
-    if t_vec.z < 0.0 {
-        r_orth.column_mut(0).neg_mut();
-        r_orth.column_mut(1).neg_mut();
-        t_vec = -t_vec;
-    }
+    let r_orth = vision_calibration_core::linalg::project_to_so3(&r_mat)?;
 
     Ok(iso_from_rotation(&r_orth, &t_vec))
 }
@@ -146,14 +140,21 @@ pub fn estimate_planar_pose_from_bearings(
             ata += r * r.transpose();
         }
     }
+    if ata.iter().any(|v| !v.is_finite()) {
+        return Err(Error::Singular);
+    }
     let eigen = ata.symmetric_eigen();
-    let (min_idx, _) = eigen
-        .eigenvalues
-        .iter()
-        .enumerate()
-        .min_by(|a, b| a.1.total_cmp(b.1))
-        .ok_or(Error::Singular)?;
-    let h = eigen.eigenvectors.column(min_idx);
+    if eigen.eigenvalues.iter().any(|v| !v.is_finite()) {
+        return Err(Error::Singular);
+    }
+    let mut order: [usize; 9] = std::array::from_fn(|i| i);
+    order.sort_by(|&a, &b| eigen.eigenvalues[a].total_cmp(&eigen.eigenvalues[b]));
+    let max_eig = eigen.eigenvalues[order[8]];
+    let second_eig = eigen.eigenvalues[order[1]];
+    if !max_eig.is_finite() || max_eig <= Real::EPSILON || second_eig / max_eig <= 1e-10 {
+        return Err(Error::Singular);
+    }
+    let h = eigen.eigenvectors.column(order[0]);
     let h_norm = Matrix3::new(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
     let hmtx = h_norm * t_board;
 
@@ -263,6 +264,16 @@ mod tests {
         let board: Vec<Pt2> = (0..6).map(|i| Pt2::new(i as Real * 0.1, 0.0)).collect();
         let bearings: Vec<Vector3<Real>> =
             board.iter().map(|p| Vector3::new(p.x, 0.0, 1.0)).collect();
+        assert!(estimate_planar_pose_from_bearings(&board, &bearings).is_err());
+    }
+
+    #[test]
+    fn planar_pose_from_bearings_rejects_diagonal_collinear_points() {
+        let board: Vec<Pt2> = (0..6)
+            .map(|i| Pt2::new(i as Real * 0.1, i as Real * 0.1))
+            .collect();
+        let bearings: Vec<Vector3<Real>> =
+            board.iter().map(|p| Vector3::new(p.x, p.y, 1.0)).collect();
         assert!(estimate_planar_pose_from_bearings(&board, &bearings).is_err());
     }
 }

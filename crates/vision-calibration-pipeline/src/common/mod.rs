@@ -77,6 +77,13 @@ pub struct IntrinsicsInitOptions {
     pub iterations: Option<usize>,
 }
 
+impl IntrinsicsInitOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Options for an intrinsics optimization step.
 ///
 /// These options override session config for a single step invocation.
@@ -88,6 +95,13 @@ pub struct IntrinsicsOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+impl IntrinsicsOptimizeOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Options for a hand-eye initialization step.
@@ -103,6 +117,13 @@ pub struct HandeyeInitOptions {
     pub min_motion_angle_deg: Option<f64>,
 }
 
+impl HandeyeInitOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Options for a hand-eye optimization step.
 ///
 /// These options override session config for a single step invocation.
@@ -116,6 +137,13 @@ pub struct HandeyeOptimizeOptions {
     pub verbosity: Option<usize>,
 }
 
+impl HandeyeOptimizeOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Options for a rig initialization step.
 ///
 /// The linear rig fit has no per-call overrides yet; the struct keeps
@@ -124,6 +152,13 @@ pub struct HandeyeOptimizeOptions {
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct RigInitOptions {}
+
+impl RigInitOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 /// Options for a rig optimization step.
 ///
@@ -136,4 +171,11 @@ pub struct RigOptimizeOptions {
     pub max_iters: Option<usize>,
     /// Override verbosity level.
     pub verbosity: Option<usize>,
+}
+
+impl RigOptimizeOptions {
+    /// Construct empty step overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
 }

@@ -56,7 +56,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
-rand = { workspace = true, features = ["thread_rng"] }
+rand = { workspace = true }
 # Math for the solver and suite studies; already a transitive dep.
 nalgebra = { workspace = true }
 # Regression suite: `suite.toml` and the observation-file checksums.

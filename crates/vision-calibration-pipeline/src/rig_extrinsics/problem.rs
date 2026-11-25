@@ -262,6 +262,14 @@ impl ProblemType for RigExtrinsicsProblem {
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
         config.solver.validate()?;
         config.intrinsics_init.validate()?;
+        crate::common::config::validate_robust_loss(
+            config.intrinsics_optimize.reprojection_loss,
+            "intrinsics_optimize.reprojection_loss",
+        )?;
+        crate::common::config::validate_robust_loss(
+            config.rig.reprojection_loss,
+            "rig.reprojection_loss",
+        )?;
         validate_rig_cameras(&config.camera, &config.camera_overrides)
     }
 

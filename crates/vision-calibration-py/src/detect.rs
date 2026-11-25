@@ -143,11 +143,23 @@ fn from_arrays(
         }
     };
     same_rows(array_rows(world_xyz, 3, "world_xyz")?, "world_xyz")?;
+    let check_finite = |data: &[f64], field: &str| -> PyResult<()> {
+        if data.iter().any(|v| !v.is_finite()) {
+            return Err(value_err(format!("{field}: non-finite value")));
+        }
+        Ok(())
+    };
+    let xy_slice = image_xy.as_slice()?;
+    check_finite(xy_slice, "image_xy")?;
+    let xyz_slice = world_xyz.as_slice()?;
+    check_finite(xyz_slice, "world_xyz")?;
     let covariances: Vec<Option<[f64; 3]>> = match cov_px {
         None => vec![None; n],
         Some(cov) => {
             same_rows(array_rows(cov, 3, "cov_px")?, "cov_px")?;
-            cov.as_slice()?
+            let cov_slice = cov.as_slice()?;
+            check_finite(cov_slice, "cov_px")?;
+            cov_slice
                 .as_chunks::<3>()
                 .0
                 .iter()
@@ -156,12 +168,11 @@ fn from_arrays(
         }
     };
     let blurs = blurs_from_arrays(n, blur_psf_px, blur_cov)?;
-    Ok(image_xy
-        .as_slice()?
+    Ok(xy_slice
         .as_chunks::<2>()
         .0
         .iter()
-        .zip(world_xyz.as_slice()?.as_chunks::<3>().0)
+        .zip(xyz_slice.as_chunks::<3>().0)
         .zip(covariances)
         .zip(blurs)
         .map(|(((&image_xy, &world_xyz), cov_px), blur)| {

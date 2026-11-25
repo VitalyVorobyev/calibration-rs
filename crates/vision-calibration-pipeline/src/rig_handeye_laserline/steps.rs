@@ -55,6 +55,13 @@ pub struct JointManualInit {
     pub laser_planes_cam: Option<Vec<LaserPlane>>,
 }
 
+impl JointManualInit {
+    /// Construct an unseeded [`JointManualInit`] (runs both warm-start stages).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Run the full joint rig hand-eye laserline pipeline.
 ///
 /// The same as [`run_calibration_with_seed`] with an empty seed: runs rig

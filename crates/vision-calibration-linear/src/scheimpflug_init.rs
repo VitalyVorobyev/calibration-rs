@@ -69,6 +69,13 @@ impl Default for ScheimpflugIntrinsicsInitOptions {
     }
 }
 
+impl ScheimpflugIntrinsicsInitOptions {
+    /// Construct default Scheimpflug linear initialization options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Result of tilt-aware Scheimpflug planar intrinsics initialization.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -175,8 +182,13 @@ fn validate_options(
             "Scheimpflug init requires at least one tilt_x and tilt_y seed",
         ));
     }
-    if opts.max_abs_tilt <= 0.0 || !opts.max_abs_tilt.is_finite() {
-        return Err(Error::invalid_input("max_abs_tilt must be positive"));
+    if opts.max_abs_tilt <= 0.0
+        || !opts.max_abs_tilt.is_finite()
+        || opts.max_abs_tilt >= std::f64::consts::FRAC_PI_2 - 1e-4
+    {
+        return Err(Error::invalid_input(
+            "max_abs_tilt must be finite, positive, and strictly below π/2",
+        ));
     }
     if opts.refine_rounds > 0 && (opts.refine_step <= 0.0 || !opts.refine_step.is_finite()) {
         return Err(Error::invalid_input(
@@ -315,18 +327,7 @@ fn view_homographies(dataset: &PlanarDataset) -> Result<Vec<Mat3>, Error> {
     Ok(homographies)
 }
 
-fn v_ij(h: &Mat3, i: usize, j: usize) -> SVector<Real, 6> {
-    let hi = h.column(i);
-    let hj = h.column(j);
-    SVector::<Real, 6>::from_row_slice(&[
-        hi[0] * hj[0],
-        hi[0] * hj[1] + hi[1] * hj[0],
-        hi[1] * hj[1],
-        hi[2] * hj[0] + hi[0] * hj[2],
-        hi[2] * hj[1] + hi[1] * hj[2],
-        hi[2] * hj[2],
-    ])
-}
+use crate::zhang_intrinsics::v_ij;
 
 fn estimate_absolute_conic(homographies: &[Mat3]) -> Result<Mat3, Error> {
     if homographies.len() < 3 {
@@ -458,7 +459,7 @@ fn conic_residual(seed: &CandidateSeed, target_omega: &Mat3) -> Option<SVector<R
 }
 
 fn conic_from_k_and_tilt(intrinsics: &FxFyCxCy<Real>, sensor: ScheimpflugParams) -> Option<Mat3> {
-    let effective = intrinsics.k_matrix() * sensor.compile().h;
+    let effective = intrinsics.k_matrix() * sensor.try_compile().ok()?.h;
     let inv = effective.try_inverse()?;
     normalize_symmetric_matrix(inv.transpose() * inv)
 }
@@ -569,7 +570,7 @@ fn untilt_dataset(
     reference_k: &FxFyCxCy<Real>,
     sensor: ScheimpflugParams,
 ) -> Result<PlanarDataset, Error> {
-    let sensor_model = sensor.compile();
+    let sensor_model = sensor.try_compile()?;
     let views = dataset
         .views
         .iter()
@@ -620,7 +621,7 @@ fn ideal_dataset(
     distortion: &BrownConrady5<Real>,
     sensor: ScheimpflugParams,
 ) -> Result<PlanarDataset, Error> {
-    let sensor_model = sensor.compile();
+    let sensor_model = sensor.try_compile()?;
     let views = dataset
         .views
         .iter()
@@ -677,7 +678,10 @@ fn mean_reproj_error(
     sensor: ScheimpflugParams,
     poses: &[Iso3],
 ) -> Real {
-    let camera = Camera::new(Pinhole, camera.dist, sensor.compile(), camera.k);
+    let Ok(sensor_model) = sensor.try_compile() else {
+        return Real::INFINITY;
+    };
+    let camera = Camera::new(Pinhole, camera.dist, sensor_model, camera.k);
     let views = dataset
         .views
         .iter()
@@ -694,7 +698,7 @@ fn is_better(candidate: &Candidate, current: Option<&Candidate>) -> bool {
 mod tests {
     use super::*;
     use nalgebra::{Translation3, UnitQuaternion};
-    use vision_calibration_core::{Pt3, synthetic::planar};
+    use vision_calibration_core::synthetic::planar;
 
     fn make_pose(rx: f64, ry: f64, rz: f64, tx: f64, ty: f64, tz: f64) -> Iso3 {
         Iso3::from_parts(
@@ -720,20 +724,6 @@ mod tests {
         ]
     }
 
-    fn grid_points(cols: usize, rows: usize, spacing: Real) -> Vec<Pt3> {
-        let mut points = Vec::with_capacity(cols * rows);
-        for iy in 0..rows {
-            for ix in 0..cols {
-                points.push(Pt3::new(
-                    (ix as Real - (cols as Real - 1.0) * 0.5) * spacing,
-                    (iy as Real - (rows as Real - 1.0) * 0.5) * spacing,
-                    0.0,
-                ));
-            }
-        }
-        points
-    }
-
     fn dataset(
         intrinsics: FxFyCxCy<Real>,
         distortion: BrownConrady5<Real>,
@@ -742,7 +732,13 @@ mod tests {
         rows: usize,
     ) -> PlanarDataset {
         let camera = Camera::new(Pinhole, distortion, sensor.compile(), intrinsics);
-        let board = grid_points(cols, rows, 0.02);
+        let spacing = 0.02;
+        let ox = (cols as Real - 1.0) * 0.5 * spacing;
+        let oy = (rows as Real - 1.0) * 0.5 * spacing;
+        let board: Vec<_> = planar::grid_points(cols, rows, spacing)
+            .into_iter()
+            .map(|p| vision_calibration_core::Pt3::new(p.x - ox, p.y - oy, p.z))
+            .collect();
         let views = planar::project_views_all(&camera, &board, &varied_poses())
             .expect("synthetic views")
             .into_iter()

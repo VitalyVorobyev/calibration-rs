@@ -116,17 +116,21 @@ pub fn fetch_files(
             archive.push(".zip");
             let archive = PathBuf::from(archive);
             download(url, &archive)?;
-            let file = fs::File::open(&archive).map_err(|source| io_error(&archive, source))?;
-            let wanted: BTreeSet<&str> = missing.iter().copied().collect();
-            let extracted = extract_zip(file, root, dir, &wanted).map_err(|err| match err {
-                FetchError::Archive { message, .. } => FetchError::Archive {
-                    url: url.clone(),
-                    message,
-                },
-                other => other,
-            })?;
-            fs::remove_file(&archive).map_err(|source| io_error(&archive, source))?;
-            if extracted.len() != wanted.len() {
+            let extract_res = (|| -> Result<BTreeSet<&str>, FetchError> {
+                let file = fs::File::open(&archive).map_err(|source| io_error(&archive, source))?;
+                let wanted: BTreeSet<&str> = missing.iter().copied().collect();
+                extract_zip(file, root, dir, &wanted).map_err(|err| match err {
+                    FetchError::Archive { message, .. } => FetchError::Archive {
+                        url: url.clone(),
+                        message,
+                    },
+                    other => other,
+                })
+            })();
+            let _ = fs::remove_file(&archive);
+            let extracted = extract_res?;
+            if extracted.len() != missing.len() {
+                let wanted: BTreeSet<&str> = missing.iter().copied().collect();
                 let lacking: Vec<&str> = wanted.difference(&extracted).copied().collect();
                 return Err(FetchError::Archive {
                     url: url.clone(),
@@ -243,10 +247,17 @@ fn download(url: &str, dest: &Path) -> Result<(), FetchError> {
         .call()
         .map_err(|err| failed(err.to_string()))?;
     let mut file = fs::File::create(&part).map_err(|source| io_error(&part, source))?;
-    io::copy(&mut response.body_mut().as_reader(), &mut file)
-        .map_err(|err| failed(err.to_string()))?;
+    if let Err(err) = io::copy(&mut response.body_mut().as_reader(), &mut file) {
+        drop(file);
+        let _ = fs::remove_file(&part);
+        return Err(failed(err.to_string()));
+    }
     drop(file);
-    fs::rename(&part, dest).map_err(|source| io_error(dest, source))
+    if let Err(source) = fs::rename(&part, dest) {
+        let _ = fs::remove_file(&part);
+        return Err(io_error(dest, source));
+    }
+    Ok(())
 }
 
 /// Unpack the members of a ZIP archive under its directory `root` (`""`:

@@ -5,12 +5,12 @@
 //! via SVD decomposition.
 
 use crate::GeometryError;
-use crate::math::ensure_finite;
+use crate::math::{dlt_rank_ok, ensure_finite};
 use nalgebra::DMatrix;
 use vision_calibration_core::linalg::{
-    iso_from_rotation, mat34_from_vec, null_space, project_to_so3,
+    iso_from_rotation, mat34_from_vec, normalize_points_3d, null_space, project_to_so3,
 };
-use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Mat4, Pt2, Pt3, Real};
+use vision_calibration_core::{FxFyCxCy, Iso3, Mat3, Pt2, Pt3, Real};
 
 /// Direct linear PnP on all input points.
 ///
@@ -31,65 +31,28 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Geo
     ensure_finite("image point", image.iter().flat_map(|p| p.coords.iter()))?;
     ensure_finite("intrinsics", [&k.fx, &k.fy, &k.cx, &k.cy])?;
     let n = world.len();
-    if n < 6 || image.len() != n {
+    if image.len() != n {
+        return Err(GeometryError::CountMismatch {
+            expected: n,
+            got: image.len(),
+        });
+    }
+    if n < 6 {
         return Err(GeometryError::InsufficientData { need: 6, got: n });
     }
 
     let kmtx: Mat3 = k.k_matrix();
     let k_inv = kmtx.try_inverse().ok_or(GeometryError::Singular)?;
 
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    let mut cz = 0.0;
-    for p in world {
-        cx += p.x;
-        cy += p.y;
-        cz += p.z;
-    }
-    let n_real = n as Real;
-    cx /= n_real;
-    cy /= n_real;
-    cz /= n_real;
-
-    let mut mean_dist = 0.0;
-    for p in world {
-        let dx = p.x - cx;
-        let dy = p.y - cy;
-        let dz = p.z - cz;
-        mean_dist += (dx * dx + dy * dy + dz * dz).sqrt();
-    }
-    mean_dist /= n_real;
-    if mean_dist <= Real::EPSILON {
-        return Err(GeometryError::Singular);
-    }
-
-    let scale = (3.0_f64).sqrt() / mean_dist;
-    let t_world = Mat4::new(
-        scale,
-        0.0,
-        0.0,
-        -scale * cx,
-        0.0,
-        scale,
-        0.0,
-        -scale * cy,
-        0.0,
-        0.0,
-        scale,
-        -scale * cz,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    );
+    let (world_norm, t_world) = normalize_points_3d(world).ok_or(GeometryError::Singular)?;
 
     // Build 2n x 12 DLT matrix for camera matrix P = [R | t] in normalized coords.
     let mut a = DMatrix::<Real>::zeros(2 * n, 12);
 
-    for (i, (pw, pi)) in world.iter().zip(image.iter()).enumerate() {
-        let x = (pw.x - cx) * scale;
-        let y = (pw.y - cy) * scale;
-        let z = (pw.z - cz) * scale;
+    for (i, (pw, pi)) in world_norm.iter().zip(image.iter()).enumerate() {
+        let x = pw.x;
+        let y = pw.y;
+        let z = pw.z;
 
         // Normalized image point: x_n = K^{-1} [u,v,1]^T.
         let v_img = k_inv * nalgebra::Vector3::new(pi.x, pi.y, 1.0);
@@ -125,13 +88,12 @@ pub fn dlt(world: &[Pt3], image: &[Pt2], k: &FxFyCxCy<Real>) -> Result<Iso3, Geo
     // hang-prone dense SVD on the tall `2N×12` design matrix. Reshape into the
     // 3×4 matrix `P = [R|t]` (up to scale).
     let ns = null_space(&a)?;
-    let sv = &ns.singular_values;
     // The 2n×12 design must have rank 11 (a 1-D null space). Coplanar
     // points zero the columns of the coordinate along the plane normal and
     // leave a null space of dimension ≥ 4, so the second-smallest singular
     // value collapses like the smallest; collinear points do worse. The
     // threshold is the one `dlt_homography` uses on its normalized design.
-    if sv[0] <= Real::EPSILON || sv[10] / sv[0] < 1e-7 {
+    if !dlt_rank_ok(&ns.singular_values, 12, 1, 1e-7) {
         return Err(GeometryError::degenerate(
             "rank-deficient point configuration: the DLT needs 6 or more points \
              not on one plane (use EPnP for a planar object)",

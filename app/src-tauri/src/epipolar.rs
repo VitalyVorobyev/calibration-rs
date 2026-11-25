@@ -140,12 +140,13 @@ pub fn compute_overlay(
 
 /// Convert raw/distorted pixel coordinates into the undistorted pixel
 /// frame used by the epipolar workspace. The output keeps the camera's
-/// original `K` scale/center but removes distortion and sensor warping.
+/// original `K` scale/center but removes distortion and sensor warping;
+/// `None` when back-projection produces no finite unit-depth ray point.
 pub fn undistort_points(
     export: &serde_json::Value,
     camera: usize,
     points_px: Vec<[f64; 2]>,
-) -> Result<Vec<[f64; 2]>, String> {
+) -> Result<Vec<Option<[f64; 2]>>, String> {
     let geometry = camera_geometry(export, camera)?;
     Ok(points_px
         .iter()
@@ -327,16 +328,13 @@ fn build_camera_geometry(camera_json: &serde_json::Value) -> Result<CameraGeomet
     })
 }
 
-fn raw_pixel_to_undistorted_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> [f64; 2] {
-    // A pinhole ray always meets z = 1; NaN marks a pixel with no such point.
-    match geometry
+fn raw_pixel_to_undistorted_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> Option<[f64; 2]> {
+    geometry
         .model
         .backproject_pixel(&Point2::new(px[0], px[1]))
         .point_at_unit_depth()
-    {
-        Some(p) => normalized_to_pixel(&geometry.k, p.x, p.y),
-        None => [f64::NAN, f64::NAN],
-    }
+        .map(|p| normalized_to_pixel(&geometry.k, p.x, p.y))
+        .filter(|out| out[0].is_finite() && out[1].is_finite())
 }
 
 fn undistorted_pixel_to_raw_pixel(geometry: &CameraGeometry, px: [f64; 2]) -> Option<[f64; 2]> {
@@ -608,7 +606,7 @@ mod tests {
         let geometry = camera_geometry(&export, 1).unwrap();
 
         for raw in [[575.3, 108.2], [345.0, 500.0], [900.0, 220.0]] {
-            let undistorted = raw_pixel_to_undistorted_pixel(&geometry, raw);
+            let undistorted = raw_pixel_to_undistorted_pixel(&geometry, raw).unwrap();
             let raw_roundtrip = undistorted_pixel_to_raw_pixel(&geometry, undistorted).unwrap();
             let err =
                 ((raw_roundtrip[0] - raw[0]).powi(2) + (raw_roundtrip[1] - raw[1]).powi(2)).sqrt();
@@ -632,8 +630,8 @@ mod tests {
             "expected raw distorted depth samples to split into multiple visible runs"
         );
 
-        let point_a = undistort_points(&export, 0, vec![raw_left_px]).unwrap()[0];
-        let point_b = undistort_points(&export, 1, vec![raw_right_px]).unwrap()[0];
+        let point_a = undistort_points(&export, 0, vec![raw_left_px]).unwrap()[0].unwrap();
+        let point_b = undistort_points(&export, 1, vec![raw_right_px]).unwrap()[0].unwrap();
         let undistorted =
             compute_overlay_undistorted(&export, 0, 1, point_a, 1024.0, 768.0).unwrap();
         assert_eq!(

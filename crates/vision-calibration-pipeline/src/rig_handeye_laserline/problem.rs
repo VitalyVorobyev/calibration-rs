@@ -278,6 +278,7 @@ impl ProblemType for RigHandeyeLaserlineProblem {
         if input.num_cameras == 0 {
             return Err(Error::InsufficientData { need: 1, got: 0 });
         }
+        let mut cam_has_laser = vec![false; input.num_cameras];
         for (view_idx, view) in input.views.iter().enumerate() {
             if view.obs.cameras.len() != input.num_cameras
                 || view.obs.laser_pixels.len() != input.num_cameras
@@ -289,6 +290,21 @@ impl ProblemType for RigHandeyeLaserlineProblem {
                     input.num_cameras
                 )));
             }
+            let t = view.meta.base_se3_gripper.translation.vector;
+            let q = view.meta.base_se3_gripper.rotation.quaternion();
+            if !t.iter().chain(q.coords.iter()).all(|v| v.is_finite()) {
+                return Err(Error::invalid_input(format!(
+                    "view {view_idx} has non-finite robot pose"
+                )));
+            }
+            for (c, pixels) in view.obs.laser_pixels.iter().enumerate() {
+                if pixels.as_ref().is_some_and(|p| !p.is_empty()) {
+                    cam_has_laser[c] = true;
+                }
+            }
+        }
+        if !cam_has_laser.iter().any(|&has| has) {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
         }
         Ok(())
     }
@@ -297,6 +313,14 @@ impl ProblemType for RigHandeyeLaserlineProblem {
         RigHandeyeProblem::validate_config(&config.handeye)?;
         RigLaserlineDeviceProblem::validate_config(&config.laserline_init)?;
         config.solver.validate()?;
+        crate::common::config::validate_robust_loss(
+            config.joint_optimize.reprojection_loss,
+            "joint_optimize.reprojection_loss",
+        )?;
+        crate::common::config::validate_robust_loss(
+            config.joint_optimize.laser_loss,
+            "joint_optimize.laser_loss",
+        )?;
         config.joint_optimize.robot_poses.validate()?;
         Ok(())
     }

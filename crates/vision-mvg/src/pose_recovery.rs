@@ -246,7 +246,9 @@ pub fn recover_relative_pose(
         // Score this E by the mean weighted Sampson error (σ) over all matches.
         let mean_error: Real = pairs.iter().map(|p| p.error(e)).sum::<Real>() / n as Real;
 
-        let decompositions = vision_geometry::epipolar::decompose_essential(e)?;
+        let Ok(decompositions) = vision_geometry::epipolar::decompose_essential(e) else {
+            continue;
+        };
         if let Some((r, t, count)) = cheirality::select_pose(&decompositions, &b1, &b2) {
             // Prefer more cheirality inliers; break ties by residual.
             let is_better =

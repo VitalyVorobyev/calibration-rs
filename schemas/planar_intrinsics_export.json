@@ -569,7 +569,7 @@
           ]
         },
         "residual_px": {
-          "description": "Distance from `observed_px` to the projected laser line, in pixels:\nthe line-distance residual the laser solve minimizes, measured on the\nundistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the\nlaser and target planes have no line in common.",
+          "description": "Distance (non-negative) from `observed_px` to the projected laser\nline, in pixels: the magnitude of the line-distance residual the laser\nsolve minimizes, measured on the undistorted image plane and scaled by\n`sqrt(fx·fy)`. For parallel laser and target planes the line is their\ncommon vanishing line. `None` if the planes share no line with a\nfinite image (see the module documentation).",
           "format": "double",
           "type": [
             "number",

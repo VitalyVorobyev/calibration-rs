@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Facade re-exports under `vision_calibration`:
+  `core::{CameraProject, DistortionModel, IntrinsicsModel, NoDistortion, ProjectionModel}`,
+  `dataset::validate`, `mvg::refine`, and `mvg::solvers::essential_linear`.
+- Documented `new()` constructors across user-constructible `#[non_exhaustive]`
+  manifest, specification, option, and manual-initialization types in `core`,
+  `dataset`, `detect`, `init`, `optim`, `mvg`, `analysis`, `common`, and the
+  calibration workflow modules.
+- `RigLaserlineDeviceExport::per_cam_reproj_errors`: the per-camera mean
+  target reprojection error over every target view of the camera, as the
+  other calibration exports carry it (`per_cam_stats[i].mean_reproj_error`
+  averages only the views that also have laser pixels). Optional on the wire.
+- Desktop app hardening: an error fallback for workspace and application
+  errors, rejection of duplicate in-flight calibration runs, atomic staging
+  for `save_run`, and accurate cache-hit reporting (`cache_used`).
+
 - `analysis::fit_focus` fits the plane of sharp focus to the per-point blur
   of a calibrated planar dataset (chessboard or PuzzleBoard corners measured
   with `measure_blur`), with the camera and target poses held: the
@@ -97,6 +112,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Desktop app IPC types (breaking):** `DisparityResult::plane_rms` (`planeRms`
+  in TypeScript) is now `Option<f64>` (`null` when fewer than three finite
+  disparities exist or the plane fit is singular/non-finite; it was an
+  infinite value that serialized as `null` under a `number` type),
+  and `undistort_points` now returns `Vec<Option<[f64; 2]>>` (`null` for pixels
+  whose undistortion fails or is non-finite instead of `[NaN, NaN]`).
+- **Desktop app run validation:** `DatasetSpec` validation and config topology
+  validation now run before target detection rather than after.
+- Performance and numerical improvements across optimization and MVG:
+  single-pass Newton undistortion Jacobian evaluation for `BrownConrady5`,
+  `RationalPolynomial`, and `ThinPrism`; stack-allocated 4×4 eigensolve in
+  `mvg::solvers::triangulate_point_linear`; single-SVD decomposition in
+  `mvg::solvers::decompose_essential`; analytic plane-fit Jacobian in
+  `mvg::metrology`; buffer reuse, rolling SGM row buffers, and single-pass
+  left-to-right ZNCC consistency reuse in `mvg::dense`; sparse 6×6 block
+  hand-eye Jacobian propagation in rig laser-line bundle covariance; and
+  skipping intermediate covariance solves during internal tilt-sweep and
+  warm-start stages. Warm-start candidates are no longer rejected for a
+  residual or Jacobian that is not finite at their solution (the final solve
+  still is); the Scheimpflug tilt sweep subsamples views evenly, keeps their
+  per-point covariances and respects the caller's fixed parameters, so it can
+  settle in a different basin.
+- **Parameter uncertainty, mixed noise.** When stated-noise residuals (pose
+  priors, laser "consider" priors, stated pixel noise) are solved together
+  with estimated-noise residuals, the estimated noise scale is
+  `m_obs / (m_obs − tr(H⁻¹ H_obs))` — the degrees of freedom the estimated
+  residuals actually have — instead of `m_obs / (m − n)`. Reported `σ` changes
+  for hand-eye with robot-pose priors and for laser calibrations with stated
+  priors; with estimated noise only, it is unchanged. A free parameter block
+  no residual references is now reported as rank deficient (uncertainty
+  unavailable) instead of receiving a covariance.
+- **Laser-line residual.** The solver's line residual is the signed distance
+  of the laser pixel to the projected plane–target intersection line (smooth
+  through zero for the optimizer); a laser plane parallel to the target plane
+  gives the distance to the line's vanishing line instead of no residual.
+  Exported `residual_px` stays the absolute distance.
+- **Rig hand-eye laser statistics.** `mean_laser_error_m` and
+  `mean_laser_error_px` are means of absolute residuals, as documented
+  (they were root mean squares), and `laser_count` counts the point-to-plane
+  residuals only.
+- **Validation.** `CalibrationSession::from_json` validates the stored
+  configuration and input, so a session whose config is invalid under the
+  current rules fails to load with the validation error. Configuration
+  validation is stricter: a finite positive robust-loss scale, at least one
+  camera with laser data in laser problems, finite robot poses, in-range
+  `fix_poses` indices, per-view camera slot counts matching the rig, a
+  positive chessboard `threshold_value`, and a Scheimpflug `max_abs_tilt`
+  below π/2. A `DatasetSpec` with `robot_poses` or `pose_convention` on a
+  topology without a robot, or with inconsistent target geometry, is
+  rejected.
+- **Minimal solvers and robust estimation.** EPnP evaluates the 1- to
+  4-dimensional null-space candidates, refines each with Gauss–Newton and
+  keeps the one with the lowest reprojection error; it returns
+  `GeometryError::Singular` when no candidate puts every point in front of the
+  camera. RANSAC scores every candidate a minimal solver returns, refits only
+  a consensus that can beat the best, keeps a refit only when it is better
+  (more inliers, or as many with a lower RMS), and only ever lowers its
+  adaptive iteration bound. The essential-matrix estimator rejects a sample
+  with three collinear image points in either view. Equidistant
+  initialization runs Nelder–Mead seeded and unseeded and keeps the lower
+  cost. The Levenberg–Marquardt relative-step stop applies to the first
+  attempt of an iteration only.
+- **Error variants.** P3P, EPnP and DLT report mismatched point counts as
+  `CountMismatch`; `dlt_ransac` without consensus reports `NoConsensus`.
+- **Dense stereo.** Semi-global matching marks a pixel invalid when its
+  matching cost is invalid at every disparity, and aggregates paths in a
+  different order (sums can differ in the last bits; argmin ties can flip).
+  `match_block` rejects inconsistent options (`sgm_p2 < sgm_p1`, a negative
+  uniqueness ratio, a disparity range that overflows `i32`).
+- `synthetic::planar::grid_points` and `grid_points_2d` return an empty grid
+  for a zero dimension; `camera_matrix` decomposition normalizes `K` to
+  `K₂₂ = 1`.
 - The chessboard, ChArUco and PuzzleBoard detector is `calib-targets` 0.17.0.
   Two kinds of frame that used to deliver wrongly labelled corners now give
   no features: a ChArUco frame blurred past readability, whose board
@@ -117,6 +204,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `mvg::decompose_homography` returns the plane normal (it returned a vector
+  lying in the plane) and a proper rotation for reflected decompositions.
+- Distortion fitting bounds the radius by the board points, not the pixel
+  coordinates.
+- `rectification::cloud` propagates covariance correctly when a point index
+  repeats; bundle-adjustment parameter labels name the right blocks.
+- Folder sniffing walks directory entries in sorted order and follows
+  symlinks without cycles, so the manifest it writes does not depend on the
+  filesystem's listing order.
+- `vision_calibration::mvg::match_block` no longer panics on a 1-pixel-wide
+  image with semi-global matching.
+- Guarded zero-dimension planar grids (`nx == 0 || ny == 0`) in
+  `synthetic::planar::{grid_points, grid_points_2d}` so empty boards return an
+  empty vector cleanly.
+- Fixed CLI verbose formatting of tagged `UncertaintyUnavailable` values and
+  normalized empty manifest parent paths to `.` in both the CLI and desktop
+  app backend.
+- Fixed desktop backend lock contention by taking `ExportCache` snapshots
+  before blocking compute and offloading I/O and CPU-heavy commands to
+  blocking worker threads; added request-sequence guards and unmount cursor
+  cleanup in the frontend.
 - A solve that meets a residual whose Jacobian is not finite where it
   linearizes (a residual not differentiable there, such as `sqrt` at 0)
   fails with `Error::Numerical`, at the start, after a step or at the

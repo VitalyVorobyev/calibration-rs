@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 import type { TargetFeatureResidual } from "../../types";
 
 type Px = [number, number];
+type NullablePx = Px | null;
 
 /** `residuals` with their observed pixels mapped into `camera`'s
  * undistorted frame by the backend (the Epipolar panes show undistorted
- * images). Empty until the mapping arrives; `onError` hears a failure. */
+ * images); points without a finite unit-depth ray are skipped.
+ * Empty until the mapping arrives; `onError` hears a failure. */
 export function useUndistortedResiduals(
   camera: number,
   residuals: TargetFeatureResidual[],
@@ -20,9 +22,9 @@ export function useUndistortedResiduals(
 
   useEffect(() => {
     let cancelled = false;
-    const points: Promise<Px[]> =
+    const points: Promise<NullablePx[]> =
       residuals.length > 0
-        ? call<Px[]>("undistort_points", {
+        ? call<NullablePx[]>("undistort_points", {
             camera,
             pointsPx: residuals.map((r) => r.observed_px),
           })
@@ -30,10 +32,17 @@ export function useUndistortedResiduals(
     points
       .then((px) => {
         if (cancelled) return;
+        const next: TargetFeatureResidual[] = [];
+        for (let i = 0; i < residuals.length; i++) {
+          const out = px[i];
+          if (out && Number.isFinite(out[0]) && Number.isFinite(out[1])) {
+            next.push({ ...residuals[i]!, observed_px: out });
+          }
+        }
         setMapped({
           source: residuals,
           camera,
-          value: residuals.map((r, i) => ({ ...r, observed_px: px[i] ?? r.observed_px })),
+          value: next,
         });
       })
       .catch((e: unknown) => {

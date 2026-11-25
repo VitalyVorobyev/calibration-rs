@@ -24,8 +24,11 @@
 //!   feature (point behind camera or distortion fixed-point failed).
 //! - `residual_m = None`: the laser pixel's ray does not meet the target
 //!   plane in front of the camera.
-//! - `residual_px = None`: the laser and target planes are parallel in that
-//!   view, so they have no line in common.
+//! - `residual_px = None`: the laser and target planes share no line with a
+//!   finite image: they coincide, or the line they share passes through the
+//!   camera centre or lies in the camera's `z = 0` plane. Parallel planes
+//!   share their line at infinity, so the residual is the distance to their
+//!   common vanishing line (`None` only when they face the camera head-on).
 //!
 //! # Laser lines
 //!
@@ -91,10 +94,12 @@ pub struct LaserFeatureResidual {
     /// Point-to-plane distance in meters between the back-projected ray and
     /// the calibrated laser plane. `None` if the ray does not intersect.
     pub residual_m: Option<f64>,
-    /// Distance from `observed_px` to the projected laser line, in pixels:
-    /// the line-distance residual the laser solve minimizes, measured on the
-    /// undistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the
-    /// laser and target planes have no line in common.
+    /// Distance (non-negative) from `observed_px` to the projected laser
+    /// line, in pixels: the magnitude of the line-distance residual the laser
+    /// solve minimizes, measured on the undistorted image plane and scaled by
+    /// `sqrt(fx·fy)`. For parallel laser and target planes the line is their
+    /// common vanishing line. `None` if the planes share no line with a
+    /// finite image (see the module documentation).
     pub residual_px: Option<f64>,
 }
 

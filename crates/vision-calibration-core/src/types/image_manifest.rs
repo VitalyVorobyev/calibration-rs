@@ -167,6 +167,36 @@ impl ImageManifest {
     }
 }
 
+impl ImageManifest {
+    /// Construct a manifest rooted at `root` with `frames`.
+    pub fn new(root: impl Into<PathBuf>, frames: Vec<FrameRef>) -> Self {
+        Self {
+            root: root.into(),
+            frames,
+        }
+    }
+}
+
+impl FrameRef {
+    /// Construct a target-frame entry for `(view, camera)` pointing at `path`.
+    pub fn new(view: usize, camera: usize, path: impl Into<PathBuf>) -> Self {
+        Self {
+            view,
+            camera,
+            path: path.into(),
+            roi: None,
+            kind: FrameKind::Target,
+        }
+    }
+}
+
+impl PixelRect {
+    /// Construct a crop rectangle at `(x, y)` with extent `w × h` pixels.
+    pub fn new(x: u32, y: u32, w: u32, h: u32) -> Self {
+        Self { x, y, w, h }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

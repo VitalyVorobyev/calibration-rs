@@ -514,7 +514,7 @@ pub(crate) fn add_rig_laser_residuals(
             .features
             .iter()
             .filter(move |r| r.camera == cam)
-            .filter_map(|r| r.residual_px)
+            .filter_map(|r| r.residual_px.map(f64::abs))
     }));
     residuals.laser = laser.features;
     residuals.laser_lines = laser.lines;

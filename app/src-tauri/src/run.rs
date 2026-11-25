@@ -14,7 +14,10 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -25,13 +28,15 @@ use vision_calibration::control::{CancelToken, Progress, RunControl};
 use vision_calibration::core::{
     FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
 };
-use vision_calibration::dataset::{DatasetSpec, ProblemKind};
+use vision_calibration::dataset::{DatasetSpec, ProblemKind, validate};
 use vision_calibration::dataset_runner::{
     Detection, RunError, build_laserline_device_input, build_planar_input,
     build_rig_extrinsics_input, build_rig_handeye_input, build_rig_handeye_laserline_input,
     build_rig_laserline_device_input, build_single_cam_handeye_input,
 };
-use vision_calibration::detect::FsDetectionCache;
+use vision_calibration::detect::{
+    CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
+};
 use vision_calibration::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceProblem,
     run_calibration as run_laserline_device_calibration,
@@ -174,14 +179,16 @@ impl RunRegistry {
         Self::default()
     }
 
-    /// Register `run_id` and return its fresh token.
-    fn register(&self, run_id: &str) -> CancelToken {
+    /// Register `run_id` and return its fresh token, or an error if `run_id`
+    /// is already in flight.
+    fn register(&self, run_id: &str) -> Result<CancelToken, String> {
+        let mut guard = self.inner.lock().expect("run registry mutex poisoned");
+        if guard.contains_key(run_id) {
+            return Err(format!("run {run_id:?} is already in flight"));
+        }
         let token = CancelToken::new();
-        self.inner
-            .lock()
-            .expect("run registry mutex poisoned")
-            .insert(run_id.to_string(), token.clone());
-        token
+        guard.insert(run_id.to_string(), token.clone());
+        Ok(token)
     }
 
     /// Drop `run_id` from the registry once its run has finished.
@@ -290,7 +297,7 @@ pub async fn run_calibration_cmd<R: tauri::Runtime>(
     cache: State<'_, ExportCache>,
     registry: State<'_, RunRegistry>,
 ) -> Result<RunResponse, String> {
-    let token = registry.register(&run_id);
+    let token = registry.register(&run_id)?;
     let images_dir = PathBuf::from(&manifest_dir);
 
     // Long-running solve: keep IPC responsive by running on a blocking
@@ -354,6 +361,80 @@ pub fn default_config_cmd(topology: String) -> Result<serde_json::Value, String>
     value.map_err(|e| format!("default config serialization failed: {e}"))
 }
 
+struct CountingCache<C> {
+    inner: C,
+    hits: AtomicUsize,
+}
+
+impl<C> CountingCache<C> {
+    fn new(inner: C) -> Self {
+        Self {
+            inner,
+            hits: AtomicUsize::new(0),
+        }
+    }
+
+    fn hits(&self) -> usize {
+        self.hits.load(Ordering::Relaxed)
+    }
+}
+
+impl<C: DetectionCache> DetectionCache for CountingCache<C> {
+    fn get(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
+        let hit = self.inner.get(key)?;
+        if hit.is_some() {
+            self.hits.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(hit)
+    }
+
+    fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError> {
+        self.inner.put(key, value)
+    }
+}
+
+fn validate_config<P: ProblemType>(
+    config_json: &serde_json::Value,
+) -> Result<(), Box<RunResponse>> {
+    let config: P::Config = serde_json::from_value(config_json.clone()).map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "config_parse".into(),
+            message: format!("config parse failed: {e}"),
+        })
+    })?;
+    CalibrationSession::<P>::new()
+        .set_config(config)
+        .map_err(|e| {
+            Box::new(RunResponse::Failed {
+                category: "session_set_config".into(),
+                message: format!("set_config failed: {e}"),
+            })
+        })
+}
+
+fn validate_config_for_topology(
+    topology: ProblemKind,
+    config_json: &serde_json::Value,
+) -> Result<(), Box<RunResponse>> {
+    match topology {
+        ProblemKind::PlanarIntrinsics => validate_config::<PlanarIntrinsicsProblem>(config_json),
+        ProblemKind::RigExtrinsics => validate_config::<RigExtrinsicsProblem>(config_json),
+        ProblemKind::RigHandeye => validate_config::<RigHandeyeProblem>(config_json),
+        ProblemKind::SingleCamHandeye => validate_config::<SingleCamHandeyeProblem>(config_json),
+        ProblemKind::LaserlineDevice => validate_config::<LaserlineDeviceProblem>(config_json),
+        ProblemKind::RigLaserlineDevice => {
+            validate_config::<RigLaserlineDeviceProblem>(config_json)
+        }
+        ProblemKind::RigHandeyeLaserline => {
+            validate_config::<RigHandeyeLaserlineProblem>(config_json)
+        }
+        other => Err(Box::new(RunResponse::Failed {
+            category: "unsupported_topology".into(),
+            message: format!("topology {other:?} is not supported by this version"),
+        })),
+    }
+}
+
 fn run_blocking(
     manifest_json: serde_json::Value,
     config_json: serde_json::Value,
@@ -370,13 +451,21 @@ fn run_blocking(
             };
         }
     };
-    let base_dir = Path::new(manifest_dir);
-    let detection_cache = FsDetectionCache::new(detection_cache_root(&spec, base_dir));
-
     // Detection (image decode + feature detection) is the long pole on a
-    // first run; announce it before the build_*_input call. `Solve` and
-    // `Export` fire from `run_session`.
+    // first run; announce it before validation / config / build_*_input so
+    // the stage checklist tracks progress even on early errors.
     ctx.stage(RunStage::Detect);
+    if let Err(err) = validate(&spec) {
+        return RunResponse::ValidationFailed {
+            message: err.to_string(),
+        };
+    }
+    if let Err(boxed) = validate_config_for_topology(spec.topology, &config_json) {
+        return *boxed;
+    }
+    let base_dir = Path::new(manifest_dir);
+    let detection_cache =
+        CountingCache::new(FsDetectionCache::new(detection_cache_root(&spec, base_dir)));
 
     match spec.topology {
         ProblemKind::PlanarIntrinsics => run_planar_topology::<PlanarIntrinsicsProblem>(
@@ -533,7 +622,7 @@ fn run_planar_topology<P>(
     spec: &DatasetSpec,
     config_json: serde_json::Value,
     base_dir: &Path,
-    detection_cache: &FsDetectionCache,
+    detection_cache: &CountingCache<FsDetectionCache>,
     started: Instant,
     ctx: &RunCtx,
     run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
@@ -550,7 +639,7 @@ where
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = planar_run.usable_views > 0; // hit/miss counts are not surfaced yet
+    let cache_used = detection_cache.hits() > 0;
 
     let mut export = match run_session::<P>(planar_run.input.clone(), config_json, run, ctx) {
         Ok(v) => v,
@@ -576,7 +665,7 @@ fn run_single_cam_handeye_topology(
     spec: &DatasetSpec,
     config_json: serde_json::Value,
     base_dir: &Path,
-    detection_cache: &FsDetectionCache,
+    detection_cache: &CountingCache<FsDetectionCache>,
     started: Instant,
     ctx: &RunCtx,
 ) -> RunResponse {
@@ -589,7 +678,7 @@ fn run_single_cam_handeye_topology(
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = handeye_run.usable_views > 0; // hit/miss counts are not surfaced yet
+    let cache_used = detection_cache.hits() > 0;
     let usable_views = handeye_run.usable_views;
     let total_views = handeye_run.total_views;
 
@@ -624,7 +713,7 @@ fn run_laserline_topology(
     spec: &DatasetSpec,
     config_json: serde_json::Value,
     base_dir: &Path,
-    detection_cache: &FsDetectionCache,
+    detection_cache: &CountingCache<FsDetectionCache>,
     started: Instant,
     ctx: &RunCtx,
 ) -> RunResponse {
@@ -638,7 +727,7 @@ fn run_laserline_topology(
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = laser_run.usable_views > 0; // hit/miss counts are not surfaced yet
+    let cache_used = detection_cache.hits() > 0;
     let usable_views = laser_run.usable_views;
     let total_views = laser_run.total_views;
 
@@ -679,7 +768,7 @@ fn run_rig_laserline_topology(
     spec: &DatasetSpec,
     config_json: serde_json::Value,
     base_dir: &Path,
-    detection_cache: &FsDetectionCache,
+    detection_cache: &CountingCache<FsDetectionCache>,
     started: Instant,
     ctx: &RunCtx,
 ) -> RunResponse {
@@ -693,7 +782,7 @@ fn run_rig_laserline_topology(
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = laser_run.usable_views > 0; // hit/miss counts are not surfaced yet
+    let cache_used = detection_cache.hits() > 0;
     let usable_views = laser_run.usable_views;
     let total_views = laser_run.total_views;
     let view_paths = laser_run.view_paths.clone();
@@ -728,7 +817,7 @@ fn run_rig_handeye_laserline_topology(
     spec: &DatasetSpec,
     config_json: serde_json::Value,
     base_dir: &Path,
-    detection_cache: &FsDetectionCache,
+    detection_cache: &CountingCache<FsDetectionCache>,
     started: Instant,
     ctx: &RunCtx,
 ) -> RunResponse {
@@ -742,7 +831,7 @@ fn run_rig_handeye_laserline_topology(
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = joint_run.usable_views > 0;
+    let cache_used = detection_cache.hits() > 0;
     let usable_views = joint_run.usable_views;
     let total_views = joint_run.total_views;
     let view_paths = joint_run.view_paths.clone();
@@ -791,7 +880,7 @@ fn run_rig_topology<P, Meta>(
     spec: &DatasetSpec,
     config_json: serde_json::Value,
     base_dir: &Path,
-    detection_cache: &FsDetectionCache,
+    detection_cache: &CountingCache<FsDetectionCache>,
     started: Instant,
     ctx: &RunCtx,
     build: RigBuilder<Meta>,
@@ -809,7 +898,7 @@ where
         Ok(r) => r,
         Err(e) => return run_error_to_response(e),
     };
-    let cache_used = rig_run.usable_views > 0; // hit/miss counts are not surfaced yet
+    let cache_used = detection_cache.hits() > 0;
     let usable_views = rig_run.usable_views;
     let total_views = rig_run.total_views;
 
@@ -939,8 +1028,7 @@ fn rig_image_manifest(
 }
 
 fn canonical_base(base_dir: &Path) -> Result<PathBuf, String> {
-    base_dir
-        .canonicalize()
+    dunce::canonicalize(base_dir)
         .map_err(|e| format!("canonicalize manifest dir {}: {e}", base_dir.display()))
 }
 
@@ -951,8 +1039,7 @@ fn frame_ref(
     base_abs: &Path,
     roi: Option<[u32; 4]>,
 ) -> Result<FrameRef, String> {
-    let abs = path
-        .canonicalize()
+    let abs = dunce::canonicalize(path)
         .map_err(|e| format!("canonicalize image path {}: {e}", path.display()))?;
     let rel = abs.strip_prefix(base_abs).map_err(|_| {
         format!(
@@ -1197,7 +1284,7 @@ mod tests {
     #[test]
     fn run_registry_flags_only_the_matching_run() {
         let registry = RunRegistry::new();
-        let flag = registry.register("run-a");
+        let flag = registry.register("run-a").unwrap();
         assert!(!flag.is_cancelled());
 
         // Cancelling an unknown id is a no-op that reports "not found".
@@ -1211,6 +1298,56 @@ mod tests {
         // After unregister, the id is gone.
         registry.unregister("run-a");
         assert!(!registry.cancel("run-a"));
+    }
+
+    #[test]
+    fn run_registry_rejects_duplicate_in_flight_id() {
+        let registry = RunRegistry::new();
+        let _first = registry.register("run-dup").unwrap();
+        let err = registry.register("run-dup").unwrap_err();
+        assert!(err.contains("already in flight"), "{err}");
+        registry.unregister("run-dup");
+        assert!(registry.register("run-dup").is_ok());
+    }
+
+    #[test]
+    fn counting_cache_counts_only_cache_hits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = CountingCache::new(FsDetectionCache::new(tmp.path()));
+        let key = CacheKey::from_inputs(b"img", "chessboard", &json!({ "rows": 5 }));
+        assert_eq!(cache.hits(), 0);
+        assert!(cache.get(&key).unwrap().is_none());
+        assert_eq!(cache.hits(), 0);
+
+        cache.put(&key, &CachedFeatures::new(vec![])).unwrap();
+        assert!(cache.get(&key).unwrap().is_some());
+        assert_eq!(cache.hits(), 1);
+    }
+
+    #[test]
+    fn run_blocking_validates_config_before_detection() {
+        let manifest = json!({
+            "version": 1,
+            "topology": "planar_intrinsics",
+            "target": { "kind": "chessboard", "cols": 9, "rows": 6, "square_size_m": 0.025 },
+            "cameras": [{ "id": "cam0", "images": { "kind": "glob", "pattern": "does_not_exist/*.png" } }]
+        });
+        let bad_config = json!({ "not_a_real_field": 123, "optimize": { "max_iters": 0 } });
+        let cancel = CancelToken::new();
+        let ctx = RunCtx {
+            progress: &|_| {},
+            control: RunControl::new().with_cancel(cancel),
+        };
+        let resp = run_blocking(manifest, bad_config, "/nonexistent_dir_12345", &ctx);
+        match resp {
+            RunResponse::Failed { category, .. } => {
+                assert!(
+                    category == "config_parse" || category == "session_set_config",
+                    "unexpected category {category}"
+                );
+            }
+            other => panic!("expected config error before detection, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1281,18 +1418,20 @@ mod tests {
             let cameras: Vec<_> = (0..num_cams)
                 .map(|i| json!({"id": format!("cam{i}"), "images": {"kind": "glob", "pattern": "*.png"}}))
                 .collect();
-            let manifest = json!({
+            let mut manifest = json!({
                 "version": 1,
                 "topology": topology,
                 "cameras": cameras,
                 "target": {"kind": "chessboard", "rows": 9, "cols": 6, "square_size_m": 0.025},
-                "robot_poses": {"path": "poses.txt", "format": "rowmajor4x4"},
-                "pose_convention": {
+            });
+            if topology == "rig_laserline_device" {
+                manifest["robot_poses"] = json!({"path": "poses.txt", "format": "rowmajor4x4"});
+                manifest["pose_convention"] = json!({
                     "transform": "t_base_tcp",
                     "rotation_format": "matrix4x4_row_major",
                     "translation_units": "m",
-                },
-            });
+                });
+            }
             let response = run_blocking_test(manifest, json!({}), "/tmp");
             match response {
                 RunResponse::ValidationFailed { message } => {
@@ -1506,7 +1645,7 @@ mod tests {
                 s.usable_views
             );
             assert!(s.export["cameras"].is_array(), "rig export has cameras[]");
-            assert!(s.export["image_manifest"]["frames"].is_array());
+            assert!(s.export["diagnostics"]["image_manifest"]["frames"].is_array());
         }
         if let Some(s) = run_local_preset("data/stereo_charuco/dataset_cam1.toml") {
             assert!(
@@ -1514,7 +1653,7 @@ mod tests {
                 "charuco cam1: {} usable",
                 s.usable_views
             );
-            assert!(s.export["image_manifest"]["frames"].is_array());
+            assert!(s.export["diagnostics"]["image_manifest"]["frames"].is_array());
         }
         if let Some(s) = run_local_preset("data/stereo_charuco/dataset_rig.toml") {
             assert!(
@@ -1650,7 +1789,9 @@ mod tests {
         // The manifest must carry both frame kinds (ADR 0016 §5): the
         // target frames for the reprojection overlay and the laser
         // frames Diagnose's laser view plots residuals onto.
-        let frames = laser.export["image_manifest"]["frames"].as_array().unwrap();
+        let frames = laser.export["diagnostics"]["image_manifest"]["frames"]
+            .as_array()
+            .unwrap();
         let n_laser = frames.iter().filter(|f| f["kind"] == "laser").count();
         let n_target = frames.len() - n_laser;
         assert!(n_target > 0, "manifest carries target frames");
@@ -1746,7 +1887,9 @@ mod tests {
             s.export["handeye"]["gripper_se3_cam"].is_object(),
             "eye-in-hand"
         );
-        let frames = s.export["image_manifest"]["frames"].as_array().unwrap();
+        let frames = s.export["diagnostics"]["image_manifest"]["frames"]
+            .as_array()
+            .unwrap();
         assert_eq!(frames.len(), s.usable_views);
     }
 

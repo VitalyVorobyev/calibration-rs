@@ -591,4 +591,12 @@ fn pose_reports_iterations_and_cancels() {
     opts.control = RunControl::new().with_cancel(token);
     let err = estimate_pose(&rig, &obs, &opts).unwrap_err();
     assert!(matches!(err, Error::Cancelled), "{err:?}");
+
+    let token = CancelToken::new();
+    token.cancel();
+    let mut ransac_opts = PoseOptions::default();
+    ransac_opts.ransac = Some(vision_calibration_core::RansacOptions::new(3.0));
+    ransac_opts.control = RunControl::new().with_cancel(token);
+    let err = estimate_pose(&rig, &obs, &ransac_opts).unwrap_err();
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
 }

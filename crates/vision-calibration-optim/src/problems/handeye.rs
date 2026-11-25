@@ -10,7 +10,7 @@
 //!
 //! Transform chain (eye-in-hand):
 //! `T_C_T_i = (T_B_E_i * X)^-1 * Y` where `X` is hand-eye and `Y` is target in base.
-//! With robot refinement: `T_B_E_i_corr = exp(delta_i) * T_B_E_i` (left-multiply).
+//! With robot refinement: `T_B_E_i_corr = T_B_E_i * exp(delta_i)` (right-multiply in gripper frame).
 //!
 //! Residuals:
 //! - reprojection errors for observed target points using the robot pose chain
@@ -485,6 +485,23 @@ fn build_handeye_ir(
         return Err(Error::invalid_input(
             "fix_target_poses is only supported when relax_target_poses is true",
         ));
+    }
+    if let Some(&bad) = opts
+        .fix_target_poses
+        .iter()
+        .find(|&&i| i >= dataset.num_views())
+    {
+        return Err(Error::invalid_input(format!(
+            "fix_target_poses index {bad} out of bounds for {} views",
+            dataset.num_views()
+        )));
+    }
+    if !opts.fix_extrinsics.is_empty() && opts.fix_extrinsics.len() != dataset.data.num_cameras {
+        return Err(Error::invalid_input(format!(
+            "fix_extrinsics len {} must be 0 or num_cameras {}",
+            opts.fix_extrinsics.len(),
+            dataset.data.num_cameras
+        )));
     }
 
     let mut ir = ProblemIR::new();

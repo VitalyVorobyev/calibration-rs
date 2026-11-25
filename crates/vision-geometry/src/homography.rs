@@ -7,22 +7,17 @@
 //! Input points should be in consistent units; normalization is applied
 //! internally for numerical stability and the output is de-normalized.
 
-use crate::math::ensure_finite;
+use crate::math::{dlt_rank_ok, ensure_finite};
 use crate::{GeometryError, Result};
 use nalgebra::DMatrix;
 use vision_calibration_core::linalg::{mat3_from_vec, normalize_points_2d, null_space};
 use vision_calibration_core::{Mat3, Pt2};
 
-/// Return `true` if all points are (approximately) collinear.
+/// Return `true` if all normalized points are (approximately) collinear.
 ///
-/// Anchors the reference direction on the **first distinct pair** of points
-/// (skipping duplicates of `pts[0]`). If all points are identical the set is
-/// trivially degenerate and `true` is returned. Otherwise every remaining
-/// point is tested: if any cross-product magnitude exceeds `1e-6` the set is
-/// not collinear.
-///
-/// Only three or more points can be collinear, so fewer than 3 points always
-/// return `false`.
+/// Must be called on Hartley-normalized coordinates (mean distance `√2`) so
+/// the cross-product threshold is scale-invariant (small metric targets like
+/// 1 mm × 1 mm grids are not misclassified as collinear).
 fn points_are_collinear(pts: &[Pt2]) -> bool {
     if pts.len() < 3 {
         return false;
@@ -30,31 +25,25 @@ fn points_are_collinear(pts: &[Pt2]) -> bool {
 
     let p0 = pts[0];
 
-    // Find the first point that is meaningfully different from pts[0].
-    // This avoids a zero baseline when the leading points are duplicates.
     const SAME_PT_EPS: f64 = 1e-9;
     let Some(p1) = pts
         .iter()
         .skip(1)
-        .find(|p| {
-            let dx = p.x - p0.x;
-            let dy = p.y - p0.y;
-            (dx * dx + dy * dy).sqrt() > SAME_PT_EPS
-        })
+        .find(|p| (p.x - p0.x).hypot(p.y - p0.y) > SAME_PT_EPS)
         .copied()
     else {
-        // All points are identical → degenerate.
         return true;
     };
 
-    // Test every other point against the p0–p1 baseline.
+    let d1 = (p1.x - p0.x).hypot(p1.y - p0.y);
     for p2 in pts.iter() {
-        if (p2.x - p0.x).hypot(p2.y - p0.y) <= SAME_PT_EPS {
-            continue; // duplicate of p0 — collinear by definition
+        let d2 = (p2.x - p0.x).hypot(p2.y - p0.y);
+        if d2 <= SAME_PT_EPS {
+            continue;
         }
         let cross = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-        if cross.abs() > 1e-6 {
-            return false; // found a non-collinear point
+        if cross.abs() > 1e-6 * d1 * d2 {
+            return false;
         }
     }
     true
@@ -81,30 +70,28 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
         });
     }
 
-    // Reject collinear configurations early: a valid homography requires at
-    // least 4 points in general position (no 3 collinear) in BOTH the source
-    // and destination sets.  Collinear src makes the design matrix rank < 8;
-    // collinear dst yields a degenerate (rank-2) homography that maps the
-    // entire plane to a line and cannot be reliably inverted or applied.
-    if points_are_collinear(src) {
-        return Err(GeometryError::degenerate(
-            "rank-deficient point configuration: source points are collinear \
-             (need 4 correspondences in general position, no 3 collinear)",
-        ));
-    }
-    if points_are_collinear(dst) {
-        return Err(GeometryError::degenerate(
-            "rank-deficient point configuration: destination points are collinear \
-             (need 4 correspondences in general position, no 3 collinear)",
-        ));
-    }
-
     let (src_n, t_w) = normalize_points_2d(src).ok_or_else(|| {
         GeometryError::degenerate("degenerate point configuration for normalization")
     })?;
     let (dst_n, t_i) = normalize_points_2d(dst).ok_or_else(|| {
         GeometryError::degenerate("degenerate point configuration for normalization")
     })?;
+
+    // Reject collinear configurations on the normalized coordinates: a valid
+    // homography requires at least 4 points in general position (no 3 collinear)
+    // in BOTH sets.
+    if points_are_collinear(&src_n) {
+        return Err(GeometryError::degenerate(
+            "rank-deficient point configuration: source points are collinear \
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
+    }
+    if points_are_collinear(&dst_n) {
+        return Err(GeometryError::degenerate(
+            "rank-deficient point configuration: destination points are collinear \
+             (need 4 correspondences in general position, no 3 collinear)",
+        ));
+    }
 
     let mut a = DMatrix::<f64>::zeros(2 * n, 9);
 
@@ -140,20 +127,7 @@ pub fn dlt_homography(src: &[Pt2], dst: &[Pt2]) -> Result<Mat3> {
     // quickly; with the Hartley normalization above the squared conditioning is
     // harmless.
     let ns = null_space(&a)?;
-    let sv = &ns.singular_values;
-
-    // Rank-deficiency check: for a well-posed homography the 2n×9 design matrix
-    // must have rank exactly 8 (a 1-D null space). The singular values are
-    // sorted descending.
-    if sv[0] <= f64::EPSILON {
-        return Err(GeometryError::degenerate(
-            "degenerate (all-zero) homography design matrix",
-        ));
-    }
-    // sv[7] is the second-smallest singular value.  For a valid configuration
-    // (4 points in general position) it is well above zero. For collinear input
-    // the null space is ≥2-D and sv[7] collapses toward zero like sv[8].
-    if sv[7] / sv[0] < 1e-7 {
+    if !dlt_rank_ok(&ns.singular_values, 9, 1, 1e-7) {
         return Err(GeometryError::degenerate(
             "rank-deficient point configuration: homography is underdetermined \
              (need 4 correspondences in general position, no 3 collinear)",
@@ -352,5 +326,25 @@ mod tests {
             elapsed.as_secs_f64() < 2.0,
             "dense DLT took {elapsed:?} — perf regression (AᵀA eigen path lost?)"
         );
+    }
+
+    #[test]
+    fn dlt_homography_accepts_millimeter_scale_targets() {
+        let src = vec![
+            Pt2::new(0.0, 0.0),
+            Pt2::new(1e-3, 0.0),
+            Pt2::new(1e-3, 1e-3),
+            Pt2::new(0.0, 1e-3),
+        ];
+        let dst = vec![
+            Pt2::new(100.0, 200.0),
+            Pt2::new(200.0, 200.0),
+            Pt2::new(200.0, 300.0),
+            Pt2::new(100.0, 300.0),
+        ];
+        let h = dlt_homography(&src, &dst).expect("1mm square should not be treated as collinear");
+        let p = h * nalgebra::Vector3::new(1e-3, 1e-3, 1.0);
+        assert!((p.x / p.z - 200.0).abs() < 1e-6);
+        assert!((p.y / p.z - 300.0).abs() < 1e-6);
     }
 }

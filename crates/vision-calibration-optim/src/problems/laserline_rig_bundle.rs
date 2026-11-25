@@ -313,6 +313,11 @@ pub fn optimize_rig_laserline(
     opts: &RigLaserlineSolveOptions,
     backend_opts: &BackendSolveOptions,
 ) -> Result<RigLaserlineEstimate, Error> {
+    if opts.laserline.fix_plane {
+        return Err(Error::invalid_input(
+            "optimize_rig_laserline solves for the per-camera laser planes, so fix_plane must be false",
+        ));
+    }
     let n = dataset.num_cameras;
     if upstream.cameras.len() != n
         || upstream.rig_se3_cam.len() != n
@@ -807,45 +812,114 @@ pub fn handeye_upstream_uncertainty(
         rig_se3_target.len()
     };
 
-    // The linear map from the calibration's coordinates to the upstream's.
-    let mut labels: Vec<String> = kept.iter().map(|&i| covariance.labels[i].clone()).collect();
-    let mut map = DMatrix::zeros(kept.len() + 6 * views, covariance.labels.len());
-    for (row, &i) in kept.iter().enumerate() {
-        map[(row, i)] = 1.0;
-    }
-    for (v, pose) in rig_se3_target.iter().take(views).enumerate() {
+    // Linear map from calibration coordinates to upstream coordinates:
+    // kept params map via identity, each view pose via `[A_v | I]` on `(handeye, target)`.
+    let k = kept.len();
+    let m = k + 6 * views;
+    let mut labels: Vec<String> = Vec::with_capacity(m);
+    labels.extend(kept.iter().map(|&i| covariance.labels[i].clone()));
+    for v in 0..views {
         labels.extend(pose_labels(&format!("view{v}.rig_se3_target")));
-        let first = kept.len() + 6 * v;
-        if let Some(at) = handeye_at {
-            let moves = match mode {
-                HandeyeMode::EyeInHand => -se3_adjoint(&pose.inverse()),
-                HandeyeMode::EyeToHand => se3_adjoint(&(pose.inverse() * handeye)),
-            };
-            for a in 0..6 {
-                for b in 0..6 {
-                    map[(first + a, at[b])] = moves[(a, b)];
+    }
+
+    let sig = &covariance.covariance;
+    let mut out = vec![vec![0.0; m]; m];
+    // Kept × kept block (identity selection).
+    for (r, &kr) in kept.iter().enumerate() {
+        for (c, &kc) in kept.iter().enumerate().take(r + 1) {
+            let val = 0.5 * (sig[kr][kc] + sig[kc][kr]);
+            out[r][c] = val;
+            out[c][r] = val;
+        }
+    }
+
+    if views > 0 {
+        let block6 = |rows: &[usize; 6], cols: &[usize; 6]| -> nalgebra::Matrix6<f64> {
+            nalgebra::Matrix6::from_fn(|a, b| sig[rows[a]][cols[b]])
+        };
+        let s_hh = handeye_at.map(|h| block6(&h, &h));
+        let s_tt = target_at.map(|t| block6(&t, &t));
+        let s_ht = handeye_at.zip(target_at).map(|(h, t)| block6(&h, &t));
+        let s_th = s_ht.map(|m| m.transpose());
+        let s_hk: Vec<[f64; 6]> = handeye_at
+            .map(|h| {
+                kept.iter()
+                    .map(|&kc| std::array::from_fn(|a| sig[h[a]][kc]))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let s_tk: Vec<[f64; 6]> = target_at
+            .map(|t| {
+                kept.iter()
+                    .map(|&kc| std::array::from_fn(|a| sig[t[a]][kc]))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let ads: Vec<Option<nalgebra::Matrix6<f64>>> = rig_se3_target
+            .iter()
+            .take(views)
+            .map(|pose| {
+                handeye_at.map(|_| match mode {
+                    HandeyeMode::EyeInHand => -se3_adjoint(&pose.inverse()),
+                    HandeyeMode::EyeToHand => se3_adjoint(&(pose.inverse() * handeye)),
+                })
+            })
+            .collect();
+
+        // View × kept blocks.
+        for (v, ad_opt) in ads.iter().enumerate() {
+            let v0 = k + 6 * v;
+            for c in 0..k {
+                for a in 0..6 {
+                    let mut val = 0.0;
+                    if let Some(ad) = ad_opt {
+                        let hk = &s_hk[c];
+                        for b in 0..6 {
+                            val += ad[(a, b)] * hk[b];
+                        }
+                    }
+                    if !s_tk.is_empty() {
+                        val += s_tk[c][a];
+                    }
+                    out[v0 + a][c] = val;
+                    out[c][v0 + a] = val;
                 }
             }
         }
-        if let Some(at) = target_at {
-            for a in 0..6 {
-                map[(first + a, at[a])] += 1.0;
+
+        // View × view 6×6 blocks via sparse adjoint algebra.
+        for (u, ad_u) in ads.iter().enumerate() {
+            let u0 = k + 6 * u;
+            for (v, ad_v) in ads.iter().enumerate().take(u + 1) {
+                let mut block = s_tt.unwrap_or_else(nalgebra::Matrix6::zeros);
+                if let (Some(au), Some(av), Some(hh)) = (ad_u, ad_v, &s_hh) {
+                    block += au * hh * av.transpose();
+                }
+                if let (Some(au), Some(ht)) = (ad_u, &s_ht) {
+                    block += au * ht;
+                }
+                if let (Some(av), Some(th)) = (ad_v, &s_th) {
+                    block += th * av.transpose();
+                }
+                if u == v {
+                    // Symmetric up to rounding; make it exactly so.
+                    block = 0.5 * (block + block.transpose());
+                }
+                for a in 0..6 {
+                    for b in 0..6 {
+                        let val = block[(a, b)];
+                        out[u0 + a][k + 6 * v + b] = val;
+                        out[k + 6 * v + b][u0 + a] = val;
+                    }
+                }
             }
         }
     }
-    let n = covariance.labels.len();
-    let sigma = DMatrix::from_fn(n, n, |a, b| covariance.covariance[a][b]);
-    let mapped = &map * sigma * map.transpose();
-    let m = mapped.nrows();
+
     let mut upstream = ParameterCovariance::new(
         labels,
-        (0..m)
-            .map(|a| {
-                (0..m)
-                    .map(|b| 0.5 * (mapped[(a, b)] + mapped[(b, a)]))
-                    .collect()
-            })
-            .collect(),
+        out,
         covariance.noise.clone(),
         covariance.num_residuals,
         covariance.dof,

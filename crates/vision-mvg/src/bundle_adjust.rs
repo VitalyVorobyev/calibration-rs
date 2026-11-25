@@ -568,7 +568,9 @@ fn calibration_share(uncertainty: &Uncertainty) -> Uncertainty {
         return uncertainty.clone();
     };
     let is_calibration = |label: &str| {
-        let head = label.split('.').next().unwrap_or("");
+        let Some((head, _)) = label.split_once('.') else {
+            return true;
+        };
         let numbered = |prefix: &str| {
             head.strip_prefix(prefix)
                 .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))

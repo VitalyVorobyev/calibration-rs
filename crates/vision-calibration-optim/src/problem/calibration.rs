@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use nalgebra::{DMatrix, DVector, Matrix6, RealField, UnitQuaternion, Vector3};
-use vision_calibration_core::{CalibratedRig, Handeye, Iso3, RobotFrame, RobotPose};
+use vision_calibration_core::{
+    CalibratedRig, CameraModelSpec, Handeye, Iso3, RobotFrame, RobotPose,
+};
 
 use super::residual::{Bridge, Residual, se3};
 use super::{BlockId, CAMERA_SLOTS, Camera, CameraId, Manifold, Owner, PoseChain, Problem, Term};
@@ -171,9 +173,11 @@ impl Problem {
             }
         }
 
-        // (block index, tangent index, position in the covariance)
-        let mut estimated: Vec<(usize, usize, usize)> = Vec::new();
-        let mut cameras = Vec::with_capacity(rig.num_cameras());
+        // Validate all cameras, poses, and prior covariance before mutating `self`.
+        let mut next_block_id = self.blocks.len();
+        let mut prepared_cameras: Vec<(CameraModelSpec, Vec<super::Block>)> =
+            Vec::with_capacity(rig.num_cameras());
+        let mut estimated_camera: Vec<(usize, usize, usize)> = Vec::new();
         for (k, camera) in rig.cameras().iter().enumerate() {
             let spec = camera_spec(camera)?;
             let values = camera.blocks();
@@ -182,24 +186,33 @@ impl Problem {
                     "camera {k}: parameters must be finite"
                 )));
             }
-            let index = self.cameras.len();
-            let mut blocks = Vec::new();
-            for (slot, values) in CAMERA_SLOTS.into_iter().zip(values) {
-                if values.is_empty() {
+            let index = self.cameras.len() + k;
+            let mut cam_blocks = Vec::new();
+            for (slot, slot_values) in CAMERA_SLOTS.into_iter().zip(values) {
+                if slot_values.is_empty() {
                     continue;
                 }
                 let labels = camera_block_labels(slot, spec, |s| prefix(k, s))
                     .expect("a camera slot has labels")
                     .coordinates;
                 let at: Vec<Option<usize>> = labels.iter().map(|l| position(l)).collect();
-                let held: Vec<usize> = (0..values.len()).filter(|&i| at[i].is_none()).collect();
+                let held: Vec<usize> = (0..slot_values.len())
+                    .filter(|&i| at[i].is_none())
+                    .collect();
                 let fixed = match usage {
-                    Use::Consider => FixedMask::all_fixed(values.len()),
+                    Use::Consider => FixedMask::all_fixed(slot_values.len()),
                     Use::Prior => FixedMask::fix_indices(&held),
                 };
-                let id = self.push_block(super::Block {
+                let block_id = next_block_id;
+                next_block_id += 1;
+                estimated_camera.extend(
+                    at.iter()
+                        .enumerate()
+                        .filter_map(|(i, p)| p.map(|p| (block_id, i, p))),
+                );
+                cam_blocks.push(super::Block {
                     name: format!("camera{index}.{slot}"),
-                    values: DVector::from_vec(values),
+                    values: DVector::from_vec(slot_values),
                     manifold: Manifold::Euclidean,
                     fixed,
                     bounds: Vec::new(),
@@ -209,21 +222,12 @@ impl Problem {
                         slot,
                     },
                 });
-                estimated.extend(
-                    at.iter()
-                        .enumerate()
-                        .filter_map(|(i, p)| p.map(|p| (id.index, i, p))),
-                );
-                blocks.push(id);
             }
-            self.cameras.push(Camera { spec, blocks });
-            cameras.push(CameraId {
-                problem: self.id,
-                index,
-            });
+            prepared_cameras.push((spec, cam_blocks));
         }
 
-        let mut cam_se3_rig = vec![None; rig.num_cameras()];
+        let mut prepared_extrinsics: Vec<(super::Block, Option<Vec<usize>>)> = Vec::new();
+        let mut estimated_extrinsics: Vec<(usize, usize, usize)> = Vec::new();
         if multi {
             for (k, pose) in rig.cam_se3_rig().iter().enumerate() {
                 let name = format!("cam{k}.cam_se3_rig");
@@ -241,32 +245,77 @@ impl Problem {
                 } else {
                     FixedMask::all_fixed(7)
                 };
-                let id = self.push_block(super::Block {
-                    name,
-                    values: iso3_to_se3_dvec(pose),
-                    manifold: Manifold::Se3,
-                    fixed,
-                    bounds: Vec::new(),
-                    labels: None,
-                    owner: Owner::User,
+                let block_id = next_block_id;
+                next_block_id += 1;
+                let pos_vec = free.then(|| {
+                    let v: Vec<usize> = at.iter().map(|p| p.unwrap()).collect();
+                    estimated_extrinsics
+                        .extend(v.iter().enumerate().map(|(i, &p)| (block_id, i, p)));
+                    v
                 });
-                if free {
-                    estimated.extend(
-                        at.iter()
-                            .enumerate()
-                            .map(|(i, p)| (id.index, i, p.unwrap())),
-                    );
-                }
-                cam_se3_rig[k] = Some(id);
+                prepared_extrinsics.push((
+                    super::Block {
+                        name,
+                        values: iso3_to_se3_dvec(pose),
+                        manifold: Manifold::Se3,
+                        fixed,
+                        bounds: Vec::new(),
+                        labels: None,
+                        owner: Owner::User,
+                    },
+                    pos_vec,
+                ));
             }
         }
 
+        let mut estimated = estimated_camera;
+        estimated.extend(estimated_extrinsics);
         let coordinates: Vec<(usize, usize)> = estimated.iter().map(|&(b, i, _)| (b, i)).collect();
         let sigma = covariance.map(|c| {
             DMatrix::from_fn(estimated.len(), estimated.len(), |a, b| {
                 c.covariance[estimated[a].2][estimated[b].2]
             })
         });
+        if usage == Use::Prior && !coordinates.is_empty() {
+            let s = sigma.as_ref().expect("a prior has a covariance");
+            if s.iter().any(|v| !v.is_finite()) {
+                return Err(Error::invalid_input(
+                    "the calibration's covariance must be finite over its estimated parameters",
+                ));
+            }
+            let l = s.clone().cholesky().ok_or_else(|| {
+                Error::invalid_input(
+                    "the calibration's covariance is not positive definite over its estimated \
+                     parameters",
+                )
+            })?;
+            l.l()
+                .try_inverse()
+                .ok_or_else(|| Error::invalid_input("the calibration's covariance is singular"))?;
+        }
+
+        // Validation succeeded; commit blocks cleanly.
+        let mut cameras = Vec::with_capacity(prepared_cameras.len());
+        for (spec, cam_blocks) in prepared_cameras {
+            let index = self.cameras.len();
+            let mut blocks = Vec::with_capacity(cam_blocks.len());
+            for block in cam_blocks {
+                blocks.push(self.push_block(block));
+            }
+            self.cameras.push(Camera { spec, blocks });
+            cameras.push(CameraId {
+                problem: self.id,
+                index,
+            });
+        }
+
+        let mut cam_se3_rig = vec![None; rig.num_cameras()];
+        if multi {
+            for (k, (block, _)) in prepared_extrinsics.into_iter().enumerate() {
+                cam_se3_rig[k] = Some(self.push_block(block));
+            }
+        }
+
         if usage == Use::Prior && !coordinates.is_empty() {
             let sigma = sigma.as_ref().expect("a prior has a covariance");
             self.add_prior(&coordinates, sigma)?;
@@ -558,7 +607,12 @@ fn so3_log<T: RealField>(q: &UnitQuaternion<T>) -> Vector3<T> {
         two.clone() / w.clone() * (T::one() - n2 / (three * w.clone() * w))
     } else {
         let n = n2.sqrt();
-        two * n.clone().atan2(w) / n
+        let theta = if w < n {
+            T::from_f64(std::f64::consts::FRAC_PI_2).unwrap() - (w / n.clone()).atan()
+        } else {
+            (n.clone() / w).atan()
+        };
+        two * theta / n
     };
     v * scale
 }
@@ -571,11 +625,31 @@ mod tests {
     #[test]
     fn so3_log_inverts_the_exponential() {
         for axis in [Vector3::x(), Vector3::new(0.3, -0.5, 0.8).normalize()] {
-            for angle in [0.0, 1e-9, 1e-4, 0.3, 2.5] {
+            for angle in [0.0, 1e-9, 1e-4, 0.3, 2.5, std::f64::consts::PI] {
                 let w = axis * angle;
                 let back = so3_log(&UnitQuaternion::from_scaled_axis(w));
-                assert!((back - w).norm() < 1e-14, "{w:?}: {back:?}");
+                if angle < std::f64::consts::PI {
+                    assert!((back - w).norm() < 1e-14, "{w:?}: {back:?}");
+                } else {
+                    assert!(back.iter().all(|v| v.is_finite()));
+                    assert!((back.norm() - std::f64::consts::PI).abs() < 1e-12);
+                }
             }
         }
+    }
+
+    #[test]
+    fn so3_log_dual_derivative_is_finite_at_half_turn() {
+        use num_dual::Dual64;
+        let q = UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+            Dual64::new(0.0, 1.0),
+            Dual64::from(1.0),
+            Dual64::from(0.0),
+            Dual64::from(0.0),
+        ));
+        let log_q = so3_log(&q);
+        assert!(log_q.iter().all(|v| v.re.is_finite() && v.eps.is_finite()));
+        assert!((log_q.x.re - std::f64::consts::PI).abs() < 1e-12);
+        assert!((log_q.x.eps + 2.0).abs() < 1e-12, "deps = {}", log_q.x.eps);
     }
 }

@@ -162,19 +162,21 @@ pub fn rq_decompose(m: &Mat3) -> (Mat3, Mat3) {
 
 /// Decompose a camera projection matrix into intrinsics, rotation, and translation.
 ///
-/// Returns `K`, `R`, and `t` such that `P ~ K [R | t]`. The diagonal of `K` is
-/// forced positive and `R` is projected onto SO(3).
+/// Returns `K`, `R`, and `t` such that `P ~ K [R | t]`. `K` is normalized so
+/// `K[2, 2] = 1` with a positive diagonal, and `R` is a proper rotation (`det = +1`).
 pub fn decompose_camera_matrix(p: &Mat34) -> Result<CameraMatrixDecomposition> {
+    ensure_finite("camera matrix", p.iter())?;
     let m = p.fixed_view::<3, 3>(0, 0).into_owned();
     let (mut k, mut r) = rq_decompose(&m);
 
-    if k[(2, 2)] < 0.0 {
-        k = -k;
-        r = -r;
+    let k22 = k[(2, 2)];
+    if !k22.is_finite() || k22.abs() <= Real::EPSILON {
+        return Err(GeometryError::Singular);
     }
 
     let k_inv = k.try_inverse().ok_or(GeometryError::Singular)?;
     let mut t = k_inv * p.column(3);
+    k /= k22;
 
     if r.determinant() < 0.0 {
         r = -r;

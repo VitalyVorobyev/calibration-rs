@@ -3,7 +3,7 @@
 //! The cache is keyed on
 //! `(image_content_hash, detector_name, canonical_config_hash)` where:
 //!
-//! * `image_content_hash` is the BLAKE-style 64-bit FNV-1a digest of
+//! * `image_content_hash` is the 64-bit FNV-1a digest of
 //!   the raw image bytes. We deliberately avoid file mtime — moving an
 //!   image around shouldn't invalidate the cached detection of its
 //!   contents.
@@ -234,13 +234,27 @@ impl DetectionCache for FsDetectionCache {
     }
 
     fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_TMP_ID: AtomicU64 = AtomicU64::new(1);
+
         std::fs::create_dir_all(&self.root)?;
         let final_path = self.root.join(key.file_name());
-        let tmp_path = self.root.join(format!("{}.tmp", key.file_name()));
+        let tmp_id = NEXT_TMP_ID.fetch_add(1, Ordering::Relaxed);
+        let tmp_path = self.root.join(format!(
+            "{}.{}.{tmp_id}.tmp",
+            key.file_name(),
+            std::process::id()
+        ));
         let bytes =
             serde_json::to_vec_pretty(value).map_err(|e| CacheError::Serde(e.to_string()))?;
-        std::fs::write(&tmp_path, bytes)?;
-        std::fs::rename(tmp_path, final_path)?;
+        if let Err(err) = std::fs::write(&tmp_path, bytes) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(err.into());
+        }
+        if let Err(err) = std::fs::rename(&tmp_path, final_path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(err.into());
+        }
         Ok(())
     }
 }
@@ -525,5 +539,38 @@ mod tests {
             FsDetectionCache::new(std::env::temp_dir().join("definitely-does-not-exist-xxxx"));
         let key = CacheKey::from_inputs(b"img", "chessboard", &json!({}));
         assert!(cache.get(&key).unwrap().is_none());
+    }
+
+    #[test]
+    fn concurrent_cache_puts_are_atomic_and_clean() {
+        let dir = tempdir().unwrap();
+        let cache = std::sync::Arc::new(FsDetectionCache::new(dir.path()));
+        let key = CacheKey::from_inputs(b"shared", "chessboard", &json!({"n": 1}));
+        let entry = CachedFeatures::new(vec![Feature::new([12.5, 24.5], [0.02, 0.04, 0.0])]);
+
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                let cache = &cache;
+                let key = &key;
+                let entry = &entry;
+                s.spawn(move || {
+                    for _ in 0..10 {
+                        cache.put(key, entry).unwrap();
+                    }
+                });
+            }
+        });
+
+        let back = cache.get(&key).unwrap().expect("cache hit expected");
+        assert_eq!(back.features, entry.features);
+        let leftover_tmps: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("tmp"))
+            .collect();
+        assert!(
+            leftover_tmps.is_empty(),
+            "leftover temp files: {leftover_tmps:?}"
+        );
     }
 }

@@ -173,6 +173,10 @@ impl CalibratedCameras for CalibrationExport {
         self.cameras().laser_planes_cam()
     }
 
+    fn handeye(&self) -> Option<vision_calibration_core::Handeye> {
+        self.cameras().handeye()
+    }
+
     fn parameter_uncertainty(&self) -> &Uncertainty {
         self.cameras().parameter_uncertainty()
     }
@@ -566,5 +570,49 @@ mod tests {
                 topology: ProblemKind::LaserlineDevice
             }
         ));
+    }
+
+    #[test]
+    fn calibration_export_handeye_forwards_variant() {
+        use nalgebra::{Translation3, UnitQuaternion};
+        use vision_calibration_core::{
+            BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, Iso3, ProjectionParams,
+            SensorParams, Uncertainty,
+        };
+        use vision_calibration_optim::HandeyeMode;
+
+        use crate::common::{CalibratedCameras, ExportDiagnostics, ProblemKind, VersionedExport};
+        use crate::single_cam_handeye::{SingleCamHandeyeExport, SingleCamHandeyeSolution};
+
+        let camera = CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
+                params: BrownConrady5::default(),
+            },
+            SensorParams::Identity,
+            FxFyCxCy {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+            },
+        );
+        let he = Iso3::from_parts(
+            Translation3::new(0.1, -0.2, 0.3),
+            UnitQuaternion::identity(),
+        );
+        let export = CalibrationExport::SingleCamHandeye(SingleCamHandeyeExport {
+            kind: ProblemKind::SingleCamHandeye,
+            schema_version: SingleCamHandeyeExport::SCHEMA_VERSION,
+            camera,
+            handeye: SingleCamHandeyeSolution::new(HandeyeMode::EyeInHand, he, Iso3::identity()),
+            robot_refinement: None,
+            mean_reproj_error: 0.1,
+            per_cam_reproj_errors: vec![0.1],
+            diagnostics: ExportDiagnostics::default(),
+            uncertainty: Uncertainty::default(),
+        });
+        assert!(export.handeye().is_some());
+        assert_eq!(export.camera_params().len(), 1);
     }
 }

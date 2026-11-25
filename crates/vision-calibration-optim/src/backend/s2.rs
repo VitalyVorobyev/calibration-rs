@@ -90,22 +90,28 @@ pub(crate) fn minus<T: na::RealField>(y: &na::Vector3<T>, x: &na::Vector3<T>) ->
     // w = (θ / sinθ) u   (if sinθ != 0)
     let dot = x0.dot(&y0);
     let cross = x0.cross(&y0);
-    let sin_t = cross.norm();
-
-    let theta = sin_t.clone().atan2(dot.clone());
-
-    let u = y0 - x0.clone() * dot.clone();
-
-    let w = if sin_t < T::from_f64(EPS).unwrap() {
-        // Near-parallel or near-antipodal.
-        // Parallel (dot>0): log is ~0.
-        // Antipodal (dot<0): direction is not unique; pick deterministic b1 * π.
+    let sin2 = cross.norm_squared();
+    let eps = T::from_f64(EPS).unwrap();
+    let w = if sin2 < eps.clone() * eps {
+        // Near-parallel: first-order exact tangent projection avoids sqrt(0)
+        // under dual numbers while preserving the identity derivative at x = y.
+        // Antipodal: direction is not unique; pick deterministic b1 * π.
         if dot > T::zero() {
-            na::Vector3::zeros()
+            y0 - x0 * dot
         } else {
             b1.clone() * T::from_f64(std::f64::consts::PI).unwrap()
         }
     } else {
+        let sin_t = sin2.sqrt();
+        // Split atan around |dot| < sin_t so quotient never divides by zero under dual numbers.
+        let theta = if dot.clone().abs() < sin_t {
+            T::from_f64(std::f64::consts::FRAC_PI_2).unwrap() - (dot.clone() / sin_t.clone()).atan()
+        } else if dot > T::zero() {
+            (sin_t.clone() / dot.clone()).atan()
+        } else {
+            T::from_f64(std::f64::consts::PI).unwrap() - (sin_t.clone() / (-dot.clone())).atan()
+        };
+        let u = y0 - x0 * dot;
         u * (theta / sin_t)
     };
 

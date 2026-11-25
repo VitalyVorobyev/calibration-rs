@@ -200,17 +200,21 @@ pub fn fundamental_7point(pts1: &[Pt2], pts2: &[Pt2]) -> Result<Vec<Mat3>> {
     let c = t - a;
 
     let roots = solve_cubic_real(a, b, c, d);
-    if roots.is_empty() {
-        return Err(GeometryError::numerical("Polynomial solve failed"));
-    }
-
     let mut solutions = Vec::new();
     for lambda in roots {
         let f = enforce_rank2(&(f2 + lambda * f1))?;
         solutions.push((lambda, t2.transpose() * f * t1));
     }
+    let poly_scale = a.abs().max(b.abs()).max(c.abs()).max(d.abs());
+    if poly_scale > 0.0 && a.abs() <= 1e-12 * poly_scale {
+        let f = enforce_rank2(&f1)?;
+        solutions.push((f64::INFINITY, t2.transpose() * f * t1));
+    }
+    if solutions.is_empty() {
+        return Err(GeometryError::numerical("Polynomial solve failed"));
+    }
 
-    solutions.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    solutions.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(solutions.into_iter().map(|(_, f)| f).collect())
 }
 
@@ -290,8 +294,15 @@ pub fn fundamental_8point_ransac(
             let fx = model * x;
             let ftxp = model.transpose() * xp;
             let denom = fx.x * fx.x + fx.y * fx.y + ftxp.x * ftxp.x + ftxp.y * ftxp.y;
-            let denom = denom.max(1e-12);
+            let f_norm2 = model.norm_squared();
             let val = xp.transpose() * model * x;
+            if denom <= (f_norm2 * 1e-24).max(1e-300) {
+                return if val[0].abs() <= f_norm2.sqrt() * 1e-12 {
+                    0.0
+                } else {
+                    f64::INFINITY
+                };
+            }
             let d2 = (val[0] * val[0]) / denom;
             d2.sqrt()
         }

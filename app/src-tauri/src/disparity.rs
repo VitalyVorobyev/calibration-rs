@@ -61,8 +61,9 @@ pub struct DisparityResult {
     pub disp_min: f32,
     /// See [`DisparityResult::disp_min`].
     pub disp_max: f32,
-    /// Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent.
-    pub plane_rms: f64,
+    /// Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent;
+    /// `None` when fewer than 3 finite disparities are available or the fit is degenerate.
+    pub plane_rms: Option<f64>,
     /// Inlier pixel count of that planar fit.
     pub plane_inliers: usize,
     /// Stereo baseline in calibration units (m).
@@ -99,8 +100,24 @@ pub async fn compute_disparity(
     params: DisparityParams,
     cache: State<'_, ExportCache>,
 ) -> Result<DisparityResult, String> {
-    let paths = [Path::new(&path_a), Path::new(&path_b)];
-    crate::ops::compute_disparity(&cache, paths, cam_a, cam_b, pose, &params)
+    let cached = cache
+        .snapshot()
+        .ok_or_else(|| "no export loaded yet".to_string())?;
+    // Rectification and SGM matching are the heaviest compute in the app:
+    // keep them off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || {
+        compute(
+            &cached.value,
+            Path::new(&path_a),
+            Path::new(&path_b),
+            cam_a,
+            cam_b,
+            pose,
+            &params,
+        )
+    })
+    .await
+    .map_err(|e| format!("disparity task panicked: {e}"))?
 }
 
 /// Core pipeline: parse calibration → rectify → match → render.
@@ -277,7 +294,7 @@ fn valid_range(d: &DisparityMap) -> Option<(f32, f32)> {
 }
 
 /// Robust planar fit `d ≈ a·x + b·y + c`, refit once on inliers (≤3 px).
-fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
+fn planarity_rms(d: &DisparityMap) -> (Option<f64>, usize) {
     let samples: Vec<(f64, f64, f64)> = (0..d.height())
         .flat_map(|y| (0..d.width()).map(move |x| (x, y)))
         .filter_map(|(x, y)| {
@@ -286,7 +303,7 @@ fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
         })
         .collect();
     if samples.len() < 3 {
-        return (f64::INFINITY, samples.len());
+        return (None, samples.len());
     }
     let fit = |pts: &[(f64, f64, f64)]| -> Option<Vec3> {
         let mut ata = Matrix3::<f64>::zeros();
@@ -300,7 +317,7 @@ fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
     };
     let resid = |c: &Vec3, x: f64, y: f64, v: f64| (v - (c.x * x + c.y * y + c.z)).abs();
     let Some(c0) = fit(&samples) else {
-        return (f64::INFINITY, samples.len());
+        return (None, samples.len());
     };
     let inliers: Vec<(f64, f64, f64)> = samples
         .iter()
@@ -313,13 +330,14 @@ fn planarity_rms(d: &DisparityMap) -> (f64, usize) {
         &samples
     };
     let Some(c) = fit(pts) else {
-        return (f64::INFINITY, pts.len());
+        return (None, pts.len());
     };
     let sum_sq: f64 = pts
         .iter()
         .map(|&(x, y, v)| resid(&c, x, y, v).powi(2))
         .sum();
-    ((sum_sq / pts.len() as f64).sqrt(), pts.len())
+    let rms = (sum_sq / pts.len() as f64).sqrt();
+    (rms.is_finite().then_some(rms), pts.len())
 }
 
 // ---------------------------------------------------------------------------
@@ -518,11 +536,10 @@ mod tests {
             "few inliers: {}",
             res.plane_inliers
         );
-        assert!(
-            res.plane_rms < 2.0,
-            "planarity RMS too high: {}",
-            res.plane_rms
-        );
+        let plane_rms = res
+            .plane_rms
+            .expect("calibrated stereo pair should yield finite planarity RMS");
+        assert!(plane_rms < 2.0, "planarity RMS too high: {plane_rms}");
         assert!(res.baseline_m > 0.0);
         assert!(res.disparity_png.starts_with("data:image/png;base64,"));
         assert!(res.overlay_png.starts_with("data:image/png;base64,"));

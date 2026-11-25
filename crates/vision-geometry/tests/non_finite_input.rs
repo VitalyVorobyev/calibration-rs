@@ -64,7 +64,10 @@ fn epipolar_and_homography_solvers_reject_nan() {
     let bearings: Vec<Vec3> = a.iter().map(|p| Vec3::new(p.x, p.y, 1.0)).collect();
     let mut bad = bearings.clone();
     bad[1].z = f64::NAN;
-    assert!(essential_5point(&bearings[..5], &bad[..5]).is_err());
+    assert_invalid(
+        "essential_5point",
+        essential_5point(&bearings[..5], &bad[..5]),
+    );
 }
 
 #[test]

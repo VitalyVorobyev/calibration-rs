@@ -31,6 +31,13 @@ pub struct ReportOptions {
     pub thresholds: QualityThresholds,
 }
 
+impl ReportOptions {
+    /// Construct default HTML report options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// A calibration result as one self-contained HTML page.
 ///
 /// The page shows the [`assess`] verdict with every check and, per camera,
@@ -396,8 +403,8 @@ fn region_map(
         })
         .collect();
     let (x0, y0, x1, y1, extent) = match image_size {
-        Some([w, h]) => (0.0, 0.0, f64::from(w), f64::from(h), "the image"),
-        None => {
+        Some([w, h]) if w > 0 && h > 0 => (0.0, 0.0, f64::from(w), f64::from(h), "the image"),
+        _ => {
             let fold = |f: fn(f64, f64) -> f64, i: usize, start: f64| {
                 observed.iter().map(|(p, _)| p[i]).fold(start, f)
             };
@@ -415,10 +422,14 @@ fn region_map(
     let rows = ((columns as f64 * span_y / span_x).round() as usize).clamp(1, 32);
     let mut sums = vec![(0.0f64, 0usize); columns * rows];
     for ([x, y], e) in &observed {
-        let c = (((x - x0) / span_x) * columns as f64).floor();
-        let r = (((y - y0) / span_y) * rows as f64).floor();
-        if c >= 0.0 && r >= 0.0 && (c as usize) < columns && (r as usize) < rows {
-            let cell = &mut sums[r as usize * columns + c as usize];
+        if (x0..=x1).contains(x) && (y0..=y1).contains(y) {
+            let c = (((x - x0) / span_x) * columns as f64)
+                .floor()
+                .clamp(0.0, (columns - 1) as f64) as usize;
+            let r = (((y - y0) / span_y) * rows as f64)
+                .floor()
+                .clamp(0.0, (rows - 1) as f64) as usize;
+            let cell = &mut sums[r * columns + c];
             cell.0 += e;
             cell.1 += 1;
         }
@@ -533,12 +544,18 @@ fn heat_map(
 
 /// The mean reprojection error of each view, as bars in view order.
 fn per_view(residuals: &[TargetFeatureResidual]) -> String {
-    let views = residuals.iter().map(|r| r.view + 1).max().unwrap_or(0);
+    let views = residuals
+        .iter()
+        .filter_map(|r| r.view.checked_add(1))
+        .max()
+        .unwrap_or(0);
     let mut sums = vec![(0.0f64, 0usize); views];
     for r in residuals {
-        if let Some(e) = r.error_px.filter(|e| e.is_finite()) {
-            sums[r.view].0 += e;
-            sums[r.view].1 += 1;
+        if let Some(e) = r.error_px.filter(|e| e.is_finite())
+            && let Some(slot) = sums.get_mut(r.view)
+        {
+            slot.0 += e;
+            slot.1 += 1;
         }
     }
     let means: Vec<Option<f64>> = sums
@@ -550,7 +567,11 @@ fn per_view(residuals: &[TargetFeatureResidual]) -> String {
         .fold((0.0, 0usize), |(s, n), &(sum, k)| (s + sum, n + k));
     let mean = if count > 0 { total / count as f64 } else { 0.0 };
     let top = means.iter().flatten().copied().fold(0.0f64, f64::max);
-    let scale = if top > 0.0 { top } else { 1.0 };
+    let scale = if top.is_finite() && top > 0.0 {
+        top
+    } else {
+        1.0
+    };
 
     let (pw, ph) = (W - ML - MR, H - MT - MB);
     let mut svg = String::new();
@@ -798,5 +819,15 @@ mod tests {
         assert_eq!(colour(0.0), "#440154");
         assert_eq!(colour(1.0), "#fde725");
         assert_eq!(colour(2.0), "#fde725");
+    }
+
+    #[test]
+    fn region_map_clamps_edge_pixels() {
+        let mut r = TargetFeatureResidual::default();
+        r.observed_px = [1280.0, 960.0];
+        r.error_px = Some(0.25);
+        let (svg, summary) = region_map(&[r], Some([1280, 960]));
+        assert!(svg.contains("<svg"), "{svg}");
+        assert!(!summary.is_empty());
     }
 }

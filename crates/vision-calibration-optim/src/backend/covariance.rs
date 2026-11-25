@@ -188,6 +188,8 @@ pub(crate) enum UnavailableReason {
     AtBound { coordinates: Vec<Coordinate> },
     /// No more observation residuals than free coordinates.
     NoRedundancy,
+    /// Covariance estimation was intentionally skipped (e.g., warm-start stage).
+    NotComputed,
 }
 
 /// The uncertainty of a solve.
@@ -230,6 +232,29 @@ pub(crate) fn estimate(
         });
     }
     let Some(raw) = raw else {
+        let mut unreferenced = Vec::new();
+        for block in &ir.params {
+            let td = tangent_dim(block.manifold, block.dim);
+            for index in 0..td {
+                let is_fixed = match block.manifold {
+                    ManifoldKind::SE3 | ManifoldKind::S2 | ManifoldKind::SO3 => {
+                        !block.fixed.is_empty()
+                    }
+                    ManifoldKind::Euclidean => block.fixed.contains(index),
+                };
+                if !is_fixed {
+                    unreferenced.push(Coordinate {
+                        block: block.id.0,
+                        index,
+                    });
+                }
+            }
+        }
+        if !unreferenced.is_empty() {
+            return ParamUncertainty::Unavailable(UnavailableReason::RankDeficient {
+                unobservable: unreferenced,
+            });
+        }
         let m = ir.residuals.iter().map(|r| r.residual_dim).sum();
         return ParamUncertainty::Available(Box::new(CovarianceEstimate {
             coordinates: Vec::new(),
@@ -240,6 +265,39 @@ pub(crate) fn estimate(
             second_order: None,
         }));
     };
+
+    // Unreferenced free IR parameter blocks have zero information regardless of
+    // whether a backend keeps zero columns for them.
+    let mut referenced = vec![false; ir.params.len()];
+    for res in &ir.residuals {
+        for pid in &res.params {
+            referenced[pid.0] = true;
+        }
+    }
+    let mut unreferenced = Vec::new();
+    for block in &ir.params {
+        if referenced[block.id.0] {
+            continue;
+        }
+        let td = tangent_dim(block.manifold, block.dim);
+        for index in 0..td {
+            let is_fixed = match block.manifold {
+                ManifoldKind::SE3 | ManifoldKind::S2 | ManifoldKind::SO3 => !block.fixed.is_empty(),
+                ManifoldKind::Euclidean => block.fixed.contains(index),
+            };
+            if !is_fixed {
+                unreferenced.push(Coordinate {
+                    block: block.id.0,
+                    index,
+                });
+            }
+        }
+    }
+    if !unreferenced.is_empty() {
+        return ParamUncertainty::Unavailable(UnavailableReason::RankDeficient {
+            unobservable: unreferenced,
+        });
+    }
 
     // Free tangent coordinates in IR order, and the backend column of each.
     let free: Vec<(Coordinate, usize)> = raw
@@ -264,41 +322,28 @@ pub(crate) fn estimate(
     if m_obs > 0 && m <= n {
         return ParamUncertainty::Unavailable(UnavailableReason::NoRedundancy);
     }
-    // The observations' scatter has `m − n` degrees of freedom: each
-    // prior row holds one coordinate.
-    let dof_scale = if m_obs > 0 {
-        m_obs as f64 / (m - n) as f64
-    } else {
-        1.0
-    };
 
     // Work in the backend's columns; columns that are not free coordinates
     // (fixed components a backend keeps, with zero Jacobian) are decoupled
-    // and get a unit diagonal.
+    // and get a unit diagonal. `κ` depends only on the residuals and loss, not
+    // on `dof_scale`, so form and invert `H` before sizing the effective DoF
+    // of the estimated-noise residuals.
     let mut normal = NormalEquations::new(raw.jacobian.symbolic())
         .expect("the solve planned a normal matrix of this pattern");
-    let moments = family_moments(&blocks, dof_scale);
-    let mut h = weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| moments.kappa(b));
-    // `G ∝ H` when every block has the same `s / κ` (one family and no
-    // priors, or priors whose residual variance is the family's): then
-    // `Σ = (s / κ) H⁻¹` and `G` need not be formed.
-    let ratios: Vec<f64> = blocks
-        .iter()
-        .map(|b| moments.s(b) / moments.kappa(b))
-        .collect();
-    let proportional = ratios
-        .iter()
-        .all(|r| (r - ratios[0]).abs() <= 1e-12 * ratios[0].abs());
-    let g = (!proportional)
-        .then(|| weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| moments.s(b)));
+    let kappa_moments = family_moments(&blocks, 1.0);
+    let mut h = weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| {
+        kappa_moments.kappa(b)
+    });
     let ncols = raw.jacobian.ncols();
     let mut is_free = vec![false; ncols];
     for &(_, c) in &free {
         is_free[c] = true;
     }
-    let pattern = normal.pattern();
-    for (c, _) in is_free.iter().enumerate().filter(|(_, free)| !**free) {
-        h[pattern.col_range(c).start] = 1.0;
+    {
+        let pattern = normal.pattern();
+        for (c, _) in is_free.iter().enumerate().filter(|(_, free)| !**free) {
+            h[pattern.col_range(c).start] = 1.0;
+        }
     }
 
     let h_inverse = match covariance(&normal, &mut h, ncols) {
@@ -314,6 +359,57 @@ pub(crate) fn estimate(
             });
         }
     };
+
+    // Effective DoF of estimated-noise residuals: `m_obs - tr(H⁻¹ H_obs)`.
+    // For pure estimated noise (`m == m_obs`) this simplifies exactly to `m - n`,
+    // and for mixed `Noise::Stated` + `Noise::Estimated` it excludes stated
+    // constraints rather than shrinking `dof_scale` below 1.
+    let dof_scale = if m_obs == 0 {
+        1.0
+    } else if m_obs == m {
+        m_obs as f64 / (m - n) as f64
+    } else {
+        let h_obs = weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| {
+            if b.family.is_some() {
+                kappa_moments.kappa(b)
+            } else {
+                0.0
+            }
+        });
+        let pattern = normal.pattern();
+        let mut tr_h_obs = 0.0;
+        for j in 0..ncols {
+            if !is_free[j] {
+                continue;
+            }
+            for (pos, &i) in pattern.col_range(j).zip(pattern.row_idx_of_col_raw(j)) {
+                if !is_free[i] {
+                    continue;
+                }
+                let weight = if i == j { 1.0 } else { 2.0 };
+                tr_h_obs += weight * h_inverse[(i, j)] * h_obs[pos];
+            }
+        }
+        let dof_obs = m_obs as f64 - tr_h_obs;
+        if !dof_obs.is_finite() || dof_obs <= 1e-9 {
+            return ParamUncertainty::Unavailable(UnavailableReason::NoRedundancy);
+        }
+        m_obs as f64 / dof_obs
+    };
+
+    let moments = family_moments(&blocks, dof_scale);
+    // `G ∝ H` when every block has the same `s / κ` (one family and no
+    // priors, or priors whose residual variance is the family's): then
+    // `Σ = (s / κ) H⁻¹` and `G` need not be formed.
+    let ratios: Vec<f64> = blocks
+        .iter()
+        .map(|b| moments.s(b) / moments.kappa(b))
+        .collect();
+    let proportional = ratios
+        .iter()
+        .all(|r| (r - ratios[0]).abs() <= 1e-12 * ratios[0].abs());
+    let g = (!proportional)
+        .then(|| weighted_normal(&mut normal, &raw.jacobian, &blocks, |b| moments.s(b)));
     let sigma = match g {
         None => &h_inverse * ratios[0],
         Some(g) => {
@@ -692,7 +788,7 @@ fn invert(normal: &NormalEquations, lower: &[f64], n: usize) -> Result<DMatrix<f
         let inv = llt.solve(&Mat::<f64>::identity(n, n));
         let well_posed = (0..n).all(|i| {
             let v = inv[(i, i)];
-            v.is_finite() && v < 1.0 / RANK_TOLERANCE
+            v.is_finite() && v < 1.0 / ((n as f64).max(1.0) * RANK_TOLERANCE)
         });
         well_posed.then(|| DMatrix::from_fn(n, n, |i, j| inv[(i, j)]))
     });

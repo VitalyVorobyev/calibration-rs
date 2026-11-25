@@ -47,7 +47,7 @@ use serde::{Deserialize, Serialize};
 
 use nalgebra::{DMatrix, Rotation3, Translation3, UnitQuaternion, Vector3};
 use vision_calibration_core::{
-    CameraModel, CameraParams, Iso3, ParameterCovariance, Pt2, Pt3, Uncertainty,
+    CameraModel, CameraParams, Iso3, NoiseLevel, ParameterCovariance, Pt2, Pt3, Uncertainty,
 };
 use vision_calibration_optim::{
     Error as OptimError, ProjectionUncertainty, ViewPose, camera_parameters,
@@ -376,7 +376,27 @@ impl<'a> Planner<'a> {
                 "the result held every camera parameter fixed: there is no uncertainty to plan for",
             ));
         }
+        if covariance
+            .noise
+            .iter()
+            .any(|n| matches!(n.level, NoiseLevel::Sigma0(_)))
+        {
+            return Err(Error::invalid_input(
+                "the result's observations were whitened by stated per-point covariances, which a \
+                 prediction does not model",
+            ));
+        }
         let n = free.len();
+        if covariance.covariance.len() != n
+            || covariance
+                .covariance
+                .iter()
+                .any(|row| row.len() != n || row.iter().any(|v| !v.is_finite()))
+        {
+            return Err(Error::invalid_input(format!(
+                "covariance matrix must be {n}×{n} and finite"
+            )));
+        }
         let covariance_matrix = DMatrix::from_fn(n, n, |i, j| covariance.covariance[i][j]);
         let information = invert_spd(&covariance_matrix)
             .ok_or_else(|| Error::numerical("the result's covariance is not positive definite"))?;

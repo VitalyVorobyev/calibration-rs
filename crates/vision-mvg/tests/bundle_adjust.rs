@@ -778,3 +778,61 @@ fn triangulate_reports_and_cancels() {
     .unwrap_err();
     assert!(matches!(err, Error::Cancelled), "{err:?}");
 }
+
+/// Unprefixed single-camera labels such as Brown-Conrady `p1`/`p2` must remain
+/// in the calibration covariance (not be confused with scene point labels `p{i}.x`).
+#[test]
+fn single_camera_prior_keeps_unprefixed_distortion_covariance_labels() {
+    let labels: Vec<String> = ["fx", "fy", "cx", "cy", "k1", "k2", "k3", "p1", "p2"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let n = labels.len();
+    let cov = ParameterCovariance::new(
+        labels.clone(),
+        (0..n)
+            .map(|i| {
+                (0..n)
+                    .map(|j| {
+                        if i == j {
+                            if i < 4 { 4.0 } else { 1e-4 }
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect()
+            })
+            .collect(),
+        Vec::new(),
+        0,
+        0,
+    );
+    let rig = CalibratedRig::new(
+        vec![pinhole(800.0)],
+        vec![Iso3::identity()],
+        Uncertainty::Available(cov),
+    )
+    .unwrap();
+    let mut rng = Rng(19);
+    let truth_poses = captures();
+    let truth_points = scene(&mut rng, 15);
+    let tracks = observe(&rig, &truth_poses, &truth_points, 0.3, 0.3, &mut rng);
+    let (poses, points) = perturb(&truth_poses, &truth_points, 0.5, 0.01, &mut rng);
+    let mut opts = BundleAdjustOptions::new(Scale::Distance {
+        points: [0, 1],
+        distance: (truth_points[0] - truth_points[1]).norm(),
+        sigma: 1e-4,
+    });
+    opts.calibration = Use::Prior;
+    let found = bundle_adjust(&rig, &poses, &points, &tracks, &opts).unwrap();
+    let out_cov = found
+        .rig
+        .uncertainty()
+        .covariance()
+        .expect("single-camera Prior adjustment must retain calibration covariance");
+    assert!(
+        out_cov.labels.iter().any(|l| l == "p1") && out_cov.labels.iter().any(|l| l == "p2"),
+        "expected p1 and p2 to stay in calibration covariance, got {:?}",
+        out_cov.labels
+    );
+}

@@ -41,7 +41,7 @@ use crate::rectification::DenseCloud;
 use crate::triangulation::Triangulation;
 use crate::{Error, Result};
 use nalgebra::{DMatrix, DVector, RealField, SMatrix, SVector, SymmetricEigen, Vector3};
-use num_dual::{DualDVec64, DualSVec64, gradient, jacobian};
+use num_dual::{DualSVec64, gradient};
 use serde::Serialize;
 use vision_calibration_core::{Mat3, Pt3, Real, Uncertainty, Vec3};
 
@@ -276,8 +276,15 @@ fn distance_fn<T: RealField>(x: &[T]) -> T {
 fn angle_fn<T: RealField>(x: &[T]) -> T {
     let u = v3(x, 0) - v3(x, 3);
     let w = v3(x, 6) - v3(x, 3);
-    let two = T::from_f64(2.0).expect("an f64 converts to every RealField");
-    two * (u.cross(&w).norm() / (u.norm() * w.norm() + u.dot(&w))).atan()
+    let cross = u.cross(&w).norm();
+    let dot = u.dot(&w);
+    if dot.clone().abs() < cross {
+        T::from_f64(std::f64::consts::FRAC_PI_2).unwrap() - (dot / cross).atan()
+    } else if dot > T::zero() {
+        (cross / dot).atan()
+    } else {
+        T::from_f64(std::f64::consts::PI).unwrap() - (cross / (-dot)).atan()
+    }
 }
 
 /// The plane's normal `normalize(n0 + α t1 + β t2)`.
@@ -290,8 +297,8 @@ fn plane_normal<T: RealField>(alpha: &T, beta: &T, frame: &PlaneFrame) -> (Vecto
 }
 
 /// The gradient of `F(θ, p) = Σ (n(θ)·pᵢ − d)²` over `θ = (α, β, d)`, with
-/// `x = [α, β, d, p₀, p₁, ...]`. Differentiating it over all of `x` gives
-/// the two blocks of the implicit-function theorem.
+/// `x = [α, β, d, p₀, p₁, ...]`. Kept in tests to cross-check [`analytic_plane_jacobian`].
+#[cfg(test)]
 fn plane_gradient<T: RealField>(x: &[T], frame: &PlaneFrame) -> DVector<T> {
     let (n, norm) = plane_normal(&x[0], &x[1], frame);
     let t = [lift::<T>(&frame.t[0]), lift::<T>(&frame.t[1])];
@@ -466,6 +473,52 @@ struct PlaneCore {
     sensitivity: DMatrix<Real>,
 }
 
+/// Analytic `3×3` Hessian `∂g/∂θ` and `3×3k` `∂g/∂p` of `g(θ, p) = ∂F/∂θ` at `θ = (0, 0, d)`.
+fn analytic_plane_jacobian(
+    set: &PointSet,
+    indices: &[usize],
+    frame: &PlaneFrame,
+    d: Real,
+) -> (SMatrix<Real, 3, 3>, DMatrix<Real>) {
+    let k = indices.len();
+    let mut hessian = SMatrix::<Real, 3, 3>::zeros();
+    let mut jac_p = DMatrix::<Real>::zeros(3, 3 * k);
+    let mut sum_s0 = 0.0;
+    let mut sum_s1 = 0.0;
+
+    for (col_idx, &pt_idx) in indices.iter().enumerate() {
+        let p = set.points[pt_idx].coords;
+        let np = frame.n0.dot(&p);
+        let r = np - d;
+        let s0 = frame.t[0].dot(&p);
+        let s1 = frame.t[1].dot(&p);
+        sum_s0 += s0;
+        sum_s1 += s1;
+
+        hessian[(0, 0)] += 2.0 * (s0 * s0 - r * np);
+        hessian[(0, 1)] += 2.0 * s0 * s1;
+        hessian[(1, 1)] += 2.0 * (s1 * s1 - r * np);
+
+        let dg0 = 2.0 * (s0 * frame.n0 + r * frame.t[0]);
+        let dg1 = 2.0 * (s1 * frame.n0 + r * frame.t[1]);
+        let dg2 = -2.0 * frame.n0;
+        let c = 3 * col_idx;
+        for axis in 0..3 {
+            jac_p[(0, c + axis)] = dg0[axis];
+            jac_p[(1, c + axis)] = dg1[axis];
+            jac_p[(2, c + axis)] = dg2[axis];
+        }
+    }
+    hessian[(1, 0)] = hessian[(0, 1)];
+    hessian[(0, 2)] = -2.0 * sum_s0;
+    hessian[(2, 0)] = hessian[(0, 2)];
+    hessian[(1, 2)] = -2.0 * sum_s1;
+    hessian[(2, 1)] = hessian[(1, 2)];
+    hessian[(2, 2)] = 2.0 * k as Real;
+
+    (hessian, jac_p)
+}
+
 fn plane_core(set: &PointSet, indices: &[usize]) -> Result<PlaneCore> {
     set.check_indices(indices)?;
     let k = indices.len();
@@ -502,21 +555,12 @@ fn plane_core(set: &PointSet, indices: &[usize]) -> Result<PlaneCore> {
     let frame = PlaneFrame::new(normal);
 
     // Implicit-function theorem on g(θ, p) = ∂F/∂θ = 0 at θ = (0, 0, d):
-    // ∂θ/∂p = −(∂g/∂θ)⁻¹ ∂g/∂p, both from one dual pass over (θ, p).
-    let mut x = DVector::zeros(3 + 3 * k);
-    x[2] = d;
-    x.rows_mut(3, 3 * k)
-        .copy_from(&DVector::from_vec(coords(set, indices)));
-    let (_, jac) = jacobian(
-        |v: DVector<DualDVec64>| plane_gradient(v.as_slice(), &frame),
-        &x,
-    );
-    let hessian: SMatrix<Real, 3, 3> = jac.fixed_view::<3, 3>(0, 0).into_owned();
+    // ∂θ/∂p = −(∂g/∂θ)⁻¹ ∂g/∂p, evaluated analytically in O(k).
+    let (hessian, jac_p) = analytic_plane_jacobian(set, indices, &frame, d);
     let inverse = hessian.try_inverse().ok_or_else(|| Error::Degenerate {
         reason: "the plane fit is singular (its points do not determine a plane)".into(),
     })?;
-    let sensitivity =
-        -DMatrix::from_iterator(3, 3, inverse.iter().copied()) * jac.columns(3, 3 * k);
+    let sensitivity = -DMatrix::from_iterator(3, 3, inverse.iter().copied()) * jac_p;
     if !sensitivity.iter().all(|s| s.is_finite()) {
         return Err(Error::Degenerate {
             reason: "the plane fit is singular (its points do not determine a plane)".into(),
@@ -715,5 +759,47 @@ mod tests {
         }
         eprintln!("plane sensitivity vs refitting, worst relative error {worst:.2e}");
         assert!(worst < 1e-6, "sensitivity error {worst:e}");
+    }
+
+    #[test]
+    fn angle_near_pi_has_accurate_sigma_without_cancellation() {
+        let delta = 1e-8;
+        let pts = vec![
+            Pt3::new(-1.0, 0.0, 0.0),
+            Pt3::new(0.0, 0.0, 0.0),
+            Pt3::new(1.0, delta, 0.0),
+        ];
+        let mut cov = DMatrix::zeros(9, 9);
+        cov[(7, 7)] = 1e-12; // sigma_y at p2 = 1e-6
+        let ps = PointSet::new(pts, cov).unwrap();
+        let ang = angle(&ps, 0, 1, 2).unwrap();
+        assert!((ang.value - (std::f64::consts::PI - delta)).abs() < 1e-14);
+        assert!(ang.sigma.is_finite());
+        // d(theta)/d(p2.y) = -1 at (-1,0,0)-(0,0,0)-(1,delta,0), so sigma == 1e-6
+        assert!((ang.sigma - 1e-6).abs() < 1e-12, "sigma={}", ang.sigma);
+    }
+
+    #[test]
+    fn analytic_plane_jacobian_matches_dual_autodiff() {
+        use num_dual::{DualDVec64, jacobian};
+        let s = set();
+        let plane = [0, 1, 2, 3, 4, 5];
+        let core = plane_core(&s, &plane).unwrap();
+        let k = plane.len();
+        let mut x = DVector::zeros(3 + 3 * k);
+        x[2] = core.fit.distance;
+        x.rows_mut(3, 3 * k)
+            .copy_from(&DVector::from_vec(coords(&s, &plane)));
+        let (_, jac) = jacobian(
+            |v: DVector<DualDVec64>| plane_gradient(v.as_slice(), &core.frame),
+            &x,
+        );
+        let (hessian, jac_p) = analytic_plane_jacobian(&s, &plane, &core.frame, core.fit.distance);
+        let hessian_dual: SMatrix<Real, 3, 3> = jac.fixed_view::<3, 3>(0, 0).into_owned();
+        let jac_p_dual = jac.columns(3, 3 * k);
+        let err_h = (hessian - hessian_dual).norm();
+        let err_p = (jac_p - jac_p_dual).norm();
+        assert!(err_h < 1e-12, "hessian diff {err_h:e}");
+        assert!(err_p < 1e-12, "jac_p diff {err_p:e}");
     }
 }

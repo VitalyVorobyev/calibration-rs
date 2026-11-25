@@ -249,6 +249,13 @@ pub struct RigLaserlineDeviceExport {
     /// reprojection.
     #[serde(default)]
     pub mean_reproj_error: f64,
+    /// Per-camera mean target reprojection errors (pixels) against the frozen
+    /// upstream, in camera order, over every target view of the camera
+    /// (`per_cam_stats[i].mean_reproj_error` averages only the views that also
+    /// have laser pixels); `0.0` for a camera with no projected feature, and
+    /// empty in exports serialized before this field existed.
+    #[serde(default)]
+    pub per_cam_reproj_errors: Vec<f64>,
     /// Residuals and the image manifest: evidence for viewers and
     /// debugging, not part of the result.
     #[serde(default)]
@@ -302,6 +309,27 @@ impl ProblemType for RigLaserlineDeviceProblem {
                 .flat_map(|v| v.cameras.iter().flatten()),
         )?;
         let n = input.dataset.num_cameras;
+        if input.dataset.views.is_empty() || n == 0 {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
+        let mut cam_has_laser = vec![false; n];
+        for (view_idx, view) in input.dataset.views.iter().enumerate() {
+            if view.cameras.len() != n || view.laser_pixels.len() != n {
+                return Err(Error::invalid_input(format!(
+                    "view {view_idx} has {}/{} camera/laser slots, expected {n}",
+                    view.cameras.len(),
+                    view.laser_pixels.len()
+                )));
+            }
+            for (c, pixels) in view.laser_pixels.iter().enumerate() {
+                if pixels.as_ref().is_some_and(|p| !p.is_empty()) {
+                    cam_has_laser[c] = true;
+                }
+            }
+        }
+        if !cam_has_laser.iter().any(|&has| has) {
+            return Err(Error::InsufficientData { need: 1, got: 0 });
+        }
         if input.upstream.cameras.len() != n || input.upstream.cam_se3_rig.len() != n {
             return Err(Error::invalid_input(format!(
                 "upstream per-camera lengths must equal num_cameras ({n})"
@@ -329,7 +357,11 @@ impl ProblemType for RigLaserlineDeviceProblem {
     }
 
     fn validate_config(config: &Self::Config) -> Result<(), Error> {
-        config.solver.validate()
+        config.solver.validate()?;
+        crate::common::config::validate_robust_loss(
+            config.optimize.laser_loss,
+            "optimize.laser_loss",
+        )
     }
 
     fn validate_input_config(input: &Self::Input, config: &Self::Config) -> Result<(), Error> {
@@ -382,11 +414,19 @@ impl ProblemType for RigLaserlineDeviceProblem {
 
         // Mean over all finite per-feature reprojection errors — the
         // viewer-facing headline number (against the frozen upstream).
-        let (err_sum, err_count) = per_feature_residuals
-            .target
-            .iter()
-            .filter_map(|r| r.error_px)
-            .fold((0.0, 0usize), |(s, c), e| (s + e, c + 1));
+        let mut per_cam_sums = vec![(0.0, 0usize); n];
+        let mut err_sum = 0.0;
+        let mut err_count = 0usize;
+        for r in &per_feature_residuals.target {
+            if let Some(e) = r.error_px.filter(|v| v.is_finite()) {
+                err_sum += e;
+                err_count += 1;
+                if let Some(slot) = per_cam_sums.get_mut(r.camera) {
+                    slot.0 += e;
+                    slot.1 += 1;
+                }
+            }
+        }
         if err_count == 0 {
             return Err(Error::numerical(
                 "no target feature projects through the calibrated cameras, so the \
@@ -394,6 +434,10 @@ impl ProblemType for RigLaserlineDeviceProblem {
             ));
         }
         let mean_reproj_error = err_sum / err_count as f64;
+        let per_cam_reproj_errors = per_cam_sums
+            .into_iter()
+            .map(|(s, c)| if c > 0 { s / c as f64 } else { 0.0 })
+            .collect();
 
         Ok(RigLaserlineDeviceExport {
             kind: ProblemKind::RigLaserlineDevice,
@@ -405,6 +449,7 @@ impl ProblemType for RigLaserlineDeviceProblem {
             cam_se3_rig: upstream.cam_se3_rig.clone(),
             rig_se3_target: upstream.rig_se3_target.clone(),
             mean_reproj_error,
+            per_cam_reproj_errors,
             // Callers that have the images fill `image_manifest`; the
             // pipeline never has image paths.
             diagnostics: ExportDiagnostics::new(per_feature_residuals),
@@ -432,6 +477,7 @@ mod tests {
             cam_se3_rig: Vec::new(),
             rig_se3_target: Vec::new(),
             mean_reproj_error: 0.0,
+            per_cam_reproj_errors: Vec::new(),
             diagnostics: ExportDiagnostics::default(),
             uncertainty: Uncertainty::default(),
         }

@@ -5,7 +5,7 @@
 
 use crate::types::Correspondence2D;
 use nalgebra::{Matrix3, RealField, Vector3};
-use vision_calibration_core::{Mat3, Real, Vec3, from_homogeneous, to_homogeneous};
+use vision_calibration_core::{Mat3, Real, Vec3, to_homogeneous};
 
 /// Algebraic epipolar residual: `x₂ᵀ F x₁`.
 ///
@@ -196,11 +196,18 @@ pub fn symmetric_transfer_error_squared(h: &Mat3, c: &Correspondence2D) -> Real 
     let x1h = to_homogeneous(&c.pt1);
     let x2h = to_homogeneous(&c.pt2);
 
-    let fwd = from_homogeneous(&(h * x1h));
-    let bwd = from_homogeneous(&(h_inv * x2h));
+    let fwd_h = h * x1h;
+    let bwd_h = h_inv * x2h;
+    if !fwd_h.z.is_finite()
+        || !bwd_h.z.is_finite()
+        || fwd_h.z.abs() < 1e-12
+        || bwd_h.z.abs() < 1e-12
+    {
+        return Real::INFINITY;
+    }
 
-    let d_fwd = (fwd.x - c.pt2.x).powi(2) + (fwd.y - c.pt2.y).powi(2);
-    let d_bwd = (bwd.x - c.pt1.x).powi(2) + (bwd.y - c.pt1.y).powi(2);
+    let d_fwd = (fwd_h.x / fwd_h.z - c.pt2.x).powi(2) + (fwd_h.y / fwd_h.z - c.pt2.y).powi(2);
+    let d_bwd = (bwd_h.x / bwd_h.z - c.pt1.x).powi(2) + (bwd_h.y / bwd_h.z - c.pt1.y).powi(2);
 
     d_fwd + d_bwd
 }

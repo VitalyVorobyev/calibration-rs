@@ -7,7 +7,7 @@
 //! calib-viewer's server state, populated by `set_active_export` and
 //! replaced when a new export is made active.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Snapshot of a loaded export. The JSON is kept as raw `Value` so the
 /// command can pull whatever fields it needs (cameras, sensors,
@@ -21,7 +21,7 @@ pub struct CachedExport {
 /// Tauri-managed state holding the latest cached export.
 #[derive(Default)]
 pub struct ExportCache {
-    inner: Mutex<Option<CachedExport>>,
+    inner: Mutex<Option<Arc<CachedExport>>>,
 }
 
 impl ExportCache {
@@ -32,15 +32,21 @@ impl ExportCache {
     /// Replace the cached export.
     pub fn set(&self, value: serde_json::Value) {
         let mut guard = self.inner.lock().expect("export cache mutex poisoned");
-        *guard = Some(CachedExport { value });
+        *guard = Some(Arc::new(CachedExport { value }));
     }
 
-    /// Run `f` against the cached export under the lock. Returns `None`
-    /// when no export has been loaded yet. Cloning the `serde_json::Value`
-    /// inside `f` is fine — it's a few-KB to a few-hundred-KB document.
-    pub fn read<R>(&self, f: impl FnOnce(&CachedExport) -> R) -> Option<R> {
+    /// Clone an `Arc` handle to the active export and release the mutex
+    /// before running any blocking or CPU-heavy operation.
+    pub fn snapshot(&self) -> Option<Arc<CachedExport>> {
         let guard = self.inner.lock().expect("export cache mutex poisoned");
-        guard.as_ref().map(f)
+        guard.as_ref().map(Arc::clone)
+    }
+
+    /// Run `f` against a snapshot of the cached export without holding the
+    /// mutex across `f`. Returns `None` when no export has been loaded yet.
+    pub fn read<R>(&self, f: impl FnOnce(&CachedExport) -> R) -> Option<R> {
+        let cached = self.snapshot()?;
+        Some(f(&cached))
     }
 
     /// Run the command body `f` against the cached export; an error when no

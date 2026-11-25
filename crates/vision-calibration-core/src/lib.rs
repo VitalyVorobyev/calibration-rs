@@ -110,6 +110,8 @@ pub use models::{
 // with. Hidden from the docs and outside the semver promise.
 #[doc(hidden)]
 pub use models::INTRINSICS_PARAM_NAMES;
+#[doc(hidden)]
+pub use ransac::ransac_fit_with_control;
 pub use ransac::{Estimator, RansacOptions, RansacResult, ransac_fit};
 // Workspace-internal: the mean reprojection error of a camera over posed
 // views. Hidden from the docs and outside the semver promise.

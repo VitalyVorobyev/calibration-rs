@@ -109,6 +109,13 @@ impl Default for IterativeIntrinsicsOptions {
     }
 }
 
+impl IterativeIntrinsicsOptions {
+    /// Construct default iterative intrinsics initialization options (2 iterations).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Estimate intrinsics and distortion using iterative refinement.
 ///
 /// # Algorithm

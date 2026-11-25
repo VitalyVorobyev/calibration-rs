@@ -105,7 +105,7 @@ pub(crate) struct ViewChain {
     pub target: ParamId,
     /// The view's `robot_delta/<view>` block, with robot-pose refinement.
     pub robot_delta: Option<ParamId>,
-    /// The measured `base_se3_gripper`, as `[tx, ty, tz, qx, qy, qz, qw]`.
+    /// The measured `base_se3_gripper`, as `[qx, qy, qz, qw, tx, ty, tz]`.
     pub base_se3_gripper: [f64; 7],
     /// The hand-eye mode.
     pub mode: HandeyeMode,
@@ -168,7 +168,7 @@ impl ViewChain {
     }
 }
 
-/// A robot pose as the `[tx, ty, tz, qx, qy, qz, qw]` array a chain factor
+/// A robot pose as the `[qx, qy, qz, qw, tx, ty, tz]` array a chain factor
 /// carries.
 pub(crate) fn se3_array(pose: &Iso3) -> [f64; 7] {
     let v = iso3_to_se3_dvec(pose);

@@ -447,7 +447,7 @@ impl CameraParams {
                 let h_inv = h.try_inverse().ok_or(Error::Singular)?;
                 AnySensor::Homography(HomographySensor { h, h_inv })
             }
-            SensorParams::Scheimpflug { params } => AnySensor::Homography(params.compile()),
+            SensorParams::Scheimpflug { params } => AnySensor::Homography(params.try_compile()?),
         };
 
         Ok(Camera::new(proj, dist, sensor, self.intrinsics))
@@ -679,5 +679,36 @@ mod tests {
         };
         assert_eq!(s.kind(), None);
         assert!(s.values().is_empty());
+    }
+
+    #[test]
+    fn build_rejects_singular_scheimpflug_tilt_without_panicking() {
+        for bad in [
+            ScheimpflugParams {
+                tilt_x: std::f64::consts::FRAC_PI_2,
+                tilt_y: 0.0,
+            },
+            ScheimpflugParams {
+                tilt_x: 0.0,
+                tilt_y: -std::f64::consts::FRAC_PI_2,
+            },
+            ScheimpflugParams {
+                tilt_x: f64::NAN,
+                tilt_y: 0.0,
+            },
+        ] {
+            let params = CameraParams::new(
+                ProjectionParams::Pinhole,
+                DistortionParams::None,
+                SensorParams::Scheimpflug { params: bad },
+                FxFyCxCy {
+                    fx: 800.0,
+                    fy: 800.0,
+                    cx: 400.0,
+                    cy: 300.0,
+                },
+            );
+            assert!(params.build().is_err(), "{bad:?}");
+        }
     }
 }

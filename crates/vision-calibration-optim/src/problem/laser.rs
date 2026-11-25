@@ -252,10 +252,11 @@ impl Problem {
         let origin = cam_se3_target.inverse_transform_point(&Point3::from(ray.origin));
         let direction = cam_se3_target.inverse_transform_vector(&ray.direction);
         let t = -origin.z / direction.z;
+        let p_c = cam_se3_target * (origin + direction * t);
         let hits = direction.z.abs() > 1e-9
             && t.is_finite()
             && t > 0.0
-            && (cam_se3_target * (origin + direction * t)).z > 0.0;
+            && spec.projection.in_domain(&[], &p_c.coords);
         if !hits {
             return Err(fail(format!(
                 "the ray of pixel {uv:?} does not meet the target in front of camera {cam} at \

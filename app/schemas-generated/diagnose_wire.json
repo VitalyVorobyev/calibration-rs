@@ -112,9 +112,12 @@
           "type": "integer"
         },
         "planeRms": {
-          "description": "Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent.",
+          "description": "Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent;\n`None` when fewer than 3 finite disparities are available or the fit is degenerate.",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "pointCloud": {
           "allOf": [
@@ -150,7 +153,6 @@
         "density",
         "dispMin",
         "dispMax",
-        "planeRms",
         "planeInliers",
         "baselineM",
         "semiGlobal"
@@ -793,7 +795,7 @@
           ]
         },
         "residual_px": {
-          "description": "Distance from `observed_px` to the projected laser line, in pixels:\nthe line-distance residual the laser solve minimizes, measured on the\nundistorted image plane and scaled by `sqrt(fx·fy)`. `None` if the\nlaser and target planes have no line in common.",
+          "description": "Distance (non-negative) from `observed_px` to the projected laser\nline, in pixels: the magnitude of the line-distance residual the laser\nsolve minimizes, measured on the undistorted image plane and scaled by\n`sqrt(fx·fy)`. For parallel laser and target planes the line is their\ncommon vanishing line. `None` if the planes share no line with a\nfinite image (see the module documentation).",
           "format": "double",
           "type": [
             "number",
@@ -2189,6 +2191,15 @@
           "description": "Mean target reprojection error (pixels) against the frozen\nupstream. Diagnostic echo — this problem type does not optimize\nreprojection.",
           "format": "double",
           "type": "number"
+        },
+        "per_cam_reproj_errors": {
+          "default": [],
+          "description": "Per-camera mean target reprojection errors (pixels) against the frozen\nupstream, in camera order, over every target view of the camera\n(`per_cam_stats[i].mean_reproj_error` averages only the views that also\nhave laser pixels); `0.0` for a camera with no projected feature, and\nempty in exports serialized before this field existed.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
         },
         "per_cam_stats": {
           "description": "Per-camera stats (reprojection + laser residuals).",

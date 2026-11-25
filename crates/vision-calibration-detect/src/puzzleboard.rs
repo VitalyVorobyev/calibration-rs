@@ -89,6 +89,20 @@ pub(crate) fn detect(
     cfg: &PuzzleboardConfig,
     luma: &image::GrayImage,
 ) -> Result<Vec<Feature>, DetectError> {
+    if cfg.rows < 2 || cfg.cols < 2 || cfg.rows > i32::MAX as u32 || cfg.cols > i32::MAX as u32 {
+        return Err(DetectError::InvalidConfig(format!(
+            "puzzleboard rows={} cols={} must be in 2..={}",
+            cfg.rows,
+            cfg.cols,
+            i32::MAX
+        )));
+    }
+    if !(cfg.cell_size_m.is_finite() && cfg.cell_size_m > 0.0) {
+        return Err(DetectError::InvalidConfig(format!(
+            "puzzleboard cell_size_m ({}) must be finite and > 0",
+            cfg.cell_size_m
+        )));
+    }
     // The detector decodes saddles in millimetres; build the spec in
     // mm, the unit its tolerances are tuned in, and convert metric
     // outputs back to metres below.
@@ -106,14 +120,22 @@ pub(crate) fn detect(
     // semantics as the chessboard/charuco detectors on a blank image.
     let detection = match detect::detect_puzzleboard(luma, &params) {
         Ok(detection) => detection,
-        Err(_) => return Ok(Vec::new()),
+        Err(err) if err.is_not_found() => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(DetectError::Backend {
+                detector: "puzzleboard",
+                message: err.to_string(),
+            });
+        }
     };
 
-    // Decoded saddles outside the printed board are spurious; bound
-    // them to `[0, (n-1) * cell]` mm before lifting to metres.
+    // Decoded saddles outside the printed board are spurious; bound them to
+    // `[0, (n-1) * cell]` mm before lifting to metres, allowing f32 rounding slack
+    // from `cell_size_mm as f32` so valid border saddles are never clipped.
     let cell_size_mm = cfg.cell_size_m * 1000.0;
     let max_x_mm = cfg.cols.saturating_sub(1) as f64 * cell_size_mm;
     let max_y_mm = cfg.rows.saturating_sub(1) as f64 * cell_size_mm;
+    let tol_mm = 1e-4 * cell_size_mm;
 
     // The corners are in `luma`'s pixels, and the blur is measured there
     // (resampling would blur it).
@@ -128,7 +150,9 @@ pub(crate) fn detect(
     for (corner, blur) in detection.corners.iter().zip(blurs) {
         let x_mm = corner.target_position.x as f64;
         let y_mm = corner.target_position.y as f64;
-        if !(0.0..=max_x_mm).contains(&x_mm) || !(0.0..=max_y_mm).contains(&y_mm) {
+        if !(-tol_mm..=max_x_mm + tol_mm).contains(&x_mm)
+            || !(-tol_mm..=max_y_mm + tol_mm).contains(&y_mm)
+        {
             continue;
         }
         let image_xy = [f64::from(corner.position.x), f64::from(corner.position.y)];
@@ -352,5 +376,36 @@ mod tests {
             serde_json::from_str::<PuzzleboardConfig>(&json).unwrap(),
             with
         );
+    }
+
+    #[test]
+    fn f32_rounding_up_cell_size_keeps_border_saddles() {
+        // `5.2_f32 as f64 == 5.199999809265137` whereas `8.3_f32 as f64 == 8.300000190734863`.
+        // Using `cell_size_m = 0.0083` renders with `8.3_f32` mm where the far border saddle
+        // `(11 * 8.3_f32) as f64 > 11.0 * 8.3`, which previously dropped the entire border row/col.
+        let document = calib_targets::generate::puzzleboard_document(12, 12, 8.3);
+        let bundle =
+            calib_targets::printable::render_target_bundle(&document).expect("render bundle");
+        let img = image::load_from_memory(&bundle.png_bytes).expect("decode rendered PNG");
+        let cfg = PuzzleboardConfig::new(12, 12, 0.0083);
+        let features = detect(&cfg, &img.to_luma8()).unwrap();
+        assert_eq!(features.len(), 11 * 11, "all 121 interior saddles kept");
+    }
+
+    #[test]
+    fn invalid_config_is_rejected_before_detection() {
+        let img = image::GrayImage::new(16, 16);
+        for cfg in [
+            PuzzleboardConfig::new(1, 10, 0.01),
+            PuzzleboardConfig::new(10, 10, 0.0),
+            PuzzleboardConfig::new(10, 10, -0.01),
+            PuzzleboardConfig::new(10, 10, f64::NAN),
+            PuzzleboardConfig::new(10, 10, f64::INFINITY),
+        ] {
+            assert!(matches!(
+                detect(&cfg, &img),
+                Err(DetectError::InvalidConfig(_))
+            ));
+        }
     }
 }

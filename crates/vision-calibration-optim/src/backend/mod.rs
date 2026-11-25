@@ -207,15 +207,22 @@ trait SolveEngine: lm::LinearizationEngine {
     ) -> Result<Option<covariance::RawLinearization>, Error>;
 }
 
+/// How much post-solve linearization/covariance work `solve_on` performs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CovarianceMode {
+    None,
+    FirstOrder,
+    Full,
+}
+
 /// Solve `ir` on `engine` from `x0` with the shared LM, then read the
-/// solution back and estimate its covariance; the second-order prediction
-/// only when `second_order` is set.
+/// solution back and compute its noise/covariance according to `cov_mode`.
 fn solve_on<E: SolveEngine>(
     ir: &ProblemIR,
     engine: &E,
     x0: E::State,
     opts: &BackendSolveOptions,
-    second_order: bool,
+    cov_mode: CovarianceMode,
 ) -> Result<BackendSolution, Error> {
     let lm::LmSolution {
         state,
@@ -240,6 +247,21 @@ fn solve_on<E: SolveEngine>(
     })?;
 
     let params = engine.read_back(ir, &state);
+    if cov_mode == CovarianceMode::None {
+        return Ok(BackendSolution {
+            noise: Vec::new(),
+            uncertainty: covariance::ParamUncertainty::Unavailable(
+                covariance::UnavailableReason::NotComputed,
+            ),
+            params,
+            solve_report: SolveReport {
+                final_cost: 0.5 * cost,
+                num_iters,
+                termination: Some(termination),
+            },
+        });
+    }
+
     // Without a robust loss the solve's own linearization is the raw one.
     let raw = if ir.has_robust_loss() {
         E::raw_linearization(ir, &params)?
@@ -260,6 +282,7 @@ fn solve_on<E: SolveEngine>(
             E::NAME
         )));
     }
+    let second_order = cov_mode == CovarianceMode::Full;
     Ok(BackendSolution {
         noise: covariance::noise(ir, raw.as_ref()),
         uncertainty: covariance::estimate(
@@ -308,8 +331,27 @@ pub(crate) fn solve_first_order(
     opts: &BackendSolveOptions,
 ) -> Result<BackendSolution, Error> {
     match opts.backend {
-        SolverBackend::TinySolver => TinySolverBackend.solve_with(ir, initial, opts, false),
-        SolverBackend::Factrs => FactrsBackend.solve_with(ir, initial, opts, false),
+        SolverBackend::TinySolver => {
+            TinySolverBackend.solve_with(ir, initial, opts, CovarianceMode::FirstOrder)
+        }
+        SolverBackend::Factrs => {
+            FactrsBackend.solve_with(ir, initial, opts, CovarianceMode::FirstOrder)
+        }
+    }
+}
+
+/// [`solve`] skipping linearization and covariance completely, for intermediate
+/// warm-start stages whose uncertainty is discarded.
+pub(crate) fn solve_without_covariance(
+    ir: &ProblemIR,
+    initial: &HashMap<String, DVector<f64>>,
+    opts: &BackendSolveOptions,
+) -> Result<BackendSolution, Error> {
+    match opts.backend {
+        SolverBackend::TinySolver => {
+            TinySolverBackend.solve_with(ir, initial, opts, CovarianceMode::None)
+        }
+        SolverBackend::Factrs => FactrsBackend.solve_with(ir, initial, opts, CovarianceMode::None),
     }
 }
 

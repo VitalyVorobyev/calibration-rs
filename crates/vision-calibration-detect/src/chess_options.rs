@@ -87,6 +87,13 @@ pub struct ChessCornersConfig {
     pub covariance: Option<CornerCovariance>,
 }
 
+impl ChessCornersConfig {
+    /// Construct empty ChESS overrides (built-in detector defaults).
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Per-corner covariance options; see [`ChessCornersConfig::covariance`].
 ///
 /// The covariance is the image noise propagated through the corner
@@ -135,12 +142,31 @@ pub enum ImageNoise {
 pub(crate) fn chess_config_for_override(
     override_cfg: Option<ChessCornersConfig>,
 ) -> Result<DetectorConfig, DetectError> {
-    let mut config = match override_cfg.and_then(|cfg| cfg.strategy) {
+    let strategy = override_cfg.and_then(|cfg| cfg.strategy);
+    let mut config = match strategy {
         None | Some(CornerStrategy::Chess) => default_chess_config(),
         Some(CornerStrategy::Radon) => DetectorConfig::radon(),
     };
     if let Some(threshold) = override_cfg.and_then(|cfg| cfg.threshold_value) {
+        if !(threshold.is_finite() && threshold > 0.0) {
+            return Err(DetectError::InvalidConfig(format!(
+                "chess_corners.threshold_value must be finite and positive, got {threshold}"
+            )));
+        }
+        if strategy == Some(CornerStrategy::Radon) && threshold > 1.0 {
+            return Err(DetectError::InvalidConfig(format!(
+                "chess_corners.threshold_value must be in (0, 1] under the radon strategy, \
+                 got {threshold}"
+            )));
+        }
         config = config.with_threshold(threshold);
+    }
+    if let Some(strength) = override_cfg.and_then(|cfg| cfg.min_corner_strength)
+        && !(strength.is_finite() && strength >= 0.0)
+    {
+        return Err(DetectError::InvalidConfig(format!(
+            "chess_corners.min_corner_strength must be finite and >= 0, got {strength}"
+        )));
     }
     if let Some(covariance) = override_cfg.and_then(|cfg| cfg.covariance) {
         let noise = match covariance.image_noise {
@@ -174,10 +200,16 @@ pub(crate) fn cov_px(c: PositionCovariance) -> [f64; 3] {
 pub(crate) fn apply_board_override(
     override_cfg: Option<ChessCornersConfig>,
     params: &mut ChessboardParams,
-) {
+) -> Result<(), DetectError> {
     if let Some(strength) = override_cfg.and_then(|cfg| cfg.min_corner_strength) {
+        if !(strength.is_finite() && strength >= 0.0) {
+            return Err(DetectError::InvalidConfig(format!(
+                "chess_corners.min_corner_strength must be finite and >= 0, got {strength}"
+            )));
+        }
         params.min_corner_strength = strength;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -239,7 +271,8 @@ mod tests {
                 ..ChessCornersConfig::default()
             }),
             &mut params,
-        );
+        )
+        .unwrap();
         assert_eq!(params.min_corner_strength, 0.0);
     }
 
@@ -254,8 +287,40 @@ mod tests {
         let default_strength = ChessboardParams::default().min_corner_strength;
         for cfg in [None, Some(ChessCornersConfig::default())] {
             let mut params = ChessboardParams::default();
-            apply_board_override(cfg, &mut params);
+            apply_board_override(cfg, &mut params).unwrap();
             assert_eq!(params.min_corner_strength, default_strength);
+        }
+    }
+
+    #[test]
+    fn invalid_threshold_and_strength_overrides_are_rejected() {
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            let err = chess_config_for_override(Some(ChessCornersConfig {
+                threshold_value: Some(bad),
+                ..ChessCornersConfig::default()
+            }))
+            .unwrap_err();
+            assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
+        }
+        let radon_over = chess_config_for_override(Some(ChessCornersConfig {
+            strategy: Some(CornerStrategy::Radon),
+            threshold_value: Some(1.5),
+            ..ChessCornersConfig::default()
+        }))
+        .unwrap_err();
+        assert!(matches!(radon_over, DetectError::InvalidConfig(_)));
+
+        let mut params = ChessboardParams::default();
+        for bad in [-0.1, f32::NAN, f32::INFINITY] {
+            let err = apply_board_override(
+                Some(ChessCornersConfig {
+                    min_corner_strength: Some(bad),
+                    ..ChessCornersConfig::default()
+                }),
+                &mut params,
+            )
+            .unwrap_err();
+            assert!(matches!(err, DetectError::InvalidConfig(_)), "{err}");
         }
     }
 

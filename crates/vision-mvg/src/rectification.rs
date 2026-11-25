@@ -50,7 +50,8 @@ use nalgebra::Matrix4;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::RunControl;
 use vision_calibration_core::{
-    CalibratedRig, CameraModel, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3, Real, Vec3,
+    CalibratedRig, CameraModel, CameraParams, FxFyCxCy, Iso3, Mat3, PointCovariance, Pt2, Pt3,
+    Real, Vec3,
 };
 
 /// Numerical floor for "this vector is effectively zero".
@@ -75,6 +76,13 @@ impl Default for RectifyOptions {
             k_rect: None,
             scale: 1.0,
         }
+    }
+}
+
+impl RectifyOptions {
+    /// Construct default rectification options (`k_rect = None`, `scale = 1.0`).
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -103,6 +111,7 @@ impl RectifiedMatch {
 pub struct StereoRectification {
     cameras: [usize; 2],
     models: [CameraModel; 2],
+    camera_params: [CameraParams; 2],
     k_rect: FxFyCxCy<Real>,
     /// Rotation from camera `side`'s frame into the rectified frame.
     rect_r_cam: [Mat3; 2],
@@ -226,6 +235,7 @@ pub fn rectify(
     Ok(StereoRectification {
         cameras,
         models,
+        camera_params: [rig.cameras()[a].clone(), rig.cameras()[b].clone()],
         k_rect,
         rect_r_cam: [rect_r_left, rect_r_left * r_left_right],
         baseline,
@@ -319,7 +329,17 @@ impl StereoRectification {
                 "rectify_image: side must be 0 (left) or 1 (right), got {side}"
             )));
         }
-        let mut data = vec![0u8; width.saturating_mul(height)];
+        if width == 0 || height == 0 {
+            return Err(Error::invalid_input(format!(
+                "rectify_image: width and height must be positive, got {width}×{height}"
+            )));
+        }
+        let len = width.checked_mul(height).ok_or_else(|| {
+            Error::invalid_input(format!(
+                "rectify_image: output size {width}×{height} overflows usize"
+            ))
+        })?;
+        let mut data = vec![0u8; len];
         let (w, h) = (src.width() as Real, src.height() as Real);
         for y in 0..height {
             for x in 0..width {
@@ -468,6 +488,14 @@ impl StereoRectification {
                 .zip(rig.cam_se3_rig().get(b))
                 .is_some_and(|(pa, pb)| {
                     same_pose(pa, &self.cam_se3_rig[0]) && same_pose(pb, &self.cam_se3_rig[1])
+                })
+            && rig
+                .cameras()
+                .get(a)
+                .zip(rig.cameras().get(b))
+                .is_some_and(|(ca, cb)| {
+                    same_camera(ca, &self.camera_params[0])
+                        && same_camera(cb, &self.camera_params[1])
                 });
         if same_rig {
             Ok(())
@@ -482,6 +510,20 @@ impl StereoRectification {
 /// Whether two poses are the same to rounding.
 fn same_pose(a: &Iso3, b: &Iso3) -> bool {
     (a.to_homogeneous() - b.to_homogeneous()).abs().max() <= 1e-12
+}
+
+/// Whether two camera parameter structs represent the same camera parameters.
+fn same_camera(a: &CameraParams, b: &CameraParams) -> bool {
+    use vision_calibration_core::SensorParams;
+    a.projection.kind() == b.projection.kind()
+        && a.distortion.kind() == b.distortion.kind()
+        && a.sensor.kind() == b.sensor.kind()
+        && a.blocks() == b.blocks()
+        && match (&a.sensor, &b.sensor) {
+            (SensorParams::Homography { h: ha }, SensorParams::Homography { h: hb }) => ha == hb,
+            (SensorParams::Homography { .. }, _) | (_, SensorParams::Homography { .. }) => false,
+            _ => true,
+        }
 }
 
 #[cfg(test)]
@@ -608,5 +650,28 @@ mod tests {
             rect.triangulate(&rig(0.12), &m, noise, &RunControl::default())
                 .is_ok()
         );
+        // Same extrinsics, different camera intrinsics must also be rejected.
+        let mut modified_cam = pinhole_params(0.0);
+        modified_cam.intrinsics.fx = 850.0;
+        let other_cam_rig = CalibratedRig::new(
+            vec![modified_cam, pinhole_params(-0.15)],
+            vec![Iso3::identity(), Iso3::translation(-0.12, 0.0, 0.0)],
+            Uncertainty::default(),
+        )
+        .unwrap();
+        let err = rect
+            .triangulate(&other_cam_rig, &m, noise, &RunControl::default())
+            .unwrap_err();
+        assert!(matches!(err, Error::InvalidInput { .. }), "{err:?}");
+
+        let src = GrayImage::new(4, 4, vec![0; 16]).unwrap();
+        assert!(matches!(
+            rect.rectify_image(0, &src, 0, 4),
+            Err(Error::InvalidInput { .. })
+        ));
+        assert!(matches!(
+            rect.rectify_image(0, &src, usize::MAX, 2),
+            Err(Error::InvalidInput { .. })
+        ));
     }
 }
