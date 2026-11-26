@@ -68,7 +68,7 @@
     },
     {
       // One frontend, two back ends: only the Tauri transport talks to
-      // Tauri, so every feature also runs on the browser viewer's HTTP back
+      // Tauri, so every feature also runs on the server's HTTP back
       // end; the rest of the app calls the generated client (`src/api`). The `paths` repeat the shared
       // config's React 19 restrictions, which this rule setting replaces.
       "files": ["src/**/*.{ts,tsx}"],

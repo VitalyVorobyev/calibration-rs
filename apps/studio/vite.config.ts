@@ -2,10 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// The browser viewer's server (`calib-viewer --port 8765 --no-open <run>`)
-// for `VITE_CALIB_BACKEND=http bun run dev`: Vite proxies its API so the
-// page is served with hot reload against a real run.
-const viewer = process.env.CALIB_VIEWER_URL ?? "http://127.0.0.1:8765";
+// `bun run dev` in a browser talks to a running calibration-studio-server
+// (default address 127.0.0.1:8757; `CALIBRATION_STUDIO_URL` overrides it):
+// Vite proxies `/api` to it, so the page gets hot reload against a real
+// back end. Without one, the page says no back end answers.
+const server = process.env.CALIBRATION_STUDIO_URL ?? "http://127.0.0.1:8757";
 
 // Vite serves the React UI; Tauri's Rust backend runs alongside on
 // localhost:1420. The clearScreen / strictPort settings match the
@@ -19,11 +20,11 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": {
-        target: viewer,
-        // The viewer answers only its own Host and Origin.
+        target: server,
+        // The server answers only its own Host and Origin.
         changeOrigin: true,
         configure: (proxy) => {
-          proxy.on("proxyReq", (request) => request.setHeader("Origin", viewer));
+          proxy.on("proxyReq", (request) => request.setHeader("Origin", server));
         },
       },
     },

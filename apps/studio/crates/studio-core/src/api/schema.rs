@@ -22,7 +22,6 @@ use super::error::StudioError;
 use super::events::ServerEvent;
 use super::jobs::Lane;
 use super::table::{CommandSpec, Kind};
-use crate::run_source::ViewerSession;
 
 pub(crate) fn build(specs: &[CommandSpec]) -> Value {
     let mut generator = SchemaSettings::draft07().into_generator();
@@ -57,8 +56,7 @@ pub(crate) fn build(specs: &[CommandSpec]) -> Value {
     }
 
     // Wire types the frontend reads that no command names: the exports
-    // (`load_export` answers them as JSON it narrows by `kind`) and the
-    // browser viewer's session.
+    // (`load_export` answers them as JSON it narrows by `kind`).
     let mut types = serde_json::Map::new();
     for (name, schema) in [
         (
@@ -89,7 +87,6 @@ pub(crate) fn build(specs: &[CommandSpec]) -> Value {
             "RigHandeyeLaserlineExport",
             generator.subschema_for::<RigHandeyeLaserlineExport>(),
         ),
-        ("ViewerSession", generator.subschema_for::<ViewerSession>()),
     ] {
         types.insert(name.into(), schema.to_value());
     }
@@ -258,7 +255,6 @@ mod tests {
             "ProjectInfo",
             "DatasetSpec",
             "RigExtrinsicsExport",
-            "ViewerSession",
             "UserPath",
         ] {
             assert!(definitions.contains_key(name), "{name} is missing");

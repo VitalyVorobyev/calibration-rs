@@ -2,8 +2,10 @@
 //! judged after canonicalising, so `..` segments and symbolic links cannot
 //! lead out of them. [`FileScope`] is a fixed set; [`RootScope`] is what
 //! the commands go through, with the paths they receive as [`UserPath`]s.
+//! [`check_manifest`] judges the paths a dataset manifest names before the
+//! library reads them.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::api::{ErrorKind, StudioError};
 
@@ -64,7 +66,7 @@ impl FileScope {
             Ok(canonical)
         } else {
             Err(ScopeError::Forbidden(format!(
-                "{} is outside the folders this viewer serves",
+                "{} is outside the folders this back end serves",
                 path.display()
             )))
         }
@@ -96,70 +98,53 @@ impl schemars::JsonSchema for UserPath {
 
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
-            "description": "An absolute path on the back end's machine. The back end refuses one outside the folders the user opened.",
+            "description": "An absolute path on the back end's machine, inside one of its root folders. The back end refuses any other.",
             "type": "string"
         })
     }
 }
 
-/// How a [`RootScope`] gets its roots.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RootMode {
-    /// Fixed when the scope is made (the browser viewer: the run folder and
-    /// its image root). Opening a path outside them is refused.
-    Fixed,
-    /// Seeded by what the user opens (the desktop app: a folder picked in a
-    /// native dialog, a project, an export): opening a path grants it.
-    Growable,
-}
-
-/// Called with each folder a growable scope grants, so a shell can mirror
-/// it (the desktop app's asset protocol scope).
-pub type GrantHook = Box<dyn Fn(&Path) + Send + Sync>;
-
-/// The folders the back end may read and write under. Every path a command
-/// receives goes through it: [`RootScope::existing_file`] and
-/// [`RootScope::existing_dir`] check a path against the roots,
-/// [`RootScope::open_dir`] and [`RootScope::open_file`] are the acts of
-/// opening that grant a root in [`RootMode::Growable`] and check it in
-/// [`RootMode::Fixed`].
+/// The folders the back end may read and write under: the root folders.
+/// Every path a command receives goes through it — [`RootScope::existing`],
+/// [`RootScope::existing_file`], [`RootScope::existing_dir`] — and so does
+/// every path the back end derives from a file ([`RootScope::check`],
+/// [`RootScope::check_lexical`]). The roots never grow by opening
+/// something: the server's are fixed, the desktop's change only through its
+/// settings (`add_root`, the user's act of consent in a native dialog).
 pub struct RootScope {
-    mode: RootMode,
+    editable: bool,
     roots: std::sync::RwLock<FileScope>,
-    on_grant: Option<GrantHook>,
 }
 
 impl std::fmt::Debug for RootScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootScope")
-            .field("mode", &self.mode)
+            .field("editable", &self.editable)
             .field("roots", &self.roots())
             .finish()
     }
 }
 
 impl RootScope {
-    /// A scope over `roots` that never grows.
+    /// A scope over `roots` that never changes (the server's).
     pub fn fixed(roots: impl IntoIterator<Item = PathBuf>) -> Self {
         Self {
-            mode: RootMode::Fixed,
+            editable: false,
             roots: std::sync::RwLock::new(FileScope::new(roots)),
-            on_grant: None,
         }
     }
 
-    /// An empty scope that grows with what is opened; `on_grant` hears of
-    /// each folder granted.
-    pub fn growable(on_grant: Option<GrantHook>) -> Self {
+    /// A scope over `roots` that the settings may replace (the desktop's).
+    pub fn editable(roots: impl IntoIterator<Item = PathBuf>) -> Self {
         Self {
-            mode: RootMode::Growable,
-            roots: std::sync::RwLock::new(FileScope::new([])),
-            on_grant,
+            editable: true,
+            roots: std::sync::RwLock::new(FileScope::new(roots)),
         }
     }
 
-    pub fn mode(&self) -> RootMode {
-        self.mode
+    /// Whether the roots can change while the back end runs.
+    pub fn is_editable(&self) -> bool {
+        self.editable
     }
 
     /// The canonical root folders.
@@ -167,10 +152,27 @@ impl RootScope {
         self.read().roots.clone()
     }
 
+    /// Replace the roots (an editable scope only).
+    pub fn set_roots(&self, roots: impl IntoIterator<Item = PathBuf>) -> Result<(), StudioError> {
+        if !self.editable {
+            return Err(StudioError::new(
+                ErrorKind::RootsFixed,
+                "this back end's folders are fixed when it starts",
+            ));
+        }
+        *self.roots.write().unwrap_or_else(|e| e.into_inner()) = FileScope::new(roots);
+        Ok(())
+    }
+
     fn read(&self) -> std::sync::RwLockReadGuard<'_, FileScope> {
         // A poisoned lock only means a reader panicked; the roots are a
         // plain list and stay valid.
         self.roots.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Whether the canonical folder `dir` is one of the roots.
+    pub fn is_root(&self, dir: &Path) -> bool {
+        self.read().roots.iter().any(|root| root == dir)
     }
 
     /// The canonical path `path` names, if it exists under a root.
@@ -210,63 +212,130 @@ impl RootScope {
         self.read().resolve(path).map_err(|e| scope_error(path, e))
     }
 
-    /// The user opens the folder `path`: granted in a growable scope,
-    /// checked in a fixed one.
-    pub fn open_dir(&self, path: &UserPath) -> Result<PathBuf, StudioError> {
-        self.open_path(Path::new(path.as_str()))?;
-        self.existing_dir(path)
-    }
-
-    /// The user opens the file `path`: its folder is granted in a growable
-    /// scope; the file is checked in a fixed one.
-    pub fn open_file(&self, path: &UserPath) -> Result<PathBuf, StudioError> {
-        if self.mode == RootMode::Growable {
-            let file = Path::new(path.as_str());
-            let parent = file.parent().unwrap_or(file);
-            self.open_path(parent)?;
-        }
-        self.existing_file(path)
-    }
-
-    /// Grant the folder `path` (growable), or check it (fixed). A grant needs
-    /// an absolute path to an existing folder.
-    pub fn open_path(&self, path: &Path) -> Result<PathBuf, StudioError> {
-        if self.mode == RootMode::Fixed {
-            return self.check(path);
-        }
+    /// A path that need not exist yet (a manifest's glob base, a file a
+    /// command will write): `..` folded lexically, the deepest existing
+    /// ancestor canonicalised and judged against the roots, the rest plain
+    /// names. Answers the path with that ancestor canonical.
+    pub fn check_lexical(&self, path: &Path) -> Result<PathBuf, StudioError> {
+        let forbidden = |why: String| scope_error(path, ScopeError::Forbidden(why));
         if !path.is_absolute() {
-            return Err(scope_error(
-                path,
-                ScopeError::Forbidden(format!("{} is not an absolute path", path.display())),
-            ));
+            return Err(forbidden(format!(
+                "{} is not an absolute path",
+                path.display()
+            )));
         }
-        let dir = dunce::canonicalize(path).map_err(|e| {
-            StudioError::new(ErrorKind::Io, format!("{}: {e}", path.display()))
-                .at(path.to_string_lossy())
-        })?;
-        if !dir.is_dir() {
-            return Err(StudioError::new(
-                ErrorKind::Io,
-                format!("{} is not a folder", path.display()),
-            )
-            .at(path.to_string_lossy()));
-        }
-        let added = {
-            let mut roots = self.roots.write().unwrap_or_else(|e| e.into_inner());
-            if roots.roots.iter().any(|root| dir.starts_with(root)) {
-                false
-            } else {
-                let mut all = roots.roots.clone();
-                all.push(dir.clone());
-                *roots = FileScope::new(all);
-                true
+        let mut normal = PathBuf::new();
+        for part in path.components() {
+            match part {
+                Component::ParentDir => {
+                    if !normal.pop() {
+                        return Err(forbidden(format!(
+                            "{} leaves the file system",
+                            path.display()
+                        )));
+                    }
+                }
+                Component::CurDir => {}
+                other => normal.push(other),
             }
-        };
-        if added && let Some(hook) = &self.on_grant {
-            hook(&dir);
         }
-        Ok(dir)
+        let mut existing = normal.as_path();
+        let mut rest = Vec::new();
+        while !existing.exists() {
+            match (existing.parent(), existing.file_name()) {
+                (Some(parent), Some(name)) => {
+                    rest.push(name.to_owned());
+                    existing = parent;
+                }
+                _ => {
+                    return Err(forbidden(format!(
+                        "{} has no existing folder",
+                        path.display()
+                    )));
+                }
+            }
+        }
+        let mut resolved = self.check(existing)?;
+        for name in rest.into_iter().rev() {
+            resolved.push(name);
+        }
+        Ok(resolved)
     }
+}
+
+/// Judge every path the dataset manifest `manifest` names — each camera's
+/// image and laser-frame globs and lists, the robot-pose file, the upstream
+/// calibration — resolved against `base` as the library resolves them,
+/// before the library reads any of them. A glob is judged by its base (the
+/// components before the first wildcard), lexically. A manifest can name
+/// anything (`/etc`, `../..`); this keeps a run inside the roots.
+pub fn check_manifest(
+    scope: &RootScope,
+    manifest: &serde_json::Value,
+    base: &Path,
+) -> Result<(), StudioError> {
+    let mut paths: Vec<(String, bool)> = Vec::new();
+    let mut images = |source: Option<&serde_json::Value>| {
+        let Some(source) = source else { return };
+        if let Some(pattern) = source.get("pattern").and_then(|p| p.as_str()) {
+            paths.push((pattern.to_owned(), true));
+        }
+        for path in source
+            .get("paths")
+            .and_then(|p| p.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if let Some(path) = path.as_str() {
+                paths.push((path.to_owned(), false));
+            }
+        }
+    };
+    for camera in manifest
+        .get("cameras")
+        .and_then(|c| c.as_array())
+        .into_iter()
+        .flatten()
+    {
+        images(camera.get("images"));
+        images(camera.get("laser_images"));
+    }
+    let mut file = |value: Option<&serde_json::Value>| {
+        if let Some(path) = value.and_then(|v| v.as_str()) {
+            paths.push((path.to_owned(), false));
+        }
+    };
+    file(manifest.get("robot_poses").and_then(|r| r.get("path")));
+    file(manifest.get("upstream_calibration"));
+    for (path, glob) in paths {
+        let written = Path::new(&path);
+        // An absolute path replaces the base, as `Path::join` does.
+        let mut target = if written.has_root() {
+            PathBuf::new()
+        } else {
+            base.to_path_buf()
+        };
+        for part in written.components() {
+            let wild = part
+                .as_os_str()
+                .to_str()
+                .is_some_and(|p| p.contains(['*', '?', '[', '{']));
+            if glob && wild {
+                break;
+            }
+            target.push(part.as_os_str());
+        }
+        scope.check_lexical(&target).map_err(|e| {
+            StudioError::new(
+                ErrorKind::ForbiddenPath,
+                format!(
+                    "the manifest names {path}, which is outside the folders this back end serves"
+                ),
+            )
+            .at(e.path.unwrap_or(path))
+        })?;
+    }
+    Ok(())
 }
 
 fn scope_error(path: &Path, e: ScopeError) -> StudioError {
@@ -381,48 +450,148 @@ mod tests {
     }
 
     #[test]
-    fn a_fixed_scope_checks_what_is_opened_and_never_grows() {
+    fn a_fixed_scope_checks_paths_and_never_changes() {
         let (_tmp, _, run) = layout();
         let scope = RootScope::fixed([run.clone()]);
         assert_eq!(
-            scope.open_file(&user(&run.join("export.json"))).unwrap(),
+            scope
+                .existing_file(&user(&run.join("export.json")))
+                .unwrap(),
             run.join("export.json")
         );
         let outside = run.parent().unwrap().join("run-other");
-        let err = scope.open_dir(&user(&outside)).unwrap_err();
+        let err = scope.existing_dir(&user(&outside)).unwrap_err();
         assert_eq!(err.kind, ErrorKind::ForbiddenPath);
-        assert_eq!(scope.roots(), std::slice::from_ref(&run));
         let err = scope.existing_file(&user(&run.join("images"))).unwrap_err();
         assert_eq!(err.kind, ErrorKind::Io);
+        let err = scope.set_roots([outside]).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RootsFixed);
+        assert_eq!(scope.roots(), std::slice::from_ref(&run));
+        assert!(scope.is_root(&run));
     }
 
     #[test]
-    fn a_growable_scope_grants_what_is_opened_and_tells_the_hook() {
+    fn an_editable_scope_changes_only_through_its_roots() {
         let (_tmp, _, run) = layout();
-        let granted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let seen = std::sync::Arc::clone(&granted);
-        let scope = RootScope::growable(Some(Box::new(move |dir: &Path| {
-            seen.lock().unwrap().push(dir.to_path_buf());
-        })));
+        let scope = RootScope::editable([]);
         let image = run.join("images/a.png");
         assert_eq!(
             scope.existing_file(&user(&image)).unwrap_err().kind,
             ErrorKind::ForbiddenPath
         );
-        // Opening a file grants its folder; a folder inside a root adds none.
-        scope.open_file(&user(&run.join("export.json"))).unwrap();
-        scope.open_dir(&user(&run.join("images"))).unwrap();
+        scope.set_roots([run.clone()]).unwrap();
         assert_eq!(scope.existing_file(&user(&image)).unwrap(), image);
-        assert_eq!(*granted.lock().unwrap(), std::slice::from_ref(&run));
-        // Relative paths are never granted.
+        // Relative paths are never in scope.
         assert_eq!(
-            scope.open_dir(&UserPath::new("images")).unwrap_err().kind,
+            scope
+                .existing_dir(&UserPath::new("images"))
+                .unwrap_err()
+                .kind,
             ErrorKind::ForbiddenPath
         );
-        // The sibling stays out until it is opened itself.
+        // The sibling stays out.
         let sibling = run.parent().unwrap().join("run-other/b.png");
         assert_eq!(
             scope.existing_file(&user(&sibling)).unwrap_err().kind,
+            ErrorKind::ForbiddenPath
+        );
+    }
+
+    #[test]
+    fn lexical_checks_fold_dot_dot_and_judge_the_existing_ancestor() {
+        let (_tmp, _, run) = layout();
+        let scope = RootScope::fixed([run.clone()]);
+        // A path that does not exist yet, inside.
+        assert_eq!(
+            scope.check_lexical(&run.join("new/sub/x.png")).unwrap(),
+            run.join("new/sub/x.png")
+        );
+        assert_eq!(
+            scope.check_lexical(&run.join("images/../new")).unwrap(),
+            run.join("new")
+        );
+        // `..` out of the root, before or after a missing folder.
+        for escape in [
+            run.join("../secret.txt"),
+            run.join("missing/../../secret.txt"),
+            run.join("images/../../run-other/x"),
+        ] {
+            assert_eq!(
+                scope.check_lexical(&escape).unwrap_err().kind,
+                ErrorKind::ForbiddenPath,
+                "{}",
+                escape.display()
+            );
+        }
+        assert_eq!(
+            scope.check_lexical(Path::new("images/x")).unwrap_err().kind,
+            ErrorKind::ForbiddenPath
+        );
+    }
+
+    #[test]
+    fn a_manifest_may_name_only_paths_inside_the_roots() {
+        let (_tmp, _, run) = layout();
+        let scope = RootScope::fixed([run.clone()]);
+        let manifest = |cameras: serde_json::Value, extra: serde_json::Value| {
+            let mut m = serde_json::json!({ "version": 1, "cameras": cameras });
+            m.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            m
+        };
+        let glob = |pattern: &str| serde_json::json!([{ "id": "c", "images": { "kind": "glob", "pattern": pattern } }]);
+        let fine = manifest(
+            glob("images/*.png"),
+            serde_json::json!({ "robot_poses": { "path": "poses.json" } }),
+        );
+        check_manifest(&scope, &fine, &run).unwrap();
+        check_manifest(
+            &scope,
+            &manifest(glob("**/*.png"), serde_json::json!({})),
+            &run,
+        )
+        .unwrap();
+        let outside = run.parent().unwrap();
+        for bad in [
+            manifest(glob("../*.png"), serde_json::json!({})),
+            manifest(
+                glob(&format!("{}/*.txt", outside.display())),
+                serde_json::json!({}),
+            ),
+            manifest(
+                serde_json::json!([{ "id": "c", "images": { "kind": "list", "paths": ["images/a.png", "/etc/passwd"] } }]),
+                serde_json::json!({}),
+            ),
+            manifest(
+                glob("images/*.png"),
+                serde_json::json!({ "robot_poses": { "path": "../secret.txt" } }),
+            ),
+            manifest(
+                glob("images/*.png"),
+                serde_json::json!({ "upstream_calibration": "/etc/hosts" }),
+            ),
+            manifest(
+                serde_json::json!([{ "id": "c", "images": { "kind": "glob", "pattern": "*.png" }, "laser_images": { "kind": "glob", "pattern": "../../*" } }]),
+                serde_json::json!({}),
+            ),
+        ] {
+            let err = check_manifest(&scope, &bad, &run).unwrap_err();
+            assert_eq!(err.kind, ErrorKind::ForbiddenPath, "{bad}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lexical_check_does_not_follow_a_symlink_out() {
+        let (_tmp, _, run) = layout();
+        let scope = RootScope::fixed([run.clone()]);
+        std::os::unix::fs::symlink(run.parent().unwrap(), run.join("up")).unwrap();
+        assert_eq!(
+            scope
+                .check_lexical(&run.join("up/new.png"))
+                .unwrap_err()
+                .kind,
             ErrorKind::ForbiddenPath
         );
     }

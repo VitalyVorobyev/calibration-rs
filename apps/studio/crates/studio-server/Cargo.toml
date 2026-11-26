@@ -1,0 +1,51 @@
+[package]
+name = "studio-server"
+version = "0.1.0"
+description = "calibration-studio-server: Calibration Studio in a browser, served from one binary"
+authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/VitalyVorobyev/calibration-rs"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[[bin]]
+name = "calibration-studio-server"
+path = "src/main.rs"
+
+[dependencies]
+studio-core = { path = "../studio-core", default-features = false }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+futures-util = { version = "0.3", default-features = false }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+# The session token: 32 random bytes, base64url.
+getrandom = "0.3"
+base64 = "0.22"
+# The session cookie (SHA-256 of the token) and its constant-time check.
+sha2 = "0.10"
+subtle = "2"
+dunce = "1"
+# The default state and cache folders ($XDG_STATE_HOME, $XDG_CACHE_HOME).
+dirs = "5"
+# The machine's name, one of the Host values the server answers.
+gethostname = "1"
+# The built frontend inside the binary (`embed-dist`): one file to copy.
+rust-embed = { version = "8", optional = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"
+
+[features]
+default = ["embed-dist", "samples"]
+# Serve `apps/studio/dist` from inside the binary; `--dist DIR` serves a
+# folder instead. A release build without a built frontend fails (run
+# `bun run build`).
+embed-dist = ["dep:rust-embed"]
+# The Quick Start samples (downloads; needs internet on the device).
+samples = ["studio-core/samples"]

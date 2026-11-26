@@ -5,6 +5,10 @@
  * and regenerate.
  */
 
+/**
+ * An absolute path on the back end's machine, inside one of its root folders. The back end refuses any other.
+ */
+export type UserPath = string;
 export type CameraParameterValuesReply = (number | null)[];
 /**
  * Serializable distortion model parameters.
@@ -247,10 +251,6 @@ export type ProblemKind =
   | "rig_handeye_laserline"
   | "rig_laserline_device";
 /**
- * An absolute path on the back end's machine. The back end refuses one outside the folders the user opened.
- */
-export type UserPath = string;
-/**
  * Laser scan direction.
  */
 export type LaserScanAxis = "cols" | "rows";
@@ -467,6 +467,7 @@ export type RinggridCodingSpec =
  * lattice, which has the same JSON spelling.
  */
 export type RinggridLatticeSpec = "hex" | "rect";
+export type EntryKind = "dir" | "file";
 export type DisparityEvent = null;
 /**
  * The kinds of [`StudioError`].
@@ -479,6 +480,8 @@ export type ErrorKind =
   | "too_large"
   | "job_not_found"
   | "blob_expired"
+  | "unauthorized"
+  | "roots_fixed"
   | "internal"
   | "not_a_project"
   | "project_exists"
@@ -532,6 +535,7 @@ export type JobState =
 export type FrameKind = "target" | "laser";
 export type FetchSampleEvent = null;
 export type FetchSampleOutput = string;
+export type ForgetRecentReply = string[];
 /**
  * The solution of a rig hand-eye calibration: the hand-eye of its mode and
  * the pose of the static target in the frame that mode fixes it in.
@@ -649,6 +653,10 @@ export type UncertaintyUnavailable =
   | {
       kind: "calibration_without_covariance";
     };
+/**
+ * What a listing shows.
+ */
+export type Show = "all" | "dirs";
 export type ListJobsReply = JobInfo[];
 /**
  * What a long-running call reports to its observer.
@@ -702,15 +710,12 @@ export type Progress =
        */
       max_iters: number;
     };
+export type RecentProjectsReply = string[];
 export type ResolveConfigReply = unknown;
 /**
  * Parts of a [`RobotPoseSigma`]: its rotation, its translation or both.
  */
 export type RobotSigmaParts = "rotation" | "translation" | "both";
-/**
- * How the run's files are laid out.
- */
-export type RunLayout = "vcal" | "project_run" | "export_file";
 /**
  * Pipeline stage a run is currently executing. Within a stage the
  * library's own reports ([`Progress`]: each image detected, each
@@ -803,6 +808,7 @@ export type SingleCamHandeyeSolution =
 export type UndistortPointsReply = ([number, number] | null)[];
 
 export interface StudioApiTypes {
+  AddRootArgs?: AddRootArgs;
   BlobQuery?: BlobQuery;
   BlobRef?: BlobRef;
   CameraParameterValuesArgs?: CameraParameterValuesArgs;
@@ -820,12 +826,15 @@ export interface StudioApiTypes {
   DatasetFormArgs?: DatasetFormArgs;
   DatasetSpec?: DatasetSpec;
   DetectorSpec?: DetectorSpec;
+  DirEntry?: DirEntry;
+  DirListing?: DirListing;
   DisparityArgs?: DisparityArgs;
   DisparityEvent?: DisparityEvent;
   DisparityMetrics?: DisparityMetrics;
   DisparityParams?: DisparityParams;
   DisparityResult?: DisparityResult;
   DistortionParams?: DistortionParams;
+  EntryKind?: EntryKind;
   EpipolarOverlay?: EpipolarOverlay;
   EpipolarOverlayArgs?: EpipolarOverlayArgs;
   EpipolarOverlayUndistortedArgs?: EpipolarOverlayUndistortedArgs;
@@ -836,6 +845,8 @@ export interface StudioApiTypes {
   FetchSampleArgs?: FetchSampleArgs;
   FetchSampleEvent?: FetchSampleEvent;
   FetchSampleOutput?: FetchSampleOutput;
+  ForgetRecentArgs?: ForgetRecentArgs;
+  ForgetRecentReply?: ForgetRecentReply;
   FormSchema?: FormSchema;
   FrameKind?: FrameKind;
   FrameRef?: FrameRef;
@@ -857,6 +868,7 @@ export interface StudioApiTypes {
   LaserScanAxis?: LaserScanAxis;
   LaserlineDeviceExport?: LaserlineDeviceExport;
   LaserlineStats?: LaserlineStats;
+  ListDirArgs?: ListDirArgs;
   ListJobsArgs?: ListJobsArgs;
   ListJobsReply?: ListJobsReply;
   LoadExportArgs?: LoadExportArgs;
@@ -876,6 +888,9 @@ export interface StudioApiTypes {
   ProjectionUncertainty?: ProjectionUncertainty;
   ProjectionUncertaintyArgs?: ProjectionUncertaintyArgs;
   ReadManifestArgs?: ReadManifestArgs;
+  RecentProjectsArgs?: RecentProjectsArgs;
+  RecentProjectsReply?: RecentProjectsReply;
+  RemoveRootArgs?: RemoveRootArgs;
   ResidualKind?: ResidualKind;
   ResidualNoise?: ResidualNoise;
   ResolveConfigArgs?: ResolveConfigArgs;
@@ -893,10 +908,10 @@ export interface StudioApiTypes {
   RobotPoseSource?: RobotPoseSource;
   RobotRefinement?: RobotRefinement;
   RobotSigmaParts?: RobotSigmaParts;
+  RootFolder?: RootFolder;
   RotationFormat?: RotationFormat;
   RunCalibrationArgs?: RunCalibrationArgs;
   RunDiagnostics?: RunDiagnostics;
-  RunLayout?: RunLayout;
   RunProgress?: RunProgress;
   RunRecord?: RunRecord;
   RunResponse?: RunResponse;
@@ -909,8 +924,11 @@ export interface StudioApiTypes {
   SecondOrderError?: SecondOrderError;
   SensorParams?: SensorParams;
   ServerEvent?: ServerEvent;
+  ServerInfo?: ServerInfo;
+  ServerInfoArgs?: ServerInfoArgs;
   SetActiveExportArgs?: SetActiveExportArgs;
   SetActiveExportReply?: SetActiveExportReply;
+  Show?: Show;
   SingleCamHandeyeExport?: SingleCamHandeyeExport;
   SingleCamHandeyeSolution?: SingleCamHandeyeSolution;
   SniffFolderArgs?: SniffFolderArgs;
@@ -926,7 +944,14 @@ export interface StudioApiTypes {
   UndistortedImageQuery?: UndistortedImageQuery;
   UserPath?: UserPath;
   ViewCovariance?: ViewCovariance;
-  ViewerSession?: ViewerSession;
+}
+/**
+ * Add the folder `path` to the root folders (the desktop: the folder the
+ * user picked in the native dialog, the one act that grants a folder).
+ * `roots_fixed` on a server.
+ */
+export interface AddRootArgs {
+  path: UserPath;
 }
 /**
  * The blob `id` a command made (a value plane, raw floats, a PNG).
@@ -1169,7 +1194,8 @@ export interface ConfigPatch {
 /**
  * Make the folder `dir` a project for the dataset in `dataset_dir`,
  * described by `manifest`. Fails with `project_exists` when `dir` already
- * holds one.
+ * holds one, and with `forbidden_path` when the manifest names a path
+ * outside the roots.
  */
 export interface CreateProjectArgs {
   dataset_dir: UserPath;
@@ -1399,6 +1425,47 @@ export interface PoseColumnMap {
    * Translation z column.
    */
   tz: string;
+}
+/**
+ * One entry of a listing.
+ */
+export interface DirEntry {
+  /**
+   * A folder holding a calibration project.
+   */
+  is_project: boolean;
+  kind: EntryKind;
+  name: string;
+  /**
+   * Its canonical path, for the next `list_dir` or a command.
+   */
+  path: string;
+  /**
+   * A file's size in bytes.
+   */
+  size?: number | null;
+}
+/**
+ * A folder's entries.
+ */
+export interface DirListing {
+  /**
+   * Folders first, then files, each by name.
+   */
+  entries: DirEntry[];
+  /**
+   * Its parent while that is inside a root; `null` at a root (go back to
+   * the roots) and for the roots.
+   */
+  parent?: string | null;
+  /**
+   * The folder listed (canonical); `null` for the roots.
+   */
+  path?: string | null;
+  /**
+   * Whether entries were left out past the limit.
+   */
+  truncated: boolean;
 }
 /**
  * A disparity map of the stereo pair `path_a` (camera `cam_a`) and
@@ -1874,12 +1941,19 @@ export interface TargetFeatureResidual {
 /**
  * Make the sample dataset `id` (one of the library's sample catalogue)
  * available locally and answer the absolute path of its manifest. The
- * files are downloaded into the platform cache (`VISION_CALIBRATION_DATA`
- * overrides it), checked against their SHA-256 and reused later, so the
- * app carries no dataset.
+ * files are downloaded into the back end's samples folder (always one of
+ * its roots), checked against their SHA-256 and reused later, so the app
+ * carries no dataset. A back end built without samples answers
+ * `invalid` (`server_info.samples` is false).
  */
 export interface FetchSampleArgs {
   id: string;
+}
+/**
+ * Drop `dir` from the recent projects (one that no longer opens).
+ */
+export interface ForgetRecentArgs {
+  dir: UserPath;
 }
 /**
  * A form: the JSON Schema it renders and the value it starts from.
@@ -2165,6 +2239,15 @@ export interface ViewCovariance {
   view: number;
 }
 /**
+ * The folder `path`, or the root folders without one. Entries whose name
+ * starts with a dot are left out, and so is a symbolic link that leads out
+ * of the roots; past 5 000 entries the listing is `truncated`.
+ */
+export interface ListDirArgs {
+  path?: UserPath | null;
+  show?: Show;
+}
+/**
  * Every job the back end still knows of, live or recently finished, in
  * start order.
  */
@@ -2172,8 +2255,8 @@ export interface ListJobsArgs {}
 /**
  * Read and parse the calibration export at `path` and check its schema
  * version. It does not become active: the frontend validates it first and
- * then calls `set_active_export`. Its folder and image root become
- * folders the app may read.
+ * then calls `set_active_export`. Its images are read through the `image`
+ * resource, so they too must lie inside a root.
  */
 export interface LoadExportArgs {
   path: UserPath;
@@ -2193,7 +2276,9 @@ export interface LoadExportResult {
   export_dir: string;
 }
 /**
- * Open the project in `dir`; `not_a_project` for any other folder.
+ * Open the project in `dir`; `not_a_project` for any other folder,
+ * `forbidden_path` when its dataset lies outside the roots. It becomes
+ * the most recent project.
  */
 export interface OpenProjectArgs {
   dir: UserPath;
@@ -2354,9 +2439,20 @@ export interface ProjectionUncertaintyArgs {
 }
 /**
  * Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
- * otherwise. Its folder becomes one the app may read.
+ * otherwise.
  */
 export interface ReadManifestArgs {
+  path: UserPath;
+}
+/**
+ * The projects opened most recently on this back end, newest first.
+ */
+export interface RecentProjectsArgs {}
+/**
+ * Remove `path` from the root folders (the desktop). The samples' folder
+ * is always a root.
+ */
+export interface RemoveRootArgs {
   path: UserPath;
 }
 /**
@@ -2709,11 +2805,24 @@ export interface RigLaserlineDeviceExport {
   uncertainty?: Uncertainty;
 }
 /**
+ * One root folder.
+ */
+export interface RootFolder {
+  /**
+   * Its canonical path.
+   */
+  path: string;
+  /**
+   * The Quick Start samples' folder: always a root, never removed.
+   */
+  samples: boolean;
+}
+/**
  * Run a calibration end to end: detection (cached), the solve and the
  * export, reporting each stage and the library's reports within it. The
  * folder `manifest_dir` is what the manifest's relative paths resolve
- * against; it becomes one the app may read. A successful run's export
- * becomes the active export.
+ * against; every path the manifest names must lie inside a root. A
+ * successful run's export becomes the active export.
  */
 export interface RunCalibrationArgs {
   /**
@@ -2791,7 +2900,8 @@ export interface RunSuccess {
   usable_views: number;
 }
 /**
- * Replace the project's dataset manifest (`dataset.json`).
+ * Replace the project's dataset manifest (`dataset.json`); every path it
+ * names must lie inside a root.
  */
 export interface SaveProjectManifestArgs {
   dir: UserPath;
@@ -2816,6 +2926,38 @@ export interface ServerEvent {
    */
   seq: number;
 }
+/**
+ * This back end.
+ */
+export interface ServerInfo {
+  /**
+   * The root folders: the only ones it reads and writes, where the folder
+   * browser starts.
+   */
+  roots: RootFolder[];
+  /**
+   * Whether `add_root` and `remove_root` change them (the desktop); a
+   * server's are fixed when it starts.
+   */
+  roots_editable: boolean;
+  /**
+   * Whether the Quick Start samples can be downloaded.
+   */
+  samples: boolean;
+  /**
+   * The shell: `desktop` or `server`.
+   */
+  shell: string;
+  /**
+   * The app's version.
+   */
+  version: string;
+}
+/**
+ * What this back end is and what it serves. The frontend branches on
+ * these values, never on which transport carries them.
+ */
+export interface ServerInfoArgs {}
 /**
  * Make `export` the active export, the one every viewer command reads.
  */
@@ -2893,22 +3035,4 @@ export interface UndistortedImageQuery {
   camera: number;
   path: UserPath;
   roi?: PixelRect | null;
-}
-/**
- * What `GET /api/session` answers: the run the browser viewer serves.
- */
-export interface ViewerSession {
-  /**
-   * The export file to load (canonical, `/`-separated).
-   */
-  export_path: string;
-  layout: RunLayout;
-  /**
-   * The run folder's name, for the page's header.
-   */
-  name: string;
-  /**
-   * The run folder (canonical, `/`-separated).
-   */
-  run_dir: string;
 }

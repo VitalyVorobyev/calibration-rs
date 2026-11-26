@@ -4,41 +4,20 @@
  * (`generated/client.ts`) is written over it, so a transport never knows a
  * command by name.
  *
- * - **Tauri** (`transport/tauri.ts`) — the desktop app's IPC.
- * - **HTTP** (`transport/http.ts`) — the browser viewer (`calib-viewer`):
- *   `POST /api/cmd/<name>`, `GET /api/r/<name>?q=…`, `GET /api/events`.
- * - **none** — plain `bun run dev`: every call fails with `NO_BACKEND`.
+ * - **Tauri** (`transport/tauri.ts`) — the desktop app's IPC and its
+ *   `studio:` URI scheme.
+ * - **HTTP** (`transport/http.ts`) — `calibration-studio-server` on the
+ *   page's own origin: `POST /api/cmd/<name>`, `GET /api/r/<name>?q=…`,
+ *   `GET /api/events`, and its login.
  *
- * Which one answers is fixed by the page: the Tauri webview injects its IPC,
- * `calib-viewer` marks its `index.html` with
- * `<meta name="calib-backend" content="http">` (or `VITE_CALIB_BACKEND=http`
- * in Vite dev). */
+ * What differs between the back ends is data (`server_info`: the roots,
+ * whether they can change, whether samples download), never which transport
+ * carries it. */
 import type {
   ErrorKind,
   ServerEvent,
   StudioError as StudioErrorBody,
-  ViewerSession,
 } from "./generated/types";
-
-export type BackendKind = "tauri" | "http" | "none";
-
-/** What the current back end offers. */
-export interface Capabilities {
-  kind: BackendKind;
-  /** The viewer commands answer: loading an export, undistortion,
-   * epipolar overlays, uncertainty, disparity. Tauri and HTTP. */
-  viewer: boolean;
-  /** The desktop's own features: native dialogs, projects, Quick Start
-   * samples and calibration runs. Tauri only. */
-  desktop: boolean;
-}
-
-/** A native open dialog's options. */
-export interface OpenDialog {
-  title: string;
-  directory?: boolean;
-  filters?: { name: string; extensions: string[] }[];
-}
 
 /** An open event stream. */
 export interface Subscription {
@@ -49,7 +28,6 @@ export interface Subscription {
 }
 
 export interface Transport {
-  kind: BackendKind;
   /** Run a command; rejects with a `StudioError`. */
   invoke(command: string, args: unknown): Promise<unknown>;
   /** The event stream, from after event `after` (from each live job's
@@ -59,10 +37,14 @@ export interface Transport {
    * the desktop app, `/api/r/…` in the browser. A failed load answers the
    * `StudioError` envelope with a 4xx/5xx status. */
   resourceUrl(resource: string, query: unknown): string;
-  /** A native open dialog; `null` when the user cancels. Desktop only. */
-  openDialog?(options: OpenDialog): Promise<string | null>;
-  /** The run the browser viewer serves. HTTP only. */
-  session?(): Promise<ViewerSession>;
+  /** The native folder dialog, the one way the desktop grants a root
+   * folder (Settings → Add folder…); `null` when the user cancels. Tauri
+   * only. */
+  pickNativeFolder?(): Promise<string | null>;
+  /** Exchange the server's token for a session cookie. HTTP only. */
+  login?(token: string): Promise<void>;
+  /** End the session. HTTP only. */
+  logout?(): Promise<void>;
 }
 
 /** Why a command, job or resource failed: the back end's error envelope,
@@ -106,19 +88,3 @@ export function asStudioError(e: unknown): StudioError {
 export function isCancelled(e: unknown): boolean {
   return e instanceof StudioError && e.kind === "cancelled";
 }
-
-/** Why a command cannot run on the page as it is. */
-export const NO_BACKEND =
-  "No back end: launch the desktop app with `bun run tauri dev`, or a run " +
-  "in the browser with `bun run viewer -- <run-dir>`. Plain `bun run dev` " +
-  "only starts Vite.";
-
-/** The transport of a page without a back end: nothing answers. */
-export const noBackend: Transport = {
-  kind: "none",
-  invoke: () =>
-    Promise.reject(new StudioError({ kind: "internal", message: NO_BACKEND })),
-  subscribe: () => ({ ready: Promise.resolve(), close: () => {} }),
-  resourceUrl: (name, query) =>
-    `/api/r/${encodeURIComponent(name)}?q=${encodeURIComponent(JSON.stringify(query ?? {}))}`,
-};

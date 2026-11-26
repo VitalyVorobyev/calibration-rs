@@ -299,11 +299,18 @@ Calibration Studio, Tauri 2 + React 19 + TypeScript; the developer guide is
 [ADR 0014](docs/adrs/0014-desktop-app.md).
 
 * **Always `bun`**, never `npm`/`pnpm`/`yarn`; `bun run tauri dev` launches
-  the app (`bun run dev` alone is Vite without Tauri IPC).
+  the desktop app, `bun run serve -- --root DIR` the browser one
+  (`calibration-studio-server`; `bun run dev` alone is Vite proxying `/api`
+  to a running server).
 * `apps/studio` is its **own cargo workspace** (`crates/studio-core`, the
-  back end with no Tauri in it, and `src-tauri`, the shells), **excluded from
-  the root workspace** (`exclude = ["apps"]`) with its own
-  `apps/studio/Cargo.lock`; root `cargo test --workspace` does not cover it.
+  back end with no Tauri and no HTTP in it; `crates/studio-server`, the axum
+  server; `src-tauri`, the desktop shell), **excluded from the root
+  workspace** (`exclude = ["apps"]`) with its own `apps/studio/Cargo.lock`;
+  root `cargo test --workspace` does not cover it.
+* Both shells carry one command table; every path goes through the back
+  end's root folders, and the server's security rules (token, Host/Origin,
+  no CORS, limits) are in `apps/studio/DEVELOPING.md` ("The server"): a
+  route or command added outside them is a bug.
 * UI comes from `@vitavision/ui`, `@vitavision/workbench` and
   `@vitavision/three(-react)`; no app-local component kit, colour only from
   design tokens. No `apps/studio/src` module over ~400 lines (generated files
@@ -312,11 +319,13 @@ Calibration Studio, Tauri 2 + React 19 + TypeScript; the developer guide is
   replies.
 * Gates, as CI runs them. From `apps/studio/`: `bun run lint` (oxlint, zero
   warnings), `bun run format:check`, `bun run typecheck`, `bun run test`
-  (Vitest), `bun run test:e2e` (Playwright), and `bun run generate:api:ts`
-  leaving `src/api/generated` unchanged. From `apps/studio/`:
+  (Vitest), `bun run test:e2e:smoke` (Playwright, no back end), and
+  `bun run generate:api:ts` leaving `src/api/generated` unchanged; with
+  cargo, `bun run build` then `bun run test:e2e` (Playwright against the real
+  server, the `studio-e2e` job). From `apps/studio/`:
   `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
   --all-features -- -D warnings`, `cargo test --workspace`, and `cargo run
   -p studio-core --bin studio-schema -- --check`. `bun run generate:api`
-  regenerates both stages. `bun run build` runs in CI only inside the
-  bundle workflow (on a release tag or by hand); run it locally when a
-  change touches the build setup.
+  regenerates both stages. The bundle workflow (a release tag or by hand)
+  builds the desktop bundles and the server for x86_64 and aarch64 Linux;
+  a release build of the server needs `bun run build` first.

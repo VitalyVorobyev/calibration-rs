@@ -250,8 +250,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calibration Studio reads a picked or Quick Start manifest (TOML or JSON)
   with the library's manifest reader, as `vcal` does: a file that is not a
   manifest is refused when it is loaded, with the reason, rather than when
-  the run starts. The desktop app only reads and writes inside the folders
-  you opened (a project, its dataset, an export, a manifest's folder).
+  the run starts.
 - Calibration Studio's manifest and config forms, and the defaults they
   start from, come from the calibration library the app runs on, so they
   always match it; a preset's config changes apply by the library's rule,
@@ -260,6 +259,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   see them) besides the formats a browser reads, caches what it derives from
   them, and computes a dense disparity map as a background job; the Depth
   view colours disparity and depth with the viridis colour map.
+- Calibration Studio runs in a browser too: `calibration-studio-server`
+  serves the whole app (projects and calibration runs included) from one
+  binary with the page inside it, for a calibration station or a device on
+  the network. It serves only its `--root` folders; off the machine itself
+  it requires its token (printed in the start-up address, kept as an
+  HttpOnly session cookie), answers only its own Host and page, and sends no
+  cross-origin headers. It replaces the single-run browser viewer
+  (`calib-viewer`). Recent projects are the back end's.
+- Calibration Studio reads and writes only inside its root folders. The
+  desktop app starts with none and asks you to add one (Settings lists and
+  removes them); a project or manifest that names a path outside them is
+  refused. Folders, projects, manifests and exports are chosen in an in-app
+  browser over the roots, on the desktop and in a browser alike.
 - **Desktop app IPC types (breaking):** `DisparityResult::plane_rms` (`planeRms`
   in TypeScript) is now `Option<f64>` (`null` when fewer than three finite
   disparities exist or the plane fit is singular/non-finite; it was an

@@ -1,10 +1,12 @@
-/** The open project, the recent-projects list and the last project error.
+/** The open project, the recent-projects list (the back end's: the desktop's,
+ * or a server's shared by its clients) and the last project error.
  *
  * Opening a project loads its manifest into the Run setup (the dataset
  * folder is the project's `dataset_dir`); saving writes the setup's
  * manifest back; a run saved into the project is reopened from its
  * `export.json`, so what Diagnose shows is what is on disk. */
 import { create } from "zustand";
+import { api } from "../api";
 import { useStore } from "../store";
 import { useRunSetup } from "../store/runSetup";
 import {
@@ -20,19 +22,15 @@ import {
   type RunRecord,
   type RunSummary,
 } from "./projectApi";
-import {
-  forgetRecent,
-  loadRecent,
-  nextRunName,
-  rememberRecent,
-  saveRecent,
-} from "./projectModel";
+import { nextRunName } from "./projectModel";
 
 export interface ProjectState {
   project: ProjectInfo | null;
   recent: string[];
   /** The last failed project command, shown by the shell until dismissed. */
   error: ProjectError | null;
+  /** Read the recent projects from the back end. */
+  refreshRecent: () => Promise<void>;
   /** Open the project in `dir` and load its manifest into the Run setup. */
   open: (dir: string) => Promise<boolean>;
   /** Make `dir` a project for the current Run setup's dataset. */
@@ -53,10 +51,18 @@ export const useProject = create<ProjectState>()((set, get) => {
     return false;
   };
 
+  const refreshRecent = async () => {
+    try {
+      set({ recent: await api.recentProjects() });
+    } catch {
+      // No back end (yet): the list stays as it is.
+    }
+  };
+
   const adopt = async (info: ProjectInfo) => {
-    const recent = rememberRecent(get().recent, info.dir);
-    saveRecent(recent);
-    set({ project: info, recent, error: null });
+    // The back end put it first among the recent projects.
+    set({ project: info, error: null });
+    void refreshRecent();
     await useRunSetup.getState().loadSetup({
       manifest: info.manifest,
       manifestDir: info.dataset_dir,
@@ -67,8 +73,9 @@ export const useProject = create<ProjectState>()((set, get) => {
 
   return {
     project: null,
-    recent: loadRecent(),
+    recent: [],
     error: null,
+    refreshRecent,
 
     open: async (dir) => {
       try {
@@ -77,10 +84,17 @@ export const useProject = create<ProjectState>()((set, get) => {
       } catch (e) {
         const error = asProjectError(e);
         // A remembered folder that no longer opens drops off the list.
-        if (error.kind === "not_a_project" || error.kind === "io") {
-          const recent = forgetRecent(get().recent, dir);
-          saveRecent(recent);
-          set({ recent });
+        if (
+          get().recent.includes(dir) &&
+          (error.kind === "not_a_project" ||
+            error.kind === "io" ||
+            error.kind === "forbidden_path")
+        ) {
+          try {
+            set({ recent: await api.forgetRecent({ dir }) });
+          } catch {
+            // Kept; it fails again next time.
+          }
         }
         return fail(error);
       }

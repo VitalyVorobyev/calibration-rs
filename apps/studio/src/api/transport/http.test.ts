@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** The HTTP transport's contract with `calib-viewer`: commands are posted
+/** The HTTP transport's contract with `calibration-studio-server`: commands are posted
  * to `/api/cmd/<name>` as JSON, a failure rejects with the error envelope,
  * a resource's query travels as encoded JSON, and the event stream resumes
  * after the last event seen. */

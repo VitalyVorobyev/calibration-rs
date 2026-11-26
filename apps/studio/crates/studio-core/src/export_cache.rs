@@ -4,7 +4,7 @@
 //! workspace; re-reading and re-parsing the export JSON on every call
 //! would be wasteful. We hold the most recent export JSON in a
 //! Tauri-managed `ExportCache` singleton (the desktop app) or in the
-//! calib-viewer's server state, populated by `set_active_export` and
+//! server's state, populated by `set_active_export` and
 //! replaced when a new export is made active.
 
 use std::sync::{Arc, Mutex};

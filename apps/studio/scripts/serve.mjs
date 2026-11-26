@@ -1,7 +1,9 @@
-// `bun run viewer -- <run-dir | export.json> [--port N] [--no-open]`: open a
-// calibration run in the browser. Builds the frontend when `dist/` is
-// missing or older than its sources, then runs the `calib-viewer` binary of
-// `src-tauri` with the arguments given.
+// `bun run serve -- [calibration-studio-server arguments]`: Calibration Studio
+// in a browser, from the checkout. Builds the frontend when `dist/` is missing
+// or older than its sources, then runs the server (debug build) serving that
+// `dist/`: `bun run serve -- --root ~/datasets`, or `bun run serve -- <project>
+// --open`. With Vite instead (hot reload): run the server on its default
+// address and `bun run dev`; Vite proxies `/api` to it.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,7 +27,7 @@ function newest(path) {
 function run(command, commandArgs) {
   const result = spawnSync(command, commandArgs, { cwd: app, stdio: "inherit" });
   if (result.error) {
-    console.error(`viewer: ${command}: ${result.error.message}`);
+    console.error(`serve: ${command}: ${result.error.message}`);
     process.exit(1);
   }
   if (result.status !== 0) process.exit(result.status ?? 1);
@@ -40,17 +42,8 @@ const sources = Math.max(
   ),
 );
 if (built < sources) {
-  console.log("viewer: building the frontend (dist/ is missing or stale)");
+  console.log("serve: building the frontend (dist/ is missing or stale)");
   run("bun", ["run", "build"]);
 }
 
-run("cargo", [
-  "run",
-  "--quiet",
-  "--manifest-path",
-  join(app, "src-tauri", "Cargo.toml"),
-  "--bin",
-  "calib-viewer",
-  "--",
-  ...args,
-]);
+run("cargo", ["run", "--quiet", "-p", "studio-server", "--", "--dist", dist, ...args]);

@@ -1,7 +1,7 @@
-//! Calibration Studio's back end: what the desktop app and the browser
-//! viewer compute, with no Tauri and no HTTP in it. The shells
-//! (`src-tauri`'s Tauri commands and its `calib-viewer` server) dispatch
-//! through one command table, [`api`].
+//! Calibration Studio's back end: what the desktop app and the server
+//! compute, with no Tauri and no HTTP in it. The shells (`src-tauri`'s
+//! Tauri commands and `studio-server`'s HTTP routes) dispatch through one
+//! command table, [`api`].
 //!
 //! - [`api`] — the command table, its context ([`api::Ctx`]), the error
 //!   envelope, jobs and the event stream, and the schema the TypeScript
@@ -20,7 +20,8 @@
 //!   plane format.
 //! - [`scope`] — the file scope: paths judged against root folders after
 //!   canonicalising.
-//! - [`run_source`] — the run the browser viewer serves.
+//! - [`settings`] — the desktop's roots and the recent projects, kept
+//!   between runs.
 
 pub mod api;
 pub mod blobs;
@@ -33,6 +34,6 @@ pub mod ops;
 pub mod planes;
 pub mod project;
 pub mod run;
-pub mod run_source;
 pub mod scope;
+pub mod settings;
 pub mod uncertainty;

@@ -8,29 +8,18 @@ repository = "https://github.com/VitalyVorobyev/calibration-rs"
 edition = "2024"
 rust-version = "1.93"
 publish = false
-# Disambiguates the app binary from the secondary `calib-viewer` bin target
-# for tools that pick "the" binary — see `tauri.conf.json`'s
-# `mainBinaryName`.
-default-run = "calibration-studio"
 
 # A member of the `apps/studio` workspace (`../Cargo.toml`), which is
 # intentionally NOT part of the root Cargo workspace: Tauri's tauri-build
 # pulls in a substantial build-time dep tree that we do not want polluting
 # `cargo build --workspace` for the calibration library itself. Build it
 # from inside `apps/studio/` (or via `bun run tauri dev`), not from the repo
-# root. What the app computes lives in `studio-core`; this crate holds the
-# shells over it.
+# root. What the app computes lives in `studio-core`; this crate is the
+# desktop shell over it (`studio-server` is the browser's).
 
 [lib]
 name = "calibration_studio_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
-
-# The browser report viewer: serves the built frontend and one run folder on
-# localhost (`calib-viewer <run-dir>`). It dispatches through the same
-# command table as the desktop app and never starts the Tauri runtime.
-[[bin]]
-name = "calib-viewer"
-path = "src/bin/calib_viewer.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -39,15 +28,13 @@ tauri-build = { version = "2", features = [] }
 studio-core = { path = "../crates/studio-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Canonical paths without the Windows `\\?\` prefix (calib-viewer's folders).
-dunce = "1"
-# calib-viewer's localhost HTTP server: synchronous, no async runtime.
-tiny_http = "0.12"
 
 [dev-dependencies]
+# The mock runtime: the shell's commands and scheme without a webview.
+tauri = { version = "2", features = ["test"] }
 tempfile = "3"
+dunce = "1"
 
 [features]
 # Avoid touching the embed_plist build hooks unless explicitly running

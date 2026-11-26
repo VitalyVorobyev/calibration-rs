@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test -c playwright.smoke.config.ts",
     "lint": "oxlint --max-warnings 0",
     "lint:fix": "oxlint --fix",
     "format": "prettier --write .",
@@ -21,8 +22,7 @@
     "generate:api:ts": "bun scripts/generate-api.mjs && prettier --write src/api/generated",
     "generate:api": "bun run generate:api:schema && bun run generate:api:ts",
     "test:screens": "playwright test -c playwright.screens.config.ts",
-    "test:e2e:viewer": "bun run build && playwright test -c playwright.viewer.config.ts",
-    "viewer": "bun scripts/viewer.mjs"
+    "serve": "bun scripts/serve.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

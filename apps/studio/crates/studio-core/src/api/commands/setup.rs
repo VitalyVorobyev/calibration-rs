@@ -13,7 +13,7 @@ use crate::run::{self, RunProgress, RunResponse};
 use crate::scope::UserPath;
 
 /// Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
-/// otherwise. Its folder becomes one the app may read.
+/// otherwise.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ReadManifestArgs {
@@ -21,7 +21,7 @@ pub struct ReadManifestArgs {
 }
 
 pub fn read_manifest(ctx: &Ctx, args: ReadManifestArgs) -> Result<DatasetSpec, StudioError> {
-    let file = ctx.scope.open_file(&args.path)?;
+    let file = ctx.scope.existing_file(&args.path)?;
     DatasetSpec::from_path(&file).map_err(|e| {
         let kind = match e {
             ManifestError::Io { .. } => ErrorKind::Io,
@@ -42,40 +42,51 @@ pub struct SniffFolderArgs {
 }
 
 pub fn sniff_folder(ctx: &Ctx, args: SniffFolderArgs) -> Result<DatasetSpec, StudioError> {
-    let folder = ctx.scope.open_dir(&args.folder)?;
+    let folder = ctx.scope.existing_dir(&args.folder)?;
     vision_calibration::dataset::sniff_folder(&folder)
         .map_err(|e| StudioError::new(ErrorKind::Io, e.to_string()).at(args.folder.as_str()))
 }
 
 /// Make the sample dataset `id` (one of the library's sample catalogue)
 /// available locally and answer the absolute path of its manifest. The
-/// files are downloaded into the platform cache (`VISION_CALIBRATION_DATA`
-/// overrides it), checked against their SHA-256 and reused later, so the
-/// app carries no dataset.
+/// files are downloaded into the back end's samples folder (always one of
+/// its roots), checked against their SHA-256 and reused later, so the app
+/// carries no dataset. A back end built without samples answers
+/// `invalid` (`server_info.samples` is false).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FetchSampleArgs {
     pub id: String,
 }
 
-pub fn fetch_sample(_: &Ctx, args: FetchSampleArgs, _: &JobCx<()>) -> Result<String, StudioError> {
-    let cache =
-        samples::default_cache_dir().map_err(|e| StudioError::new(ErrorKind::Io, e.to_string()))?;
-    fetch_sample_into(&args.id, &cache).map_err(|e| StudioError::new(ErrorKind::Io, e))
+pub fn fetch_sample(
+    ctx: &Ctx,
+    args: FetchSampleArgs,
+    _: &JobCx<()>,
+) -> Result<String, StudioError> {
+    fetch_sample_into(&args.id, &ctx.dirs.samples).map_err(|e| StudioError::new(ErrorKind::Io, e))
 }
 
 /// [`fetch_sample`] against an explicit cache directory.
+#[cfg(feature = "samples")]
 fn fetch_sample_into(id: &str, cache: &Path) -> Result<String, String> {
     samples::fetch(id, cache)
         .map(|manifest| manifest.to_string_lossy().into_owned())
         .map_err(|e| format!("sample {id}: {e}"))
 }
 
+#[cfg(not(feature = "samples"))]
+fn fetch_sample_into(id: &str, _: &Path) -> Result<String, String> {
+    Err(format!(
+        "sample {id}: this back end was built without the Quick Start samples"
+    ))
+}
+
 /// Run a calibration end to end: detection (cached), the solve and the
 /// export, reporting each stage and the library's reports within it. The
 /// folder `manifest_dir` is what the manifest's relative paths resolve
-/// against; it becomes one the app may read. A successful run's export
-/// becomes the active export.
+/// against; every path the manifest names must lie inside a root. A
+/// successful run's export becomes the active export.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RunCalibrationArgs {
@@ -93,7 +104,8 @@ pub fn run_calibration(
     args: RunCalibrationArgs,
     cx: &JobCx<RunProgress>,
 ) -> Result<RunResponse, StudioError> {
-    let dir = ctx.scope.open_dir(&args.manifest_dir)?;
+    let dir = ctx.scope.existing_dir(&args.manifest_dir)?;
+    crate::scope::check_manifest(&ctx.scope, &args.manifest, &dir)?;
     let reports = cx.clone();
     let response = run::run_calibration(
         args.manifest,
@@ -161,14 +173,12 @@ pattern = "*.png"
 "#,
         )
         .unwrap();
-        let api = Api::for_tests(RootScope::growable(None));
+        let api = Api::for_tests(RootScope::fixed([base.clone()]));
         let spec = api
             .invoke("read_manifest", json!({"path": toml.to_string_lossy()}))
             .unwrap();
         assert_eq!(spec["topology"], "planar_intrinsics");
         assert_eq!(spec["cameras"][0]["id"], "cam0");
-        // Reading it opened its folder.
-        assert_eq!(api.ctx().scope.roots(), std::slice::from_ref(&base));
 
         let broken = base.join("broken.json");
         std::fs::write(&broken, r#"{"version": 1}"#).unwrap();

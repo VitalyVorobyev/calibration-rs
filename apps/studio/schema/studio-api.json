@@ -3,9 +3,81 @@
   "commands": [
     {
       "args": {
+        "$ref": "#/definitions/ServerInfoArgs"
+      },
+      "doc": "What this back end is and what it serves. The frontend branches on\nthese values, never on which transport carries them.",
+      "kind": "plain",
+      "name": "server_info",
+      "reply": {
+        "$ref": "#/definitions/ServerInfo"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/AddRootArgs"
+      },
+      "doc": "Add the folder `path` to the root folders (the desktop: the folder the\nuser picked in the native dialog, the one act that grants a folder).\n`roots_fixed` on a server.",
+      "kind": "plain",
+      "name": "add_root",
+      "reply": {
+        "$ref": "#/definitions/ServerInfo"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/RemoveRootArgs"
+      },
+      "doc": "Remove `path` from the root folders (the desktop). The samples' folder\nis always a root.",
+      "kind": "plain",
+      "name": "remove_root",
+      "reply": {
+        "$ref": "#/definitions/ServerInfo"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/RecentProjectsArgs"
+      },
+      "doc": "The projects opened most recently on this back end, newest first.",
+      "kind": "plain",
+      "name": "recent_projects",
+      "reply": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ForgetRecentArgs"
+      },
+      "doc": "Drop `dir` from the recent projects (one that no longer opens).",
+      "kind": "plain",
+      "name": "forget_recent",
+      "reply": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ListDirArgs"
+      },
+      "doc": "The folder `path`, or the root folders without one. Entries whose name\nstarts with a dot are left out, and so is a symbolic link that leads out\nof the roots; past 5 000 entries the listing is `truncated`.",
+      "kind": "plain",
+      "name": "list_dir",
+      "reply": {
+        "$ref": "#/definitions/DirListing"
+      }
+    },
+    {
+      "args": {
         "$ref": "#/definitions/CreateProjectArgs"
       },
-      "doc": "Make the folder `dir` a project for the dataset in `dataset_dir`,\ndescribed by `manifest`. Fails with `project_exists` when `dir` already\nholds one.",
+      "doc": "Make the folder `dir` a project for the dataset in `dataset_dir`,\ndescribed by `manifest`. Fails with `project_exists` when `dir` already\nholds one, and with `forbidden_path` when the manifest names a path\noutside the roots.",
       "kind": "plain",
       "name": "create_project",
       "reply": {
@@ -16,7 +88,7 @@
       "args": {
         "$ref": "#/definitions/OpenProjectArgs"
       },
-      "doc": "Open the project in `dir`; `not_a_project` for any other folder.",
+      "doc": "Open the project in `dir`; `not_a_project` for any other folder,\n`forbidden_path` when its dataset lies outside the roots. It becomes\nthe most recent project.",
       "kind": "plain",
       "name": "open_project",
       "reply": {
@@ -27,7 +99,7 @@
       "args": {
         "$ref": "#/definitions/SaveProjectManifestArgs"
       },
-      "doc": "Replace the project's dataset manifest (`dataset.json`).",
+      "doc": "Replace the project's dataset manifest (`dataset.json`); every path it\nnames must lie inside a root.",
       "kind": "plain",
       "name": "save_project_manifest",
       "reply": {
@@ -80,7 +152,7 @@
       "args": {
         "$ref": "#/definitions/ReadManifestArgs"
       },
-      "doc": "Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON\notherwise. Its folder becomes one the app may read.",
+      "doc": "Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON\notherwise.",
       "kind": "plain",
       "name": "read_manifest",
       "reply": {
@@ -102,7 +174,7 @@
       "args": {
         "$ref": "#/definitions/FetchSampleArgs"
       },
-      "doc": "Make the sample dataset `id` (one of the library's sample catalogue)\navailable locally and answer the absolute path of its manifest. The\nfiles are downloaded into the platform cache (`VISION_CALIBRATION_DATA`\noverrides it), checked against their SHA-256 and reused later, so the\napp carries no dataset.",
+      "doc": "Make the sample dataset `id` (one of the library's sample catalogue)\navailable locally and answer the absolute path of its manifest. The\nfiles are downloaded into the back end's samples folder (always one of\nits roots), checked against their SHA-256 and reused later, so the app\ncarries no dataset. A back end built without samples answers\n`invalid` (`server_info.samples` is false).",
       "event": {
         "type": "null"
       },
@@ -117,7 +189,7 @@
       "args": {
         "$ref": "#/definitions/RunCalibrationArgs"
       },
-      "doc": "Run a calibration end to end: detection (cached), the solve and the\nexport, reporting each stage and the library's reports within it. The\nfolder `manifest_dir` is what the manifest's relative paths resolve\nagainst; it becomes one the app may read. A successful run's export\nbecomes the active export.",
+      "doc": "Run a calibration end to end: detection (cached), the solve and the\nexport, reporting each stage and the library's reports within it. The\nfolder `manifest_dir` is what the manifest's relative paths resolve\nagainst; every path the manifest names must lie inside a root. A\nsuccessful run's export becomes the active export.",
       "event": {
         "$ref": "#/definitions/RunProgress"
       },
@@ -132,7 +204,7 @@
       "args": {
         "$ref": "#/definitions/LoadExportArgs"
       },
-      "doc": "Read and parse the calibration export at `path` and check its schema\nversion. It does not become active: the frontend validates it first and\nthen calls `set_active_export`. Its folder and image root become\nfolders the app may read.",
+      "doc": "Read and parse the calibration export at `path` and check its schema\nversion. It does not become active: the frontend validates it first and\nthen calls `set_active_export`. Its images are read through the `image`\nresource, so they too must lie inside a root.",
       "kind": "plain",
       "name": "load_export",
       "reply": {
@@ -301,6 +373,19 @@
     }
   ],
   "definitions": {
+    "AddRootArgs": {
+      "additionalProperties": false,
+      "description": "Add the folder `path` to the root folders (the desktop: the folder the\nuser picked in the native dialog, the one act that grants a folder).\n`roots_fixed` on a server.",
+      "properties": {
+        "path": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "BlobQuery": {
       "additionalProperties": false,
       "description": "The blob `id` a command made (a value plane, raw floats, a PNG).\n`blob_expired` once the store has evicted it: run the command again.",
@@ -574,7 +659,7 @@
     },
     "CreateProjectArgs": {
       "additionalProperties": false,
-      "description": "Make the folder `dir` a project for the dataset in `dataset_dir`,\ndescribed by `manifest`. Fails with `project_exists` when `dir` already\nholds one.",
+      "description": "Make the folder `dir` a project for the dataset in `dataset_dir`,\ndescribed by `manifest`. Fails with `project_exists` when `dir` already\nholds one, and with `forbidden_path` when the manifest names a path\noutside the roots.",
       "properties": {
         "dataset_dir": {
           "$ref": "#/definitions/UserPath"
@@ -741,6 +826,76 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "DirEntry": {
+      "description": "One entry of a listing.",
+      "properties": {
+        "is_project": {
+          "description": "A folder holding a calibration project.",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/definitions/EntryKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Its canonical path, for the next `list_dir` or a command.",
+          "type": "string"
+        },
+        "size": {
+          "description": "A file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "kind",
+        "is_project"
+      ],
+      "type": "object"
+    },
+    "DirListing": {
+      "description": "A folder's entries.",
+      "properties": {
+        "entries": {
+          "description": "Folders first, then files, each by name.",
+          "items": {
+            "$ref": "#/definitions/DirEntry"
+          },
+          "type": "array"
+        },
+        "parent": {
+          "description": "Its parent while that is inside a root; `null` at a root (go back to\nthe roots) and for the roots.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "The folder listed (canonical); `null` for the roots.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "truncated": {
+          "description": "Whether entries were left out past the limit.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "entries",
+        "truncated"
+      ],
       "type": "object"
     },
     "DisparityArgs": {
@@ -1203,6 +1358,13 @@
         }
       ]
     },
+    "EntryKind": {
+      "enum": [
+        "dir",
+        "file"
+      ],
+      "type": "string"
+    },
     "EpipolarOverlay": {
       "description": "Result of a single epipolar overlay computation.",
       "properties": {
@@ -1353,6 +1515,16 @@
         {
           "const": "blob_expired",
           "description": "The blob was evicted from the store: run its command again.",
+          "type": "string"
+        },
+        {
+          "const": "unauthorized",
+          "description": "No session: the request carries neither the session cookie nor the\ntoken.",
+          "type": "string"
+        },
+        {
+          "const": "roots_fixed",
+          "description": "The roots are fixed while this back end runs (the server's).",
           "type": "string"
         },
         {
@@ -1518,7 +1690,7 @@
     },
     "FetchSampleArgs": {
       "additionalProperties": false,
-      "description": "Make the sample dataset `id` (one of the library's sample catalogue)\navailable locally and answer the absolute path of its manifest. The\nfiles are downloaded into the platform cache (`VISION_CALIBRATION_DATA`\noverrides it), checked against their SHA-256 and reused later, so the\napp carries no dataset.",
+      "description": "Make the sample dataset `id` (one of the library's sample catalogue)\navailable locally and answer the absolute path of its manifest. The\nfiles are downloaded into the back end's samples folder (always one of\nits roots), checked against their SHA-256 and reused later, so the app\ncarries no dataset. A back end built without samples answers\n`invalid` (`server_info.samples` is false).",
       "properties": {
         "id": {
           "type": "string"
@@ -1526,6 +1698,19 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "ForgetRecentArgs": {
+      "additionalProperties": false,
+      "description": "Drop `dir` from the recent projects (one that no longer opens).",
+      "properties": {
+        "dir": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "dir"
       ],
       "type": "object"
     },
@@ -2298,6 +2483,26 @@
       ],
       "type": "object"
     },
+    "ListDirArgs": {
+      "additionalProperties": false,
+      "description": "The folder `path`, or the root folders without one. Entries whose name\nstarts with a dot are left out, and so is a symbolic link that leads out\nof the roots; past 5 000 entries the listing is `truncated`.",
+      "properties": {
+        "path": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "show": {
+          "$ref": "#/definitions/Show"
+        }
+      },
+      "type": "object"
+    },
     "ListJobsArgs": {
       "additionalProperties": false,
       "description": "Every job the back end still knows of, live or recently finished, in\nstart order.",
@@ -2305,7 +2510,7 @@
     },
     "LoadExportArgs": {
       "additionalProperties": false,
-      "description": "Read and parse the calibration export at `path` and check its schema\nversion. It does not become active: the frontend validates it first and\nthen calls `set_active_export`. Its folder and image root become\nfolders the app may read.",
+      "description": "Read and parse the calibration export at `path` and check its schema\nversion. It does not become active: the frontend validates it first and\nthen calls `set_active_export`. Its images are read through the `image`\nresource, so they too must lie inside a root.",
       "properties": {
         "path": {
           "$ref": "#/definitions/UserPath"
@@ -2335,7 +2540,7 @@
     },
     "OpenProjectArgs": {
       "additionalProperties": false,
-      "description": "Open the project in `dir`; `not_a_project` for any other folder.",
+      "description": "Open the project in `dir`; `not_a_project` for any other folder,\n`forbidden_path` when its dataset lies outside the roots. It becomes\nthe most recent project.",
       "properties": {
         "dir": {
           "$ref": "#/definitions/UserPath"
@@ -3015,7 +3220,25 @@
     },
     "ReadManifestArgs": {
       "additionalProperties": false,
-      "description": "Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON\notherwise. Its folder becomes one the app may read.",
+      "description": "Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON\notherwise.",
+      "properties": {
+        "path": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "RecentProjectsArgs": {
+      "additionalProperties": false,
+      "description": "The projects opened most recently on this back end, newest first.",
+      "type": "object"
+    },
+    "RemoveRootArgs": {
+      "additionalProperties": false,
+      "description": "Remove `path` from the root folders (the desktop). The samples' folder\nis always a root.",
       "properties": {
         "path": {
           "$ref": "#/definitions/UserPath"
@@ -3878,6 +4101,24 @@
         }
       ]
     },
+    "RootFolder": {
+      "description": "One root folder.",
+      "properties": {
+        "path": {
+          "description": "Its canonical path.",
+          "type": "string"
+        },
+        "samples": {
+          "description": "The Quick Start samples' folder: always a root, never removed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "samples"
+      ],
+      "type": "object"
+    },
     "RotationFormat": {
       "description": "Rotation parameterisation in the file.",
       "oneOf": [
@@ -3925,7 +4166,7 @@
     },
     "RunCalibrationArgs": {
       "additionalProperties": false,
-      "description": "Run a calibration end to end: detection (cached), the solve and the\nexport, reporting each stage and the library's reports within it. The\nfolder `manifest_dir` is what the manifest's relative paths resolve\nagainst; it becomes one the app may read. A successful run's export\nbecomes the active export.",
+      "description": "Run a calibration end to end: detection (cached), the solve and the\nexport, reporting each stage and the library's reports within it. The\nfolder `manifest_dir` is what the manifest's relative paths resolve\nagainst; every path the manifest names must lie inside a root. A\nsuccessful run's export becomes the active export.",
       "properties": {
         "config": {
           "description": "The topology's `*Config` JSON."
@@ -3982,26 +4223,6 @@
         "cache_used"
       ],
       "type": "object"
-    },
-    "RunLayout": {
-      "description": "How the run's files are laid out.",
-      "oneOf": [
-        {
-          "const": "vcal",
-          "description": "A `vcal run -o <dir>` folder: `calibration.json`, `quality.json`.",
-          "type": "string"
-        },
-        {
-          "const": "project_run",
-          "description": "A run the desktop app saved in a project: `runs/<name>/export.json`.",
-          "type": "string"
-        },
-        {
-          "const": "export_file",
-          "description": "One export file, wherever it is.",
-          "type": "string"
-        }
-      ]
     },
     "RunProgress": {
       "description": "A progress report of a calibration run: the `run_calibration` job's\nevent. One is sent as each `RunStage` begins (no `report`) and then for\nthe library's reports within it; the outcome is the job's output (a\n`RunResponse`), or its `cancelled` state.",
@@ -4252,7 +4473,7 @@
     },
     "SaveProjectManifestArgs": {
       "additionalProperties": false,
-      "description": "Replace the project's dataset manifest (`dataset.json`).",
+      "description": "Replace the project's dataset manifest (`dataset.json`); every path it\nnames must lie inside a root.",
       "properties": {
         "dir": {
           "$ref": "#/definitions/UserPath"
@@ -4405,6 +4626,47 @@
       ],
       "type": "object"
     },
+    "ServerInfo": {
+      "description": "This back end.",
+      "properties": {
+        "roots": {
+          "description": "The root folders: the only ones it reads and writes, where the folder\nbrowser starts.",
+          "items": {
+            "$ref": "#/definitions/RootFolder"
+          },
+          "type": "array"
+        },
+        "roots_editable": {
+          "description": "Whether `add_root` and `remove_root` change them (the desktop); a\nserver's are fixed when it starts.",
+          "type": "boolean"
+        },
+        "samples": {
+          "description": "Whether the Quick Start samples can be downloaded.",
+          "type": "boolean"
+        },
+        "shell": {
+          "description": "The shell: `desktop` or `server`.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The app's version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "shell",
+        "roots",
+        "roots_editable",
+        "samples"
+      ],
+      "type": "object"
+    },
+    "ServerInfoArgs": {
+      "additionalProperties": false,
+      "description": "What this back end is and what it serves. The frontend branches on\nthese values, never on which transport carries them.",
+      "type": "object"
+    },
     "SetActiveExportArgs": {
       "additionalProperties": false,
       "description": "Make `export` the active export, the one every viewer command reads.",
@@ -4415,6 +4677,21 @@
         "export"
       ],
       "type": "object"
+    },
+    "Show": {
+      "description": "What a listing shows.",
+      "oneOf": [
+        {
+          "const": "all",
+          "description": "Folders and files.",
+          "type": "string"
+        },
+        {
+          "const": "dirs",
+          "description": "Folders only.",
+          "type": "string"
+        }
+      ]
     },
     "SingleCamHandeyeExport": {
       "description": "Export format for single-camera hand-eye calibration.",
@@ -5139,7 +5416,7 @@
       "type": "object"
     },
     "UserPath": {
-      "description": "An absolute path on the back end's machine. The back end refuses one outside the folders the user opened.",
+      "description": "An absolute path on the back end's machine, inside one of its root folders. The back end refuses any other.",
       "type": "string"
     },
     "ViewCovariance": {
@@ -5176,33 +5453,6 @@
         "covariance"
       ],
       "type": "object"
-    },
-    "ViewerSession": {
-      "description": "What `GET /api/session` answers: the run the browser viewer serves.",
-      "properties": {
-        "export_path": {
-          "description": "The export file to load (canonical, `/`-separated).",
-          "type": "string"
-        },
-        "layout": {
-          "$ref": "#/definitions/RunLayout"
-        },
-        "name": {
-          "description": "The run folder's name, for the page's header.",
-          "type": "string"
-        },
-        "run_dir": {
-          "description": "The run folder (canonical, `/`-separated).",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "layout",
-        "run_dir",
-        "export_path"
-      ],
-      "type": "object"
     }
   },
   "description": "Calibration Studio's back-end API: every command with its argument, reply, event and output types, the event and error types, and the wire types the frontend reads. Do not edit by hand: `bun run generate:api` regenerates it.",
@@ -5234,9 +5484,6 @@
     },
     "SingleCamHandeyeExport": {
       "$ref": "#/definitions/SingleCamHandeyeExport"
-    },
-    "ViewerSession": {
-      "$ref": "#/definitions/ViewerSession"
     }
   }
 }

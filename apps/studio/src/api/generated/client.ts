@@ -11,6 +11,12 @@ import type * as T from "./types";
 
 /** Every plain command: its argument object and its reply. */
 export interface Commands {
+  server_info: { args: T.ServerInfoArgs; reply: T.ServerInfo };
+  add_root: { args: T.AddRootArgs; reply: T.ServerInfo };
+  remove_root: { args: T.RemoveRootArgs; reply: T.ServerInfo };
+  recent_projects: { args: T.RecentProjectsArgs; reply: T.RecentProjectsReply };
+  forget_recent: { args: T.ForgetRecentArgs; reply: T.ForgetRecentReply };
+  list_dir: { args: T.ListDirArgs; reply: T.DirListing };
   create_project: { args: T.CreateProjectArgs; reply: T.ProjectInfo };
   open_project: { args: T.OpenProjectArgs; reply: T.ProjectInfo };
   save_project_manifest: {
@@ -78,19 +84,59 @@ export function createClient(t: Transport, hub: JobHub) {
   };
   return {
     /**
+     * What this back end is and what it serves. The frontend branches on
+     * these values, never on which transport carries them.
+     */
+    serverInfo: (args: T.ServerInfoArgs = {}): Promise<T.ServerInfo> =>
+      t.invoke("server_info", args) as Promise<T.ServerInfo>,
+    /**
+     * Add the folder `path` to the root folders (the desktop: the folder the
+     * user picked in the native dialog, the one act that grants a folder).
+     * `roots_fixed` on a server.
+     */
+    addRoot: (args: T.AddRootArgs): Promise<T.ServerInfo> =>
+      t.invoke("add_root", args) as Promise<T.ServerInfo>,
+    /**
+     * Remove `path` from the root folders (the desktop). The samples' folder
+     * is always a root.
+     */
+    removeRoot: (args: T.RemoveRootArgs): Promise<T.ServerInfo> =>
+      t.invoke("remove_root", args) as Promise<T.ServerInfo>,
+    /**
+     * The projects opened most recently on this back end, newest first.
+     */
+    recentProjects: (args: T.RecentProjectsArgs = {}): Promise<T.RecentProjectsReply> =>
+      t.invoke("recent_projects", args) as Promise<T.RecentProjectsReply>,
+    /**
+     * Drop `dir` from the recent projects (one that no longer opens).
+     */
+    forgetRecent: (args: T.ForgetRecentArgs): Promise<T.ForgetRecentReply> =>
+      t.invoke("forget_recent", args) as Promise<T.ForgetRecentReply>,
+    /**
+     * The folder `path`, or the root folders without one. Entries whose name
+     * starts with a dot are left out, and so is a symbolic link that leads out
+     * of the roots; past 5 000 entries the listing is `truncated`.
+     */
+    listDir: (args: T.ListDirArgs): Promise<T.DirListing> =>
+      t.invoke("list_dir", args) as Promise<T.DirListing>,
+    /**
      * Make the folder `dir` a project for the dataset in `dataset_dir`,
      * described by `manifest`. Fails with `project_exists` when `dir` already
-     * holds one.
+     * holds one, and with `forbidden_path` when the manifest names a path
+     * outside the roots.
      */
     createProject: (args: T.CreateProjectArgs): Promise<T.ProjectInfo> =>
       t.invoke("create_project", args) as Promise<T.ProjectInfo>,
     /**
-     * Open the project in `dir`; `not_a_project` for any other folder.
+     * Open the project in `dir`; `not_a_project` for any other folder,
+     * `forbidden_path` when its dataset lies outside the roots. It becomes
+     * the most recent project.
      */
     openProject: (args: T.OpenProjectArgs): Promise<T.ProjectInfo> =>
       t.invoke("open_project", args) as Promise<T.ProjectInfo>,
     /**
-     * Replace the project's dataset manifest (`dataset.json`).
+     * Replace the project's dataset manifest (`dataset.json`); every path it
+     * names must lie inside a root.
      */
     saveProjectManifest: (
       args: T.SaveProjectManifestArgs,
@@ -124,7 +170,7 @@ export function createClient(t: Transport, hub: JobHub) {
       t.invoke("resolve_config", args) as Promise<T.ResolveConfigReply>,
     /**
      * Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
-     * otherwise. Its folder becomes one the app may read.
+     * otherwise.
      */
     readManifest: (args: T.ReadManifestArgs): Promise<T.DatasetSpec> =>
       t.invoke("read_manifest", args) as Promise<T.DatasetSpec>,
@@ -139,8 +185,8 @@ export function createClient(t: Transport, hub: JobHub) {
     /**
      * Read and parse the calibration export at `path` and check its schema
      * version. It does not become active: the frontend validates it first and
-     * then calls `set_active_export`. Its folder and image root become
-     * folders the app may read.
+     * then calls `set_active_export`. Its images are read through the `image`
+     * resource, so they too must lie inside a root.
      */
     loadExport: (args: T.LoadExportArgs): Promise<T.LoadExportResult> =>
       t.invoke("load_export", args) as Promise<T.LoadExportResult>,
@@ -209,9 +255,10 @@ export function createClient(t: Transport, hub: JobHub) {
       /**
        * Make the sample dataset `id` (one of the library's sample catalogue)
        * available locally and answer the absolute path of its manifest. The
-       * files are downloaded into the platform cache (`VISION_CALIBRATION_DATA`
-       * overrides it), checked against their SHA-256 and reused later, so the
-       * app carries no dataset.
+       * files are downloaded into the back end's samples folder (always one of
+       * its roots), checked against their SHA-256 and reused later, so the app
+       * carries no dataset. A back end built without samples answers
+       * `invalid` (`server_info.samples` is false).
        */
       fetchSample: (
         args: T.FetchSampleArgs,
@@ -227,8 +274,8 @@ export function createClient(t: Transport, hub: JobHub) {
        * Run a calibration end to end: detection (cached), the solve and the
        * export, reporting each stage and the library's reports within it. The
        * folder `manifest_dir` is what the manifest's relative paths resolve
-       * against; it becomes one the app may read. A successful run's export
-       * becomes the active export.
+       * against; every path the manifest names must lie inside a root. A
+       * successful run's export becomes the active export.
        */
       runCalibration: (
         args: T.RunCalibrationArgs,

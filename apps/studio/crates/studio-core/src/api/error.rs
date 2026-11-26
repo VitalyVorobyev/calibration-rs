@@ -39,6 +39,11 @@ pub enum ErrorKind {
     JobNotFound,
     /// The blob was evicted from the store: run its command again.
     BlobExpired,
+    /// No session: the request carries neither the session cookie nor the
+    /// token.
+    Unauthorized,
+    /// The roots are fixed while this back end runs (the server's).
+    RootsFixed,
     /// A failure of the back end itself.
     Internal,
     /// The folder has no project file.
@@ -97,11 +102,15 @@ impl StudioError {
     /// The HTTP status a transport answers this error with.
     pub fn http_status(&self) -> u16 {
         match self.kind {
+            ErrorKind::Unauthorized => 401,
             ErrorKind::ForbiddenPath => 403,
             ErrorKind::UnknownCommand | ErrorKind::JobNotFound | ErrorKind::BlobExpired => 404,
             ErrorKind::TooLarge => 413,
             ErrorKind::InvalidArgs => 400,
-            ErrorKind::Busy | ErrorKind::ProjectExists | ErrorKind::RunExists => 409,
+            ErrorKind::Busy
+            | ErrorKind::ProjectExists
+            | ErrorKind::RunExists
+            | ErrorKind::RootsFixed => 409,
             ErrorKind::Internal => 500,
             _ => 422,
         }

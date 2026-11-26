@@ -13,12 +13,12 @@ use crate::epipolar::EpipolarOverlay;
 use crate::images::ImageCache;
 use crate::ops;
 use crate::planes;
-use crate::scope::{RootMode, UserPath};
+use crate::scope::UserPath;
 
 /// Read and parse the calibration export at `path` and check its schema
 /// version. It does not become active: the frontend validates it first and
-/// then calls `set_active_export`. Its folder and image root become
-/// folders the app may read.
+/// then calls `set_active_export`. Its images are read through the `image`
+/// resource, so they too must lie inside a root.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LoadExportArgs {
@@ -36,15 +36,9 @@ pub struct LoadExportResult {
 }
 
 pub fn load_export(ctx: &Ctx, args: LoadExportArgs) -> Result<LoadExportResult, StudioError> {
-    let file = ctx.scope.open_file(&args.path)?;
+    let file = ctx.scope.existing_file(&args.path)?;
     let loaded =
         ops::read_export(&file).map_err(|e| StudioError::invalid(e).at(args.path.as_str()))?;
-    // The export's images: a folder that does not resolve has none to show.
-    if let Some(root) = &loaded.image_root
-        && ctx.scope.mode() == RootMode::Growable
-    {
-        let _ = ctx.scope.open_path(root);
-    }
     Ok(LoadExportResult {
         export: loaded.result.export,
         export_dir: loaded.result.export_dir,
@@ -293,20 +287,35 @@ mod tests {
 
     use serde_json::json;
 
-    use crate::api::{Api, Conditions, Dirs, ErrorKind};
-    use crate::run_source::{find_run, slash};
+    use crate::api::{Api, Conditions, ErrorKind, Setup};
     use crate::scope::RootScope;
 
-    /// The committed fixture run (a two-camera rig with images), behind the
-    /// fixed scope the browser viewer gives it.
-    fn viewer() -> (Api, crate::run_source::RunSource, tempfile::TempDir) {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/viewer-run");
-        let run = find_run(&fixture).unwrap();
-        let cache = tempfile::tempdir().unwrap();
-        let dirs = Dirs {
-            cache: cache.path().to_path_buf(),
+    /// The committed fixture project's run (a two-camera rig with images).
+    struct Run {
+        dir: std::path::PathBuf,
+        export: std::path::PathBuf,
+        images: std::path::PathBuf,
+    }
+
+    fn slash(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
+
+    /// The fixture run, behind a scope of the fixture project alone.
+    fn viewer() -> (Api, Run, tempfile::TempDir) {
+        let project = dunce::canonicalize(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/library/rig-demo"),
+        )
+        .unwrap();
+        let dir = project.join("runs/run-001");
+        let run = Run {
+            export: dir.join("export.json"),
+            images: project.join("images"),
+            dir,
         };
-        let api = Api::new(RootScope::fixed([run.dir.clone()]), dirs);
+        let cache = tempfile::tempdir().unwrap();
+        let setup = Setup::for_tests(Some(cache.path().to_path_buf()));
+        let api = Api::with_scope(RootScope::fixed([project]), setup);
         (api, run, cache)
     }
 
@@ -357,7 +366,7 @@ mod tests {
         )
         .unwrap();
 
-        let image = slash(&run.dir.join("images/cam0_view0.png"));
+        let image = slash(&run.images.join("cam0_view0.png"));
         let png = api
             .resource(
                 "undistorted_image",
@@ -400,8 +409,8 @@ mod tests {
         api.invoke("set_active_export", json!({"export": loaded["export"]}))
             .unwrap();
         let args = json!({
-            "path_a": slash(&run.dir.join("images/cam0_view0.png")),
-            "path_b": slash(&run.dir.join("images/cam1_view0.png")),
+            "path_a": slash(&run.images.join("cam0_view0.png")),
+            "path_b": slash(&run.images.join("cam1_view0.png")),
             "cam_a": 0, "cam_b": 1, "pose": 0,
             "params": {"block_size": 5, "semi_global": true, "downscale": 1}
         });
@@ -456,7 +465,7 @@ mod tests {
         let err = api
             .resource(
                 "undistorted_image",
-                json!({"path": slash(&run.dir.join("../viewer-run-vcal/calibration.json")), "camera": 0}),
+                json!({"path": slash(&run.images.join("../../vcal-run/calibration.json")), "camera": 0}),
                 &Conditions::default(),
             )
             .unwrap_err();

@@ -1,11 +1,11 @@
 /** The desktop app's transport: Tauri IPC to the shell's three commands
  * (`studio_invoke`, `studio_subscribe`, `studio_unsubscribe`), the
- * `studio:` URI scheme for resources and the native dialog. The only module
- * that imports `@tauri-apps/*`. */
+ * `studio:` URI scheme for resources, and the native folder dialog for
+ * Settings → Add folder…. The only module that imports `@tauri-apps/*`. */
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { ServerEvent } from "../generated/types";
-import { asStudioError, type OpenDialog, type Transport } from "../transport";
+import { asStudioError, type Transport } from "../transport";
 
 /** The Tauri webview has injected its IPC. */
 export function isTauri(): boolean {
@@ -24,8 +24,6 @@ async function call<T>(command: string, args: Record<string, unknown>): Promise<
 }
 
 export const tauriTransport: Transport = {
-  kind: "tauri",
-
   invoke: (name, args) => call("studio_invoke", { name, args: args ?? {} }),
 
   subscribe(onEvent, after) {
@@ -53,12 +51,11 @@ export const tauriTransport: Transport = {
   resourceUrl: (name, query) =>
     convertFileSrc(`r/${name}?q=${JSON.stringify(query ?? {})}`, "studio"),
 
-  async openDialog(options: OpenDialog) {
+  async pickNativeFolder() {
     const chosen = await open({
       multiple: false,
-      directory: options.directory ?? false,
-      title: options.title,
-      ...(options.filters ? { filters: options.filters } : {}),
+      directory: true,
+      title: "Add a folder Calibration Studio may read",
     });
     return typeof chosen === "string" ? chosen : null;
   },
