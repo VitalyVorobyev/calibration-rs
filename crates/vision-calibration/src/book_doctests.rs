@@ -153,6 +153,9 @@ struct Pnp;
 #[doc = include_str!("../../../book/src/problem_type.md")]
 struct ProblemType;
 
+#[doc = include_str!("../../../book/src/projects.md")]
+struct Projects;
+
 #[doc = include_str!("../../../book/src/quality.md")]
 struct Quality;
 

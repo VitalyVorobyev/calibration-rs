@@ -120,7 +120,7 @@ impl Default for QualityThresholds {
 }
 
 impl QualityThresholds {
-    fn validate(&self) -> Result<(), Error> {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
         let positive = |name: &str, value: f64| {
             if value.is_finite() && value > 0.0 {
                 Ok(())

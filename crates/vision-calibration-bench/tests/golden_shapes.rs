@@ -119,6 +119,8 @@ enum Bump {
     Export(&'static str),
     Session(&'static str),
     Manifest,
+    Project,
+    RunRecord,
 }
 
 impl Bump {
@@ -132,6 +134,8 @@ impl Bump {
                  versioned together)"
             ),
             Self::Manifest => "bump `DATASET_SPEC_VERSION` (the manifest's `version`)".to_string(),
+            Self::Project => "bump `PROJECT_VERSION` (the project file's `version`)".to_string(),
+            Self::RunRecord => "bump `RUN_RECORD_VERSION` (the run record's `version`)".to_string(),
         }
     }
 }
@@ -353,4 +357,151 @@ fn dataset_manifest() {
     let value = serde_json::to_value(&spec).unwrap();
     let golden = check("dataset_manifest.json", &value, Bump::Manifest);
     check_reads_back::<DatasetSpec>("dataset_manifest.json", &golden);
+}
+
+/// A project file with every optional section, in both dataset forms: the
+/// manifest written in it, and a manifest file it references.
+#[test]
+fn project_spec() {
+    use vision_calibration::analysis::QualityThresholds;
+    use vision_calibration_pipeline::dataset_runner::ConfigPatch;
+    use vision_calibration_pipeline::project::{
+        DatasetSource, DeviceIdentity, FeatureExclusion, ImageExclusion, PROJECT_VERSION,
+        ProjectSpec, ViewExclusion, ViewRef,
+    };
+
+    let manifest = DatasetSpec::from_path(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vision-calibration-dataset/samples/kuka_1/dataset.toml"),
+    )
+    .unwrap();
+    let mut inline = ProjectSpec::new(DatasetSource::inline("images", manifest));
+    assert_eq!(inline.version, PROJECT_VERSION);
+    inline.name = Some("kuka_1".into());
+    inline.description = Some("hand-eye of the KUKA sample".into());
+    let mut device = DeviceIdentity::new("SN-0042");
+    device.product = Some("bench camera".into());
+    device.label = Some("left".into());
+    inline.device = Some(device);
+    inline.config = ConfigPatch::from_toml_str("solver.max_iters = 80").unwrap();
+    inline.quality = Some(QualityThresholds::default());
+    let mut view = ViewExclusion::new(ViewRef::Token("12".into()));
+    view.note = Some("robot pose glitch".into());
+    inline.exclude.views.push(view);
+    inline
+        .exclude
+        .views
+        .push(ViewExclusion::new(ViewRef::Image("13.png".into())));
+    let mut image = ImageExclusion::new("cam0", "03.png");
+    image.note = Some("blurred".into());
+    inline.exclude.images.push(image);
+    let mut features = FeatureExclusion::new("cam0", "05.png", vec![[0.02, 0.04, 0.0]]);
+    features.note = Some("glare".into());
+    inline.exclude.features.push(features);
+    let referenced = ProjectSpec::for_manifest("../captures/dataset.toml");
+
+    let value = serde_json::to_value([&inline, &referenced]).unwrap();
+    let golden = check("project.spec.json", &value, Bump::Project);
+    check_reads_back::<Vec<ProjectSpec>>("project.spec.json", &golden);
+}
+
+/// A run record, calibrated (with an excluded image, a left-out detection
+/// and a feature exclusion that matched nothing) and imported: a project
+/// of eight blank images whose detections its cache holds.
+#[test]
+fn run_record() {
+    use vision_calibration::control::RunControl;
+    use vision_calibration::core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
+    use vision_calibration::detect::{
+        CacheKey, CachedFeatures, ChessboardConfig, DetectionCache, DetectorConfig, Feature,
+        FsDetectionCache,
+    };
+    use vision_calibration::synthetic::{planar, poses};
+    use vision_calibration_pipeline::project::{
+        DETECTIONS_DIR, DatasetSource, FeatureExclusion, ImageExclusion, Project,
+        ProjectRunOptions, ProjectSpec, RUN_RECORD_FILE, RUN_RECORD_VERSION, RunNotes, RunRecord,
+    };
+
+    let dir = std::env::temp_dir().join(format!("golden-run-record-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let data = dir.join("project/data");
+    std::fs::create_dir_all(&data).unwrap();
+    let cache = FsDetectionCache::new(dir.join("project").join(DETECTIONS_DIR));
+    let camera = make_pinhole_camera(
+        FxFyCxCy {
+            fx: 800.0,
+            fy: 800.0,
+            cx: 320.0,
+            cy: 240.0,
+        },
+        BrownConrady5::default(),
+    );
+    let board = planar::grid_points(8, 6, 0.03);
+    let specs = poses::seeded_board_pose_specs(8, 0.3, 7);
+    let board_poses = poses::centered_board_poses(&specs, (0.105, 0.075), 0.6);
+    let views = planar::project_views_all(&camera, &board, &board_poses).unwrap();
+    let detector = DetectorConfig::Chessboard(ChessboardConfig::new(6, 8, 0.03));
+    let mut paths = Vec::new();
+    for (i, view) in views.iter().enumerate() {
+        let name = format!("view{i:02}.png");
+        let mut image = image::GrayImage::new(640, 480);
+        image.put_pixel(i as u32, 0, image::Luma([255]));
+        image.save(data.join(&name)).unwrap();
+        let mut features: Vec<Feature> = view
+            .points_3d
+            .iter()
+            .zip(&view.points_2d)
+            .map(|(p, q)| Feature::new([q.x, q.y], [p.x, p.y, p.z]))
+            .collect();
+        if i == 3 {
+            features.truncate(3);
+        }
+        let bytes = std::fs::read(data.join(&name)).unwrap();
+        let key = CacheKey::for_detection(&bytes, &detector, None);
+        cache.put(&key, &CachedFeatures::new(features)).unwrap();
+        paths.push(name);
+    }
+    let manifest: DatasetSpec = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "topology": "planar_intrinsics",
+        "cameras": [{ "id": "cam0", "images": { "kind": "list", "paths": paths } }],
+        "target": { "kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.03 },
+    }))
+    .unwrap();
+    let mut spec = ProjectSpec::new(DatasetSource::inline("data", manifest));
+    spec.exclude
+        .images
+        .push(ImageExclusion::new("cam0", "view01.png"));
+    spec.exclude.features.push(FeatureExclusion::new(
+        "cam0",
+        "view00.png",
+        vec![[0.0, 0.0, 0.0], [5.0, 5.0, 0.0]],
+    ));
+    let project = Project::create(dir.join("project"), spec).unwrap();
+    let calibrated = project
+        .calibrate(
+            &ProjectRunOptions::new("golden"),
+            None,
+            &RunControl::default(),
+        )
+        .unwrap();
+    let read = |run_dir: &Path| -> Value {
+        serde_json::from_slice(&std::fs::read(run_dir.join(RUN_RECORD_FILE)).unwrap()).unwrap()
+    };
+    let value = read(&calibrated.dir);
+    assert_eq!(value["version"], RUN_RECORD_VERSION);
+    let golden = check("run.record.json", &value, Bump::RunRecord);
+    check_reads_back::<RunRecord>("run.record.json", &golden);
+
+    std::fs::copy(calibrated.export_path(), dir.join("calibration.json")).unwrap();
+    let imported = project
+        .import_export(dir.join("calibration.json"), RunNotes::new())
+        .unwrap();
+    let golden = check(
+        "run.record.imported.json",
+        &read(&imported.dir),
+        Bump::RunRecord,
+    );
+    check_reads_back::<RunRecord>("run.record.imported.json", &golden);
+    std::fs::remove_dir_all(&dir).unwrap();
 }

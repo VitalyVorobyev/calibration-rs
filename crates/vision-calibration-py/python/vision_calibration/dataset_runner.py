@@ -90,6 +90,7 @@ __all__ = [
     "build_single_cam_handeye_input",
     "calibrate_dataset",
     "camera_image_sizes",
+    "input_files",
     "detect_target",
     "patched_config",
 ]
@@ -687,6 +688,25 @@ def camera_image_sizes(
     """
     sizes = _native.camera_image_sizes(_manifest_arg(manifest), _base_dir_arg(base_dir))
     return [(int(w), int(h)) for w, h in sizes]
+
+
+def input_files(
+    manifest: Manifest,
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> list[Path]:
+    """Every file a run of the manifest reads, each once and sorted: each
+    camera's target and laser images, the robot pose file and the upstream
+    calibration. The image folders are listed; no file is read, so a caller
+    can check what a run would touch before it starts one.
+
+    Raises
+    ------
+    RunError
+        A camera's image pattern is not a valid glob.
+    """
+    files = _native.input_files(_manifest_arg(manifest), _base_dir_arg(base_dir))
+    return [Path(f) for f in files]
 
 
 def detect_target(

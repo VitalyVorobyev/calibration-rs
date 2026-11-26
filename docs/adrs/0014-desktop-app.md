@@ -30,6 +30,16 @@ workspace.**
   kit of its own.
 
 **A project is a folder, and its marker file decides.**
+
+> Amended by [ADR 0033](0033-projects-and-runs.md): the project format, its
+> runs and the detection cache now belong to the library
+> (`vision_calibration::project`). The project file is
+> `calibration-project.toml` version 2 (a version 1
+> `calibration-project.json` is read and migrated on save); a project's
+> detections are cached in `<project>/.detections`, not the OS cache dir;
+> presets become sample projects. The rules below remain as the version 1
+> format the app writes until its run path moves onto `Project::calibrate`.
+
 - A project is a folder with `calibration-project.json`, its manifest
   (`dataset.json`) and its runs.
 - A folder without the marker is not a project. Nothing is guessed from what

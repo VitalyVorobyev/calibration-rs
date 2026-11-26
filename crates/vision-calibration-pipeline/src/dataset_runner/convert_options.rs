@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use vision_calibration_core::lexical_absolute;
 use vision_calibration_detect::Feature;
@@ -30,24 +31,61 @@ pub(crate) struct ConvertOptions {
     /// Target points (metres, as the detector labels them) whose features
     /// a slot's detection drops.
     masks: BTreeMap<(usize, PathBuf), Vec<[f64; 3]>>,
+    /// Which masked points matched a feature, per slot whose detection the
+    /// masks were applied to.
+    matched: MatchLog,
+}
+
+/// Per slot whose detection a conversion masked, whether each of the
+/// slot's masked points (in the order of [`ConvertOptions`]'s masks)
+/// matched a feature. A record of the run rather than an option: two logs
+/// always compare equal.
+#[derive(Debug, Default)]
+struct MatchLog(Mutex<BTreeMap<(usize, PathBuf), Vec<bool>>>);
+
+impl Clone for MatchLog {
+    fn clone(&self) -> Self {
+        Self(Mutex::new(self.entries()))
+    }
+}
+
+impl PartialEq for MatchLog {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl MatchLog {
+    fn entries(&self) -> BTreeMap<(usize, PathBuf), Vec<bool>> {
+        // A panic elsewhere while the log was held leaves the entries it had.
+        match self.0.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    fn record(&self, slot: (usize, PathBuf), matched: Vec<bool>) {
+        let mut guard = match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let entry = guard
+            .entry(slot)
+            .or_insert_with(|| vec![false; matched.len()]);
+        for (seen, now) in entry.iter_mut().zip(matched) {
+            *seen |= now;
+        }
+    }
 }
 
 impl ConvertOptions {
     /// Leave camera `camera`'s image `path` out unread.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "the project's exclusions are its caller")
-    )]
     pub(crate) fn exclude_slot(&mut self, camera: usize, path: &Path) {
         self.excluded.insert((camera, lexical_absolute(path)));
     }
 
     /// Drop the features at `points` from camera `camera`'s detection in
     /// image `path`.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "the project's exclusions are its caller")
-    )]
     pub(crate) fn mask_points(&mut self, camera: usize, path: &Path, points: &[[f64; 3]]) {
         self.masks
             .entry((camera, lexical_absolute(path)))
@@ -75,18 +113,46 @@ impl ConvertOptions {
         if self.masks.is_empty() {
             return None;
         }
-        let points = self.masks.get(&(camera, lexical_absolute(path)))?;
+        let slot = (camera, lexical_absolute(path));
+        let points = self.masks.get(&slot)?;
+        let near = |p: &[f64; 3], f: &Feature| {
+            p.iter()
+                .zip(&f.world_xyz)
+                .all(|(a, b)| (a - b).abs() <= POINT_TOLERANCE_M)
+        };
         let keep: Vec<bool> = features
             .iter()
-            .map(|f| {
-                !points.iter().any(|p| {
-                    p.iter()
-                        .zip(&f.world_xyz)
-                        .all(|(a, b)| (a - b).abs() <= POINT_TOLERANCE_M)
-                })
-            })
+            .map(|f| !points.iter().any(|p| near(p, f)))
             .collect();
+        let matched = points
+            .iter()
+            .map(|p| features.iter().any(|f| near(p, f)))
+            .collect();
+        self.matched.record(slot, matched);
         keep.contains(&false).then_some(keep)
+    }
+
+    /// Whether the masked point `point` of camera `camera`'s image `path`
+    /// matched a feature of the detection the masks were applied to;
+    /// `None` when no detection of the slot was masked (the image was left
+    /// out before, by an exclusion or the view filter) or the slot masks no
+    /// such point.
+    pub(crate) fn point_matched(
+        &self,
+        camera: usize,
+        path: &Path,
+        point: &[f64; 3],
+    ) -> Option<bool> {
+        let slot = (camera, lexical_absolute(path));
+        let points = self.masks.get(&slot)?;
+        let log = self.matched.entries();
+        let matched = log.get(&slot)?;
+        points
+            .iter()
+            .zip(matched)
+            .filter(|(p, _)| *p == point)
+            .map(|(_, m)| *m)
+            .reduce(|a, b| a | b)
     }
 }
 

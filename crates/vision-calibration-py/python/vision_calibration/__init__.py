@@ -8,7 +8,8 @@ Raw serde payload access is available only via low-level helpers in
 Each problem type's module (:mod:`~vision_calibration.planar_intrinsics`,
 :mod:`~vision_calibration.rig_handeye`, ...) holds its session class, the
 manual-init seeds and the step results; :mod:`~vision_calibration.dataset_runner`
-runs dataset manifests; :class:`CameraModel` projects with a calibrated camera.
+runs dataset manifests; :mod:`~vision_calibration.project` keeps a dataset with
+its runs in a project folder; :class:`CameraModel` projects with a calibrated camera.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from . import (
     maps,
     mvg,
     planar_intrinsics,
+    project,
     residuals,
     rig_extrinsics,
     rig_handeye,

@@ -1,0 +1,22 @@
+{
+  "library_version": "1.0.0-rc.1",
+  "source": {
+    "file_name": "calibration.json",
+    "kind": "imported"
+  },
+  "summary": {
+    "cameras": [
+      {
+        "features": 287,
+        "id": "cam0",
+        "rms_px": 7.733542828682991e-13,
+        "views": 6
+      }
+    ],
+    "kind": "planar_intrinsics",
+    "verdict": "pass"
+  },
+  "timestamp": 1795690983,
+  "tool": "vision-calibration 1.0.0-rc.1",
+  "version": 1
+}

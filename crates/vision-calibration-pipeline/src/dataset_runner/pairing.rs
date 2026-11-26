@@ -38,10 +38,6 @@ pub struct PairedViews {
 /// As the converters fail before detection: an image pattern that does not
 /// expand ([`RunError::BadGlob`]), an open pairing
 /// ([`RunError::AskUser`]) and the pairing's own errors.
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "the project's exclusions are its caller")
-)]
 pub(crate) fn pair_dataset_views(
     spec: &DatasetSpec,
     base_dir: &Path,

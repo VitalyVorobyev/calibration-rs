@@ -14,6 +14,7 @@ use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use vision_calibration::dataset::SniffError as RustSniffError;
 use vision_calibration::dataset_runner::RunError as RustRunError;
+use vision_calibration::project::ProjectError as RustProjectError;
 
 create_exception!(
     vision_calibration,
@@ -40,6 +41,49 @@ create_exception!(
     PyOSError,
     "A sample dataset could not be downloaded or verified: the publisher could not be reached, a file did not match its checksum, or the cache could not be written."
 );
+
+create_exception!(
+    vision_calibration,
+    ProjectError,
+    PyRuntimeError,
+    "A project operation failed. `kind` names the failure (`\"not_a_project\"`, `\"changed_on_disk\"`, `\"exclusion\"`, `\"calibrate\"`, ...)."
+);
+
+/// The `kind` of a `ProjectError`: its Rust variant in snake case.
+pub(crate) fn project_error_kind(err: &RustProjectError) -> &'static str {
+    match err {
+        RustProjectError::NotAProject { .. } => "not_a_project",
+        RustProjectError::AmbiguousProject { .. } => "ambiguous_project",
+        RustProjectError::ProjectExists { .. } => "project_exists",
+        RustProjectError::UnsupportedVersion { .. } => "unsupported_version",
+        RustProjectError::ChangedOnDisk { .. } => "changed_on_disk",
+        RustProjectError::Io { .. } => "io",
+        RustProjectError::Parse { .. } => "parse",
+        RustProjectError::Invalid { .. } => "invalid",
+        RustProjectError::Manifest(_) => "manifest",
+        RustProjectError::Config(_) => "config",
+        RustProjectError::Exclusion { .. } => "exclusion",
+        RustProjectError::RunNotFound { .. } => "run_not_found",
+        RustProjectError::ImportMismatch { .. } => "import_mismatch",
+        RustProjectError::Calibrate(_) => "calibrate",
+        RustProjectError::Cancelled => "cancelled",
+        _ => "unknown",
+    }
+}
+
+/// Map a project error to `ProjectError`, its `kind` the variant; a
+/// cancelled run is a `KeyboardInterrupt`.
+pub(crate) fn project_err(py: Python<'_>, err: RustProjectError) -> PyErr {
+    if matches!(err, RustProjectError::Cancelled) {
+        return pyo3::exceptions::PyKeyboardInterrupt::new_err("cancelled");
+    }
+    let kind = project_error_kind(&err);
+    let exc = ProjectError::new_err(err.to_string());
+    match exc.value(py).setattr("kind", kind) {
+        Ok(()) => exc,
+        Err(err) => err,
+    }
+}
 
 /// Map a sample-fetch error: an unknown sample id is a `ValueError`, the
 /// rest `SampleFetchError`.

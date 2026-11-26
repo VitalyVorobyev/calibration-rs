@@ -1,0 +1,9 @@
+# Calibration project of the KUKA hand-eye sample: `vcal run .` calibrates
+# it into runs/, sharing the detection cache with `vcal run dataset.toml`.
+
+version = 2
+name = "KUKA hand-eye"
+description = "Single-camera hand-eye (eye-in-hand) of the RWHE-Calib kuka_1 dataset"
+
+[dataset]
+manifest = "dataset.toml"

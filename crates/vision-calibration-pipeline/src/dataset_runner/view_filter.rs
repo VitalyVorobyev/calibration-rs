@@ -19,6 +19,7 @@ use super::RunError;
 ///
 /// Serialized in `snake_case` (`"too_few_features"`, `"excluded"`, ...).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum RejectReason {

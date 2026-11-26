@@ -17,6 +17,12 @@ The Rust crate and the Python package install the same program.
 | `vcal init <folder>` | drafts `<folder>/dataset.toml` from the file names |
 | `vcal check <manifest>` | checks the manifest and its images, without detecting |
 | `vcal run <manifest>` | detects, calibrates, writes `calibration.json` and `quality.json` (`--report` adds `report.html`) |
+| `vcal run <project>` | the same, into the project's next `runs/run-NNN/` ([Projects](#projects)) |
+| `vcal project init <folder>` | makes a folder a calibration project |
+| `vcal project runs <project>` | lists a project's runs |
+| `vcal project import <project> <export>` | adds an export calibrated elsewhere as a run |
+| `vcal project note <project> <run>` | labels, annotates or stars a run |
+| `vcal project scan <folder>...` | lists the projects under folders, each device's runs together |
 | `vcal sample list` | lists the sample datasets |
 | `vcal sample fetch <id>` | downloads a sample dataset and prints its manifest's path |
 
@@ -121,6 +127,71 @@ not have is an error, so a misspelt name never passes silently. The fields
 are those of [Configuring a Run](getting_started.md#configuring-a-run) and
 of each workflow's chapter.
 
+## Projects
+
+A [project](projects.md) keeps a dataset with its configuration changes,
+what to leave out and every run. `vcal check` and `vcal run` take one when
+their path is a project folder or its `calibration-project.toml`; any other
+path is a manifest, read as above. The project file decides: a folder
+without one is not a project.
+
+```bash
+vcal project init my-camera --manifest my-camera/dataset.toml --device-id SN-0042
+vcal check my-camera
+vcal run my-camera --label "after refocus" --report
+```
+
+```text
+single_cam_handeye: 30 of 30 views used
+camera 0 (cam0), 1928 × 1208 px:
+  fx = 2058.456 ± 0.490 px
+  fy = 2058.993 ± 0.486 px
+  cx = 961.973 ± 0.391 px
+  cy = 610.085 ± 0.331 px
+verdict: pass
+  not_applicable variance_factor: no expected feature noise was stated (expected_feature_noise_px)
+wrote my-camera/runs/run-001 (run-001)
+```
+
+A project's run writes `export.json`, `quality.json` and `run.json`, the
+run's record, into the next `runs/run-NNN/` (`report.html` with `--report`);
+`-c` changes the configuration for this run only, over the project's
+`[config]`, and the record keeps it; `--label` names the run. `-o` is a
+manifest's option and `--label` a project's: the other combination is a
+command-line error (status 2). Detections are cached in the project's
+`.detections`, shared with `vcal run` on a manifest in the same folder.
+
+`vcal project init <folder>` writes `calibration-project.toml`:
+
+- `--manifest <file>` references a manifest file, which stays the one
+  source of the dataset; `--embed` copies it into the project file instead.
+- Without `--manifest`, a manifest is drafted from the file names in
+  `--data <folder>` (default: the project folder) and written into the
+  project file; fill in what it lists under `_unresolved`. A folder that
+  already holds `dataset.toml` or `dataset.json` is refused, so the project
+  never forks a manifest you keep by hand.
+- `--name`, and `--device-id` with `--device-product` and `--device-label`,
+  fill in the project's name and the device it calibrates.
+
+The other commands:
+
+```text
+$ vcal project runs my-camera
+run-001  2026-11-26 11:21  pass  30/30 views  cam0 0.152 px  * after refocus
+$ vcal project note my-camera run-001 --star --notes "reference"
+$ vcal project import my-camera out/kuka --label "from the lab PC"
+$ vcal project scan ~/calibrations
+```
+
+`runs` lists each run's id, time (UTC), verdict, views, each camera's RMS
+reprojection error, star and label (`--json` prints the records); `note`
+sets a run's label (`--label`), text (`--notes`) and star (`--star`,
+`--unstar`), an empty text clearing a field; `import` adds an export file
+or a `vcal run -o` folder whose workflow and camera count are the
+project's; `scan` lists the projects under the folders, each device's runs
+together (`--json`, `--max-depth`), naming on standard error the folders it
+could not read and exiting 0 once the walk is done.
+
 ## Sample datasets
 
 ```bash
@@ -139,7 +210,7 @@ in the platform's cache directory, or `--cache <dir>`.
 |---:|---|
 | 0 | done; for `run`, the verdict is pass or warn |
 | 1 | an error, printed on standard error |
-| 2 | a wrong command line |
+| 2 | a wrong command line (`-o` with a project, `--label` with a manifest included) |
 | 3 | `run` wrote its files, but the verdict is fail |
 | 130 | interrupted with Ctrl-C: the run stopped and wrote nothing |
 

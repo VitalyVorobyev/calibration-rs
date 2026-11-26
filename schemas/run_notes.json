@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What a person notes on a run, `notes.json`: the only file of a run that\nchanges after it is written.",
+  "properties": {
+    "label": {
+      "description": "A short name for the run.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "notes": {
+      "description": "Free text.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "starred": {
+      "description": "Whether the run is marked as one to keep.",
+      "type": "boolean"
+    }
+  },
+  "title": "RunNotes",
+  "type": "object"
+}
