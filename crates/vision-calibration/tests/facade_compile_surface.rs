@@ -325,6 +325,36 @@ fn model_comparison_surface_compiles() {
 }
 
 #[test]
+fn diagnostic_maps_surface_compiles() {
+    use analysis::{
+        Bandwidth, BandwidthSelection, DisplacementPlane, DistortionMap, ImageGrid, ResidualMap,
+        ResidualMapOptions, TargetFeatureResidual,
+    };
+
+    type Distortion = fn(&core::CameraParams, &ImageGrid) -> Result<DistortionMap, core::Error>;
+    let _distortion: Distortion = analysis::distortion_map;
+    type Residual = fn(
+        &[TargetFeatureResidual],
+        usize,
+        &ImageGrid,
+        &ResidualMapOptions,
+    ) -> Result<ResidualMap, Error>;
+    let _residual: Residual = analysis::residual_map;
+    let grid = ImageGrid::with_columns([1280, 960], 64).expect("grid");
+    assert_eq!((grid.columns(), grid.rows()), (64, 48));
+    let mut options = ResidualMapOptions::new();
+    options.bandwidth = Bandwidth::Pixels(40.0);
+    assert_eq!(ResidualMapOptions::new().bandwidth, Bandwidth::Auto);
+    let _: Option<DisplacementPlane> = None;
+    let selection: Option<BandwidthSelection> = None;
+    if let Some(BandwidthSelection::CrossValidated { folds, .. }) = selection {
+        let _: usize = folds;
+    }
+    let residual = TargetFeatureResidual::default();
+    let _: Option<[f64; 2]> = residual.residual_px();
+}
+
+#[test]
 fn focus_surface_compiles() {
     use analysis::{
         DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,

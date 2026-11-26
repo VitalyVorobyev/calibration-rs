@@ -799,6 +799,17 @@ pub mod synthetic {
 ///   [`FocusJackknife`](analysis::FocusJackknife)
 ///   ([`FocusJackknifeCovariance`](analysis::FocusJackknifeCovariance)), or
 ///   why there is none).
+/// - Dense diagnostic maps over an [`ImageGrid`](analysis::ImageGrid): the
+///   lens and sensor displacement of a camera,
+///   [`distortion_map`](analysis::distortion_map) (a
+///   [`DistortionMap`](analysis::DistortionMap) of
+///   [`DisplacementPlane`](analysis::DisplacementPlane)s), and the systematic
+///   part of its reprojection residuals,
+///   [`residual_map`](analysis::residual_map) with
+///   [`ResidualMapOptions`](analysis::ResidualMapOptions) and
+///   [`Bandwidth`](analysis::Bandwidth), returning a
+///   [`ResidualMap`](analysis::ResidualMap) and its
+///   [`BandwidthSelection`](analysis::BandwidthSelection).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
@@ -809,18 +820,21 @@ pub mod synthetic {
 ///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram).
 pub mod analysis {
     pub use vision_calibration_pipeline::analysis::{
-        CandidateGrid, CheckKind, CheckStatus, CrossValidationOptions, DepthOfField,
-        FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife, FocusJackknifeCovariance,
-        FocusOptions, FocusViewStats, FoldScore, HeldOutScore, Measurement, ModelComparison,
-        ModelOutcome, ModelScore, PredictedRigUncertainty, PredictedUncertainty, QualityCheck,
-        QualityReport, QualityThresholds, RankedCandidate, RankedRobotPose, ReportOptions, Unit,
-        Verdict, assess, candidate_poses, compare_camera_models, fit_focus, html_report,
-        predict_with_robot_poses, predict_with_views, rank_candidates, rank_robot_poses,
+        Bandwidth, BandwidthSelection, CandidateGrid, CheckKind, CheckStatus,
+        CrossValidationOptions, DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine,
+        FocusJackknife, FocusJackknifeCovariance, FocusOptions, FocusViewStats, FoldScore,
+        HeldOutScore, Measurement, ModelComparison, ModelOutcome, ModelScore,
+        PredictedRigUncertainty, PredictedUncertainty, QualityCheck, QualityReport,
+        QualityThresholds, RankedCandidate, RankedRobotPose, ReportOptions, ResidualMap,
+        ResidualMapOptions, Unit, Verdict, assess, candidate_poses, compare_camera_models,
+        fit_focus, html_report, predict_with_robot_poses, predict_with_views, rank_candidates,
+        rank_robot_poses, residual_map,
     };
 
     pub use vision_calibration_core::{
-        FeatureResidualHistogram, LaserFeatureResidual, LaserLineTrace, PerFeatureResiduals,
-        REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats, TargetFeatureResidual,
+        DisplacementPlane, DistortionMap, FeatureResidualHistogram, ImageGrid,
+        LaserFeatureResidual, LaserLineTrace, PerFeatureResiduals, REPROJECTION_HISTOGRAM_EDGES_PX,
+        ReprojectionStats, TargetFeatureResidual, distortion_map,
     };
 }
 

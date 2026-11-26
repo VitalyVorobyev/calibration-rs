@@ -103,6 +103,7 @@ from . import dataset as dataset
 from . import dataset_runner as dataset_runner
 from . import detect as detect
 from . import laserline_device as laserline_device
+from . import maps as maps
 from . import mvg as mvg
 from . import planar_intrinsics as planar_intrinsics
 from . import residuals as residuals
@@ -114,6 +115,12 @@ from . import samples as samples
 from . import session as session
 from . import single_cam_handeye as single_cam_handeye
 from .camera import CameraModel as CameraModel
+from .maps import (
+    DisplacementPlane as DisplacementPlane,
+    DistortionMap as DistortionMap,
+    ImageGrid as ImageGrid,
+    ResidualMap as ResidualMap,
+)
 from .common import (
     HandeyeInitOptions as HandeyeInitOptions,
     HandeyeOptimizeOptions as HandeyeOptimizeOptions,
@@ -291,6 +298,33 @@ def fit_focus(
     blur_limit_px: float | None = None,
     view_jackknife: bool = False,
 ) -> _FocusDiagnostic: ...
+
+
+def distortion_map(
+    camera: CameraParams | Mapping[str, Any],
+    image_size: tuple[int, int],
+    columns: int = 256,
+) -> DistortionMap: ...
+
+
+def residual_map(
+    result: PlanarIntrinsicsExport
+    | SingleCamHandeyeExport
+    | LaserlineDeviceExport
+    | RigExtrinsicsExport
+    | RigHandeyeExport
+    | RigLaserlineDeviceExport
+    | RigHandeyeLaserlineExport
+    | Mapping[str, Any],
+    image_size: tuple[int, int],
+    camera: int = 0,
+    columns: int = 64,
+    bandwidth: str | float = "auto",
+    views: Sequence[int] | None = None,
+    outlier_factor: float = 8.0,
+    min_effective_samples: float = 8.0,
+    min_effective_views: float = 5.0,
+) -> ResidualMap: ...
 
 
 __all__: list[str]

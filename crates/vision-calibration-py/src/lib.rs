@@ -678,6 +678,178 @@ fn fit_focus(
     session::to_py(py, &diagnostic)
 }
 
+/// `values` (row-major, `rows` × `columns`) as a 2-D numpy array.
+fn plane<'py>(
+    py: Python<'py>,
+    values: Vec<f64>,
+    rows: usize,
+    columns: usize,
+) -> PyResult<Bound<'py, numpy::PyArray2<f64>>> {
+    use numpy::PyArrayMethods;
+    numpy::PyArray1::from_vec(py, values).reshape([rows, columns])
+}
+
+/// The grid fields of a map payload.
+fn grid_payload<'py>(
+    py: Python<'py>,
+    grid: &vision_calibration::analysis::ImageGrid,
+) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+    let out = pyo3::types::PyDict::new(py);
+    out.set_item("image_size", grid.image_size().to_vec())?;
+    out.set_item("stride", grid.stride())?;
+    out.set_item("columns", grid.columns())?;
+    out.set_item("rows", grid.rows())?;
+    Ok(out)
+}
+
+/// The image grid of `columns` columns over `image_size`.
+fn image_grid(
+    image_size: &Bound<'_, PyAny>,
+    columns: u32,
+) -> PyResult<vision_calibration::analysis::ImageGrid> {
+    let image_size: [u32; 2] = parse_payload(image_size, "image_size")?;
+    vision_calibration::analysis::ImageGrid::with_columns(image_size, columns)
+        .map_err(|err| value_err(err.to_string()))
+}
+
+/// The lens and sensor displacement of a camera over its image.
+///
+/// Parameters
+/// ----------
+/// camera:
+///     Serde payload of `CameraParams`.
+/// image_size:
+///     ``[width, height]`` of the camera's images, pixels.
+/// columns:
+///     Grid columns; the stride is ``ceil(width / columns)``.
+///
+/// Returns
+/// -------
+/// dict
+///     ``image_size``, ``stride``, ``columns``, ``rows``, ``valid_nodes`` and
+///     the ``total``, ``distortion`` and ``sensor`` layers, each a dict of
+///     ``dx`` and ``dy`` float64 arrays shaped ``(rows, columns)``, NaN where
+///     a node has no value.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the camera is not finite, its sensor homography is not invertible,
+///     or the image or ``columns`` is empty.
+#[pyfunction(signature = (camera, image_size, columns=256))]
+fn distortion_map(
+    py: Python<'_>,
+    camera: &Bound<'_, PyAny>,
+    image_size: &Bound<'_, PyAny>,
+    columns: u32,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::core::CameraParams;
+
+    let camera: CameraParams = session::parse_checked(camera, "camera")?;
+    let grid = image_grid(image_size, columns)?;
+    let map = py
+        .detach(|| vision_calibration::analysis::distortion_map(&camera, &grid))
+        .map_err(|err| value_err(format!("invalid camera: {err}")))?;
+    let (rows, cols) = (grid.rows(), grid.columns());
+    let out = grid_payload(py, &grid)?;
+    out.set_item("valid_nodes", map.valid_nodes)?;
+    for (name, layer) in [
+        ("total", map.total),
+        ("distortion", map.distortion),
+        ("sensor", map.sensor),
+    ] {
+        let planes = pyo3::types::PyDict::new(py);
+        planes.set_item("dx", plane(py, layer.dx, rows, cols)?)?;
+        planes.set_item("dy", plane(py, layer.dy, rows, cols)?)?;
+        out.set_item(name, planes)?;
+    }
+    Ok(out.into_any().unbind())
+}
+
+/// The systematic part of one camera's reprojection residuals over its
+/// image.
+///
+/// Parameters
+/// ----------
+/// export:
+///     A calibration export (any problem type; its `kind` field selects it).
+/// image_size:
+///     ``[width, height]`` of the camera's images, pixels.
+/// camera:
+///     Camera index, 0 for single-camera results.
+/// columns:
+///     Grid columns; the stride is ``ceil(width / columns)``.
+/// options:
+///     Serde payload of `ResidualMapOptions`; `None` for the defaults.
+///
+/// Returns
+/// -------
+/// dict
+///     The grid fields, ``camera``, ``bandwidth_px``, ``bandwidth_selection``
+///     (serde payload), ``used``, ``unprojected``, ``outliers`` and
+///     ``views``, and the planes ``mean_dx``, ``mean_dy``, ``rms``,
+///     ``std_error``, ``significance``, ``effective_samples`` and
+///     ``effective_views`` as float64 arrays shaped ``(rows, columns)``.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If an option is out of range, the export has no record of the camera
+///     or of a selected view, or the image or ``columns`` is empty.
+/// TypeError
+///     If `export` is not a calibration export or a payload has the wrong
+///     shape.
+#[pyfunction(signature = (export, image_size, camera=0, columns=64, options=None))]
+fn residual_map(
+    py: Python<'_>,
+    export: &Bound<'_, PyAny>,
+    image_size: &Bound<'_, PyAny>,
+    camera: usize,
+    columns: u32,
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::analysis::ResidualMapOptions;
+
+    let options: ResidualMapOptions =
+        session::parse_optional_checked(options, "options")?.unwrap_or_default();
+    let grid = image_grid(image_size, columns)?;
+    let export = parse_cameras(export, "export")?;
+    let map = py
+        .detach(|| {
+            vision_calibration::analysis::residual_map(
+                &export.diagnostics().per_feature_residuals.target,
+                camera,
+                &grid,
+                &options,
+            )
+        })
+        .map_err(analysis_err)?;
+    let (rows, cols) = (grid.rows(), grid.columns());
+    let out = grid_payload(py, &grid)?;
+    out.set_item("camera", map.camera)?;
+    out.set_item("bandwidth_px", map.bandwidth_px)?;
+    out.set_item(
+        "bandwidth_selection",
+        session::to_py(py, &map.bandwidth_selection)?,
+    )?;
+    out.set_item("used", map.used)?;
+    out.set_item("unprojected", map.unprojected)?;
+    out.set_item("outliers", map.outliers)?;
+    out.set_item("views", map.views)?;
+    for (name, values) in [
+        ("mean_dx", map.mean_dx),
+        ("mean_dy", map.mean_dy),
+        ("rms", map.rms),
+        ("std_error", map.std_error),
+        ("significance", map.significance),
+        ("effective_samples", map.effective_samples),
+        ("effective_views", map.effective_views),
+    ] {
+        out.set_item(name, plane(py, values, rows, cols)?)?;
+    }
+    Ok(out.into_any().unbind())
+}
+
 /// Return the Rust library version embedded in the extension module.
 #[pyfunction]
 fn library_version() -> &'static str {
@@ -697,6 +869,8 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(candidate_poses, m)?)?;
     m.add_function(wrap_pyfunction!(compare_camera_models, m)?)?;
     m.add_function(wrap_pyfunction!(fit_focus, m)?)?;
+    m.add_function(wrap_pyfunction!(distortion_map, m)?)?;
+    m.add_function(wrap_pyfunction!(residual_map, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;

@@ -413,6 +413,34 @@ Each model follows AGENTS.md §10 (a camera model).
   refinement), and a laser export shows no planes. Add those sections
   (additive). Gate: `vision-calibration-bench/tests/html_report.rs` checks
   them for every problem type.
+- [ ] RESID-FREE-POSE - A public accessor for intrinsic-level residuals (a
+  free board pose per view, the doc-hidden `intrinsic_floor_*` today) of
+  hand-eye and rig exports, so `analysis::residual_map` can diagnose the
+  camera model without the robot or rig chain's error (ADR 0034). Gate: on
+  a synthetic hand-eye run with robot-pose noise and a correct camera
+  model, the free-pose residual map has no significant field where the
+  chain-level map has one.
+- [ ] QUALITY-SYSTEMATIC-RESIDUAL - A quality check from the residual map:
+  warn when a camera's residuals carry a significant systematic field. It
+  moves verdicts, so it is opt-in until measured: the false-alarm rate on
+  the suite's correct-model runs and the detection rate on synthetic
+  missing-term runs, both backends. Needs: RESID-MAP-SIGNIFICANCE.
+- [ ] RESID-MAP-SIGNIFICANCE - The residual map's `significance` uses a χ²₂
+  reference, but `V̂` is estimated from the views: under no field `χ > 3.03`
+  occurs at ~3 % of nodes with ~20 effective views and 4–19 % with ~6
+  (the release-mode gates `residual_map_finds_no_field_where_there_is_none`
+  and `residual_map_sweep_over_captures` fail on it). Its standard error
+  also omits the fit's own parameter noise: 88 % (not 95 %) of nodes lie
+  within 3 SE of a noise-free refit's map at a 352 px kernel
+  (`residual_map_recovers_the_field_a_missing_term_leaves`, ignored).
+  `residual_map_standard_error_matches_monte_carlo` also fails one of its
+  criteria: a per-record SE understates the scatter only 1.09× at the
+  image corner (the design expected ≥ 1.3×; 2.6× at the centre).
+  Candidates: a Hotelling/F reference with `G_eff − 1` degrees of freedom
+  (it changes what `significance` means: decide before the field ships in
+  a release), a parameter-noise term from the export's covariance. Gate:
+  those tests pass unchanged, or their criteria are revised with the
+  reason.
 
 ## Multiple-view geometry (Phase 2)
 
