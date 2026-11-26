@@ -1,0 +1,43 @@
+[package]
+name = "studio-core"
+version = "0.1.0"
+description = "Calibration Studio's back end: everything the desktop app and the browser viewer compute"
+authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/VitalyVorobyev/calibration-rs"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
+image = "0.25"
+vision-calibration = { path = "../../../../crates/vision-calibration" }
+# Laser-line extraction (ADR 0016). vision-metrology is not on
+# crates.io, so the published pipeline crates only define the
+# `LaserPixelExtractor` trait; this (unpublished) app provides the
+# implementation. Same pin as vision-calibration-bench.
+vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0" }
+# Canonical paths without the Windows `\\?\` prefix, so the asset scope and
+# the webview's `convertFileSrc` URLs name a file the same way.
+dunce = "1"
+# The platform cache folder, home of the detection cache.
+dirs = "5"
+# Optional: only pulled in by the `schema-export` feature for the
+# `emit_schemas` binary. schemars 1.x, matching the workspace pin.
+schemars = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+# The tests calibrate synthetic views.
+vision-calibration = { path = "../../../../crates/vision-calibration", features = ["synthetic"] }
+toml = "0.8"
+
+[features]
+# JSON Schema emission: derive `JsonSchema` on the command payload/response
+# types and forward the facade's `schemars` feature so the `*Export` types
+# are schema-able too.
+schema-export = ["dep:schemars", "vision-calibration/schemars"]

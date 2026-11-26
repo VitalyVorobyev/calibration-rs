@@ -19,7 +19,7 @@
 # - Artifacts are uploaded to the GitHub Actions run, not published anywhere
 #   (no GitHub Release upload step) — download from the run's Artifacts tab.
 #
-# Deliberately NOT part of `ci.yml`: bundling recompiles src-tauri and all of
+# Deliberately NOT part of `ci.yml`: bundling recompiles the app and all of
 # `vision-calibration` in release mode plus packages installers, which is far
 # too slow for the per-PR pipeline. This workflow only runs on demand
 # (`workflow_dispatch`) or when a release tag is pushed.
@@ -41,13 +41,13 @@ jobs:
           - os: macos-latest
             artifact-name: calibration-studio-macos
             artifact-path: |
-              apps/studio/src-tauri/target/release/bundle/dmg/*.dmg
-              apps/studio/src-tauri/target/release/bundle/macos/*.app
+              apps/studio/target/release/bundle/dmg/*.dmg
+              apps/studio/target/release/bundle/macos/*.app
           - os: ubuntu-latest
             artifact-name: calibration-studio-linux
             artifact-path: |
-              apps/studio/src-tauri/target/release/bundle/appimage/*.AppImage
-              apps/studio/src-tauri/target/release/bundle/deb/*.deb
+              apps/studio/target/release/bundle/appimage/*.AppImage
+              apps/studio/target/release/bundle/deb/*.deb
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -70,7 +70,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/studio/src-tauri -> target
+          workspaces: apps/studio -> target
 
       - name: Set up bun
         uses: oven-sh/setup-bun@v2

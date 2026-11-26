@@ -14,9 +14,10 @@ members = [
     "crates/vision-mvg",
     "xtask",
 ]
-# The desktop apps under `apps/` are their own crates — `apps/studio/src-tauri/`
-# pulls in the Tauri build-time dep tree and is built from `apps/studio/` (or
-# via `bun run tauri dev`), not from the workspace root. See ADR 0014.
+# The desktop apps under `apps/` are their own cargo workspaces — `apps/studio/`
+# (`studio-core` and the Tauri shell `src-tauri`) pulls in the Tauri build-time
+# dep tree and is built from `apps/studio/` (or via `bun run tauri dev`), not
+# from the workspace root. See ADR 0014.
 exclude = ["apps"]
 
 resolver = "3"

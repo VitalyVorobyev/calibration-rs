@@ -65,7 +65,7 @@ pub enum ProjectErrorKind {
 }
 
 impl ProjectError {
-    fn new(kind: ProjectErrorKind, message: impl Into<String>) -> Self {
+    pub fn new(kind: ProjectErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
@@ -436,58 +436,6 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<(), ProjectError> {
     let mut text = serde_json::to_string_pretty(value).map_err(|e| ProjectError::parse(path, e))?;
     text.push('\n');
     std::fs::write(path, text).map_err(|e| ProjectError::io(path, e))
-}
-
-/// Tauri command: make `dir` a project for the dataset in `dataset_dir`.
-#[tauri::command]
-pub fn create_project<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-    dir: PathBuf,
-    dataset_dir: PathBuf,
-    manifest: serde_json::Value,
-) -> Result<ProjectInfo, ProjectError> {
-    let info = create(&dir, &dataset_dir, &manifest)?;
-    allow_project_assets(&app, &info)?;
-    Ok(info)
-}
-
-/// Tauri command: open the project in `dir`.
-#[tauri::command]
-pub fn open_project<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-    dir: PathBuf,
-) -> Result<ProjectInfo, ProjectError> {
-    let info = open(&dir)?;
-    allow_project_assets(&app, &info)?;
-    Ok(info)
-}
-
-/// Tauri command: replace the project's dataset manifest.
-#[tauri::command]
-pub fn save_project_manifest(
-    dir: PathBuf,
-    manifest: serde_json::Value,
-) -> Result<(), ProjectError> {
-    save_manifest(&dir, &manifest)
-}
-
-/// Tauri command: save a run as `runs/<name>/`.
-#[tauri::command]
-pub fn save_project_run(
-    dir: PathBuf,
-    name: String,
-    record: RunRecord,
-) -> Result<RunSummary, ProjectError> {
-    save_run(&dir, &name, record)
-}
-
-/// The webview may load the project's dataset images.
-fn allow_project_assets<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    info: &ProjectInfo,
-) -> Result<(), ProjectError> {
-    crate::assets::allow_dir(app, Path::new(&info.dataset_dir))
-        .map_err(|e| ProjectError::new(ProjectErrorKind::Io, e))
 }
 
 #[cfg(test)]

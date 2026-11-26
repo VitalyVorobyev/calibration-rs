@@ -1,0 +1,15 @@
+# Calibration Studio's Rust side: one cargo workspace with one lockfile.
+#
+# - `crates/studio-core` — everything the app computes: projects, the
+#   calibration runner, the viewer commands' bodies, the file scope. No
+#   Tauri and no HTTP.
+# - `src-tauri` — the desktop shell (Tauri commands over studio-core) and
+#   the `calib-viewer` browser back end.
+#
+# This workspace is intentionally NOT part of the root workspace
+# (`/Cargo.toml` excludes `apps`): Tauri's build-time dependency tree would
+# otherwise weigh on every `cargo build --workspace` of the library. Build it
+# from `apps/studio/` (or through `bun run tauri dev`).
+[workspace]
+members = ["crates/studio-core", "src-tauri"]
+resolver = "3"

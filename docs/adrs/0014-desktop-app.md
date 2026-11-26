@@ -20,8 +20,10 @@ workspace.**
 - The webview only renders. All calibration logic runs in Rust through the
   `vision-calibration` facade, and every viewer is built on the export
   contract (ADR 0012).
-- `apps/studio/src-tauri` has its own lockfile, so the Tauri build tree never slows
-  the library build.
+- `apps/studio` is its own cargo workspace with its own lockfile, so the
+  Tauri build tree never slows the library build. What the app computes is
+  the `studio-core` crate, with no Tauri in it; `src-tauri` holds the
+  shells over it.
 - Distribution is local builds: no signed installers, no auto-update.
 - The frame is the shared `@vitavision/workbench` shell; components and the
   3D scene come from the `@vitavision/*` packages. The app keeps no component

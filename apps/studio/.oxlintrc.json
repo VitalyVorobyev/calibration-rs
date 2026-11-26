@@ -6,11 +6,11 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["./node_modules/@vitavision/config-oxlint/oxlintrc.json"],
   "options": { "reportUnusedDisableDirectives": "error" },
-  // Oxlint also skips what .gitignore lists (dist/, src-tauri/target, ...).
-  // src-tauri/ is a separate Rust crate, and src/types/generated is
+  // Oxlint also skips what .gitignore lists (dist/, target/, ...).
+  // src-tauri/ and crates/ are Rust, and src/types/generated is
   // generated from the Rust wire types (`bun run generate:types`): don't
   // lint or hand-edit it. Keep in sync with .gitignore / .prettierignore.
-  "ignorePatterns": ["src-tauri/**", "src/types/generated/**"],
+  "ignorePatterns": ["src-tauri/**", "crates/**", "src/types/generated/**"],
   "overrides": [
     {
       // The Vite/Vitest/Playwright configs run in Node, and the app's

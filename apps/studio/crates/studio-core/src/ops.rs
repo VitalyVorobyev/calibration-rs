@@ -1,7 +1,6 @@
-//! The bodies of the viewer commands, shared by both back ends: the Tauri
-//! commands in [`crate::commands`] and [`crate::disparity`] wrap them for
-//! the desktop app, and [`crate::viewer`]'s HTTP handlers call them for the
-//! browser viewer. Each is a plain function of its arguments and the
+//! The bodies of the viewer commands, shared by both back ends: the desktop
+//! app's Tauri commands wrap them, and the `calib-viewer` HTTP handlers call
+//! them for the browser viewer. Each is a plain function of its arguments and the
 //! [`ExportCache`]; what differs between the back ends (the asset scope of
 //! the desktop app, the file scope of the viewer) stays in the wrappers.
 

@@ -13,11 +13,13 @@ publish = false
 # `required-features` — see `tauri.conf.json`'s `mainBinaryName`.
 default-run = "calibration-studio"
 
-# This crate is intentionally NOT a member of the root Cargo workspace
-# (`/Cargo.toml`) — Tauri's tauri-build pulls in a substantial build-time
-# dep tree that we do not want polluting `cargo build --workspace` for
-# the calibration library itself. Build it from inside `apps/studio/` (or via
-# `bun run tauri dev`), not from the repo root.
+# A member of the `apps/studio` workspace (`../Cargo.toml`), which is
+# intentionally NOT part of the root Cargo workspace: Tauri's tauri-build
+# pulls in a substantial build-time dep tree that we do not want polluting
+# `cargo build --workspace` for the calibration library itself. Build it
+# from inside `apps/studio/` (or via `bun run tauri dev`), not from the repo
+# root. What the app computes lives in `studio-core`; this crate holds the
+# shells over it.
 
 [lib]
 name = "calibration_studio_lib"
@@ -46,22 +48,13 @@ path = "src/bin/calib_viewer.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+studio-core = { path = "../crates/studio-core" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
-anyhow = "1"
-nalgebra = { version = "0.34", features = ["serde-serialize"] }
-image = "0.25"
 # `fetch`: the Quick Start presets download their sample datasets.
 vision-calibration = { path = "../../../crates/vision-calibration", features = ["fetch"] }
-# Laser-line extraction (ADR 0016). vision-metrology is not on
-# crates.io, so the published pipeline crates only define the
-# `LaserPixelExtractor` trait; this (unpublished) app provides the
-# implementation. Same pin as vision-calibration-bench.
-vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.git", tag = "v0.1.0" }
-dirs = "5"
 # Canonical paths without the Windows `\\?\` prefix, so the asset scope and
 # the webview's `convertFileSrc` URLs name a file the same way.
 dunce = "1"
@@ -73,18 +66,12 @@ schemars = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
-# The tests calibrate synthetic views.
-vision-calibration = { path = "../../../crates/vision-calibration", features = ["synthetic"] }
-toml = "0.8"
 
 [features]
 # Avoid touching the embed_plist build hooks unless explicitly running
 # `cargo tauri build`. `tauri dev` enables what it needs from the CLI.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-# JSON Schema emission: derive `JsonSchema` on the Tauri
-# command payload/response types and forward the facade's `schemars`
-# feature so the `*Export` types are schema-able too.
-schema-export = ["dep:schemars", "vision-calibration/schemars"]
-
-[workspace]
+# JSON Schema emission: the `emit_schemas` binary over studio-core's wire
+# types (which derive `JsonSchema` under the same feature there).
+schema-export = ["dep:schemars", "studio-core/schema-export"]

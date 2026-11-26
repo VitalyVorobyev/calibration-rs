@@ -27,11 +27,11 @@ use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Method, Request, Response, Server};
 use vision_calibration::core::PixelRect;
 
-use super::scope::{FileScope, ScopeError};
 use super::source::{RunLayout, RunSource};
-use crate::disparity::DisparityParams;
-use crate::export_cache::ExportCache;
-use crate::ops;
+use studio_core::disparity::DisparityParams;
+use studio_core::export_cache::ExportCache;
+use studio_core::ops;
+use studio_core::scope::{FileScope, ScopeError};
 
 /// Requests are served by this many threads, so an image keeps loading
 /// while an undistortion or a disparity map is computed.

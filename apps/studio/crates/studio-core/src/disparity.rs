@@ -15,13 +15,10 @@ use std::path::Path;
 use base64::Engine;
 use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use vision_calibration::common::calibrated_cameras;
 use vision_calibration::core::{Iso3, Pt2, Vec3};
 use vision_calibration::mvg::dense::{BlockMatchOptions, DisparityMap, GrayImage, match_block};
 use vision_calibration::mvg::rectification::{RectifyOptions, StereoRectification, rectify};
-
-use crate::export_cache::ExportCache;
 
 /// Frontend-supplied matching controls.
 #[derive(Debug, Clone, Deserialize)]
@@ -88,40 +85,8 @@ pub struct PointCloud {
 /// Upper bound on rendered points; the cloud is grid-subsampled past this.
 const MAX_POINTS: usize = 60_000;
 
-/// Tauri command: compute a disparity map for the `(cam_a, cam_b)` pair at
-/// `pose` and return colormapped PNGs + metrics.
-#[tauri::command]
-pub async fn compute_disparity(
-    path_a: String,
-    path_b: String,
-    cam_a: usize,
-    cam_b: usize,
-    pose: usize,
-    params: DisparityParams,
-    cache: State<'_, ExportCache>,
-) -> Result<DisparityResult, String> {
-    let cached = cache
-        .snapshot()
-        .ok_or_else(|| "no export loaded yet".to_string())?;
-    // Rectification and SGM matching are the heaviest compute in the app:
-    // keep them off the async runtime.
-    tauri::async_runtime::spawn_blocking(move || {
-        compute(
-            &cached.value,
-            Path::new(&path_a),
-            Path::new(&path_b),
-            cam_a,
-            cam_b,
-            pose,
-            &params,
-        )
-    })
-    .await
-    .map_err(|e| format!("disparity task panicked: {e}"))?
-}
-
 /// Core pipeline: parse calibration → rectify → match → render.
-pub(crate) fn compute(
+pub fn compute(
     export: &serde_json::Value,
     path_a: &Path,
     path_b: &Path,
@@ -513,7 +478,7 @@ mod tests {
     /// Skips gracefully if the committed dataset is absent.
     #[test]
     fn compute_disparity_recovers_board_on_committed_rig() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/stereo");
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../data/stereo");
         let export_path = dir.join("viewer_export.json");
         if !export_path.exists() {
             eprintln!("skipping: {} absent", export_path.display());

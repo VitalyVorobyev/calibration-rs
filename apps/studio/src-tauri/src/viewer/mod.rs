@@ -9,18 +9,17 @@
 //!
 //! A run is a `vcal run -o` folder, a run the app saved in a project, or one
 //! export file ([`source`]). The server reads only files under the run
-//! folder and under the export's image root ([`scope`]); the command bodies
-//! are the desktop app's ([`crate::ops`]).
+//! folder and under the export's image root ([`studio_core::scope`]); the
+//! command bodies are the desktop app's ([`studio_core::ops`]).
 
 mod http;
-mod scope;
 mod source;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::ops;
+use studio_core::ops;
 
 const USAGE: &str = "\
 usage: calib-viewer <run-dir | export.json> [--port N] [--no-open] [--dist DIR]

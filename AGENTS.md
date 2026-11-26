@@ -300,9 +300,10 @@ Calibration Studio, Tauri 2 + React 19 + TypeScript; the developer guide is
 
 * **Always `bun`**, never `npm`/`pnpm`/`yarn`; `bun run tauri dev` launches
   the app (`bun run dev` alone is Vite without Tauri IPC).
-* `apps/studio/src-tauri` is **excluded from the root workspace** (`exclude =
-  ["apps"]`) and pins its own `Cargo.lock`; root `cargo test --workspace` does
-  not cover it.
+* `apps/studio` is its **own cargo workspace** (`crates/studio-core`, the
+  back end with no Tauri in it, and `src-tauri`, the shells), **excluded from
+  the root workspace** (`exclude = ["apps"]`) with its own
+  `apps/studio/Cargo.lock`; root `cargo test --workspace` does not cover it.
 * UI comes from `@vitavision/ui`, `@vitavision/workbench` and
   `@vitavision/three(-react)`; no app-local component kit, colour only from
   design tokens. No `apps/studio/src` module over ~400 lines (generated files
@@ -310,10 +311,11 @@ Calibration Studio, Tauri 2 + React 19 + TypeScript; the developer guide is
 * Gates, as CI runs them. From `apps/studio/`: `bun run lint` (oxlint, zero
   warnings), `bun run format:check`, `bun run typecheck`, `bun run test`
   (Vitest), `bun run test:e2e` (Playwright), and `bun run generate:types:ts`
-  leaving `src/types/generated` unchanged. From `apps/studio/src-tauri`:
-  `cargo fmt --check`, `cargo clippy --all-targets --features schema-export
-  -- -D warnings`, `cargo test`, and `cargo run --features schema-export
-  --bin emit_schemas -- --check`. `bun run generate:types` regenerates both
+  leaving `src/types/generated` unchanged. From `apps/studio/`:
+  `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
+  --all-features -- -D warnings`, `cargo test --workspace`, and `cargo run
+  -p calibration-studio --features schema-export --bin emit_schemas --
+  --check`. `bun run generate:types` regenerates both
   stages. `bun run build` runs in CI only inside the bundle workflow (on a
   release tag or by hand); run it locally when a change touches the build
   setup.
