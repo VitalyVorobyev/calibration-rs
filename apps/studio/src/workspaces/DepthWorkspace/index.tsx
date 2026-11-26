@@ -1,4 +1,4 @@
-import { api } from "../../api";
+import { api, StudioError } from "../../api";
 import {
   Button,
   Empty,
@@ -11,7 +11,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { NoImageList } from "../../components/NoImageList";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useStore } from "../../store";
-import type { DisparityResult } from "../../api/generated/types";
+import { loadDisparityView, type DisparityView } from "./depthView";
 
 // Three.js is heavy (~900 KB); only pull it in when the 3D view is opened.
 const PointCloudView = lazy(() =>
@@ -37,7 +37,7 @@ const VIEW_LABEL: Record<ViewMode, string> = {
 const VIEW_MODES = Object.keys(VIEW_LABEL) as ViewMode[];
 
 /** Dense stereo / depth workspace: rectify a synchronized pair and dense-match
- * it server-side, then show the colormapped disparity. */
+ * it server-side (the `disparity` job), then colour its fields here. */
 export function DepthWorkspace() {
   const data = useStore((s) => s.data);
   const kind = useStore((s) => s.kind);
@@ -54,7 +54,7 @@ export function DepthWorkspace() {
   const [viewMode, setViewMode] = useState<ViewMode>("overlay");
   const [resultState, setResultState] = useState<{
     key: string;
-    result: DisparityResult | null;
+    result: DisparityView | null;
     error: string | null;
   } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -69,18 +69,10 @@ export function DepthWorkspace() {
     [frames, selectedPose, cameraB],
   );
   const selectionKey = `${poseValues.length}|${selectedPose}|${cameraA}|${cameraB}|${frameA?.abs_path ?? ""}|${frameB?.abs_path ?? ""}`;
-  const result = resultState?.key === selectionKey ? resultState.result : null;
+  const view = resultState?.key === selectionKey ? resultState.result : null;
+  const result = view?.result ?? null;
   const error = resultState?.key === selectionKey ? resultState.error : null;
-  const cloud = useMemo(
-    () =>
-      result
-        ? {
-            positions: new Float32Array(result.point_cloud.positions),
-            colors: new Float32Array(result.point_cloud.colors),
-          }
-        : null,
-    [result],
-  );
+  const cloud = view?.cloud ?? null;
 
   if (!data || !kind) {
     return (
@@ -136,17 +128,27 @@ export function DepthWorkspace() {
         ? { key, result: prev.result, error: null }
         : { key, result: null, error: null },
     );
+    const args = {
+      path_a: frameA.abs_path,
+      path_b: frameB.abs_path,
+      cam_a: cameraA,
+      cam_b: cameraB,
+      pose: selectedPose,
+      params: { block_size: BLOCK_SIZE, semi_global: semiGlobal, downscale: DOWNSCALE },
+    };
+    const run = async () =>
+      loadDisparityView(await (await api.jobs.disparity(args)).result);
     try {
-      const res = await api.disparity({
-        path_a: frameA.abs_path,
-        path_b: frameB.abs_path,
-        cam_a: cameraA,
-        cam_b: cameraB,
-        pose: selectedPose,
-        params: { block_size: BLOCK_SIZE, semi_global: semiGlobal, downscale: DOWNSCALE },
-      });
+      let next: DisparityView;
+      try {
+        next = await run();
+      } catch (e) {
+        // The blob store dropped the output: the job makes it again.
+        if (!(e instanceof StudioError && e.kind === "blob_expired")) throw e;
+        next = await run();
+      }
       if (requestSeqRef.current === seq) {
-        setResultState({ key, result: res, error: null });
+        setResultState({ key, result: next, error: null });
       }
     } catch (e) {
       if (requestSeqRef.current === seq) {
@@ -159,18 +161,8 @@ export function DepthWorkspace() {
     }
   };
 
-  const imgSrc =
-    result == null
-      ? null
-      : viewMode === "disparity"
-        ? result.disparity_png
-        : viewMode === "overlay"
-          ? result.overlay_png
-          : viewMode === "depth"
-            ? result.depth_png
-            : viewMode === "rectified"
-              ? result.rectified_pair_png
-              : null; // "3d" is rendered as WebGL below
+  // "3d" is rendered as WebGL below.
+  const imgSrc = view == null || viewMode === "3d" ? null : view.images[viewMode];
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
@@ -259,19 +251,29 @@ export function DepthWorkspace() {
 
       {result && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-fg-muted">
-          <Stat label="mode" value={result.semi_global ? "semi-global" : "block"} />
-          <Stat label="density" value={`${(result.density * 100).toFixed(1)}%`} />
+          <Stat
+            label="mode"
+            value={result.metrics.semi_global ? "semi-global" : "block"}
+          />
+          <Stat label="density" value={`${(result.metrics.density * 100).toFixed(1)}%`} />
           <Stat
             label="disparity"
-            value={`${result.disp_min.toFixed(1)}–${result.disp_max.toFixed(1)} px`}
+            value={`${result.metrics.disp_min.toFixed(1)}–${result.metrics.disp_max.toFixed(1)} px`}
           />
           <Stat
             label="planarity RMS"
-            value={result.plane_rms == null ? "—" : `${result.plane_rms.toFixed(2)} px`}
+            value={
+              result.metrics.plane_rms == null
+                ? "—"
+                : `${result.metrics.plane_rms.toFixed(2)} px`
+            }
           />
-          <Stat label="plane inliers" value={`${result.plane_inliers}`} />
-          <Stat label="cloud points" value={`${result.point_cloud.count}`} />
-          <Stat label="baseline" value={`${(result.baseline_m * 1000).toFixed(0)} mm`} />
+          <Stat label="plane inliers" value={`${result.metrics.plane_inliers}`} />
+          <Stat label="cloud points" value={`${result.point_count}`} />
+          <Stat
+            label="baseline"
+            value={`${(result.metrics.baseline_m * 1000).toFixed(0)} mm`}
+          />
           <Stat label="match size" value={`${result.width}×${result.height}`} />
         </div>
       )}

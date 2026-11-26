@@ -6,8 +6,9 @@
 //! - `studio_subscribe { after, onEvent }` — the event stream (job states
 //!   and progress) over one channel; answers the subscription id.
 //! - `studio_unsubscribe { id }` — ends it.
-//! - `studio_resource { name, query }` — a resource's bytes as a binary IPC
-//!   response.
+//!
+//! Resources are not IPC: the webview loads them by URL through the
+//! `studio:` scheme (`crate::scheme`).
 //!
 //! Every body runs on a blocking thread: commands are synchronous and some
 //! (opening a project, reading an export) touch the disk.
@@ -17,7 +18,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use studio_core::api::{Api, ServerEvent, StudioError};
 use tauri::State;
-use tauri::ipc::{Channel, Response};
+use tauri::ipc::Channel;
 
 /// The API the app's commands run against.
 pub type SharedApi = Arc<Api>;
@@ -66,19 +67,4 @@ pub fn studio_subscribe(
 #[tauri::command]
 pub fn studio_unsubscribe(id: u64, api: State<'_, SharedApi>) {
     api.unsubscribe(id);
-}
-
-/// The bytes of resource `name` for `query` (a PNG for
-/// `undistorted_image`), as a binary IPC response rather than text.
-#[tauri::command]
-pub async fn studio_resource(
-    name: String,
-    query: Value,
-    api: State<'_, SharedApi>,
-) -> Result<Response, StudioError> {
-    let api = Arc::clone(&api);
-    let resource = tauri::async_runtime::spawn_blocking(move || api.resource(&name, query))
-        .await
-        .map_err(panicked)??;
-    Ok(Response::new(resource.body))
 }

@@ -9,16 +9,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Ctx;
-use super::commands::{forms, jobs, project, setup, viewer};
+use super::commands::{forms, jobs, project, resources, setup, viewer};
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
-
-/// Bytes a resource answers, with their media type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Resource {
-    pub media_type: &'static str,
-    pub body: Vec<u8>,
-}
+use super::resource::Resource;
 
 /// What kind of command an entry is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +22,7 @@ pub enum Kind {
     /// Queued on `lane`; answers its `JobInfo`, then reports events and ends
     /// with an output (or an error) on the event stream.
     Job { lane: Lane },
-    /// A typed query in, bytes out.
+    /// A typed query in, a file or bytes out (behind a URL).
     Resource,
 }
 
@@ -132,7 +126,7 @@ where
     }
 }
 
-/// A resource: `f` answers its query with bytes.
+/// A resource: `f` answers its query with a file or bytes.
 pub fn resource<Q>(
     name: &'static str,
     f: fn(&Ctx, Q) -> Result<Resource, StudioError>,
@@ -181,8 +175,11 @@ pub fn table() -> Vec<CommandSpec> {
         ),
         plain("camera_parameter_values", viewer::camera_parameter_values),
         plain("projection_uncertainty", viewer::projection_uncertainty),
-        plain("disparity", viewer::disparity),
-        resource("undistorted_image", viewer::undistorted_image),
+        job("disparity", Lane::Heavy, viewer::disparity),
+        // Resources: the bytes behind the frontend's URLs.
+        resource("image", resources::image),
+        resource("undistorted_image", resources::undistorted_image),
+        resource("blob", resources::blob),
         // Jobs.
         plain("list_jobs", jobs::list_jobs),
         plain("job_status", jobs::job_status),

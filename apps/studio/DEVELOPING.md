@@ -96,30 +96,57 @@ tests for the project rules are in studio-core's `project.rs` (temporary
 folders); the store is tested against a mock transport in
 `project/projectStore.test.tsx`.
 
-## Images and the asset protocol
+## Images and resources
 
-Source frames load straight from disk through Tauri's asset protocol
-(in the browser viewer, through its scoped file route):
-`api`'s `fileUrl(path)` wraps `convertFileSrc`, and
-`hooks/useImageData.ts` decodes the image (with `crossOrigin` set, so the
-canvas the luminance is read from stays untainted). `tauri.conf.json`
-enables the protocol with an empty scope; `assets.rs`'s `allow_dir` adds
-each folder the back end's `RootScope` grants, which is what the user opens
-(`open_project`/`create_project`: the project and its dataset folder;
-`load_export`: the export's folder and image root; `read_manifest`: the
-manifest's folder; `sniff_folder` and `run_calibration`: the dataset
-folder). An image outside every opened folder fails to load. The CSP allows images from `asset:`/`http://asset.localhost`, `blob:`
-and `data:`, and IPC; it applies to the built app only (in `tauri dev` the
-webview loads the Vite server directly, without it).
-`dangerousDisableAssetCspModification` keeps Tauri from
-adding nonces to `style-src`, which would disable the `'unsafe-inline'` that
-React's `style` attributes need. The `undistorted_image` resource answers
-PNG bytes, over a binary IPC response (`studio_resource`,
-`tauri::ipc::Response`) in the app, shown through a blob URL.
+Commands never return bytes. Images and dense results are **resources**:
+the frontend asks `api.urls.<resource>(query)` for a URL and loads it in an
+`<img>`, a `fetch` or `fetchPlane` (`src/api/resources.ts`); nothing outside
+`src/api/` builds a URL. Four resources:
 
-`lib/paths.ts`'s `joinPath` resolves paths as the file system does: an
-absolute segment (an absolute image root) replaces the base, and `.`/`..`
-are folded, so the asset scope sees plain paths.
+- `image { path, max? }` — a source frame. JPEG, PNG (8 or 16-bit), WebP,
+  GIF and BMP are the file itself; TIFF, PNM and the other formats the back
+  end reads become an 8-bit PNG (16-bit reduced as the detectors reduce it,
+  so the view is what was detected). With `max`, a JPEG thumbnail (quality
+  80) whose longest side is the next of 160, 320, 640, 1280.
+- `undistorted_image { path, camera, roi? }` — a frame rendered into a
+  camera's undistorted pixel frame of the active export (a PNG).
+- `blob { id }` — a derived blob a command made, by its id (a `BlobRef`).
+  The `disparity` job answers its output as blobs: a `VAM1` value plane
+  (disparity, metric depth and the rectified left image), the point cloud
+  as raw little-endian `f32`, the rectified pair as a PNG. The Depth
+  workspace colours the planes itself (`DepthWorkspace/depthView.ts`, the
+  charts package's viridis through stage2d's `rasterizePlane`). A blob the
+  store evicted answers `blob_expired`; the workspace runs the job again.
+
+Behind them, in studio-core: `images.rs` (`ImageCache`: derived images on
+disk under `<cache>/calibration-studio/images/<aa>/<key>.<ext>`, keyed by
+SHA-256 of the canonical path, length, mtime, variant and encoder revision —
+metadata, not content — capped at 1 GiB, least recently used pruned at start
+and every 256 writes; decoding capped at 200 MP and 1 GiB), `blobs.rs`
+(`BlobStore`: in memory, 256 MiB, ids the SHA-256 of command, canonical
+arguments, calibration fingerprint and part, so the same request is also
+memoized), `planes.rs` (`VAM1`: the magic, `u32` LE width, height, stride
+and channels, 4 reserved bytes, then `f32` LE values, plane-major; a Rust
+test pins `src/api/__fixtures__/golden.vam1`, which `resources.test.ts`
+decodes with stage2d's `decodePlane`), and `api/resource.rs` (the HTTP
+semantics, decided once: one `Range` → 206/416 on files, `ETag` +
+`If-None-Match` → 304, `Cache-Control: private, no-cache` on images and
+`immutable` on blobs). Every path goes through the `RootScope`.
+
+**Transports.** In the browser a resource is `GET /api/r/<name>?q=<query
+as JSON>`. In the desktop app it is the `studio:` URI scheme
+(`src-tauri/src/scheme.rs`): `studio://localhost/r%2F<name>%3Fq%3D<json>`
+(`http://studio.localhost/…` on Windows), built by Tauri's
+`convertFileSrc(…, "studio")` and answered by the same `Api::resource` on a
+blocking thread. The scheme is another origin, so its replies name the
+app's origin in `Access-Control-Allow-Origin`, and `hooks/useImageData.ts`
+loads images with `crossOrigin` set: the canvas the luminance is read from
+stays untainted. The CSP (`tauri.conf.json`) allows `studio:` and
+`http://studio.localhost` in `img-src` and `connect-src`; there is no asset
+protocol. The CSP applies to the built app only (in `tauri dev` the webview
+loads the Vite server directly). `dangerousDisableAssetCspModification`
+keeps Tauri from adding nonces to `style-src`, which would disable the
+`'unsafe-inline'` that React's `style` attributes need.
 
 ## Browser mode (`calib-viewer`)
 
@@ -320,7 +347,7 @@ file exists.
   `diagnose.spec.ts` injects a `window.__TAURI_INTERNALS__` shim
   (`e2e/support/tauriMock.ts`, which answers `studio_invoke` by the
   command's name) via `page.addInitScript`; its `assetUrl`
-  argument stands in for the asset protocol. Real desktop behavior is only
+  argument stands in for every resource URL (`convertFileSrc`). Real desktop behavior is only
   exercised manually: `bun run tauri dev` loads the Vite server directly, so
   the CSP and the bundled `tauri://` origin are only in effect in a built app
   (`bun run tauri build --debug --no-bundle`, then run
@@ -345,12 +372,13 @@ file exists.
 Every command the back end offers is one line of studio-core's command
 table (`crates/studio-core/src/api/table.rs`) over one typed function, of
 three kinds: `plain` (argument object → reply), `job` (argument object →
-events → output, on a worker lane, cancellable) and `resource` (query →
-bytes). Both transports dispatch through it: the Tauri shell's
-`studio_invoke`, `studio_subscribe`, `studio_unsubscribe` and
-`studio_resource`, and `calib-viewer`'s HTTP routes. Every command runs
-against a `Ctx` (the `RootScope`, the active export, the jobs, the event
-bus), and every failure is one `StudioError { kind, message, path? }`.
+events → output, on a worker lane, cancellable) and `resource` (query → a
+file or bytes behind a URL, see "Images and resources"). Both transports
+dispatch through it: the Tauri shell's `studio_invoke`, `studio_subscribe`
+and `studio_unsubscribe` and its `studio:` scheme, and `calib-viewer`'s HTTP
+routes. Every command runs against a `Ctx` (the `RootScope`, the active
+export, the image cache, the blob store, the jobs, the event bus), and every
+failure is one `StudioError { kind, message, path? }`.
 
 - **Paths.** A path argument is a `UserPath`, which only the `RootScope`
   turns into a `Path`. The desktop app's scope grows with what the user

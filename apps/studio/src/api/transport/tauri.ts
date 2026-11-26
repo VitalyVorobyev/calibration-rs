@@ -1,7 +1,7 @@
-/** The desktop app's transport: Tauri IPC to the shell's four commands
- * (`studio_invoke`, `studio_subscribe`, `studio_unsubscribe`,
- * `studio_resource`), the asset protocol for source images and the native
- * dialog. The only module that imports `@tauri-apps/*`. */
+/** The desktop app's transport: Tauri IPC to the shell's three commands
+ * (`studio_invoke`, `studio_subscribe`, `studio_unsubscribe`), the
+ * `studio:` URI scheme for resources and the native dialog. The only module
+ * that imports `@tauri-apps/*`. */
 import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { ServerEvent } from "../generated/types";
@@ -47,9 +47,11 @@ export const tauriTransport: Transport = {
     };
   },
 
-  fetchResource: (name, query) => call<ArrayBuffer>("studio_resource", { name, query }),
-
-  fileUrl: (path) => convertFileSrc(path.replace(/\\/g, "/")),
+  // `studio://localhost/r%2F<name>%3Fq%3D<json>` (`http://studio.localhost/…`
+  // on Windows): Tauri's own URL builder encodes the whole target, and the
+  // shell's scheme handler decodes it.
+  resourceUrl: (name, query) =>
+    convertFileSrc(`r/${name}?q=${JSON.stringify(query ?? {})}`, "studio"),
 
   async openDialog(options: OpenDialog) {
     const chosen = await open({

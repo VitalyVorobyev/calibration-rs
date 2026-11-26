@@ -161,7 +161,7 @@ pattern = "*.png"
 "#,
         )
         .unwrap();
-        let api = Api::new(RootScope::growable(None));
+        let api = Api::for_tests(RootScope::growable(None));
         let spec = api
             .invoke("read_manifest", json!({"path": toml.to_string_lossy()}))
             .unwrap();

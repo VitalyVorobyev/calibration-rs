@@ -32,8 +32,13 @@ pub enum ErrorKind {
     InvalidArgs,
     /// The job queue is full.
     Busy,
+    /// The request is larger than the back end serves (an image past its
+    /// pixel limit, a body past its byte limit).
+    TooLarge,
     /// No job with that id (it never existed or is no longer retained).
     JobNotFound,
+    /// The blob was evicted from the store: run its command again.
+    BlobExpired,
     /// A failure of the back end itself.
     Internal,
     /// The folder has no project file.
@@ -93,7 +98,8 @@ impl StudioError {
     pub fn http_status(&self) -> u16 {
         match self.kind {
             ErrorKind::ForbiddenPath => 403,
-            ErrorKind::UnknownCommand | ErrorKind::JobNotFound => 404,
+            ErrorKind::UnknownCommand | ErrorKind::JobNotFound | ErrorKind::BlobExpired => 404,
+            ErrorKind::TooLarge => 413,
             ErrorKind::InvalidArgs => 400,
             ErrorKind::Busy | ErrorKind::ProjectExists | ErrorKind::RunExists => 409,
             ErrorKind::Internal => 500,

@@ -17,7 +17,8 @@ path = "src/bin/studio_schema.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
+# Content addresses: image cache keys, blob ids, entity tags.
+sha2 = "0.10"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 image = "0.25"
 # `fetch`: the Quick Start samples download their datasets; `schemars`: the

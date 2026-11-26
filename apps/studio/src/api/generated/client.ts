@@ -39,7 +39,6 @@ export interface Commands {
     args: T.ProjectionUncertaintyArgs;
     reply: T.ProjectionUncertainty;
   };
-  disparity: { args: T.DisparityArgs; reply: T.DisparityResult };
   list_jobs: { args: T.ListJobsArgs; reply: T.ListJobsReply };
   job_status: { args: T.JobStatusArgs; reply: T.JobInfo };
   cancel_job: { args: T.CancelJobArgs; reply: T.JobInfo };
@@ -57,11 +56,18 @@ export interface Jobs {
     event: T.RunProgress;
     output: T.RunResponse;
   };
+  disparity: {
+    args: T.DisparityArgs;
+    event: T.DisparityEvent;
+    output: T.DisparityResult;
+  };
 }
 
 /** Every resource: its query object. */
 export interface Resources {
+  image: T.ImageQuery;
   undistorted_image: T.UndistortedImageQuery;
+  blob: T.BlobQuery;
 }
 
 /** The back end's API over `t`; `hub` follows its jobs. */
@@ -182,13 +188,6 @@ export function createClient(t: Transport, hub: JobHub) {
     ): Promise<T.ProjectionUncertainty> =>
       t.invoke("projection_uncertainty", args) as Promise<T.ProjectionUncertainty>,
     /**
-     * A disparity map of the stereo pair `path_a` (camera `cam_a`) and
-     * `path_b` (camera `cam_b`) at `pose`: rectified from the active export,
-     * dense-matched, with colour-mapped images and quality metrics.
-     */
-    disparity: (args: T.DisparityArgs): Promise<T.DisparityResult> =>
-      t.invoke("disparity", args) as Promise<T.DisparityResult>,
-    /**
      * Every job the back end still knows of, live or recently finished, in
      * start order.
      */
@@ -235,16 +234,42 @@ export function createClient(t: Transport, hub: JobHub) {
         args: T.RunCalibrationArgs,
       ): Promise<Job<T.RunProgress, T.RunResponse>> =>
         startJob<T.RunProgress, T.RunResponse>(t, hub, control, "run_calibration", args),
+      /**
+       * A disparity map of the stereo pair `path_a` (camera `cam_a`) and
+       * `path_b` (camera `cam_b`) at `pose`: rectified from the active export and
+       * dense-matched. The output names its fields as blobs: a value plane of
+       * disparity, depth and the rectified left image, the point cloud, and the
+       * rectified pair. The same request again answers from the blob store while
+       * it still holds them.
+       */
+      disparity: (
+        args: T.DisparityArgs,
+      ): Promise<Job<T.DisparityEvent, T.DisparityResult>> =>
+        startJob<T.DisparityEvent, T.DisparityResult>(t, hub, control, "disparity", args),
       /** Follow the job `id` (started earlier, say before a reload). */
       attach: <E, R>(id: string): Promise<Job<E, R>> => attachJob<E, R>(hub, control, id),
     },
-    resources: {
+    /** The URL of each resource: for an `<img>`, a `fetch` or `fetchPlane`. */
+    urls: {
       /**
-       * The image at `path` rendered into `camera`'s undistorted pixel frame (a
-       * PNG), cropped to `roi` when given.
+       * The image file at `path`, as a browser can decode it: JPEG, PNG, WebP,
+       * GIF and BMP are the file itself; TIFF, PNM and the other formats the
+       * back end reads become an 8-bit PNG (a 16-bit image reduced as the
+       * detectors reduce it). With `max`, a JPEG thumbnail whose longest side is
+       * at most `max`, snapped up to 160, 320, 640 or 1280.
        */
-      undistortedImage: (query: T.UndistortedImageQuery): Promise<ArrayBuffer> =>
-        t.fetchResource("undistorted_image", query),
+      image: (query: T.ImageQuery): string => t.resourceUrl("image", query),
+      /**
+       * The image at `path` rendered into `camera`'s undistorted pixel frame of
+       * the active export (a PNG), cropped to `roi` when given.
+       */
+      undistortedImage: (query: T.UndistortedImageQuery): string =>
+        t.resourceUrl("undistorted_image", query),
+      /**
+       * The blob `id` a command made (a value plane, raw floats, a PNG).
+       * `blob_expired` once the store has evicted it: run the command again.
+       */
+      blob: (query: T.BlobQuery): string => t.resourceUrl("blob", query),
     },
   };
 }

@@ -176,6 +176,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start from, come from the calibration library the app runs on, so they
   always match it; a preset's config changes apply by the library's rule,
   as `vcal run --config` applies a file.
+- Calibration Studio shows TIFF, PNM and 16-bit frames (as the detectors
+  see them) besides the formats a browser reads, caches what it derives from
+  them, and computes a dense disparity map as a background job; the Depth
+  view colours disparity and depth with the viridis colour map.
 - **Desktop app IPC types (breaking):** `DisparityResult::plane_rms` (`planeRms`
   in TypeScript) is now `Option<f64>` (`null` when fewer than three finite
   disparities exist or the plane fit is singular/non-finite; it was an

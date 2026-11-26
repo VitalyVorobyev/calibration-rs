@@ -3,7 +3,8 @@
 //
 // - src/api/generated/types.ts — every wire type, by json-schema-to-typescript;
 // - src/api/generated/client.ts — `createClient(transport)`: one typed function
-//   per command, job and resource, documented with the command's own doc,
+//   per command and job, one URL builder per resource (`urls`), documented
+//   with the command's own doc,
 //   and the `Commands` / `Jobs` / `Resources` maps the test transport is
 //   typed by. It is the only file that names commands.
 //
@@ -198,12 +199,15 @@ lines.push(
   "      attach: <E, R>(id: string): Promise<Job<E, R>> => attachJob<E, R>(hub, control, id),",
 );
 lines.push("    },");
-lines.push("    resources: {");
+lines.push(
+  "    /** The URL of each resource: for an `<img>`, a `fetch` or `fetchPlane`. */",
+);
+lines.push("    urls: {");
 for (const c of resources) {
   if (c.doc) lines.push(jsdoc(c.doc, "      ").trimEnd());
   lines.push(
-    `      ${camel(c.name)}: (query: ${T(c.args)}): Promise<ArrayBuffer> =>`,
-    `        t.fetchResource("${c.name}", query),`,
+    `      ${camel(c.name)}: (query: ${T(c.args)}): string =>`,
+    `        t.resourceUrl("${c.name}", query),`,
   );
 }
 lines.push("    },");

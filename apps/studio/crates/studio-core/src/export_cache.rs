@@ -16,6 +16,9 @@ use std::sync::{Arc, Mutex};
 pub struct CachedExport {
     /// Parsed export JSON.
     pub value: serde_json::Value,
+    /// The SHA-256 of the export as serialized: what derived images and
+    /// blobs of it are keyed by.
+    pub fingerprint: String,
 }
 
 /// Tauri-managed state holding the latest cached export.
@@ -31,8 +34,10 @@ impl ExportCache {
 
     /// Replace the cached export.
     pub fn set(&self, value: serde_json::Value) {
+        use sha2::Digest;
+        let fingerprint = crate::api::resource::hex(&sha2::Sha256::digest(value.to_string()));
         let mut guard = self.inner.lock().expect("export cache mutex poisoned");
-        *guard = Some(Arc::new(CachedExport { value }));
+        *guard = Some(Arc::new(CachedExport { value, fingerprint }));
     }
 
     /// Clone an `Arc` handle to the active export and release the mutex

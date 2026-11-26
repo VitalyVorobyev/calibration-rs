@@ -8,9 +8,10 @@
 //!   argument object; answered with its JSON reply, or with the
 //!   `StudioError` envelope and a status from its kind.
 //! - `GET /api/r/<name>?q=<json>` — a resource of the table ([`RESOURCES`]),
-//!   `q` its query object, percent-encoded.
-//! - `GET /api/file?path=<absolute path>` — a file under the run folder or
-//!   the export's image root, the browser's stand-in for the asset protocol.
+//!   `q` its query object, percent-encoded: a source image, an undistorted
+//!   view, a blob; with `ETag`/`If-None-Match` and single `Range`s.
+//! - `GET /api/events` — the event stream (server-sent events), resumed
+//!   after `Last-Event-ID` or `?after=`; the disparity job reports on it.
 //! - `GET /<path>` — the built frontend; `index.html` is marked with
 //!   `<meta name="calib-backend" content="http">` so the page picks the
 //!   HTTP back end.
@@ -22,13 +23,15 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use serde::Serialize;
-use studio_core::api::{Api, ErrorKind, Kind, StudioError};
+use studio_core::api::{Api, Conditions, Dirs, ErrorKind, Kind, ServerEvent, StudioError};
 use studio_core::run_source::{RunSource, ViewerSession, slash};
 use studio_core::scope::{FileScope, RootScope, ScopeError};
-use tiny_http::{Header, Method, Request, Response, Server};
+use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 /// Requests are served by this many threads, so an image keeps loading
 /// while an undistortion or a disparity map is computed.
@@ -39,9 +42,10 @@ const MAX_BODY: u64 = 256 * 1024 * 1024;
 const BACKEND_META: &str = r#"<meta name="calib-backend" content="http" />"#;
 
 /// The commands of the table the browser viewer answers: the viewers'
-/// own, which read the run's files and the active export. Projects, the
-/// runner, folder sniffing, samples and jobs are the desktop app's.
-/// (`set_active_export` writes only the server's memory.)
+/// own, which read the run's files and the active export, the disparity job
+/// and the job registry. Projects, the runner, folder sniffing and samples
+/// are the desktop app's. (`set_active_export` writes only the server's
+/// memory.)
 const COMMANDS: &[&str] = &[
     "load_export",
     "set_active_export",
@@ -52,16 +56,17 @@ const COMMANDS: &[&str] = &[
     "camera_parameter_values",
     "projection_uncertainty",
     "disparity",
+    "list_jobs",
+    "job_status",
+    "cancel_job",
 ];
 
 /// The resources of the table the browser viewer answers.
-const RESOURCES: &[&str] = &["undistorted_image"];
+const RESOURCES: &[&str] = &["image", "undistorted_image", "blob"];
 
 /// Everything a request handler reads.
 struct State {
     session: ViewerSession,
-    /// The run folder and the export's image root.
-    files: FileScope,
     /// The built frontend.
     dist: PathBuf,
     dist_scope: FileScope,
@@ -103,10 +108,9 @@ impl Viewer {
         roots.extend(images);
         let state = Arc::new(State {
             session: ViewerSession::of(run),
-            files: FileScope::new(roots.clone()),
             dist_scope: FileScope::new([dist.clone()]),
             dist,
-            api: Api::new(RootScope::fixed(roots)),
+            api: Api::new(RootScope::fixed(roots), Dirs::platform()),
             hosts: [format!("127.0.0.1:{port}"), format!("localhost:{port}")],
             origins: [
                 format!("http://127.0.0.1:{port}"),
@@ -168,6 +172,8 @@ struct Reply {
     content_type: &'static str,
     body: Vec<u8>,
     no_store: bool,
+    /// More headers (a resource's `ETag`, `Cache-Control`, `Content-Range`).
+    headers: Vec<(&'static str, String)>,
 }
 
 impl Reply {
@@ -178,6 +184,7 @@ impl Reply {
                 content_type: "application/json",
                 body,
                 no_store: true,
+                headers: Vec::new(),
             },
             Err(e) => Self::error(500, format!("serialize the response: {e}")),
         }
@@ -198,6 +205,7 @@ impl Reply {
             content_type: "application/json",
             body: serde_json::to_vec(&message).unwrap_or_default(),
             no_store: true,
+            headers: Vec::new(),
         }
     }
 
@@ -207,6 +215,7 @@ impl Reply {
             content_type,
             body,
             no_store: false,
+            headers: Vec::new(),
         }
     }
 
@@ -225,11 +234,29 @@ impl Reply {
                 response.add_header(header);
             }
         }
+        for (name, value) in &self.headers {
+            if let Ok(header) = Header::from_bytes(name.as_bytes(), value.as_bytes()) {
+                response.add_header(header);
+            }
+        }
         response
     }
 }
 
 fn handle(state: &State, mut request: Request) {
+    let url = request.url().to_owned();
+    let (path, query) = url.split_once('?').unwrap_or((&url, ""));
+    if request.method() == &Method::Get
+        && path == "/api/events"
+        && header(&request, "Host").is_some_and(|host| state.hosts.iter().any(|h| h == host))
+    {
+        let after = header(&request, "Last-Event-ID")
+            .map(str::to_owned)
+            .or_else(|| query_param(query, "after"))
+            .and_then(|seq| seq.parse().ok());
+        events(state, request, after);
+        return;
+    }
     let reply = route(state, &mut request).unwrap_or_else(|e| e);
     if reply.status >= 400 {
         let path = request.url().split('?').next().unwrap_or_default();
@@ -255,14 +282,6 @@ fn route(state: &State, request: &mut Request) -> Result<Reply, Reply> {
     let (path, query) = url.split_once('?').unwrap_or((&url, ""));
     match (request.method(), path) {
         (Method::Get, "/api/session") => Ok(Reply::json(&state.session)),
-        (Method::Get, "/api/file") => {
-            let requested = query_param(query, "path")
-                .ok_or_else(|| Reply::error(400, "`path` is missing or not UTF-8"))?;
-            let file = scoped(&state.files, &requested)?;
-            let bytes = std::fs::read(&file)
-                .map_err(|e| Reply::error(404, format!("read {}: {e}", file.display())))?;
-            Ok(Reply::bytes(content_type(&file), bytes))
-        }
         (Method::Post, _) if path.starts_with("/api/cmd/") => {
             if let Some(origin) = header(request, "Origin")
                 && !state.origins.iter().any(|o| o == origin)
@@ -279,7 +298,11 @@ fn route(state: &State, request: &mut Request) -> Result<Reply, Reply> {
         }
         (Method::Get, _) if path.starts_with("/api/r/") => {
             let query = query_param(query, "q").unwrap_or_else(|| "{}".to_owned());
-            resource(state, &path["/api/r/".len()..], &query)
+            let conditions = Conditions {
+                if_none_match: header(request, "If-None-Match").map(str::to_owned),
+                range: header(request, "Range").map(str::to_owned),
+            };
+            resource(state, &path["/api/r/".len()..], &query, &conditions)
         }
         (_, _) if path.starts_with("/api/") => Err(Reply::error(405, "method not allowed")),
         (Method::Get, _) => serve_static(state, path),
@@ -398,7 +421,8 @@ fn unknown(name: &str) -> StudioError {
 /// Run the command `name` on the JSON argument object `body` (empty: no
 /// arguments). The commands the browser does not offer are 404s.
 fn command(state: &State, name: &str, body: &[u8]) -> Result<Reply, Reply> {
-    if !COMMANDS.contains(&name) || state.api.kind(name) != Some(Kind::Plain) {
+    let offered = matches!(state.api.kind(name), Some(Kind::Plain | Kind::Job { .. }));
+    if !COMMANDS.contains(&name) || !offered {
         return Err(Reply::envelope(&unknown(name)));
     }
     let args = if body.iter().all(u8::is_ascii_whitespace) {
@@ -418,8 +442,14 @@ fn command(state: &State, name: &str, body: &[u8]) -> Result<Reply, Reply> {
         .map_err(|e| Reply::envelope(&e))
 }
 
-/// The bytes of resource `name` for the JSON query object `query`.
-fn resource(state: &State, name: &str, query: &str) -> Result<Reply, Reply> {
+/// Resource `name` for the JSON query object `query`, under the request's
+/// `conditions`.
+fn resource(
+    state: &State,
+    name: &str,
+    query: &str,
+    conditions: &Conditions,
+) -> Result<Reply, Reply> {
     if !RESOURCES.contains(&name) {
         return Err(Reply::envelope(&unknown(name)));
     }
@@ -431,11 +461,72 @@ fn resource(state: &State, name: &str, query: &str) -> Result<Reply, Reply> {
     })?;
     let resource = state
         .api
-        .resource(name, query)
+        .resource(name, query, conditions)
         .map_err(|e| Reply::envelope(&e))?;
-    let mut reply = Reply::bytes(resource.media_type, resource.body);
-    reply.no_store = true;
+    let body = resource
+        .read_body()
+        .map_err(|e| Reply::error(500, format!("read the resource: {e}")))?;
+    let mut reply = Reply::bytes(resource.media_type, body);
+    reply.status = resource.status;
+    reply.headers = vec![
+        ("ETag", resource.etag.clone()),
+        ("Cache-Control", resource.cache_control.to_owned()),
+        ("Accept-Ranges", "bytes".to_owned()),
+    ];
+    if let Some(range) = &resource.content_range {
+        reply.headers.push(("Content-Range", range.clone()));
+    }
     Ok(reply)
+}
+
+/// The event stream as server-sent events, from after `after`: one
+/// `id:`/`data:` record per event, a comment every 15 s so a closed
+/// connection is noticed. Holds this worker until the client goes.
+fn events(state: &State, request: Request, after: Option<u64>) {
+    let subscription = state.api.subscribe(after);
+    let reader = EventReader {
+        events: subscription.events,
+        pending: Vec::new(),
+        at: 0,
+    };
+    let headers = [
+        ("Content-Type", "text/event-stream"),
+        ("Cache-Control", "no-store"),
+        ("X-Content-Type-Options", "nosniff"),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| Header::from_bytes(name.as_bytes(), value.as_bytes()).ok())
+    .collect();
+    let response = Response::new(StatusCode(200), headers, reader, None, None);
+    let _ = request.respond(response);
+    state.api.unsubscribe(subscription.id);
+}
+
+/// The events of a subscription, as the bytes of an SSE stream.
+struct EventReader {
+    events: Receiver<ServerEvent>,
+    pending: Vec<u8>,
+    at: usize,
+}
+
+impl Read for EventReader {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.at == self.pending.len() {
+            self.pending = match self.events.recv_timeout(Duration::from_secs(15)) {
+                Ok(event) => {
+                    let data = serde_json::to_string(&event).unwrap_or_default();
+                    format!("id: {}\ndata: {data}\n\n", event.seq).into_bytes()
+                }
+                Err(RecvTimeoutError::Timeout) => b": keep-alive\n\n".to_vec(),
+                Err(RecvTimeoutError::Disconnected) => return Ok(0),
+            };
+            self.at = 0;
+        }
+        let n = out.len().min(self.pending.len() - self.at);
+        out[..n].copy_from_slice(&self.pending[self.at..self.at + n]);
+        self.at += n;
+        Ok(n)
+    }
 }
 
 #[cfg(test)]
@@ -635,8 +726,8 @@ mod tests {
         assert_eq!(bad.json()["kind"], "invalid_args");
         let not_json = send(port, "POST", "/api/cmd/undistort_points", &[], "{");
         assert_eq!(not_json.status, 400);
-        // The desktop's commands and the jobs are not offered here.
-        for name in ["run_calibration", "open_project", "list_jobs", "nope"] {
+        // The desktop's commands are not offered here.
+        for name in ["run_calibration", "open_project", "fetch_sample", "nope"] {
             let desktop = post(port, name, serde_json::json!({}));
             assert_eq!(desktop.status, 404, "{name}");
             assert_eq!(desktop.json()["kind"], "unknown_command");
@@ -649,12 +740,15 @@ mod tests {
     fn files_are_served_only_from_the_run_and_its_images() {
         let (viewer, run, _dist) = start();
         let port = viewer.port();
-        let file = |path: &Path| get(port, &format!("/api/file?path={}", encode(&slash(path))));
+        let file = |path: &Path| {
+            let query = serde_json::json!({ "path": slash(path) }).to_string();
+            get(port, &format!("/api/r/image?q={}", encode(&query)))
+        };
 
         let image = file(&run.dir.join("images/cam1_view0.png"));
         assert_eq!(image.status, 200);
         assert_eq!(image.content_type, "image/png");
-        assert_eq!(file(&run.dir.join("export.json")).status, 200);
+        assert!(image.body.starts_with(b"\x89PNG"));
 
         // `..` out of the run folder, an absolute path elsewhere, a
         // relative path: all refused.
@@ -675,11 +769,9 @@ mod tests {
             .status,
             403
         );
-        assert_eq!(
-            get(port, "/api/file?path=images%2Fcam0_view0.png").status,
-            403
-        );
-        assert_eq!(file(&run.dir.join("images/missing.png")).status, 404);
+        assert_eq!(file(Path::new("images/cam0_view0.png")).status, 403);
+        // A missing file is an I/O failure of the request, not a 200.
+        assert_eq!(file(&run.dir.join("images/missing.png")).status, 422);
         // A command's path is scoped the same way.
         let outside = post(
             port,

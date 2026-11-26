@@ -228,20 +228,40 @@
       "args": {
         "$ref": "#/definitions/DisparityArgs"
       },
-      "doc": "A disparity map of the stereo pair `path_a` (camera `cam_a`) and\n`path_b` (camera `cam_b`) at `pose`: rectified from the active export,\ndense-matched, with colour-mapped images and quality metrics.",
-      "kind": "plain",
+      "doc": "A disparity map of the stereo pair `path_a` (camera `cam_a`) and\n`path_b` (camera `cam_b`) at `pose`: rectified from the active export and\ndense-matched. The output names its fields as blobs: a value plane of\ndisparity, depth and the rectified left image, the point cloud, and the\nrectified pair. The same request again answers from the blob store while\nit still holds them.",
+      "event": {
+        "type": "null"
+      },
+      "kind": "job",
+      "lane": "heavy",
       "name": "disparity",
-      "reply": {
+      "output": {
         "$ref": "#/definitions/DisparityResult"
       }
     },
     {
       "args": {
+        "$ref": "#/definitions/ImageQuery"
+      },
+      "doc": "The image file at `path`, as a browser can decode it: JPEG, PNG, WebP,\nGIF and BMP are the file itself; TIFF, PNM and the other formats the\nback end reads become an 8-bit PNG (a 16-bit image reduced as the\ndetectors reduce it). With `max`, a JPEG thumbnail whose longest side is\nat most `max`, snapped up to 160, 320, 640 or 1280.",
+      "kind": "resource",
+      "name": "image"
+    },
+    {
+      "args": {
         "$ref": "#/definitions/UndistortedImageQuery"
       },
-      "doc": "The image at `path` rendered into `camera`'s undistorted pixel frame (a\nPNG), cropped to `roi` when given.",
+      "doc": "The image at `path` rendered into `camera`'s undistorted pixel frame of\nthe active export (a PNG), cropped to `roi` when given.",
       "kind": "resource",
       "name": "undistorted_image"
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/BlobQuery"
+      },
+      "doc": "The blob `id` a command made (a value plane, raw floats, a PNG).\n`blob_expired` once the store has evicted it: run the command again.",
+      "kind": "resource",
+      "name": "blob"
     },
     {
       "args": {
@@ -281,6 +301,43 @@
     }
   ],
   "definitions": {
+    "BlobQuery": {
+      "additionalProperties": false,
+      "description": "The blob `id` a command made (a value plane, raw floats, a PNG).\n`blob_expired` once the store has evicted it: run the command again.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "BlobRef": {
+      "description": "A blob a command made: fetch it from the `blob` resource with its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "len": {
+          "description": "Its length in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "media_type": {
+          "description": "`application/x-vam1` (a value plane), `application/x-f32` (raw\nlittle-endian floats), `image/png`, …",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "media_type",
+        "len"
+      ],
+      "type": "object"
+    },
     "CameraParameterValuesArgs": {
       "additionalProperties": false,
       "description": "The value of each labelled parameter of the active export that is a\ncamera parameter, aligned with `labels`; `null` for poses and planes.",
@@ -688,7 +745,7 @@
     },
     "DisparityArgs": {
       "additionalProperties": false,
-      "description": "A disparity map of the stereo pair `path_a` (camera `cam_a`) and\n`path_b` (camera `cam_b`) at `pose`: rectified from the active export,\ndense-matched, with colour-mapped images and quality metrics.",
+      "description": "A disparity map of the stereo pair `path_a` (camera `cam_a`) and\n`path_b` (camera `cam_b`) at `pose`: rectified from the active export and\ndense-matched. The output names its fields as blobs: a value plane of\ndisparity, depth and the rectified left image, the point cloud, and the\nrectified pair. The same request again answers from the blob store while\nit still holds them.",
       "properties": {
         "cam_a": {
           "format": "uint",
@@ -725,6 +782,58 @@
       ],
       "type": "object"
     },
+    "DisparityMetrics": {
+      "description": "The quality of a dense match.",
+      "properties": {
+        "baseline_m": {
+          "description": "Stereo baseline in calibration units (m).",
+          "format": "double",
+          "type": "number"
+        },
+        "density": {
+          "description": "Fraction of pixels with a valid disparity.",
+          "format": "double",
+          "type": "number"
+        },
+        "disp_max": {
+          "description": "See [`DisparityMetrics::disp_min`].",
+          "format": "float",
+          "type": "number"
+        },
+        "disp_min": {
+          "description": "Min / max recovered disparity (px).",
+          "format": "float",
+          "type": "number"
+        },
+        "plane_inliers": {
+          "description": "Inlier pixel count of that planar fit.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "plane_rms": {
+          "description": "Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent;\n`None` when fewer than 3 finite disparities are available or the fit is degenerate.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "semi_global": {
+          "description": "Whether semi-global aggregation was used.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "density",
+        "disp_min",
+        "disp_max",
+        "plane_inliers",
+        "baseline_m",
+        "semi_global"
+      ],
+      "type": "object"
+    },
     "DisparityParams": {
       "additionalProperties": false,
       "description": "Frontend-supplied matching controls.",
@@ -754,75 +863,53 @@
       "type": "object"
     },
     "DisparityResult": {
-      "description": "Result returned to the Depth workspace. All images are `data:image/png`\nbase64 URLs the webview can drop straight into `<img>`.",
+      "description": "A dense match, its fields as blobs (`blob` resource).",
       "properties": {
-        "baseline_m": {
-          "description": "Stereo baseline in calibration units (m).",
-          "format": "double",
-          "type": "number"
-        },
-        "density": {
-          "description": "Fraction of pixels with a valid disparity.",
-          "format": "double",
-          "type": "number"
-        },
-        "depth_png": {
-          "description": "Depth colormap (jet over metric depth `Z = f·B / d`; invalid black).",
-          "type": "string"
-        },
-        "disp_max": {
-          "description": "See [`DisparityResult::disp_min`].",
-          "format": "float",
-          "type": "number"
-        },
-        "disp_min": {
-          "description": "Min / max recovered disparity (px).",
-          "format": "float",
-          "type": "number"
-        },
-        "disparity_png": {
-          "description": "Disparity colormap (jet; invalid pixels black).",
-          "type": "string"
-        },
         "height": {
           "description": "Matched (downscaled) image height.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
-        "overlay_png": {
-          "description": "Disparity colormap blended over the rectified left image.",
-          "type": "string"
+        "metrics": {
+          "$ref": "#/definitions/DisparityMetrics"
         },
-        "plane_inliers": {
-          "description": "Inlier pixel count of that planar fit.",
+        "planes": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/BlobRef"
+            }
+          ],
+          "description": "A `VAM1` value plane of the matched size with three channels:\ndisparity (px) and metric depth (m), both `NaN` where there is no\nmatch, and the rectified left image's luminance (0–255)."
+        },
+        "point_colors": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/BlobRef"
+            }
+          ],
+          "description": "Its colours: `3 · point_count` little-endian `f32` in `[0, 1]`."
+        },
+        "point_count": {
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
-        "plane_rms": {
-          "description": "Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent;\n`None` when fewer than 3 finite disparities are available or the fit is degenerate.",
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "point_cloud": {
+        "point_positions": {
           "allOf": [
             {
-              "$ref": "#/definitions/PointCloud"
+              "$ref": "#/definitions/BlobRef"
             }
           ],
-          "description": "Reprojected 3D point cloud (reference-camera frame, metres)."
+          "description": "The point cloud's positions: `3 · point_count` little-endian `f32`\n(x, y, z in the reference camera's frame, metres)."
         },
-        "rectified_pair_png": {
-          "description": "Rectified left | right with shared epipolar rows (rectification sanity).",
-          "type": "string"
-        },
-        "semi_global": {
-          "description": "Whether semi-global aggregation was used.",
-          "type": "boolean"
+        "rectified_pair": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/BlobRef"
+            }
+          ],
+          "description": "Rectified left | right side by side with shared horizontal epipolar\nlines (a PNG)."
         },
         "width": {
           "description": "Matched (downscaled) image width.",
@@ -832,19 +919,14 @@
         }
       },
       "required": [
-        "rectified_pair_png",
-        "disparity_png",
-        "overlay_png",
-        "depth_png",
-        "point_cloud",
+        "planes",
+        "rectified_pair",
+        "point_positions",
+        "point_colors",
+        "point_count",
         "width",
         "height",
-        "density",
-        "disp_min",
-        "disp_max",
-        "plane_inliers",
-        "baseline_m",
-        "semi_global"
+        "metrics"
       ],
       "type": "object"
     },
@@ -1259,8 +1341,18 @@
           "type": "string"
         },
         {
+          "const": "too_large",
+          "description": "The request is larger than the back end serves (an image past its\npixel limit, a body past its byte limit).",
+          "type": "string"
+        },
+        {
           "const": "job_not_found",
           "description": "No job with that id (it never existed or is no longer retained).",
+          "type": "string"
+        },
+        {
+          "const": "blob_expired",
+          "description": "The blob was evicted from the store: run its command again.",
           "type": "string"
         },
         {
@@ -1701,6 +1793,28 @@
           "type": "object"
         }
       ]
+    },
+    "ImageQuery": {
+      "additionalProperties": false,
+      "description": "The image file at `path`, as a browser can decode it: JPEG, PNG, WebP,\nGIF and BMP are the file itself; TIFF, PNM and the other formats the\nback end reads become an 8-bit PNG (a 16-bit image reduced as the\ndetectors reduce it). With `max`, a JPEG thumbnail whose longest side is\nat most `max`, snapped up to 160, 320, 640 or 1280.",
+      "properties": {
+        "max": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
     },
     "Iso3Schema": {
       "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
@@ -2476,39 +2590,6 @@
         "cam_se3_target",
         "mean_reproj_error",
         "per_cam_reproj_errors"
-      ],
-      "type": "object"
-    },
-    "PointCloud": {
-      "description": "A reprojected 3D point cloud for the frontend's WebGL renderer.",
-      "properties": {
-        "colors": {
-          "description": "Flat `[r, g, b, …]` per-point grayscale colours in `[0, 1]`.",
-          "items": {
-            "format": "float",
-            "type": "number"
-          },
-          "type": "array"
-        },
-        "count": {
-          "description": "Number of points (`positions.len() / 3`).",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "positions": {
-          "description": "Flat `[x, y, z, …]` positions in the reference-camera frame (metres).",
-          "items": {
-            "format": "float",
-            "type": "number"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "positions",
-        "colors",
-        "count"
       ],
       "type": "object"
     },
@@ -5029,7 +5110,7 @@
     },
     "UndistortedImageQuery": {
       "additionalProperties": false,
-      "description": "The image at `path` rendered into `camera`'s undistorted pixel frame (a\nPNG), cropped to `roi` when given.",
+      "description": "The image at `path` rendered into `camera`'s undistorted pixel frame of\nthe active export (a PNG), cropped to `roi` when given.",
       "properties": {
         "camera": {
           "format": "uint",

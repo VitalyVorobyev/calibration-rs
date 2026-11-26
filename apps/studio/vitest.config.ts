@@ -14,6 +14,8 @@ import react from "@vitejs/plugin-react";
 // unit tests.
 export default defineConfig({
   plugins: [react()],
+  // The golden value plane studio-core writes, read by the resource tests.
+  assetsInclude: ["**/*.vam1"],
   test: {
     environment: "node",
     include: ["src/**/*.test.{ts,tsx}"],

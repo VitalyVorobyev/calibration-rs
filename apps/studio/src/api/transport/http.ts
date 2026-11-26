@@ -1,10 +1,10 @@
 /** The browser viewer's transport (`calib-viewer`, over the page's own
  * origin): `POST /api/cmd/<name>` with the argument object as JSON,
- * `GET /api/r/<name>?q=<query as JSON>` for a resource, `GET /api/events`
- * (server-sent events, resumed after the last event seen) for the event
- * stream, `GET /api/file?path=…` for a source image and `GET /api/session`
- * for the run it serves. A failure is the `StudioError` envelope as the
- * body, with a 4xx/5xx status. */
+ * `GET /api/r/<name>?q=<query as JSON>` for a resource (a source image, a
+ * blob), `GET /api/events` (server-sent events, resumed after the last event
+ * seen) for the event stream and `GET /api/session` for the run it serves. A
+ * failure is the `StudioError` envelope as the body, with a 4xx/5xx
+ * status. */
 import type { ServerEvent, ViewerSession } from "../generated/types";
 import { asStudioError, StudioError, type Transport } from "../transport";
 
@@ -74,12 +74,7 @@ export const httpTransport: Transport = {
     return { ready, close: () => source.close() };
   },
 
-  async fetchResource(name, query) {
-    const response = await send(resourceUrl(name, query));
-    return response.arrayBuffer();
-  },
-
-  fileUrl: (path) => `/api/file?path=${encodeURIComponent(path.replace(/\\/g, "/"))}`,
+  resourceUrl,
 
   async session(): Promise<ViewerSession> {
     const response = await send("/api/session");
