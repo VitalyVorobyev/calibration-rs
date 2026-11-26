@@ -1182,8 +1182,10 @@ fn html_report_is_one_self_contained_deterministic_page() {
     assert!(page.starts_with("<!doctype html>"));
     assert!(page.contains("<title>Left &lt;camera&gt; &amp; co</title>"));
     assert!(page.contains("Camera 0 (cam0)"));
-    // Histogram, error by region, per view and the projection-σ map.
-    assert_eq!(page.matches("<svg").count(), 4);
+    // Histogram, the systematic and RMS residual maps, per view and the
+    // projection-σ map.
+    assert_eq!(page.matches("<svg").count(), 5);
+    assert!(page.contains("observed − projected"));
     // Every parameter with its σ; k3 is held fixed by default.
     for label in ["fx", "fy", "cx", "cy", "k1", "k2", "p1", "p2"] {
         assert!(page.contains(&format!("<tr><td>{label}</td>")), "{label}");
@@ -1198,7 +1200,7 @@ fn html_report_is_one_self_contained_deterministic_page() {
 
     // Without the image size there is no projection-σ map.
     let page = html_report(&export, &[], &options).unwrap();
-    assert_eq!(page.matches("<svg").count(), 3);
+    assert_eq!(page.matches("<svg").count(), 4);
     // A size per camera or none, as `assess` takes them.
     assert!(html_report(&export, &[IMAGE, IMAGE], &options).is_err());
 }

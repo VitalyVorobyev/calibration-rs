@@ -106,7 +106,7 @@ for (err, r) in worst.iter().take(5) {
 # }
 ```
 
-A diagnose view typically projects this onto the source image as a heatmap; the `(observed_px, projected_px)` pair lets you draw an arrow from observed to projected for every record.
+A diagnose view typically projects this onto the source image as a heatmap, or draws each record's residual as an arrow. `TargetFeatureResidual::residual_px()` returns that vector, `observed_px − projected_px` in pixels: the sign the solver minimizes and the one the [residual map](diagnostic_maps.md) averages over the image.
 
 ### 4. Cross-check against the aggregate
 

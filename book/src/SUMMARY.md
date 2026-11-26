@@ -60,6 +60,7 @@
 - [Limits and Unavailable Results](uncertainty_limits.md)
 - [Judging a Result](quality.md)
 - [The Calibration Report](report.md)
+- [Distortion and Residual Maps](diagnostic_maps.md)
 
 ---
 

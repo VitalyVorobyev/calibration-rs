@@ -27,6 +27,9 @@ struct CustomResidual;
 #[doc = include_str!("../../../book/src/detection.md")]
 struct Detection;
 
+#[doc = include_str!("../../../book/src/diagnostic_maps.md")]
+struct DiagnosticMaps;
+
 #[doc = include_str!("../../../book/src/distortion.md")]
 struct Distortion;
 

@@ -137,9 +137,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   point, the groundwork of project exclusions; every converter and
   `calibrate_dataset` give the same results as before when nothing is left
   out.
+- `analysis::distortion_map` shows what a camera's lens and sensor model do
+  to each ray over its image, on an `analysis::ImageGrid` (block centres,
+  row-major): three layers in pixels, `distortion` (the lens without a sensor
+  tilt), `sensor` (what a tilted sensor adds) and `total` (their exact sum),
+  each `actual − reference` at the same ray, so barrel distortion points
+  inward. A fisheye's reference is its `f·θ` image. Nodes past a fold of the
+  distortion, outside a fisheye polynomial's invertible range, or sent to
+  infinity by the sensor are NaN. Python: `vision_calibration.distortion_map`
+  (numpy planes).
+- `analysis::residual_map` estimates the systematic part of a camera's
+  reprojection residuals over its image: a local-linear mean of
+  `observed − projected` (each record at its projection), the local RMS,
+  a standard error clustered by view and a pointwise significance, with the
+  kernel's bandwidth cross-validated over views (`ResidualMapOptions`,
+  `Bandwidth`, `BandwidthSelection`). Gross errors are left out and listed.
+  The significance is calibrated for the number of views (Hotelling's `T²`
+  reported as a two-degree-of-freedom `χ`, so `χ > 3.03` is `p < 0.01` with
+  few views as with many); it and the standard error are conditional on the
+  fitted camera and poses. Python:
+  `vision_calibration.residual_map`.
+- `TargetFeatureResidual::residual_px` returns a record's residual vector,
+  `observed_px − projected_px`, the sign the solver minimizes.
 
 ### Changed
 
+- The HTML report's "mean error by image region" figure (errors binned at
+  the observed pixel) is replaced by two figures from one residual map: the
+  systematic error `observed − projected`, greyed where it is not
+  significant, and the local RMS error.
 - The desktop app is named Calibration Studio and lives in `apps/studio/`.
 - Calibration Studio reads a picked or Quick Start manifest (TOML or JSON)
   with the library's manifest reader, as `vcal` does: a file that is not a

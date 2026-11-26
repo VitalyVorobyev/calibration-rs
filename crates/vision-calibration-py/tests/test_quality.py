@@ -174,8 +174,8 @@ class HtmlReportTest(unittest.TestCase):
         self.assertTrue(page.startswith("<!doctype html>"))
         self.assertIn("<title>Bench &lt;A&gt;</title>", page)
         self.assertIn("Camera 0 (left)", page)
-        # Histogram, error by region, per view, projection σ.
-        self.assertEqual(page.count("<svg"), 4)
+        # Histogram, systematic and RMS residual maps, per view, projection σ.
+        self.assertEqual(page.count("<svg"), 5)
         self.assertNotIn("<script", page)
         # The export JSON renders the same page as the result.
         self.assertEqual(

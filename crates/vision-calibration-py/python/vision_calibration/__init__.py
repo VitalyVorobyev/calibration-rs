@@ -20,6 +20,7 @@ from . import (
     dataset_runner,
     detect,
     laserline_device,
+    maps,
     mvg,
     planar_intrinsics,
     residuals,
@@ -38,7 +39,9 @@ from ._api import (
     html_report,
     candidate_poses,
     compare_camera_models,
+    distortion_map,
     fit_focus,
+    residual_map,
     predict_with_robot_poses,
     predict_with_views,
     rank_candidates,
@@ -143,6 +146,7 @@ from .models import (
     SingleCamHandeyeView,
 )
 from .camera import CameraModel
+from .maps import DisplacementPlane, DistortionMap, ImageGrid, ResidualMap
 from .common import (
     HandeyeInitOptions,
     HandeyeOptimizeOptions,
@@ -292,6 +296,12 @@ __all__ = [
     "candidate_poses",
     "compare_camera_models",
     "fit_focus",
+    "distortion_map",
+    "residual_map",
+    "DisplacementPlane",
+    "DistortionMap",
+    "ImageGrid",
+    "ResidualMap",
     # Sessions
     "CalibrationSession",
     "ExportRecord",

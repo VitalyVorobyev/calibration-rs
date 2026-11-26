@@ -34,6 +34,7 @@ from .models import (
     SingleCamHandeyeExport,
 )
 from ._generated_types import FocusDiagnostic, ModelComparison, RobustLoss
+from .maps import DistortionMap, ResidualMap
 from .types import ProgressCallback
 
 
@@ -212,8 +213,10 @@ def html_report(
 
     The page holds the :func:`assess` verdict with every check and, per
     camera, its model, each parameter with its σ, the reprojection-error
-    statistics, and four figures: the error histogram, the mean error by
-    image region, the mean error per view and the projection-σ map. It loads
+    statistics, and the figures: the error histogram, the systematic error
+    (``observed − projected``) and the local RMS error over the image (a
+    :func:`residual_map`), the mean error per view and the projection-σ map.
+    It loads
     nothing from elsewhere, so it opens offline; the same result gives the
     same page.
 
@@ -621,3 +624,106 @@ def fit_focus(
         view_jackknife,
     )
     return cast(FocusDiagnostic, payload)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Diagnostic maps
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def distortion_map(
+    camera: CameraParams | Mapping[str, Any],
+    image_size: tuple[int, int],
+    columns: int = 256,
+) -> DistortionMap:
+    """The lens and sensor displacement of a camera over its image.
+
+    Three layers at the same ray, ``actual − reference`` in pixels, indexed by
+    the pixel where the ray lands: ``distortion`` (the lens, as the camera
+    would show it without a sensor tilt), ``sensor`` (what a tilted sensor
+    adds) and ``total`` (their sum). See
+    :class:`~vision_calibration.maps.DistortionMap`.
+
+    Parameters
+    ----------
+    camera:
+        The camera, e.g. ``result.export["camera"]``.
+    image_size:
+        ``(width, height)`` of the camera's images (a region of interest's
+        size for a tiled camera), pixels.
+    columns:
+        Grid columns; the stride is ``ceil(width / columns)``. The field is a
+        low-order polynomial, so 256 columns resolve it well.
+
+    Raises
+    ------
+    ValueError
+        If the camera is not finite, its sensor homography is not invertible,
+        or the image or ``columns`` is empty.
+    """
+    payload = _native.distortion_map(
+        camera if isinstance(camera, Mapping) else camera.to_payload(),
+        list(image_size),
+        columns,
+    )
+    return DistortionMap.from_payload(cast(Mapping[str, Any], payload))
+
+
+def residual_map(
+    result: CalibrationResult | Mapping[str, Any],
+    image_size: tuple[int, int],
+    camera: int = 0,
+    columns: int = 64,
+    bandwidth: str | float = "auto",
+    views: Sequence[int] | None = None,
+    outlier_factor: float = 8.0,
+    min_effective_samples: float = 8.0,
+    min_effective_views: float = 5.0,
+) -> ResidualMap:
+    """The systematic part of a camera's reprojection residuals over its image.
+
+    A Gaussian-kernel local-linear mean of ``observed − projected``, each
+    record placed at its projection, with a standard error clustered by view
+    and a pointwise significance. See :class:`~vision_calibration.maps.ResidualMap`
+    for how to read it.
+
+    Parameters
+    ----------
+    result:
+        A calibration result, or an export JSON loaded as a dict.
+    image_size:
+        ``(width, height)`` of the camera's images, pixels.
+    camera:
+        Camera index; 0 for single-camera results.
+    columns:
+        Grid columns; the stride is ``ceil(width / columns)``.
+    bandwidth:
+        ``"auto"`` (cross-validation over views on a ladder of 3–22 % of the
+        image diagonal) or the kernel's σ in pixels.
+    views:
+        The views to map; ``None`` for all. With one view (or fewer effective
+        views than ``min_effective_views``) there is no significance.
+    outlier_factor:
+        Records with ``|e|`` above this many robust σ are left out.
+    min_effective_samples:
+        The fewest effective samples a node needs for a value.
+    min_effective_views:
+        The fewest effective views a node needs for a standard error.
+
+    Raises
+    ------
+    ValueError
+        If an option is out of range, or the result has no record of the
+        camera or of a selected view.
+    """
+    options: dict[str, Any] = {
+        "bandwidth": "auto" if bandwidth == "auto" else {"pixels": float(bandwidth)},
+        "views": None if views is None else [int(v) for v in views],
+        "outlier_factor": float(outlier_factor),
+        "min_effective_samples": float(min_effective_samples),
+        "min_effective_views": float(min_effective_views),
+    }
+    payload = _native.residual_map(
+        _export_payload(result), list(image_size), camera, columns, options
+    )
+    return ResidualMap.from_payload(cast(Mapping[str, Any], payload))

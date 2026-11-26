@@ -2,8 +2,9 @@
 //!
 //! The page holds the quality verdict and every check, and per camera its
 //! model, each parameter with its σ, the reprojection-error statistics and
-//! four figures drawn as inline SVG: the error histogram, the mean error by
-//! image region, the mean error per view and the projection-σ map. It loads
+//! figures drawn as inline SVG: the error histogram, the systematic error and
+//! the local RMS error over the image (a [`residual_map`]), the mean error per
+//! view and the projection-σ map. It loads
 //! nothing (no script, font or stylesheet from elsewhere), so it opens
 //! offline and can be attached or archived as it is, and the same result
 //! always gives the same bytes.
@@ -11,10 +12,13 @@
 use std::fmt::Write as _;
 
 use serde::Serialize;
-use vision_calibration_core::{CameraParams, TargetFeatureResidual, Uncertainty};
+use vision_calibration_core::{CameraParams, ImageGrid, TargetFeatureResidual, Uncertainty};
 use vision_calibration_optim::{ProjectionUncertainty, camera_parameters};
 
-use super::{CheckStatus, LevelStats, QualityReport, QualityThresholds, Verdict, assess};
+use super::{
+    BandwidthSelection, CheckStatus, LevelStats, QualityReport, QualityThresholds,
+    ResidualMapOptions, Verdict, assess, residual_map,
+};
 use crate::Error;
 use crate::common::CalibratedCameras;
 
@@ -42,12 +46,14 @@ impl ReportOptions {
 ///
 /// The page shows the [`assess`] verdict with every check and, per camera,
 /// the model, each parameter with its σ, the reprojection-error statistics,
-/// and four figures: the error histogram, the mean error by image region,
-/// the mean error per view and the projection-σ map ([`projection_uncertainty`](CalibratedCameras::projection_uncertainty)).
+/// and the figures: the error histogram, the systematic error
+/// (`observed − projected`) and the local RMS error over the image from one
+/// [`residual_map`] (32 columns, default options), the mean error per view
+/// and the projection-σ map ([`projection_uncertainty`](CalibratedCameras::projection_uncertainty)).
 /// `image_sizes` is what [`assess`] takes: each camera's `[width, height]`
-/// in pixels, or empty. Without a camera's size the region figure spans its
-/// features and the projection-σ map is left out, as it is when the result
-/// has no covariance.
+/// in pixels, or empty. Without a camera's size the residual maps span the
+/// features' projections from the image origin, and the projection-σ map is
+/// left out, as it is when the result has no covariance.
 ///
 /// The page loads no script, font or stylesheet, and its bytes depend only on
 /// the inputs and the crate version.
@@ -285,8 +291,9 @@ impl CameraSection<'_> {
                 &histogram(&errors),
                 "Reprojection error per feature, pixels. The dashed line is the mean.",
             );
-            let (svg, caption) = region_map(self.residuals, self.image_size);
-            figure(page, &svg, &caption);
+            for (svg, caption) in residual_figures(self.residuals, self.index, self.image_size) {
+                figure(page, &svg, &caption);
+            }
             figure(
                 page,
                 &per_view(self.residuals),
@@ -387,106 +394,169 @@ fn histogram(errors: &[f64]) -> String {
     svg
 }
 
-/// The mean reprojection error in each cell of a grid over the image (or,
-/// without the image's size, over the features' extent), on the shared
-/// colour scale; a cell without features stays empty.
-fn region_map(
+/// The columns of the report's residual maps.
+const RESIDUAL_MAP_COLUMNS: u32 = 32;
+
+/// `χ` above which a node of the systematic-error map is significant
+/// (pointwise `p < 0.01`).
+const SIGNIFICANT_CHI: f64 = 3.03;
+
+/// The two figures of one [`residual_map`] of `camera` (default options,
+/// [`RESIDUAL_MAP_COLUMNS`] columns): the length of the systematic error,
+/// greyed where it is not significant, and the local RMS error. Without the
+/// image's size the grid spans the projections from the image origin. None
+/// when no record has a projection.
+fn residual_figures(
     residuals: &[TargetFeatureResidual],
+    camera: usize,
     image_size: Option<[u32; 2]>,
-) -> (String, String) {
-    let observed: Vec<([f64; 2], f64)> = residuals
-        .iter()
-        .filter_map(|r| {
-            r.error_px
-                .filter(|e| e.is_finite())
-                .map(|e| (r.observed_px, e))
-        })
-        .collect();
-    let (x0, y0, x1, y1, extent) = match image_size {
-        Some([w, h]) if w > 0 && h > 0 => (0.0, 0.0, f64::from(w), f64::from(h), "the image"),
+) -> Vec<(String, String)> {
+    let size = match image_size {
+        Some([w, h]) if w > 0 && h > 0 => [w, h],
         _ => {
-            let fold = |f: fn(f64, f64) -> f64, i: usize, start: f64| {
-                observed.iter().map(|(p, _)| p[i]).fold(start, f)
+            let far = |i: usize| {
+                residuals
+                    .iter()
+                    .filter_map(|r| r.projected_px)
+                    .map(|p| p[i])
+                    .filter(|v| v.is_finite())
+                    .fold(0.0f64, f64::max)
             };
-            (
-                fold(f64::min, 0, f64::INFINITY),
-                fold(f64::min, 1, f64::INFINITY),
-                fold(f64::max, 0, f64::NEG_INFINITY),
-                fold(f64::max, 1, f64::NEG_INFINITY),
-                "the features' extent",
-            )
+            // Saturating casts: a projection far off the image only widens the grid.
+            [(far(0) + 1.5) as u32, (far(1) + 1.5) as u32]
         }
     };
-    let (span_x, span_y) = ((x1 - x0).max(1.0), (y1 - y0).max(1.0));
-    let columns = 16usize;
-    let rows = ((columns as f64 * span_y / span_x).round() as usize).clamp(1, 32);
-    let mut sums = vec![(0.0f64, 0usize); columns * rows];
-    for ([x, y], e) in &observed {
-        if (x0..=x1).contains(x) && (y0..=y1).contains(y) {
-            let c = (((x - x0) / span_x) * columns as f64)
-                .floor()
-                .clamp(0.0, (columns - 1) as f64) as usize;
-            let r = (((y - y0) / span_y) * rows as f64)
-                .floor()
-                .clamp(0.0, (rows - 1) as f64) as usize;
-            let cell = &mut sums[r * columns + c];
-            cell.0 += e;
-            cell.1 += 1;
-        }
+    let Ok(grid) = ImageGrid::with_columns(size, RESIDUAL_MAP_COLUMNS) else {
+        return Vec::new();
+    };
+    let Ok(map) = residual_map(residuals, camera, &grid, &ResidualMapOptions::default()) else {
+        return Vec::new();
+    };
+    if map.used == 0 {
+        return Vec::new();
     }
-    let means: Vec<Option<f64>> = sums
-        .iter()
-        .map(|&(sum, n)| (n > 0).then(|| sum / n as f64))
+    let aspect = f64::from(size[1]) / f64::from(size[0]);
+    let mut largest = None::<f64>;
+    let mean: Vec<Cell> = (0..grid.len())
+        .map(|i| {
+            let length = map.mean_dx[i].hypot(map.mean_dy[i]);
+            if !length.is_finite() {
+                Cell::Empty
+            } else if map.significance[i] >= SIGNIFICANT_CHI {
+                largest = Some(largest.map_or(length, |l: f64| l.max(length)));
+                Cell::Value(length)
+            } else {
+                Cell::Grey(format!("{} px, not significant", sig(length, 2)))
+            }
+        })
         .collect();
-    let covered = means.iter().flatten().count();
-    let svg = heat_map(
-        &means,
-        columns,
-        rows,
-        span_y / span_x,
-        false,
-        "Mean reprojection error by image region",
+    let rms: Vec<Cell> = map
+        .rms
+        .iter()
+        .map(|&v| {
+            if v.is_finite() {
+                Cell::Value(v)
+            } else {
+                Cell::Empty
+            }
+        })
+        .collect();
+    let extent = if image_size.is_some() {
+        ""
+    } else {
+        " (image size unknown: the map spans the features' projections)"
+    };
+    let selection = match map.bandwidth_selection {
+        BandwidthSelection::CrossValidated { .. } => "cross-validated over views",
+        BandwidthSelection::FewViews => "fewer than four views to cross-validate",
+        _ => "given",
+    };
+    let finding = match largest {
+        Some(l) => format!("The largest significant one is {} px.", sig(l, 2)),
+        None => "No node is significant.".to_string(),
+    };
+    let mean_caption = format!(
+        "Systematic reprojection error: the local mean of observed − projected over the {} \
+         views, its length in pixels, kernel σ {} px ({selection}){extent}. Grey: not \
+         significant (pointwise p ≥ 0.01, calibrated for the number of views); empty: too \
+         few features. {finding} A pattern toward the \
+         edges points at the camera model, but it averages this capture's depths and poses.",
+        map.views,
+        sig(map.bandwidth_px, 2),
     );
-    let caption = format!(
-        "Mean reprojection error by region of {extent}, pixels: {covered} of {} cells hold \
-         features. A pattern, such as larger errors toward the corners, points at the camera \
-         model; empty cells at the edges, at a capture that missed them.",
-        columns * rows
+    let rms_caption = format!(
+        "Local RMS reprojection error, pixels, same kernel{extent}. Empty: too few features."
     );
-    (svg, caption)
+    vec![
+        (
+            heat_map(
+                &mean,
+                grid.columns(),
+                grid.rows(),
+                aspect,
+                "Systematic reprojection error across the image",
+            ),
+            mean_caption,
+        ),
+        (
+            heat_map(
+                &rms,
+                grid.columns(),
+                grid.rows(),
+                aspect,
+                "Local RMS reprojection error across the image",
+            ),
+            rms_caption,
+        ),
+    ]
 }
 
 /// The projection-σ grid on the shared colour scale; a node no ray reaches
 /// is greyed out.
 fn projection_map(projection: &ProjectionUncertainty) -> String {
     let [w, h] = projection.image_size;
+    let cells: Vec<Cell> = projection
+        .sigma
+        .iter()
+        .map(|v| match v {
+            Some(v) => Cell::Value(*v),
+            None => Cell::Grey("no ray reaches here".to_string()),
+        })
+        .collect();
     heat_map(
-        &projection.sigma,
+        &cells,
         projection.columns,
         projection.rows,
         f64::from(h) / f64::from(w).max(1.0),
-        true,
         "Projection uncertainty across the image",
     )
 }
 
-/// `values` (row-major, `columns` × `rows`) as coloured cells in a plot of
-/// height `aspect` × width, with a colour bar from zero to the largest value.
-/// A `None` cell stays empty, or is greyed out when `mark_missing`.
-fn heat_map(
-    values: &[Option<f64>],
-    columns: usize,
-    rows: usize,
-    aspect: f64,
-    mark_missing: bool,
-    label: &str,
-) -> String {
+/// One cell of a [`heat_map`].
+enum Cell {
+    /// A value on the colour scale.
+    Value(f64),
+    /// Greyed out, with this tooltip.
+    Grey(String),
+    /// Left empty.
+    Empty,
+}
+
+/// `cells` (row-major, `columns` × `rows`) in a plot of height `aspect` ×
+/// width, with a colour bar from zero to the largest value.
+fn heat_map(cells: &[Cell], columns: usize, rows: usize, aspect: f64, label: &str) -> String {
     // No axis labels on the left: the map takes the figure's width.
     let left = MR;
     let pw = W - left - MR;
     let ph = (pw * aspect).clamp(60.0, 260.0);
     let height = MT + ph + MB + 16.0;
-    let top = values.iter().flatten().copied().fold(0.0f64, f64::max);
+    let top = cells
+        .iter()
+        .filter_map(|c| match c {
+            Cell::Value(v) => Some(*v),
+            _ => None,
+        })
+        .fold(0.0f64, f64::max);
     let scale = if top > 0.0 { top } else { 1.0 };
     let (cw, ch) = (pw / columns as f64, ph / rows as f64);
     let mut svg = String::new();
@@ -495,27 +565,32 @@ fn heat_map(
         svg,
         "<rect class=\"frame\" x=\"{left}\" y=\"{MT}\" width=\"{pw:.2}\" height=\"{ph:.2}\"/>"
     );
-    for (i, value) in values.iter().enumerate() {
+    for (i, cell) in cells.iter().enumerate() {
         let (c, r) = (i % columns, i / columns);
         let (x, y) = (left + c as f64 * cw, MT + r as f64 * ch);
-        if let Some(v) = value {
-            let _ = write!(
-                svg,
-                "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"{}\">\
-                 <title>{} px</title></rect>",
-                cw + 0.3,
-                ch + 0.3,
-                colour(v / scale),
-                sig(*v, 3)
-            );
-        } else if mark_missing {
-            let _ = write!(
-                svg,
-                "<rect class=\"missing\" x=\"{x:.2}\" y=\"{y:.2}\" width=\"{:.2}\" \
-                 height=\"{:.2}\"><title>no ray reaches here</title></rect>",
-                cw + 0.3,
-                ch + 0.3
-            );
+        match cell {
+            Cell::Value(v) => {
+                let _ = write!(
+                    svg,
+                    "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{:.2}\" height=\"{:.2}\" \
+                     fill=\"{}\"><title>{} px</title></rect>",
+                    cw + 0.3,
+                    ch + 0.3,
+                    colour(v / scale),
+                    sig(*v, 3)
+                );
+            }
+            Cell::Grey(title) => {
+                let _ = write!(
+                    svg,
+                    "<rect class=\"missing\" x=\"{x:.2}\" y=\"{y:.2}\" width=\"{:.2}\" \
+                     height=\"{:.2}\"><title>{}</title></rect>",
+                    cw + 0.3,
+                    ch + 0.3,
+                    escape(title)
+                );
+            }
+            Cell::Empty => {}
         }
     }
     // The colour bar under the map.
@@ -821,13 +896,57 @@ mod tests {
         assert_eq!(colour(2.0), "#fde725");
     }
 
+    /// Records whose observations sit 0.5 px right of their projections in
+    /// the left half of the image, with a little scatter.
+    fn shifted_records(views: usize) -> Vec<TargetFeatureResidual> {
+        let mut out = Vec::new();
+        for view in 0..views {
+            for i in 0..600usize {
+                let mut r = TargetFeatureResidual::default();
+                r.view = view;
+                let p = [
+                    ((i * 37 + view * 11) % 1280) as f64,
+                    ((i * 53 + view * 7) % 960) as f64,
+                ];
+                let wobble = 0.05 * (((i * 7919 + view * 104_729) % 200) as f64 / 100.0 - 1.0);
+                let dx = if p[0] < 640.0 { 0.5 } else { 0.0 };
+                r.projected_px = Some(p);
+                r.observed_px = [p[0] + dx + wobble, p[1] - wobble];
+                r.error_px = Some((dx + wobble).hypot(wobble));
+                out.push(r);
+            }
+        }
+        out
+    }
+
     #[test]
-    fn region_map_clamps_edge_pixels() {
-        let mut r = TargetFeatureResidual::default();
-        r.observed_px = [1280.0, 960.0];
-        r.error_px = Some(0.25);
-        let (svg, summary) = region_map(&[r], Some([1280, 960]));
-        assert!(svg.contains("<svg"), "{svg}");
-        assert!(!summary.is_empty());
+    fn residual_figures_show_the_systematic_and_rms_maps() {
+        let records = shifted_records(8);
+        let figures = residual_figures(&records, 0, Some([1280, 960]));
+        assert_eq!(figures.len(), 2);
+        let (mean_svg, mean_caption) = &figures[0];
+        assert!(mean_svg.starts_with("<svg") && mean_svg.contains("fill=\"#"));
+        assert!(
+            mean_caption.contains("observed − projected"),
+            "{mean_caption}"
+        );
+        assert!(mean_caption.contains("8 views"), "{mean_caption}");
+        assert!(mean_caption.contains("cross-validated"), "{mean_caption}");
+        assert!(
+            mean_caption.contains("largest significant one is 0.5"),
+            "{mean_caption}"
+        );
+        assert!(figures[1].1.contains("RMS"));
+        // Deterministic bytes.
+        assert_eq!(residual_figures(&records, 0, Some([1280, 960])), figures);
+        // Without the image size, the map spans the projections.
+        let unsized_figures = residual_figures(&records, 0, None);
+        assert_eq!(unsized_figures.len(), 2);
+        assert!(unsized_figures[0].1.contains("image size unknown"));
+        // Another camera's records, or none projected: no figure.
+        assert!(residual_figures(&records, 1, Some([1280, 960])).is_empty());
+        let mut unprojected = TargetFeatureResidual::default();
+        unprojected.error_px = Some(0.1);
+        assert!(residual_figures(&[unprojected], 0, Some([1280, 960])).is_empty());
     }
 }

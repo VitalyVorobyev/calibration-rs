@@ -13,11 +13,15 @@ reader's light or dark theme.
 - **Every quality check**, with its finding, so a warning says what to
   change.
 - **Per camera**: the camera model, each parameter with its σ (`fixed` for
-  one the solve held), the reprojection-error statistics, and four figures:
+  one the solve held), the reprojection-error statistics, and the figures:
   - the **histogram** of the per-feature errors, with the mean marked;
-  - the **mean error by image region**. A pattern, such as larger errors
-    toward the corners, points at the camera model, while empty cells at the
-    edges show where the capture never put the board;
+  - the **systematic error over the image**: the length of the local mean
+    of `observed − projected` across the views, greyed where it is not
+    significant, from one [residual map](diagnostic_maps.md) (32 columns,
+    cross-validated kernel). A pattern, such as a significant error toward
+    the corners, points at the camera model; empty cells show where the
+    capture never put the board;
+  - the **local RMS error** over the image, from the same map;
   - the **mean error of each view**, where a view far above the others is
     the one to inspect or drop;
   - the **projection-σ map** ([Projection Uncertainty](uncertainty_projection.md)):
@@ -28,9 +32,10 @@ A parameter's value is rounded to one digit past what its σ supports: with
 σ(k1) = 0.0073, k1 shows as `0.00065`, not `0.000650049`. A parameter
 without a σ keeps six significant figures.
 
-The region and per-view figures read the export's per-feature residuals,
-which every workflow records. The projection-σ map needs the camera's image
-size and the parameter covariance; without either it is left out.
+The residual-map and per-view figures read the export's per-feature
+residuals, which every workflow records; without the camera's image size the
+residual maps span the features' projections. The projection-σ map needs the
+image size and the parameter covariance; without either it is left out.
 
 ## Making one
 

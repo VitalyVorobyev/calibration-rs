@@ -55,6 +55,8 @@ pub mod error;
 /// solver crates (Hartley normalization, polynomial roots, null space, SVD
 /// reshaping).
 pub mod linalg;
+/// Dense diagnostic maps over an image grid.
+mod maps;
 /// Linear algebra type aliases and helpers.
 mod math;
 /// Camera models and distortion utilities.
@@ -89,6 +91,7 @@ pub use error::Error;
 // Crate-root public surface, re-exported explicitly from the (private) modules.
 // Keep these lists curated: a new `pub` item in a private module is not public
 // until it is listed here.
+pub use maps::{DisplacementPlane, DistortionMap, ImageGrid, distortion_map};
 // Workspace-internal: the schema stand-in the derives name for a pose.
 #[cfg(feature = "schemars")]
 #[doc(hidden)]

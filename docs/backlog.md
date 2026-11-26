@@ -413,6 +413,33 @@ Each model follows AGENTS.md §10 (a camera model).
   refinement), and a laser export shows no planes. Add those sections
   (additive). Gate: `vision-calibration-bench/tests/html_report.rs` checks
   them for every problem type.
+- [ ] RESID-FREE-POSE - A public accessor for intrinsic-level residuals (a
+  free board pose per view, the doc-hidden `intrinsic_floor_*` today) of
+  hand-eye and rig exports, so `analysis::residual_map` can diagnose the
+  camera model without the robot or rig chain's error (ADR 0034). Gate: on
+  a synthetic hand-eye run with robot-pose noise and a correct camera
+  model, the free-pose residual map has no significant field where the
+  chain-level map has one.
+- [ ] QUALITY-SYSTEMATIC-RESIDUAL - A quality check from the residual map:
+  warn when a camera's residuals carry a significant systematic field. It
+  moves verdicts, so it is opt-in until measured: the false-alarm rate on
+  the suite's correct-model runs and the detection rate on synthetic
+  missing-term runs, both backends. Needs: RESID-MAP-SIGNIFICANCE.
+- [ ] RESID-MAP-SIGNIFICANCE - The residual map's standard error and
+  significance are conditional on the fitted camera and poses. A
+  parameter-noise term was the candidate fix for a noisy map lying more
+  than 3 SE from a noise-free refit's map at 12 % of nodes, but the refit
+  Monte-Carlo (`residual_map_standard_error_over_refits`, thin prism fitted
+  with Brown-Conrady, 40 draws) shows the opposite of what that term
+  would correct: over refits the map scatters only 0.12–0.59× its stated
+  SE (the camera parameters absorb each draw's image-fixed noise), while
+  the draws' *mean* sits a median 1.7 and up to 5.8 SE from the noise-free
+  refit's map at a 352 px kernel (0.3 / 2.5 at 160 px), with the default
+  `RobustLoss::None`. Open: root-cause that shift (a second-order noise
+  bias of the misspecified fit is the first hypothesis) and decide whether
+  the map should state it; a parameter-noise term in `V̂` would make the
+  already conservative error more so. Gate: the cause pinned by a test,
+  and the no-field gates unchanged.
 
 ## Multiple-view geometry (Phase 2)
 

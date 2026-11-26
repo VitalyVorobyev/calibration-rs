@@ -78,6 +78,20 @@ pub struct TargetFeatureResidual {
     pub error_whitened: Option<f64>,
 }
 
+impl TargetFeatureResidual {
+    /// The residual vector `observed_px − projected_px`, pixels: where the
+    /// detector put the feature relative to where the calibrated model
+    /// projects it. `None` when the projection failed.
+    ///
+    /// This is the one sign of a reprojection residual across the library:
+    /// the solver minimizes it, and a lens distortion the model lacks shows
+    /// in it with the sign it has in a distortion map.
+    pub fn residual_px(&self) -> Option<[f64; 2]> {
+        self.projected_px
+            .map(|p| [self.observed_px[0] - p[0], self.observed_px[1] - p[1]])
+    }
+}
+
 /// Reprojection record for a single laser pixel in a single view.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -194,6 +208,17 @@ mod tests {
         assert_eq!(r.observed_px, [0.0; 2]);
         assert!(r.projected_px.is_none());
         assert!(r.error_px.is_none());
+    }
+
+    #[test]
+    fn residual_vector_is_observed_minus_projected() {
+        let mut r = TargetFeatureResidual {
+            observed_px: [310.5, 245.0],
+            ..TargetFeatureResidual::default()
+        };
+        assert_eq!(r.residual_px(), None);
+        r.projected_px = Some([310.0, 245.25]);
+        assert_eq!(r.residual_px(), Some([0.5, -0.25]));
     }
 
     #[test]

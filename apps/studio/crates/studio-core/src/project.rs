@@ -625,8 +625,8 @@ mod tests {
             .unwrap();
         assert!(page.contains("<title>a: bench camera</title>"));
         assert!(page.contains("Camera 0 (left)"));
-        // No images to size: no projection-σ map, the other three figures.
-        assert_eq!(page.matches("<svg").count(), 3);
+        // No images to size: no projection-σ map, the other four figures.
+        assert_eq!(page.matches("<svg").count(), 4);
     }
 
     #[test]

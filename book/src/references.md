@@ -62,6 +62,12 @@ Every work the book cites, once. Chapters link here by author and year.
 
 - <a id="huber-1964"></a>**Huber, P.J.** (1964). "Robust Estimation of a Location Parameter." *The Annals of Mathematical Statistics*, 35(1), 73-101. — The Huber loss.
 
+## Nonparametric Regression and Inference
+
+- <a id="fan-gijbels-1996"></a>**Fan, J. & Gijbels, I.** (1996). *Local Polynomial Modelling and Its Applications*. Monographs on Statistics and Applied Probability 66. Chapman & Hall. — Local polynomial regression, its boundary behaviour and bandwidth selection.
+
+- <a id="cameron-miller-2015"></a>**Cameron, A.C. & Miller, D.L.** (2015). "A Practitioner's Guide to Cluster-Robust Inference." *Journal of Human Resources*, 50(2), 317-372. — Standard errors when observations are correlated within clusters, including the few-cluster case.
+
 ## Non-Linear Optimization
 
 - <a id="levenberg-1944"></a>**Levenberg, K.** (1944). "A Method for the Solution of Certain Non-Linear Problems in Least Squares." *Quarterly of Applied Mathematics*, 2(2), 164-168.
