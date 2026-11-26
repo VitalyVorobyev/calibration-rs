@@ -90,7 +90,7 @@ test("refuses files outside the run and commands it does not offer", async ({
     `${WITH_IMAGES}/api/file?path=${encodeURIComponent(`${session.run_dir}/../viewer-run-vcal/calibration.json`)}`,
   );
   expect(outside.status()).toBe(403);
-  const run = await request.post(`${WITH_IMAGES}/api/run_calibration_cmd`, { data: {} });
+  const run = await request.post(`${WITH_IMAGES}/api/cmd/run_calibration`, { data: {} });
   expect(run.status()).toBe(404);
 });
 

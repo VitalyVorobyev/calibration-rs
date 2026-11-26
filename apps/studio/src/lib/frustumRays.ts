@@ -15,7 +15,7 @@
  *
  * Pure and side-effect free so it unit-tests without React/Tauri. */
 import { imageBorderPixels } from "@vitavision/three";
-import type { FxFyCxCy } from "../types/generated/studio-wire";
+import type { FxFyCxCy } from "../api/generated/types";
 
 /** Samples per image edge. A pinhole border is straight, but a distorted
  * one is not, so the exact source needs more than the four corners. */

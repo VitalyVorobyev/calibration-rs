@@ -61,13 +61,16 @@ workspace.**
   opens a browser on it. A run is a `vcal run -o` folder
   (`calibration.json`), a run the app saved (`runs/<name>/export.json`) or
   one export file; anything else is an error that says what to pass.
-- The frontend reaches its back end through one module
-  (`apps/studio/src/lib/backend.ts`), the only one that imports Tauri, with two
-  implementations: Tauri IPC, and `POST /api/<command>` with the same
-  command names, arguments, answers and error values. The command bodies
-  are shared Rust functions that the Tauri commands and the HTTP handlers
-  both call. Capability flags hide what needs the desktop (dialogs,
-  projects, calibration runs): the browser is a viewer.
+- The back end is one command table in `studio-core`: each command a
+  typed function, listed once, of three kinds (plain, job, resource), with
+  one error envelope. Both shells dispatch through it: the Tauri shell over
+  four IPC commands, `calib-viewer` over `POST /api/cmd/<name>` and
+  `GET /api/r/<name>`. The frontend reaches it only through `src/api/`: a
+  client generated from the table, over a transport (Tauri IPC or HTTP);
+  the Tauri transport is the only module that imports Tauri. Capability
+  flags hide what needs the desktop (dialogs, projects, calibration runs):
+  the browser is a viewer, and `calib-viewer` answers only the table's
+  read-only commands.
 - The server binds 127.0.0.1 only, answers only its own `Host` (no DNS
   rebinding), refuses a foreign `Origin` and sends no CORS headers.
 - Its file access is scoped like the asset protocol: files under the run
@@ -101,8 +104,9 @@ How the shell, stores, commands and tests are built is in
   says so. An image outside the opened folders fails to load; it is never
   read on the webview's behalf.
 - Every viewer feature works on both back ends or is gated by a capability;
-  a new command is added to both (the Tauri wrapper and the HTTP route over
-  one shared body), and a lint rule keeps Tauri imports in the seam.
+  a new command is one function and one line of the table, which both
+  transports and the generated client pick up, and a lint rule keeps Tauri
+  imports in the Tauri transport.
 - `calib-viewer` needs the frontend built (`bun run build`); it serves
   `apps/studio/dist` from the source tree and is not distributed on its own.
 

@@ -3,7 +3,7 @@
  * workspace's mount, so opening a project from the shell fills it while
  * another workspace is showing, and a saved run records exactly what ran. */
 import { create } from "zustand";
-import { call, capabilities } from "../lib/backend";
+import { api, capabilities } from "../api";
 import planarDefaultConfig from "../schemas/planar_intrinsics_config.default.json";
 import { mergeConfig } from "../workspaces/RunWorkspace/presets";
 
@@ -26,7 +26,7 @@ export const DEFAULT_DATASET: unknown = {
 };
 
 // Fallback outside the desktop app only — there the defaults come from
-// `default_config_cmd` (Rust `Config::default()`), the single source of
+// `default_config` (Rust `Config::default()`), the single source of
 // truth. This is the same value, emitted by `cargo xtask emit-schemas` (and
 // drift-checked in CI), so it cannot fall behind the Rust default.
 const DEFAULT_PLANAR_CONFIG: unknown = planarDefaultConfig;
@@ -42,7 +42,7 @@ export function topologyOf(manifest: unknown): string {
 export async function fetchDefaultConfig(topology: string): Promise<unknown> {
   if (capabilities().desktop) {
     try {
-      return await call<unknown>("default_config_cmd", { topology });
+      return await api.defaultConfig({ topology });
     } catch {
       // Fall through to the static fallback (e.g. unknown topology).
     }

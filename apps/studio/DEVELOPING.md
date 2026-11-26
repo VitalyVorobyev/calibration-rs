@@ -18,7 +18,7 @@ bun install            # first-time setup / after package.json changes
 bun run tauri dev      # launch the desktop app
 bun run build          # TS compile + Vite build (frontend only, no Tauri shell)
 bun run tauri build    # bundle the desktop app (installer/binary)
-bun run generate:types # regenerate TS wire types from the Rust source
+bun run generate:api   # regenerate the API schema, TS wire types and client
 bun run lint           # oxlint, type-aware on TypeScript 7; no warnings allowed
 bun run test           # Vitest: pure-logic unit tests + jsdom component tests
 bun run test:e2e       # Playwright smoke: boots the app, checks it doesn't fall over
@@ -48,15 +48,20 @@ Use `bun run tauri dev`, **not** `bun run dev`: the latter only starts Vite at
   `store/` (the loaded export and selection, `index.ts`; the Run setup,
   `runSetup.ts`), `schemas/` (JSON Schemas for the Run config forms, plus
   each config's `<name>.default.json`; both emitted by `cargo xtask
-  emit-schemas`), `types/generated/` (generated wire types).
-- Back end (`apps/studio/crates/studio-core/src/`): `project.rs` (project
-  folders), `ops.rs` (the viewer commands' bodies: export loading,
-  undistortion, epipolar overlay, uncertainty, disparity), `run.rs`
-  (calibration runner), `disparity.rs` (dense stereo), `epipolar.rs`,
-  `uncertainty.rs`, `laser.rs`, `export_cache.rs`, `scope.rs` (the file
-  scope). Shell (`apps/studio/src-tauri/src/`): `commands.rs` (the Tauri
-  commands over studio-core), `assets.rs` (the asset-protocol scope),
-  `viewer/` (the `calib-viewer` HTTP back end, see "Browser mode").
+  emit-schemas`), `api/` (the back end: see "The back end and its
+  client").
+- Back end (`apps/studio/crates/studio-core/src/`): `api/` (the command
+  table, `Ctx`, the error envelope, jobs, events and the API schema; its
+  `commands/` hold the command functions), `project.rs` (project folders),
+  `ops.rs` (the viewer commands' bodies: export loading, undistortion,
+  epipolar overlay, uncertainty, disparity), `run.rs` (calibration runner),
+  `disparity.rs` (dense stereo), `epipolar.rs`, `uncertainty.rs`,
+  `laser.rs`, `export_cache.rs`, `scope.rs` (the file scope: `RootScope`,
+  `UserPath`), `run_source.rs` (the run `calib-viewer` serves),
+  `bin/studio_schema.rs` (writes `schema/studio-api.json`). Shell
+  (`apps/studio/src-tauri/src/`): `commands.rs` (the Tauri transport of the
+  table), `assets.rs` (the asset-protocol scope), `viewer/` (the
+  `calib-viewer` HTTP transport, see "Browser mode").
 - Module size: no `apps/studio/src` module over ~400 lines (generated files
   excepted). Split by responsibility: pure logic in a `.ts` module with its
   own unit test, views in `.tsx`, effects in a `use…` hook.
@@ -74,9 +79,9 @@ A project folder holds `calibration-project.json` (`{"version": 1,
 "dataset": "<dir>"}`), `dataset.json` and `runs/<name>/`
 (`manifest.json`, `config.json`, `export.json`, `diagnostics.json`, and
 `report.html` from the library's `analysis::html_report`). The
-backend commands are `create_project`, `open_project`,
-`save_project_manifest` and `save_project_run`; each rejects with a
-`ProjectError { kind, message }` (generated type). `project/projectStore.ts`
+back-end commands are `create_project`, `open_project`,
+`save_project_manifest` and `save_project_run`; each rejects with the
+error envelope (`StudioError { kind, message }`). `project/projectStore.ts`
 drives them: opening a project loads its manifest and dataset folder into
 the Run setup (`store/runSetup.ts`), a successful run with a project open is
 saved as the next `run-NNN` and reopened from its `export.json`, and a
@@ -86,28 +91,31 @@ image root is rebased onto the run folder so it also opens on its own
 through Open Export…. Recent projects are a per-viewer list in
 `localStorage`; a folder that no longer opens drops off it. The dataset path
 in `calibration-project.json` is relative to the project when the dataset
-is inside it (`"."` beside the project file), absolute otherwise. Rust tests for the project
-rules are in studio-core's `project.rs` (temporary folders); the store is tested against
-`mockIPC` in `project/projectStore.test.tsx`.
+is inside it (`"."` beside the project file), absolute otherwise. Rust
+tests for the project rules are in studio-core's `project.rs` (temporary
+folders); the store is tested against a mock transport in
+`project/projectStore.test.tsx`.
 
 ## Images and the asset protocol
 
 Source frames load straight from disk through Tauri's asset protocol
 (in the browser viewer, through its scoped file route):
-`lib/backend.ts`'s `fileUrl(path)` wraps `convertFileSrc`, and
+`api`'s `fileUrl(path)` wraps `convertFileSrc`, and
 `hooks/useImageData.ts` decodes the image (with `crossOrigin` set, so the
 canvas the luminance is read from stays untainted). `tauri.conf.json`
-enables the protocol with an empty scope; `assets.rs`'s `allow_dir` adds a
-folder when the user opens it (`open_project`/`create_project`: the dataset
-folder; `load_export`: the export's image root; `run_calibration_cmd`: the
-dataset folder of the run). An image outside every opened folder fails to
-load. The CSP allows images from `asset:`/`http://asset.localhost`, `blob:`
+enables the protocol with an empty scope; `assets.rs`'s `allow_dir` adds
+each folder the back end's `RootScope` grants, which is what the user opens
+(`open_project`/`create_project`: the project and its dataset folder;
+`load_export`: the export's folder and image root; `read_manifest`: the
+manifest's folder; `sniff_folder` and `run_calibration`: the dataset
+folder). An image outside every opened folder fails to load. The CSP allows images from `asset:`/`http://asset.localhost`, `blob:`
 and `data:`, and IPC; it applies to the built app only (in `tauri dev` the
 webview loads the Vite server directly, without it).
 `dangerousDisableAssetCspModification` keeps Tauri from
 adding nonces to `style-src`, which would disable the `'unsafe-inline'` that
-React's `style` attributes need. `load_undistorted_image` returns PNG bytes
-as a binary IPC response (`tauri::ipc::Response`), shown through a blob URL.
+React's `style` attributes need. The `undistorted_image` resource answers
+PNG bytes, over a binary IPC response (`studio_resource`,
+`tauri::ipc::Response`) in the app, shown through a blob URL.
 
 `lib/paths.ts`'s `joinPath` resolves paths as the file system does: an
 absolute segment (an absolute image root) replaces the base, and `.`/`..`
@@ -134,26 +142,18 @@ loads it and lands on Diagnose. An export without an image list
 (`diagnostics.image_manifest`) opens too: its frames come from its
 residuals and the image panes say there are no images.
 
-**The seam.** `src/lib/backend.ts` is the only module that imports
-`@tauri-apps/*` (an oxlint rule enforces it outside tests). It exposes
-`call(command, args)`, `fileUrl(path)`, `openDialog`, `callStreaming` (the
-run's progress channel), `viewerSession` and `capabilities()`:
-`{ kind, viewer, desktop }`. The Tauri back end is the IPC; the HTTP back
-end is `POST /api/<command>` with the same camelCase argument object, the
-same JSON answer (or bytes, for `load_undistorted_image`) and the command's
-error value as the rejection, with a 4xx status. Without either (plain
-`bun run dev`), `kind` is `"none"`. Desktop features (the project menu,
-Open Export…, the Run workspace) show only when `capabilities().desktop`;
-there are no disabled stand-ins.
-
-**Adding a command to both back ends.** Write its body once in
-studio-core's `ops.rs` as a plain function of its arguments and the
-`ExportCache`; wrap it in a `#[tauri::command]` (in `src-tauri/src/commands.rs`,
-registered in `lib.rs`) and add its route to `command()` in
-`src-tauri/src/viewer/http.rs` with a camelCase argument struct. A path
-argument goes through the file scope (`scoped(...)`) there, as the asset
-scope guards it in the app. A desktop-only command (dialogs, projects, runs) gets no route:
-it answers 404, and the UI hides it by capability.
+**The seam.** The frontend reaches the back end only through `src/api/`
+(see "The back end and its client"); `src/api/transport/tauri.ts` is the
+only module that imports `@tauri-apps/*` (an oxlint rule enforces it
+outside tests). The HTTP transport is `POST /api/cmd/<name>` with the
+command's (snake_case) argument object, answered with its JSON reply or
+with the `StudioError` envelope and a 4xx/5xx status; a resource is
+`GET /api/r/<name>?q=<query as JSON>`. `calib-viewer` answers only the
+table's read-only commands (`COMMANDS` and `RESOURCES` in
+`viewer/http.rs`); every other name is `unknown_command`, 404. Without
+either back end (plain `bun run dev`), `capabilities().kind` is `"none"`.
+Desktop features (the project menu, Open Export…, the Run workspace) show
+only when `capabilities().desktop`; there are no disabled stand-ins.
 
 **File scope.** The server serves files only under the run folder and the
 export's image root (resolved against the export's folder), judged after
@@ -258,26 +258,26 @@ cluster that drives it from outside the stage.
 
 ## Run progress and cancellation
 
-`run_calibration_cmd` takes a per-run `runId` and a `tauri::ipc::Channel<RunProgress>`
-(`src/lib/runCalibration.ts`). studio-core's `run.rs` announces three stages,
+A calibration is the `run_calibration` job (`src/lib/runCalibration.ts`,
+`api.jobs.runCalibration`). studio-core's `run.rs` announces three stages,
 `detect` -> `solve` -> `export` (`RunStage`), and forwards the library's
 reports within them as `RunProgress.report` (a `Progress`: each image
 detected, each calibration step, each solver iteration; iterations are
-throttled to one per 50 ms). Cancellation is a library `CancelToken` per
-`runId` in a Tauri-managed `RunRegistry`: `cancel_run_cmd(runId)` cancels it,
-the library stops at its next image or solver iteration, and the runner
-returns `RunResponse::Cancelled`. The UI shows the latest report beside the
-active stage and a distinct "Run cancelled" state; the checklist logic is
-`src/workspaces/RunWorkspace/runStages.ts`.
+throttled to one per 50 ms); each is one of the job's events. The job's
+output is the runner's `RunResponse`. Cancelling the job (`cancel_job`, the
+library `CancelToken` of the job) stops the library at its next image or
+solver iteration, and the job ends `cancelled`. The UI shows the latest
+report beside the active stage and a distinct "Run cancelled" state; the
+checklist logic is `src/workspaces/RunWorkspace/runStages.ts`.
 
 ## Built-in presets
 
 Quick Start presets (`src/workspaces/RunWorkspace/presets.ts`) name a sample of
 the library's catalogue (`vision_calibration::dataset::samples`) in
-`source: { sample: "<id>" }`. `setupActions.ts`'s `applyPreset` calls
-`fetch_sample_cmd`, which downloads the sample into the platform cache
+`source: { sample: "<id>" }`. `setupActions.ts`'s `applyPreset` runs the
+`fetch_sample` job, which downloads the sample into the platform cache
 (`VISION_CALIBRATION_DATA` overrides it), verifies its SHA-256 and returns the
-manifest path; later calls reuse the cache. The installer bundles no data and
+manifest path, which `read_manifest` reads; later calls reuse the cache. The installer bundles no data and
 nothing resolves a source checkout at runtime (no `CARGO_MANIFEST_DIR` outside
 tests). Presets for local-only data go in an untracked `presets.local.ts` next
 to it, exporting `LOCAL_PRESETS: Preset[]` with
@@ -288,18 +288,21 @@ file exists.
 
 - **Vitest (`bun run test`)** — `src/**/*.test.ts` are pure-logic unit tests
   (Node); `src/**/*.test.tsx` are jsdom component tests (opt in with
-  `// @vitest-environment jsdom`). Component tests mock IPC with
-  `@tauri-apps/api/mocks`' `mockIPC` (and `mockConvertFileSrc` where a
-  frame image is loaded), which makes the back end the desktop app's; a
-  test of the browser viewer adds `<meta name="calib-backend"
-  content="http">` and stubs `fetch` (`lib/backend.test.ts`,
-  `shell/Shell.test.tsx`). `src/test/setupTests.ts` stubs `ResizeObserver`.
+  `// @vitest-environment jsdom`). Component tests replace the back end
+  with `setTransport(createMockTransport({ commands, jobs }))`
+  (`src/api/transport/mock.ts`): handlers typed by the command table, jobs
+  that announce their states and events as the back end does, and every
+  call recorded; `kind: "http"` makes it the browser viewer's. The
+  transports have contract tests of their own (`src/api/transport/*.test.ts`,
+  Tauri's against `mockIPC`). `src/test/setupTests.ts` stubs
+  `ResizeObserver`.
 - **Playwright (`bun run test:e2e`)** — `e2e/` smoke tests against the plain
   Vite dev server (no Tauri/Rust toolchain). `app.spec.ts` checks every
   workspace mounts with no console errors and no Tauri mock (the
   desktop-only Run workspace with an empty one);
   `diagnose.spec.ts` injects a `window.__TAURI_INTERNALS__` shim
-  (`e2e/support/tauriMock.ts`) via `page.addInitScript`; its `assetUrl`
+  (`e2e/support/tauriMock.ts`, which answers `studio_invoke` by the
+  command's name) via `page.addInitScript`; its `assetUrl`
   argument stands in for the asset protocol. Real desktop behavior is only
   exercised manually: `bun run tauri dev` loads the Vite server directly, so
   the CSP and the bundled `tauri://` origin are only in effect in a built app
@@ -314,26 +317,63 @@ file exists.
   without an image list as `vcal run -o` writes it (`viewer-run-vcal/`).
   It needs the Rust toolchain and is not part of CI's smoke run; the server's
   routes, file scope and run detection are covered by `cargo test` in
-  `src/viewer/` on the same fixture.
+  `src-tauri/src/viewer/` and studio-core on the same fixture.
 - **Screenshots (`bun run test:screens`)** — `e2e/screens.spec.ts`
   (`playwright.screens.config.ts`, port 1421) captures every workspace; the
   baseline in `e2e/.screens/` is local and uncommitted (`--update-snapshots`
   before a change, compare after). Not run in CI.
 
-## Generated wire types
+## The back end and its client
 
-TypeScript interfaces for `*Export` payloads and Tauri command responses are
-generated from the Rust types (`#[derive(schemars::JsonSchema)]`); edit those
-and regenerate:
+Every command the back end offers is one line of studio-core's command
+table (`crates/studio-core/src/api/table.rs`) over one typed function, of
+three kinds: `plain` (argument object → reply), `job` (argument object →
+events → output, on a worker lane, cancellable) and `resource` (query →
+bytes). Both transports dispatch through it: the Tauri shell's
+`studio_invoke`, `studio_subscribe`, `studio_unsubscribe` and
+`studio_resource`, and `calib-viewer`'s HTTP routes. Every command runs
+against a `Ctx` (the `RootScope`, the active export, the jobs, the event
+bus), and every failure is one `StudioError { kind, message, path? }`.
+
+- **Paths.** A path argument is a `UserPath`, which only the `RootScope`
+  turns into a `Path`. The desktop app's scope grows with what the user
+  opens (`open_dir`/`open_file`: a project, an export, a manifest, a
+  dataset folder); `calib-viewer`'s is fixed (the run folder and its image
+  root). Any other path is `forbidden_path`. A table test refuses a
+  path-named argument (`path`, `dir`, `*_path`, `*_dir`, …) that is not a
+  `UserPath`, an argument object that accepts unknown fields, and a name
+  that is not snake_case.
+- **Jobs.** Starting a job answers its `JobInfo` (`<counter>-<hex>` id) at
+  once; its states (`queued` with a position, `running`, `done`, `failed`,
+  `cancelled`) and events go out on the event stream. One worker per lane
+  (`Heavy`: calibrations; `Light`: sample downloads), a FIFO queue of 8
+  (`busy` beyond), and the newest 32 finished jobs kept for an hour
+  (`list_jobs`, `job_status`, `cancel_job`). On the frontend,
+  `src/api/jobs.ts` follows them over one subscription.
+- **Adding a command.** Write a function `fn(&Ctx, Args) -> Result<Reply,
+  StudioError>` in `crates/studio-core/src/api/commands/`, with an
+  argument struct (`Deserialize`, `JsonSchema`, `deny_unknown_fields`; its
+  rustdoc is the command's documentation in the client), add its line to
+  `table()`, and run `bun run generate:api`. A command `calib-viewer`
+  should answer goes into its `COMMANDS` list.
+
+The client is generated:
 
 ```bash
-bun run generate:types     # both stages; commit the results
-bun run generate:schemas   # stage 1 (cargo): Rust types -> schemas-generated/studio_wire.json
-bun run generate:types:ts  # stage 2 (bun): schema -> src/types/generated/*.ts
+bun run generate:api            # both stages; commit the results
+bun run generate:api:schema     # stage 1 (cargo): the table -> schema/studio-api.json
+bun run generate:api:ts         # stage 2 (bun): schema -> src/api/generated/{types,client}.ts
 ```
 
-Both outputs are committed. CI enforces sync: `app-src-tauri` runs
-`generate:schemas:check` and `app-frontend` regenerates the TS and
-`git diff --exit-code`s it. `src/types/generated/` is lint-ignored and
-`schemas-generated/` prettier-ignored. The export discriminator lives in
-`src/store/exportKind.ts` (`detectExportKind`).
+`schema/studio-api.json` holds every command with its argument, reply,
+event and output types, the event and error types, and the wire types the
+frontend reads that no command names (the exports, the viewer session), in
+one `definitions` block. `generated/types.ts` is every type;
+`generated/client.ts` is `createClient`, one typed function per command
+(`api.openProject({ dir })`), job (`api.jobs.runCalibration(…)`) and
+resource (`api.resources.undistortedImage(…)`), and the only file that
+names commands. Both outputs are committed. CI enforces sync:
+`app-src-tauri` runs `studio-schema --check` and `app-frontend`
+regenerates the TS and `git diff --exit-code`s it. `src/api/generated/` is
+lint-ignored and `schema/` prettier-ignored. The export discriminator
+lives in `src/store/exportKind.ts` (`detectExportKind`).

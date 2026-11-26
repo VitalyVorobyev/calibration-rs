@@ -1,7 +1,10 @@
-//! The run a viewer serves, found from the path given on its command line.
+//! The run the browser viewer (`calib-viewer`) serves, found from the path
+//! given on its command line, and the session it answers `GET /api/session`
+//! with.
 
 use std::path::{Path, PathBuf};
 
+use schemars::JsonSchema;
 use serde::Serialize;
 
 /// The export `vcal run -o <dir>` writes, next to `quality.json` and,
@@ -14,7 +17,7 @@ const PROJECT_RUN_EXPORT: &str = "export.json";
 const PROJECT_FILE: &str = "calibration-project.json";
 
 /// How the run's files are laid out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RunLayout {
     /// A `vcal run -o <dir>` folder: `calibration.json`, `quality.json`.
@@ -33,6 +36,39 @@ pub struct RunSource {
     pub dir: PathBuf,
     /// The export file.
     pub export: PathBuf,
+}
+
+/// What `GET /api/session` answers: the run the browser viewer serves.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ViewerSession {
+    /// The run folder's name, for the page's header.
+    pub name: String,
+    pub layout: RunLayout,
+    /// The run folder (canonical, `/`-separated).
+    pub run_dir: String,
+    /// The export file to load (canonical, `/`-separated).
+    pub export_path: String,
+}
+
+impl ViewerSession {
+    pub fn of(run: &RunSource) -> Self {
+        let name = run
+            .dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| slash(&run.dir));
+        Self {
+            name,
+            layout: run.layout,
+            run_dir: slash(&run.dir),
+            export_path: slash(&run.export),
+        }
+    }
+}
+
+/// A path for the webview: `/`-separated on every platform.
+pub fn slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// The run at `path`: an export file, a `vcal run` folder or a saved app

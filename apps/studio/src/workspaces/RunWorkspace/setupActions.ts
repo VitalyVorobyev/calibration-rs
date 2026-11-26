@@ -1,8 +1,7 @@
 /** The ways a Run setup is loaded: a Quick Start preset, a sniffed folder,
  * a picked folder or a picked manifest file. Each failure becomes a run
  * status the banner shows. */
-import { call, capabilities } from "../../lib/backend";
-import * as TOML from "toml";
+import { api, capabilities } from "../../api";
 import { dirnamePath } from "../../lib/paths";
 import { useRunSetup } from "../../store/runSetup";
 import { pickFolder, pickManifestFile } from "../../shell/dialogs";
@@ -20,14 +19,6 @@ const needsTauri = (what: string): RunStatus => ({
 /** Sequence number of the latest setup load. Module-scoped so it outlives a
  * render: a slower load started earlier never overwrites a newer one. */
 let activeLoadSeq = 0;
-
-/** Parse a manifest file's text by its extension: TOML or JSON. */
-export function parseManifest(path: string, text: string): unknown {
-  const ext = path.split(".").pop()?.toLowerCase();
-  // TOML.parse / JSON.parse return `any`; narrow to `unknown` immediately.
-  const parsed: unknown = ext === "toml" ? TOML.parse(text) : JSON.parse(text);
-  return parsed;
-}
 
 export interface SetupActions {
   applyPreset: (preset: EnabledPreset) => Promise<boolean>;
@@ -53,12 +44,14 @@ export function setupActions(report: Report): SetupActions {
         // A sample is downloaded on first use; its manifest path comes back.
         const path =
           "sample" in preset.source
-            ? await call<string>("fetch_sample_cmd", { id: preset.source.sample })
+            ? await (
+                await api.jobs.fetchSample({ id: preset.source.sample })
+              ).result
             : preset.source.manifestPath;
         if (seq !== activeLoadSeq) return false;
-        const text = await call<string>("load_text_file", { path });
+        // The back end reads the manifest (TOML or JSON) as the library does.
+        const parsed = await api.readManifest({ path });
         if (seq !== activeLoadSeq) return false;
-        const parsed = parseManifest(path, text);
         await loadSetup({
           manifest: preset.manifestOverrides
             ? mergeConfig(parsed, preset.manifestOverrides)
@@ -94,7 +87,7 @@ export function setupActions(report: Report): SetupActions {
       try {
         const folder = await pickFolder("Pick a dataset folder to sniff");
         if (folder === null || seq !== activeLoadSeq) return false;
-        const spec = await call<Record<string, unknown>>("sniff_folder", { folder });
+        const spec = await api.sniffFolder({ folder });
         if (seq !== activeLoadSeq) return false;
         await loadSetup({
           manifest: spec,
@@ -146,9 +139,9 @@ export function setupActions(report: Report): SetupActions {
         if (path === null || seq !== activeLoadSeq) return;
         setPaths({ manifestDir: dirnamePath(path), manifestPath: path });
         try {
-          const text = await call<string>("load_text_file", { path });
+          const manifest = await api.readManifest({ path });
           if (seq !== activeLoadSeq) return;
-          setManifest(parseManifest(path, text));
+          setManifest(manifest);
           report({ kind: "idle" });
         } catch (e) {
           if (seq === activeLoadSeq) {

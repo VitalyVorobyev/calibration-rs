@@ -7,7 +7,7 @@ import type {
   ResidualKind,
   Uncertainty,
   UncertaintyUnavailable,
-} from "../types/generated/studio-wire";
+} from "../api/generated/types";
 import type { AnyExport } from "../store/types";
 
 /** The export's uncertainty; `null` when the export has none (written

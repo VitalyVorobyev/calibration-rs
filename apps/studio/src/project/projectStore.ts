@@ -108,9 +108,9 @@ export const useProject = create<ProjectState>()((set, get) => {
       const manifest = useRunSetup.getState().manifest;
       try {
         await saveProjectManifest(project.dir, manifest);
-        // Stored as written; the form's value is a JSON object.
+        // Stored as written.
         set({
-          project: { ...project, manifest: manifest as ProjectInfo["manifest"] },
+          project: { ...project, manifest },
           error: null,
         });
         return true;

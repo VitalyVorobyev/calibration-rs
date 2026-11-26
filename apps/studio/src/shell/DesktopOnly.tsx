@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Navigate } from "react-router";
-import { capabilities } from "../lib/backend";
+import { capabilities } from "../api";
 
 /** A route the desktop app offers and the browser viewer does not: its
  * workspace there, Diagnose elsewhere. */

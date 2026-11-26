@@ -63,7 +63,7 @@ use vision_calibration::single_cam_handeye::{
 };
 
 /// Successful calibration run.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RunSuccess {
     /// Final export JSON, ready to drop into the diagnose viewer.
     pub export: serde_json::Value,
@@ -86,8 +86,7 @@ pub struct RunSuccess {
 /// library's own reports ([`Progress`]: each image detected, each
 /// calibration step, each solver iteration) ride along in
 /// [`RunProgress::report`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStage {
     /// Decoding images + detecting target/laser features (`build_*_input`).
@@ -98,13 +97,11 @@ pub enum RunStage {
     Export,
 }
 
-/// A progress message streamed to the Run workspace over a
-/// [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins (no
-/// `report`) and then for the library's reports within it; terminal
-/// outcomes (success / failure / cancellation) are carried by the
-/// command's `RunResponse` return value, not the channel.
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+/// A progress report of a calibration run: the `run_calibration` job's
+/// event. One is sent as each `RunStage` begins (no `report`) and then for
+/// the library's reports within it; the outcome is the job's output (a
+/// `RunResponse`), or its `cancelled` state.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct RunProgress {
     /// The stage under way.
     pub stage: RunStage,
@@ -239,7 +236,7 @@ impl RunCtx<'_> {
 
 /// Tagged response shape so the React layer can match on `kind` rather
 /// than parsing free-form error strings.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RunResponse {
     /// Calibration completed and an export was produced.

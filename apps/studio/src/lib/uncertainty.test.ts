@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ParameterCovariance } from "../types/generated/studio-wire";
+import type { ParameterCovariance } from "../api/generated/types";
 import type { AnyExport } from "../store/types";
 import {
   correlationMatrix,

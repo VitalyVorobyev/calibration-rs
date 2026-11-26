@@ -5,7 +5,13 @@
 import { toast } from "@vitavision/ui";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { cancelRun, runCalibration, type RunSuccess } from "../../lib/runCalibration";
+import { isCancelled, type Job } from "../../api";
+import {
+  startRun,
+  type RunProgress,
+  type RunResponse,
+  type RunSuccess,
+} from "../../lib/runCalibration";
 import { runExportPath } from "../../project/projectApi";
 import { useProject } from "../../project/projectStore";
 import { useStore } from "../../store";
@@ -19,6 +25,10 @@ const HANDOFF_MS = 600;
  * unmounting and remounting: a second run cannot start while the first is
  * still saving or loading its result. */
 let activeRunId: string | null = null;
+/** Its job, once the back end has queued it. */
+let activeJob: Job<RunProgress, RunResponse> | null = null;
+/** Cancel was asked for before the job was queued. */
+let cancelWanted = false;
 
 export interface RunController {
   status: RunStatus;
@@ -60,6 +70,7 @@ export function useRunController(): RunController {
     }
     const runId = newRunId();
     activeRunId = runId;
+    cancelWanted = false;
     setStatus({
       kind: "running",
       runId,
@@ -70,20 +81,26 @@ export function useRunController(): RunController {
       cancelRequested: false,
     });
     try {
-      const response = await runCalibration({
-        runId,
-        manifest,
-        config,
-        manifestDir,
-        onProgress: (progress) =>
-          // Only advance the stage if this run is still the active one
-          // (a stale channel message must not resurrect a finished run).
-          setStatus((prev) =>
-            prev.kind === "running" && prev.runId === runId
-              ? withProgress(prev, progress)
-              : prev,
-          ),
-      });
+      const job = await startRun({ manifest, config, manifestDir });
+      activeJob = job;
+      if (cancelWanted) void job.cancel().catch(() => {});
+      job.onEvent((progress) =>
+        // Only advance the stage if this run is still the active one
+        // (a stale event must not resurrect a finished run).
+        setStatus((prev) =>
+          prev.kind === "running" && prev.runId === runId
+            ? withProgress(prev, progress)
+            : prev,
+        ),
+      );
+      let response: RunResponse;
+      try {
+        response = await job.result;
+      } catch (e) {
+        if (!isCancelled(e)) throw e;
+        setStatus({ kind: "cancelled" });
+        return;
+      }
       if (response.kind !== "ok") {
         setStatus(statusFromResponse(response));
         return;
@@ -101,6 +118,7 @@ export function useRunController(): RunController {
     } finally {
       if (activeRunId === runId) {
         activeRunId = null;
+        activeJob = null;
       }
     }
   };
@@ -108,9 +126,13 @@ export function useRunController(): RunController {
   const cancel = () => {
     if (status.kind !== "running") return;
     setStatus({ ...status, cancelRequested: true });
-    // Fire-and-forget: the terminal `cancelled` state arrives via the
-    // run promise resolving to `RunResponse::Cancelled`.
-    void cancelRun(status.runId).catch(() => {
+    // Fire-and-forget: the terminal `cancelled` state arrives as the
+    // job's end. Before the job is queued, it is cancelled once it is.
+    if (activeJob === null) {
+      cancelWanted = true;
+      return;
+    }
+    void activeJob.cancel().catch(() => {
       /* benign — the run may have finished between click and IPC */
     });
   };

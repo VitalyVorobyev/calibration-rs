@@ -1,82 +1,33 @@
-/** Typed wrapper around the `run_calibration_cmd` / `cancel_run_cmd`
- * desktop commands. Mirrors the Rust `RunResponse` enum (see
- * src-tauri/src/run.rs) so the React side can match on `kind` rather
- * than parsing strings, and streams stage progress (with the library's
- * per-image, per-step and per-iteration reports) over a channel. */
-import type { RunProgress } from "../types/generated/studio-wire";
-import { call, callStreaming } from "./backend";
+/** A calibration run as a back-end job (`run_calibration`): its progress
+ * (stage announcements with the library's per-image, per-step and
+ * per-iteration reports) arrives as the job's events, its outcome is the
+ * job's output (`RunResponse`), and cancelling the job stops it at the next
+ * image or solver iteration. */
+import { api, type Job } from "../api";
+import type { RunProgress, RunResponse } from "../api/generated/types";
 
-// Re-export the generated progress wire types so components import the
-// stage vocabulary from one place.
-export type { Progress, RunProgress, RunStage } from "../types/generated/studio-wire";
-
-export interface RunSuccess {
-  kind: "ok";
-  export: unknown;
-  duration_ms: number;
-  usable_views: number;
-  total_views: number;
-  cache_used: boolean;
-}
-
-export interface RunAskUser {
-  kind: "ask_user";
-  field: string;
-  prompt: string;
-  suggestions: string[];
-}
-
-export interface RunValidationFailed {
-  kind: "validation_failed";
-  message: string;
-}
-
-export interface RunFailed {
-  kind: "failed";
-  category: string;
-  message: string;
-}
-
-/** The user cancelled the run; it stopped at its next image, solver
- * iteration or stage boundary. */
-export interface RunCancelled {
-  kind: "cancelled";
-}
-
-export type RunResponse =
-  RunSuccess | RunAskUser | RunValidationFailed | RunFailed | RunCancelled;
+// Re-export the generated wire types so components import the run's
+// vocabulary from one place.
+export type {
+  Progress,
+  RunProgress,
+  RunResponse,
+  RunStage,
+  RunSuccess,
+} from "../api/generated/types";
 
 export interface RunInput {
-  /** Caller-generated correlation id, echoed to `cancelRun`. */
-  runId: string;
   manifest: unknown;
   config: unknown;
+  /** The folder the manifest's relative paths resolve against. */
   manifestDir: string;
-  /** Invoked as each pipeline stage begins (detect → solve → export) and
-   * for each report within it. */
-  onProgress?: (progress: RunProgress) => void;
 }
 
-/** Launch a calibration run, streaming per-stage progress. The returned
- * promise resolves once the run reaches a terminal state (ok / cancelled
- * / failed / validation / ask_user). */
-export async function runCalibration(input: RunInput): Promise<RunResponse> {
-  return callStreaming<RunResponse, RunProgress>(
-    "run_calibration_cmd",
-    {
-      runId: input.runId,
-      manifestJson: input.manifest,
-      configJson: input.config,
-      manifestDir: input.manifestDir,
-    },
-    "onProgress",
-    (message) => input.onProgress?.(message),
-  );
-}
-
-/** Request cancellation of an in-flight run. Resolves `true` when a
- * matching run was still running and got flagged, `false` if it had
- * already finished (a benign race). */
-export async function cancelRun(runId: string): Promise<boolean> {
-  return call<boolean>("cancel_run_cmd", { runId });
+/** Start a calibration run. */
+export function startRun(input: RunInput): Promise<Job<RunProgress, RunResponse>> {
+  return api.jobs.runCalibration({
+    manifest: input.manifest,
+    config: input.config,
+    manifest_dir: input.manifestDir,
+  });
 }

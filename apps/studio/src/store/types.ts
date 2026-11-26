@@ -5,7 +5,7 @@ import type {
   Iso3Schema,
   LaserPlane,
   Uncertainty,
-} from "../types/generated/studio-wire";
+} from "../api/generated/types";
 
 // The export discriminator now lives next to `detectExportKind`, its single
 // consumer-facing definition. Re-exported here so existing
@@ -64,12 +64,6 @@ export interface AnyExport {
   laser_planes_cam?: LaserPlaneWire[];
   /** The covariance of the estimated parameters. */
   uncertainty?: Uncertainty;
-}
-
-/** Tauri command response shape from `load_export`. */
-export interface LoadExportResult {
-  export: AnyExport;
-  export_dir: string;
 }
 
 /** Re-export so callers can `import { FrameKey } from "../store/types"`. */

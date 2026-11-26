@@ -2,12 +2,13 @@
 /** The shell: the workspace rail marks the current route, the project
  * navigator appears with an open project and lists its runs, a project
  * error is shown until dismissed, and the browser viewer offers no desktop
- * features. The desktop app's back end is Tauri's IPC, mocked. */
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+ * features. The back end is a mock transport of the desktop app's kind. */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { TooltipProvider } from "@vitavision/ui";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setTransport } from "../api";
+import { createMockTransport } from "../api/transport/mock";
 import { useProject } from "../project/projectStore";
 import { Shell } from "./Shell";
 
@@ -30,14 +31,13 @@ function renderShell() {
 }
 
 beforeEach(() => {
-  mockIPC(() => null);
+  setTransport(createMockTransport());
 });
 
 afterEach(() => {
-  clearMocks();
+  setTransport(null);
   cleanup();
   useProject.setState({ project: null, error: null });
-  document.head.querySelector('meta[name="calib-backend"]')?.remove();
 });
 
 describe("Shell", () => {
@@ -103,11 +103,7 @@ describe("Shell", () => {
   });
 
   it("offers no desktop features in the browser viewer", () => {
-    clearMocks();
-    const meta = document.createElement("meta");
-    meta.name = "calib-backend";
-    meta.content = "http";
-    document.head.append(meta);
+    setTransport(createMockTransport({ kind: "http" }));
     renderShell();
     for (const name of ["Diagnose", "3D viewer", "Epipolar", "Depth (dense stereo)"]) {
       expect(screen.getByRole("link", { name })).toBeTruthy();

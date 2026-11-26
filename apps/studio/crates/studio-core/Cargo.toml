@@ -9,13 +9,20 @@ edition = "2024"
 rust-version = "1.93"
 publish = false
 
+# Writes `apps/studio/schema/studio-api.json` (`--check` compares).
+[[bin]]
+name = "studio-schema"
+path = "src/bin/studio_schema.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 image = "0.25"
-vision-calibration = { path = "../../../../crates/vision-calibration" }
+# `fetch`: the Quick Start samples download their datasets; `schemars`: the
+# library's wire types are part of the API schema.
+vision-calibration = { path = "../../../../crates/vision-calibration", features = ["fetch", "schemars"] }
 # Laser-line extraction (ADR 0016). vision-metrology is not on
 # crates.io, so the published pipeline crates only define the
 # `LaserPixelExtractor` trait; this (unpublished) app provides the
@@ -26,18 +33,12 @@ vision-metrology = { git = "https://github.com/VitalyVorobyev/vision-metrology.g
 dunce = "1"
 # The platform cache folder, home of the detection cache.
 dirs = "5"
-# Optional: only pulled in by the `schema-export` feature for the
-# `emit_schemas` binary. schemars 1.x, matching the workspace pin.
-schemars = { version = "1", features = ["derive"], optional = true }
+# The API schema (`studio-schema`) and the command table's argument and
+# reply types. schemars 1.x, matching the workspace pin.
+schemars = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
 # The tests calibrate synthetic views.
 vision-calibration = { path = "../../../../crates/vision-calibration", features = ["synthetic"] }
 toml = "0.8"
-
-[features]
-# JSON Schema emission: derive `JsonSchema` on the command payload/response
-# types and forward the facade's `schemars` feature so the `*Export` types
-# are schema-able too.
-schema-export = ["dep:schemars", "vision-calibration/schemars"]

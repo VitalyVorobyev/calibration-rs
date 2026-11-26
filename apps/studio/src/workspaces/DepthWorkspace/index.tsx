@@ -1,4 +1,4 @@
-import { call } from "../../lib/backend";
+import { api } from "../../api";
 import {
   Button,
   Empty,
@@ -11,7 +11,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { NoImageList } from "../../components/NoImageList";
 import { PoseStepper } from "../../components/PoseStepper";
 import { useStore } from "../../store";
-import type { DisparityResult } from "../../types/generated/studio-wire";
+import type { DisparityResult } from "../../api/generated/types";
 
 // Three.js is heavy (~900 KB); only pull it in when the 3D view is opened.
 const PointCloudView = lazy(() =>
@@ -75,8 +75,8 @@ export function DepthWorkspace() {
     () =>
       result
         ? {
-            positions: new Float32Array(result.pointCloud.positions),
-            colors: new Float32Array(result.pointCloud.colors),
+            positions: new Float32Array(result.point_cloud.positions),
+            colors: new Float32Array(result.point_cloud.colors),
           }
         : null,
     [result],
@@ -137,13 +137,13 @@ export function DepthWorkspace() {
         : { key, result: null, error: null },
     );
     try {
-      const res = await call<DisparityResult>("compute_disparity", {
-        pathA: frameA.abs_path,
-        pathB: frameB.abs_path,
-        camA: cameraA,
-        camB: cameraB,
+      const res = await api.disparity({
+        path_a: frameA.abs_path,
+        path_b: frameB.abs_path,
+        cam_a: cameraA,
+        cam_b: cameraB,
         pose: selectedPose,
-        params: { blockSize: BLOCK_SIZE, semiGlobal, downscale: DOWNSCALE },
+        params: { block_size: BLOCK_SIZE, semi_global: semiGlobal, downscale: DOWNSCALE },
       });
       if (requestSeqRef.current === seq) {
         setResultState({ key, result: res, error: null });
@@ -163,13 +163,13 @@ export function DepthWorkspace() {
     result == null
       ? null
       : viewMode === "disparity"
-        ? result.disparityPng
+        ? result.disparity_png
         : viewMode === "overlay"
-          ? result.overlayPng
+          ? result.overlay_png
           : viewMode === "depth"
-            ? result.depthPng
+            ? result.depth_png
             : viewMode === "rectified"
-              ? result.rectifiedPairPng
+              ? result.rectified_pair_png
               : null; // "3d" is rendered as WebGL below
 
   return (
@@ -259,19 +259,19 @@ export function DepthWorkspace() {
 
       {result && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-fg-muted">
-          <Stat label="mode" value={result.semiGlobal ? "semi-global" : "block"} />
+          <Stat label="mode" value={result.semi_global ? "semi-global" : "block"} />
           <Stat label="density" value={`${(result.density * 100).toFixed(1)}%`} />
           <Stat
             label="disparity"
-            value={`${result.dispMin.toFixed(1)}–${result.dispMax.toFixed(1)} px`}
+            value={`${result.disp_min.toFixed(1)}–${result.disp_max.toFixed(1)} px`}
           />
           <Stat
             label="planarity RMS"
-            value={result.planeRms == null ? "—" : `${result.planeRms.toFixed(2)} px`}
+            value={result.plane_rms == null ? "—" : `${result.plane_rms.toFixed(2)} px`}
           />
-          <Stat label="plane inliers" value={`${result.planeInliers}`} />
-          <Stat label="cloud points" value={`${result.pointCloud.count}`} />
-          <Stat label="baseline" value={`${(result.baselineM * 1000).toFixed(0)} mm`} />
+          <Stat label="plane inliers" value={`${result.plane_inliers}`} />
+          <Stat label="cloud points" value={`${result.point_cloud.count}`} />
+          <Stat label="baseline" value={`${(result.baseline_m * 1000).toFixed(0)} mm`} />
           <Stat label="match size" value={`${result.width}×${result.height}`} />
         </div>
       )}

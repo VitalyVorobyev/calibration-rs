@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { call, fileUrl } from "../lib/backend";
+import { api, fileUrl } from "../api";
 import { decodeImage, type ImageData } from "../lib/imagePixels";
 import type { FrameKey } from "../types";
 
@@ -72,7 +72,8 @@ export function useUndistortedImageData(
         : { x: roiX, y: roiY, w: roiW, h: roiH };
     let cancelled = false;
     let url: string | null = null;
-    call<ArrayBuffer>("load_undistorted_image", { path, camera, roi })
+    api.resources
+      .undistortedImage({ path, camera, roi })
       .then((bytes) => {
         if (cancelled) return null;
         url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));

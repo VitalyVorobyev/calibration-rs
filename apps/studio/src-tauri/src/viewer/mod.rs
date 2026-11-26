@@ -8,18 +8,18 @@
 //! calibration) is hidden.
 //!
 //! A run is a `vcal run -o` folder, a run the app saved in a project, or one
-//! export file ([`source`]). The server reads only files under the run
-//! folder and under the export's image root ([`studio_core::scope`]); the
-//! command bodies are the desktop app's ([`studio_core::ops`]).
+//! export file ([`run_source`]). The server reads only files under the run
+//! folder and under the export's image root ([`studio_core::scope`]); it
+//! answers the read-only commands of the desktop app's command table
+//! ([`studio_core::api`]).
 
 mod http;
-mod source;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use studio_core::ops;
+use studio_core::{ops, run_source};
 
 const USAGE: &str = "\
 usage: calib-viewer <run-dir | export.json> [--port N] [--no-open] [--dist DIR]
@@ -117,7 +117,7 @@ pub fn main(args: Vec<OsString>) -> ExitCode {
 
 fn serve(args: &Args) -> Result<(), String> {
     check_dist(&args.dist)?;
-    let run = source::find_run(&args.run)?;
+    let run = run_source::find_run(&args.run)?;
     // Read the export now: a file the viewer cannot show fails here, before
     // a browser opens on it.
     let loaded = ops::read_export(&run.export)?;

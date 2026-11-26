@@ -14,10 +14,12 @@ import type { Page } from "@playwright/test";
  * plain init script — `page.addInitScript` runs in that page's context
  * before `index.html`'s own `<script>` tags execute.
  *
- * `responses` is keyed by Tauri command name (e.g. `"load_export"`,
- * `"plugin:dialog|open"`); every call to that command returns the same
- * canned value regardless of its arguments, which is enough for a smoke
- * test driving one fixed scenario per spec.
+ * `responses` is keyed by command name: a command of the back end's table
+ * (e.g. `"load_export"`, which the app sends through the shell's
+ * `studio_invoke`) or a Tauri plugin command (`"plugin:dialog|open"`);
+ * every call to that command returns the same canned value regardless of
+ * its arguments, which is enough for a smoke test driving one fixed
+ * scenario per spec.
  *
  * `assetUrl` stands in for the asset protocol: every `convertFileSrc`
  * (an image the webview loads from disk) resolves to it.
@@ -32,9 +34,10 @@ export async function installTauriMock(
       (
         window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }
       ).__TAURI_INTERNALS__ = {
-        invoke: (cmd: string) => {
-          if (Object.prototype.hasOwnProperty.call(responsesArg, cmd)) {
-            return Promise.resolve(responsesArg[cmd]);
+        invoke: (cmd: string, args?: { name?: string }) => {
+          const name = cmd === "studio_invoke" && args?.name ? args.name : cmd;
+          if (Object.prototype.hasOwnProperty.call(responsesArg, name)) {
+            return Promise.resolve(responsesArg[name]);
           }
           return Promise.resolve(null);
         },

@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import { call, capabilities, NO_BACKEND } from "../lib/backend";
+import { api, capabilities, NO_BACKEND } from "../api";
 import { joinPath } from "../lib/paths";
 import type { FrameKey } from "../types";
-import type { AnyExport, ExportKind, LoadExportResult } from "./types";
+import type { LoadExportResult } from "../api/generated/types";
+import type { AnyExport, ExportKind } from "./types";
 import { detectExportKind } from "./exportKind";
 
 /** Wrap-around index lookup over a sorted array. Returns the value
@@ -200,7 +201,7 @@ export const useStore = create<AppState>()(
       const seq = ++loadRequestSeq;
       let result: LoadExportResult;
       try {
-        result = await call<LoadExportResult>("load_export", { path });
+        result = await api.loadExport({ path });
       } catch (e) {
         if (seq === loadRequestSeq) {
           set({ loadError: `Could not load export: ${String(e)}` });
@@ -208,7 +209,8 @@ export const useStore = create<AppState>()(
         return;
       }
       if (seq !== loadRequestSeq) return;
-      const data = result.export;
+      // The frontend validates the export before anything reads it.
+      const data = result.export as AnyExport;
       const materialized = materializeExport(data, result.export_dir);
       if (!materialized.ok) {
         set({ loadError: materialized.error });
@@ -216,12 +218,12 @@ export const useStore = create<AppState>()(
       }
 
       // Promote the validated export into the backend cache *before*
-      // updating the frontend state, so `compute_epipolar_overlay` and
+      // updating the frontend state, so `epipolar_overlay` and
       // any future math command sees the same dataset the user is
       // about to interact with. If the commit fails the frontend
       // surfaces the error and stays on the previous export.
       try {
-        await call<null>("set_active_export", { export: data });
+        await api.setActiveExport({ export: data });
       } catch (e) {
         if (seq === loadRequestSeq) {
           set({

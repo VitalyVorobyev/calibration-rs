@@ -310,12 +310,11 @@ Calibration Studio, Tauri 2 + React 19 + TypeScript; the developer guide is
   excepted). Source images load over the asset protocol, never as IPC text.
 * Gates, as CI runs them. From `apps/studio/`: `bun run lint` (oxlint, zero
   warnings), `bun run format:check`, `bun run typecheck`, `bun run test`
-  (Vitest), `bun run test:e2e` (Playwright), and `bun run generate:types:ts`
-  leaving `src/types/generated` unchanged. From `apps/studio/`:
+  (Vitest), `bun run test:e2e` (Playwright), and `bun run generate:api:ts`
+  leaving `src/api/generated` unchanged. From `apps/studio/`:
   `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
   --all-features -- -D warnings`, `cargo test --workspace`, and `cargo run
-  -p calibration-studio --features schema-export --bin emit_schemas --
-  --check`. `bun run generate:types` regenerates both
-  stages. `bun run build` runs in CI only inside the bundle workflow (on a
-  release tag or by hand); run it locally when a change touches the build
-  setup.
+  -p studio-core --bin studio-schema -- --check`. `bun run generate:api`
+  regenerates both stages. `bun run build` runs in CI only inside the
+  bundle workflow (on a release tag or by hand); run it locally when a
+  change touches the build setup.

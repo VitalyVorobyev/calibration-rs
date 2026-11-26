@@ -1,6 +1,280 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "commands": [
+    {
+      "args": {
+        "$ref": "#/definitions/CreateProjectArgs"
+      },
+      "doc": "Make the folder `dir` a project for the dataset in `dataset_dir`,\ndescribed by `manifest`. Fails with `project_exists` when `dir` already\nholds one.",
+      "kind": "plain",
+      "name": "create_project",
+      "reply": {
+        "$ref": "#/definitions/ProjectInfo"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/OpenProjectArgs"
+      },
+      "doc": "Open the project in `dir`; `not_a_project` for any other folder.",
+      "kind": "plain",
+      "name": "open_project",
+      "reply": {
+        "$ref": "#/definitions/ProjectInfo"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/SaveProjectManifestArgs"
+      },
+      "doc": "Replace the project's dataset manifest (`dataset.json`).",
+      "kind": "plain",
+      "name": "save_project_manifest",
+      "reply": {
+        "type": "null"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/SaveProjectRunArgs"
+      },
+      "doc": "Save a run as `runs/<name>/`; `run_exists` rather than overwrite one.",
+      "kind": "plain",
+      "name": "save_project_run",
+      "reply": {
+        "$ref": "#/definitions/RunSummary"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ReadManifestArgs"
+      },
+      "doc": "Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON\notherwise. Its folder becomes one the app may read.",
+      "kind": "plain",
+      "name": "read_manifest",
+      "reply": {
+        "$ref": "#/definitions/DatasetSpec"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/SniffFolderArgs"
+      },
+      "doc": "Infer a dataset manifest from the folder `folder`: images grouped into\ncameras, a robot-pose file, a guessed topology. What cannot be\ndetermined is left at a placeholder and listed in the manifest's\n`_unresolved` (the same inference as `vcal init`).",
+      "kind": "plain",
+      "name": "sniff_folder",
+      "reply": {
+        "$ref": "#/definitions/DatasetSpec"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DefaultConfigArgs"
+      },
+      "doc": "The default `*Config` of a manifest topology (`planar_intrinsics`,\n`rig_handeye`, …): the library's `Config::default()`.",
+      "kind": "plain",
+      "name": "default_config",
+      "reply": true
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/FetchSampleArgs"
+      },
+      "doc": "Make the sample dataset `id` (one of the library's sample catalogue)\navailable locally and answer the absolute path of its manifest. The\nfiles are downloaded into the platform cache (`VISION_CALIBRATION_DATA`\noverrides it), checked against their SHA-256 and reused later, so the\napp carries no dataset.",
+      "event": {
+        "type": "null"
+      },
+      "kind": "job",
+      "lane": "light",
+      "name": "fetch_sample",
+      "output": {
+        "type": "string"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/RunCalibrationArgs"
+      },
+      "doc": "Run a calibration end to end: detection (cached), the solve and the\nexport, reporting each stage and the library's reports within it. The\nfolder `manifest_dir` is what the manifest's relative paths resolve\nagainst; it becomes one the app may read. A successful run's export\nbecomes the active export.",
+      "event": {
+        "$ref": "#/definitions/RunProgress"
+      },
+      "kind": "job",
+      "lane": "heavy",
+      "name": "run_calibration",
+      "output": {
+        "$ref": "#/definitions/RunResponse"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/LoadExportArgs"
+      },
+      "doc": "Read and parse the calibration export at `path` and check its schema\nversion. It does not become active: the frontend validates it first and\nthen calls `set_active_export`. Its folder and image root become\nfolders the app may read.",
+      "kind": "plain",
+      "name": "load_export",
+      "reply": {
+        "$ref": "#/definitions/LoadExportResult"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/SetActiveExportArgs"
+      },
+      "doc": "Make `export` the active export, the one every viewer command reads.",
+      "kind": "plain",
+      "name": "set_active_export",
+      "reply": {
+        "type": "null"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/UndistortPointsArgs"
+      },
+      "doc": "Map raw (distorted) pixels of `camera` into its undistorted pixel frame;\n`null` where back-projection has no finite ray.",
+      "kind": "plain",
+      "name": "undistort_points",
+      "reply": {
+        "items": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "type": "array"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/EpipolarOverlayArgs"
+      },
+      "doc": "The epipolar polyline and epipole in camera `cam_b` (distorted pixels)\nof the pixel `point_px` of camera `cam_a`, through each camera's full\nmodel.",
+      "kind": "plain",
+      "name": "epipolar_overlay",
+      "reply": {
+        "$ref": "#/definitions/EpipolarOverlay"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/EpipolarOverlayUndistortedArgs"
+      },
+      "doc": "A straight epipolar segment in camera `cam_b`'s undistorted frame,\nclipped to its `image_width_b` × `image_height_b` image, of the pixel\n`point_px` of camera `cam_a`'s undistorted frame.",
+      "kind": "plain",
+      "name": "epipolar_overlay_undistorted",
+      "reply": {
+        "$ref": "#/definitions/EpipolarOverlay"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/CameraParameterValuesArgs"
+      },
+      "doc": "The value of each labelled parameter of the active export that is a\ncamera parameter, aligned with `labels`; `null` for poses and planes.",
+      "kind": "plain",
+      "name": "camera_parameter_values",
+      "reply": {
+        "items": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "type": "array"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ProjectionUncertaintyArgs"
+      },
+      "doc": "The projection uncertainty of `camera` of the active export over an\nimage of `image_width` × `image_height` pixels.",
+      "kind": "plain",
+      "name": "projection_uncertainty",
+      "reply": {
+        "$ref": "#/definitions/ProjectionUncertainty"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DisparityArgs"
+      },
+      "doc": "A disparity map of the stereo pair `path_a` (camera `cam_a`) and\n`path_b` (camera `cam_b`) at `pose`: rectified from the active export,\ndense-matched, with colour-mapped images and quality metrics.",
+      "kind": "plain",
+      "name": "disparity",
+      "reply": {
+        "$ref": "#/definitions/DisparityResult"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/UndistortedImageQuery"
+      },
+      "doc": "The image at `path` rendered into `camera`'s undistorted pixel frame (a\nPNG), cropped to `roi` when given.",
+      "kind": "resource",
+      "name": "undistorted_image"
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ListJobsArgs"
+      },
+      "doc": "Every job the back end still knows of, live or recently finished, in\nstart order.",
+      "kind": "plain",
+      "name": "list_jobs",
+      "reply": {
+        "items": {
+          "$ref": "#/definitions/JobInfo"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/JobStatusArgs"
+      },
+      "doc": "The job `id`: its state, its last progress report, its output once\ndone.",
+      "kind": "plain",
+      "name": "job_status",
+      "reply": {
+        "$ref": "#/definitions/JobInfo"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/CancelJobArgs"
+      },
+      "doc": "Cancel the job `id`: a queued job at once, a running one at its next\nimage or solver iteration. A finished job is answered as it is.",
+      "kind": "plain",
+      "name": "cancel_job",
+      "reply": {
+        "$ref": "#/definitions/JobInfo"
+      }
+    }
+  ],
   "definitions": {
+    "CameraParameterValuesArgs": {
+      "additionalProperties": false,
+      "description": "The value of each labelled parameter of the active export that is a\ncamera parameter, aligned with `labels`; `null` for poses and planes.",
+      "properties": {
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "labels"
+      ],
+      "type": "object"
+    },
     "CameraParams": {
       "description": "Serializable camera parameters for building a runtime model.",
       "properties": {
@@ -45,6 +319,112 @@
       ],
       "type": "object"
     },
+    "CameraSource": {
+      "additionalProperties": false,
+      "description": "Per-camera image source.",
+      "properties": {
+        "id": {
+          "description": "Stable camera identifier (e.g. `\"cam0\"`). Used as a key in\npose pairings and downstream exports.",
+          "type": "string"
+        },
+        "images": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ImagePattern"
+            }
+          ],
+          "description": "Glob pattern (e.g. `\"cam0/*.png\"`) or explicit list of image\npaths, relative to the manifest's directory unless absolute."
+        },
+        "laser_images": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ImagePattern"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Laser-frame image source for the laser topologies.\nOne laser image per view, captured by the same sensor with the\nline projector on; `roi_xywh` applies to laser frames too.\nLaser images pair with target views through `pose_pairing`."
+        },
+        "roi_xywh": {
+          "description": "Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.\nWhen set, only the cropped region is fed to the detector and\nstored in the export's image manifest.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "images"
+      ],
+      "type": "object"
+    },
+    "CancelJobArgs": {
+      "additionalProperties": false,
+      "description": "Cancel the job `id`: a queued job at once, a running one at its next\nimage or solver iteration. A finished job is answered as it is.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ChessCornersDetectorSpec": {
+      "additionalProperties": false,
+      "description": "ChESS corner extractor overrides. The manifest's copy of the detector's\nChESS options (see [`DetectorSpec`]).",
+      "properties": {
+        "covariance": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CornerCovarianceSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Attach the detector's per-corner position covariance to every\nobservation. Absent (the default) = off.\n\nThe covariance is the image noise propagated through the corner\nlocalizer, plus the localizer's systematic-error model. When present,\na calibration weights each corner by it (whitened residuals) and its\nreport gives the unit-weight scale factor σ̂₀ instead of an RMS in\npixels.\n\nOff by default, and not recommended for calibration. On real\nchessboard and ChArUco images, weighting by it did not improve the\naccuracy on held-out views and made it slightly worse on some\ncameras; its stated uncertainty was no closer to the real scatter.\n\nSupported by the `chessboard` and `charuco` targets only: the\nPuzzleBoard detector runs on an upscaled image, for which no\ncovariance is reported, and ring grids have none. A manifest that\nsets it for another target is an error."
+        },
+        "min_corner_strength": {
+          "description": "Minimum corner strength for a detected corner to enter the grid\nbuilder. `None` keeps the detector default (`33.0`). The floor is on\nthe strategy's response scale; under Radon the default never binds.\n\nThe default drops weakly-firing corners, which is the right trade\nwhenever corners are plentiful. Set `0.0` to disable it on small or\nsoft image tiles, where the floor can remove a third of the board and\nthe resulting sparse view conditions worse than the weak corners did.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CornerStrategySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Corner detector. `None` keeps ChESS."
+        },
+        "threshold_value": {
+          "description": "Acceptance threshold on the corner response. `None` keeps the\nstrategy's default.\n\nUnder ChESS it is an absolute floor on the raw response: a corner is\nkept when its response exceeds it. Under Radon it is a fraction in\n`(0, 1]` of the frame's maximum response.\n\nA sibling `threshold_mode` key is rejected by `deny_unknown_fields`:\nthe corner detector has no threshold mode.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "CombinationTerm": {
       "description": "One term of a combination of parameters: a parameter and its weight, in\nunits of the parameter's σ.",
       "properties": {
@@ -64,10 +444,287 @@
       ],
       "type": "object"
     },
+    "CornerCovarianceSpec": {
+      "additionalProperties": false,
+      "description": "Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].\nThe manifest's copy of the detector's covariance options (see\n[`DetectorSpec`]).",
+      "properties": {
+        "image_noise": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ImageNoiseSpec"
+            }
+          ],
+          "default": "estimate",
+          "description": "The image noise that the propagated covariance is expressed in.\nDefaults to `estimate`: the noise is estimated from each image, which\nis unreliable on JPEG or demosaiced images; give `stated` for those."
+        }
+      },
+      "type": "object"
+    },
+    "CornerStrategySpec": {
+      "description": "The corner detector a chessboard-like detector runs. The manifest's copy\nof the detector's corner strategy (see [`DetectorSpec`]).",
+      "oneOf": [
+        {
+          "const": "chess",
+          "description": "The ChESS response. Fast; the default.",
+          "type": "string"
+        },
+        {
+          "const": "radon",
+          "description": "The whole-image Radon response. Several times slower than ChESS, and\nless biased at a corner's sub-pixel position on sharp, finely sampled\nboards (e.g. rendered ones).",
+          "type": "string"
+        }
+      ]
+    },
+    "CreateProjectArgs": {
+      "additionalProperties": false,
+      "description": "Make the folder `dir` a project for the dataset in `dataset_dir`,\ndescribed by `manifest`. Fails with `project_exists` when `dir` already\nholds one.",
+      "properties": {
+        "dataset_dir": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "dir": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "manifest": {
+          "description": "The dataset manifest (`DatasetSpec` JSON), stored as `dataset.json`."
+        }
+      },
+      "required": [
+        "dir",
+        "dataset_dir",
+        "manifest"
+      ],
+      "type": "object"
+    },
+    "DatasetSpec": {
+      "additionalProperties": false,
+      "description": "Top-level dataset manifest. Authoritative description of where\nthe user's calibration data lives and how to interpret it.",
+      "properties": {
+        "_unresolved": {
+          "description": "Field paths the manifest generator could not determine.\nValidated to be empty before the runner accepts the manifest.\nPopulated as e.g. `[\"pose_convention.transform\"]`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cameras": {
+          "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (a single-camera topology requires exactly\none entry, a rig topology at least two, `rig_handeye_laserline` at\nleast one).",
+          "items": {
+            "$ref": "#/definitions/CameraSource"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "Free-form human-readable description.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detector": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DetectorSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Detector-stage overrides shared by target families. Defaults\npreserve the detector's built-in behavior."
+        },
+        "laser": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LaserExtractionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Laser-line extraction parameters for the laser topologies.\n`None` means defaults — extraction tuning has safe\ndefaults and is not a fail-fast ambiguity. Rejected on\nnon-laser topologies."
+        },
+        "pose_convention": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PoseConvention"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Frame conventions for robot poses. **No defaults** — every\ncomponent is required when `robot_poses` is set."
+        },
+        "pose_pairing": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PosePairing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How per-camera images are paired across views (and optionally\nwith robot poses). `None` is permitted only where pairing is\nirrelevant: a single camera without robot poses."
+        },
+        "robot_poses": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RobotPoseSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Robot-pose source for hand-eye topologies. `None` for\npure-intrinsics calibrations."
+        },
+        "target": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/TargetSpec"
+            }
+          ],
+          "description": "Calibration-target specification. Tagged enum on `kind`."
+        },
+        "topology": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ProblemKind"
+            }
+          ],
+          "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
+        },
+        "upstream_calibration": {
+          "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "Manifest format version; must be [`DATASET_SPEC_VERSION`] (`1`).\nRequired: a manifest without it, or with another value, is rejected.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "cameras",
+        "target",
+        "topology"
+      ],
+      "type": "object"
+    },
+    "DefaultConfigArgs": {
+      "additionalProperties": false,
+      "description": "The default `*Config` of a manifest topology (`planar_intrinsics`,\n`rig_handeye`, …): the library's `Config::default()`.",
+      "properties": {
+        "topology": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topology"
+      ],
+      "type": "object"
+    },
+    "DetectorSpec": {
+      "additionalProperties": false,
+      "description": "Target-detector overrides. These options affect feature detection\nonly; they are hashed into the detection-cache key by the runner.\n\nThe manifest declares its own detector types (this one,\n[`ChessCornersDetectorSpec`], [`CornerStrategySpec`],\n[`CornerCovarianceSpec`], [`ImageNoiseSpec`]) instead of reusing the\ndetector crate's: the manifest crate and the detector crate do not depend\non each other, so a manifest is read and validated without the detectors.\nThe runner maps each to its detector counterpart, which has the same JSON\nspelling.",
+      "properties": {
+        "chess_corners": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ChessCornersDetectorSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ChESS corner extractor options shared by chessboard-like\ndetectors (plain chessboard and ChArUco)."
+        },
+        "min_features_per_view": {
+          "description": "Minimum detected features for a view (or a camera's slot in a rig\nview) to be kept, in every topology. `None` keeps the runner default\n(4, the homography minimum). Raise it for detectors whose sparse\ndetections are unreliable — e.g. ring-grid decodes with < 8 markers\nare noisy enough to poison a solve. A plain chessboard needs no\nfloor to stay consistent: where views share one target frame the\nrunner already keeps only views that span the whole board.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "DisparityArgs": {
+      "additionalProperties": false,
+      "description": "A disparity map of the stereo pair `path_a` (camera `cam_a`) and\n`path_b` (camera `cam_b`) at `pose`: rectified from the active export,\ndense-matched, with colour-mapped images and quality metrics.",
+      "properties": {
+        "cam_a": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cam_b": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "params": {
+          "$ref": "#/definitions/DisparityParams"
+        },
+        "path_a": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "path_b": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "pose": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path_a",
+        "path_b",
+        "cam_a",
+        "cam_b",
+        "pose",
+        "params"
+      ],
+      "type": "object"
+    },
+    "DisparityParams": {
+      "additionalProperties": false,
+      "description": "Frontend-supplied matching controls.",
+      "properties": {
+        "block_size": {
+          "description": "Matching-window side length (odd). 11 is a good default for real imagery.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "downscale": {
+          "description": "Integer image downscale before matching (keeps the search tractable).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "semi_global": {
+          "description": "Use semi-global aggregation (fills low-texture regions) vs block matching.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "block_size",
+        "semi_global",
+        "downscale"
+      ],
+      "type": "object"
+    },
     "DisparityResult": {
       "description": "Result returned to the Depth workspace. All images are `data:image/png`\nbase64 URLs the webview can drop straight into `<img>`.",
       "properties": {
-        "baselineM": {
+        "baseline_m": {
           "description": "Stereo baseline in calibration units (m).",
           "format": "double",
           "type": "number"
@@ -77,21 +734,21 @@
           "format": "double",
           "type": "number"
         },
-        "depthPng": {
+        "depth_png": {
           "description": "Depth colormap (jet over metric depth `Z = f·B / d`; invalid black).",
           "type": "string"
         },
-        "dispMax": {
+        "disp_max": {
           "description": "See [`DisparityResult::disp_min`].",
           "format": "float",
           "type": "number"
         },
-        "dispMin": {
+        "disp_min": {
           "description": "Min / max recovered disparity (px).",
           "format": "float",
           "type": "number"
         },
-        "disparityPng": {
+        "disparity_png": {
           "description": "Disparity colormap (jet; invalid pixels black).",
           "type": "string"
         },
@@ -101,17 +758,17 @@
           "minimum": 0,
           "type": "integer"
         },
-        "overlayPng": {
+        "overlay_png": {
           "description": "Disparity colormap blended over the rectified left image.",
           "type": "string"
         },
-        "planeInliers": {
+        "plane_inliers": {
           "description": "Inlier pixel count of that planar fit.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
-        "planeRms": {
+        "plane_rms": {
           "description": "Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent;\n`None` when fewer than 3 finite disparities are available or the fit is degenerate.",
           "format": "double",
           "type": [
@@ -119,7 +776,7 @@
             "null"
           ]
         },
-        "pointCloud": {
+        "point_cloud": {
           "allOf": [
             {
               "$ref": "#/definitions/PointCloud"
@@ -127,11 +784,11 @@
           ],
           "description": "Reprojected 3D point cloud (reference-camera frame, metres)."
         },
-        "rectifiedPairPng": {
+        "rectified_pair_png": {
           "description": "Rectified left | right with shared epipolar rows (rectification sanity).",
           "type": "string"
         },
-        "semiGlobal": {
+        "semi_global": {
           "description": "Whether semi-global aggregation was used.",
           "type": "boolean"
         },
@@ -143,19 +800,19 @@
         }
       },
       "required": [
-        "rectifiedPairPng",
-        "disparityPng",
-        "overlayPng",
-        "depthPng",
-        "pointCloud",
+        "rectified_pair_png",
+        "disparity_png",
+        "overlay_png",
+        "depth_png",
+        "point_cloud",
         "width",
         "height",
         "density",
-        "dispMin",
-        "dispMax",
-        "planeInliers",
-        "baselineM",
-        "semiGlobal"
+        "disp_min",
+        "disp_max",
+        "plane_inliers",
+        "baseline_m",
+        "semi_global"
       ],
       "type": "object"
     },
@@ -474,6 +1131,186 @@
       ],
       "type": "object"
     },
+    "EpipolarOverlayArgs": {
+      "additionalProperties": false,
+      "description": "The epipolar polyline and epipole in camera `cam_b` (distorted pixels)\nof the pixel `point_px` of camera `cam_a`, through each camera's full\nmodel.",
+      "properties": {
+        "cam_a": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cam_b": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "point_px": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "cam_a",
+        "cam_b",
+        "point_px"
+      ],
+      "type": "object"
+    },
+    "EpipolarOverlayUndistortedArgs": {
+      "additionalProperties": false,
+      "description": "A straight epipolar segment in camera `cam_b`'s undistorted frame,\nclipped to its `image_width_b` × `image_height_b` image, of the pixel\n`point_px` of camera `cam_a`'s undistorted frame.",
+      "properties": {
+        "cam_a": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cam_b": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image_height_b": {
+          "format": "double",
+          "type": "number"
+        },
+        "image_width_b": {
+          "format": "double",
+          "type": "number"
+        },
+        "point_px": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "cam_a",
+        "cam_b",
+        "point_px",
+        "image_width_b",
+        "image_height_b"
+      ],
+      "type": "object"
+    },
+    "ErrorKind": {
+      "description": "The kinds of [`StudioError`].",
+      "oneOf": [
+        {
+          "const": "forbidden_path",
+          "description": "A path outside every root folder, or not an absolute path.",
+          "type": "string"
+        },
+        {
+          "const": "unknown_command",
+          "description": "No command or resource of that name (or not offered by this server).",
+          "type": "string"
+        },
+        {
+          "const": "invalid_args",
+          "description": "The arguments do not match the command's argument object.",
+          "type": "string"
+        },
+        {
+          "const": "busy",
+          "description": "The job queue is full.",
+          "type": "string"
+        },
+        {
+          "const": "job_not_found",
+          "description": "No job with that id (it never existed or is no longer retained).",
+          "type": "string"
+        },
+        {
+          "const": "internal",
+          "description": "A failure of the back end itself.",
+          "type": "string"
+        },
+        {
+          "const": "not_a_project",
+          "description": "The folder has no project file.",
+          "type": "string"
+        },
+        {
+          "const": "project_exists",
+          "description": "The folder already holds a project; creating one would overwrite it.",
+          "type": "string"
+        },
+        {
+          "const": "unsupported_version",
+          "description": "The project file has a version this app does not read.",
+          "type": "string"
+        },
+        {
+          "const": "invalid_run_name",
+          "description": "A run name that is empty or not a plain folder name.",
+          "type": "string"
+        },
+        {
+          "const": "run_exists",
+          "description": "A run of that name is already saved; runs are never overwritten.",
+          "type": "string"
+        },
+        {
+          "const": "io",
+          "description": "A file or folder could not be read or written.",
+          "type": "string"
+        },
+        {
+          "const": "parse",
+          "description": "A file did not parse.",
+          "type": "string"
+        },
+        {
+          "const": "manifest",
+          "description": "A dataset manifest that is not one.",
+          "type": "string"
+        },
+        {
+          "const": "invalid",
+          "description": "The request cannot be served as asked: no export is active, a camera\nindex is out of range, the export lacks what the command needs.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "The job was cancelled.",
+          "type": "string"
+        }
+      ]
+    },
+    "EventBody": {
+      "description": "What happened.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/JobEvent"
+            }
+          ],
+          "description": "A job changed state or reported progress.",
+          "properties": {
+            "kind": {
+              "const": "job",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ExportDiagnostics": {
       "description": "Evidence about how an export's result was reached: what a viewer or a\ndebugging session reads, not what a consumer needs to use the\ncalibration.\n\nThe result fields of an export (camera parameters, poses, uncertainty,\nmean reprojection error) are the stable contract; this group may gain\ndetail between releases.",
       "properties": {
@@ -547,6 +1384,19 @@
         "count",
         "mean",
         "max"
+      ],
+      "type": "object"
+    },
+    "FetchSampleArgs": {
+      "additionalProperties": false,
+      "description": "Make the sample dataset `id` (one of the library's sample catalogue)\navailable locally and answer the absolute path of its manifest. The\nfiles are downloaded into the platform cache (`VISION_CALIBRATION_DATA`\noverrides it), checked against their SHA-256 and reused later, so the\napp carries no dataset.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
       ],
       "type": "object"
     },
@@ -731,6 +1581,74 @@
       ],
       "type": "object"
     },
+    "ImageNoiseSpec": {
+      "description": "The pixel-noise level behind a corner covariance: estimated from the\nimage, or stated by the user. The manifest's copy of the detector's\nimage-noise option (see [`DetectorSpec`]).\n\nIn JSON / TOML: `\"estimate\"` or `{ stated = 2.0 }`.",
+      "oneOf": [
+        {
+          "const": "estimate",
+          "description": "Estimate the noise from each image. Unreliable on JPEG or demosaiced\nimages, where a corner then reports no covariance and the run fails.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The standard deviation of the image's pixel noise, in gray levels of\nthe 8-bit image (finite and `>= 0`), e.g. the standard deviation of\nthe difference of two frames of a static scene divided by `√2`.",
+          "properties": {
+            "stated": {
+              "format": "float",
+              "type": "number"
+            }
+          },
+          "required": [
+            "stated"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ImagePattern": {
+      "description": "How image paths for a camera are listed.",
+      "oneOf": [
+        {
+          "description": "Single shell-glob pattern, evaluated relative to the manifest\ndirectory. Example: `\"cam0/*.png\"`.",
+          "properties": {
+            "kind": {
+              "const": "glob",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "The glob pattern.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Explicit ordered list of paths.",
+          "properties": {
+            "kind": {
+              "const": "list",
+              "type": "string"
+            },
+            "paths": {
+              "description": "Paths relative to the manifest directory unless absolute.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Iso3Schema": {
       "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
       "properties": {
@@ -759,6 +1677,189 @@
         "rotation",
         "translation"
       ],
+      "type": "object"
+    },
+    "JobEvent": {
+      "description": "A job's state, and the progress report that came with it.",
+      "properties": {
+        "command": {
+          "description": "The job command that started it.",
+          "type": "string"
+        },
+        "event": {
+          "description": "The job's progress report (its command's event type), when this\nevent carries one."
+        },
+        "id": {
+          "description": "The job's id.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/JobState"
+        }
+      },
+      "required": [
+        "id",
+        "command",
+        "state"
+      ],
+      "type": "object"
+    },
+    "JobInfo": {
+      "description": "A job as the registry knows it.",
+      "properties": {
+        "command": {
+          "description": "The job command that started it.",
+          "type": "string"
+        },
+        "id": {
+          "description": "`<counter>-<8 random hex digits>`: unique within the process and not\nreused by the next one.",
+          "type": "string"
+        },
+        "last_event": {
+          "description": "Its latest progress report, if it sent one."
+        },
+        "state": {
+          "$ref": "#/definitions/JobState"
+        }
+      },
+      "required": [
+        "id",
+        "command",
+        "state"
+      ],
+      "type": "object"
+    },
+    "JobState": {
+      "description": "Where a job is in its life.",
+      "oneOf": [
+        {
+          "description": "Waiting for its lane's worker; `position` 1 runs next.",
+          "properties": {
+            "kind": {
+              "const": "queued",
+              "type": "string"
+            },
+            "position": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "position"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "running",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Finished; `output` is the job command's output type.",
+          "properties": {
+            "kind": {
+              "const": "done",
+              "type": "string"
+            },
+            "output": true
+          },
+          "required": [
+            "kind",
+            "output"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "$ref": "#/definitions/StudioError"
+            },
+            "kind": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JobStatusArgs": {
+      "additionalProperties": false,
+      "description": "The job `id`: its state, its last progress report, its output once\ndone.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "LaserExtractionSpec": {
+      "additionalProperties": false,
+      "description": "Laser-line extraction parameters. Consumed by the\nrunner's injected `LaserPixelExtractor`; hashed (canonical JSON)\ninto the detection-cache key so edits re-extract.",
+      "properties": {
+        "min_points": {
+          "default": 20,
+          "description": "Minimum extracted points for a usable laser view. Views below\nthe bar are dropped (single camera) or become gap slots (rig).\nMust be at least 2 (a line needs two points); 0/1 would let an\nempty extraction pass as usable and leave the plane\nunconstrained.",
+          "format": "uint32",
+          "minimum": 2,
+          "type": "integer"
+        },
+        "neg_thresh": {
+          "default": 4.0,
+          "description": "Negative-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "pos_thresh": {
+          "default": 4.0,
+          "description": "Positive-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "scan_axis": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/LaserScanAxis"
+            }
+          ],
+          "default": "cols",
+          "description": "Scan direction. `cols` walks image columns (one point per\ncolumn; for laser lines running mostly left-to-right), `rows`\nwalks image rows."
+        },
+        "sigma": {
+          "default": 1.2,
+          "description": "Gaussian derivative sigma in pixels for the edge detector.",
+          "format": "double",
+          "type": "number"
+        }
+      },
       "type": "object"
     },
     "LaserFeatureResidual": {
@@ -877,6 +1978,21 @@
         "distance"
       ],
       "type": "object"
+    },
+    "LaserScanAxis": {
+      "description": "Laser scan direction.",
+      "oneOf": [
+        {
+          "const": "cols",
+          "description": "One detection per image column.",
+          "type": "string"
+        },
+        {
+          "const": "rows",
+          "description": "One detection per image row.",
+          "type": "string"
+        }
+      ]
     },
     "LaserlineDeviceExport": {
       "description": "Export type for laserline device calibration.",
@@ -1012,6 +2128,54 @@
         "mean_laser_error",
         "per_view_reproj_errors",
         "per_view_laser_errors"
+      ],
+      "type": "object"
+    },
+    "ListJobsArgs": {
+      "additionalProperties": false,
+      "description": "Every job the back end still knows of, live or recently finished, in\nstart order.",
+      "type": "object"
+    },
+    "LoadExportArgs": {
+      "additionalProperties": false,
+      "description": "Read and parse the calibration export at `path` and check its schema\nversion. It does not become active: the frontend validates it first and\nthen calls `set_active_export`. Its folder and image root become\nfolders the app may read.",
+      "properties": {
+        "path": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "LoadExportResult": {
+      "description": "A loaded export.",
+      "properties": {
+        "export": {
+          "description": "The parsed export JSON; the frontend narrows it by its `kind`."
+        },
+        "export_dir": {
+          "description": "The folder holding the export (absolute, `/`-separated): its image\nmanifest's `root` resolves against it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "export",
+        "export_dir"
+      ],
+      "type": "object"
+    },
+    "OpenProjectArgs": {
+      "additionalProperties": false,
+      "description": "Open the project in `dir`; `not_a_project` for any other folder.",
+      "properties": {
+        "dir": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "dir"
       ],
       "type": "object"
     },
@@ -1295,6 +2459,122 @@
       ],
       "type": "object"
     },
+    "PoseColumnMap": {
+      "additionalProperties": false,
+      "description": "Mapping from user-defined column / field names to the canonical\npose fields. All seven of `tx, ty, tz, qx, qy, qz, qw` are required\nwhen `rotation_format` is a quaternion; the runner rejects partial\nmappings as a fail-fast event.",
+      "properties": {
+        "pose_id": {
+          "description": "Optional view-id column (string or integer). When absent, the\npose row index is used as the implicit pose id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rotation": {
+          "description": "Rotation columns. Length and meaning depend on the\n`pose_convention.rotation_format`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tx": {
+          "description": "Translation x column.",
+          "type": "string"
+        },
+        "ty": {
+          "description": "Translation y column.",
+          "type": "string"
+        },
+        "tz": {
+          "description": "Translation z column.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx",
+        "ty",
+        "tz",
+        "rotation"
+      ],
+      "type": "object"
+    },
+    "PoseConvention": {
+      "additionalProperties": false,
+      "description": "Frame conventions for the robot pose stream.\n\nAll three components are required (no defaults). Each is a closed\nenum so the runtime supports a finite, validated set of conventions.",
+      "properties": {
+        "rotation_format": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RotationFormat"
+            }
+          ],
+          "description": "How rotation is parameterised in the file."
+        },
+        "transform": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/TransformConvention"
+            }
+          ],
+          "description": "Which transform the pose row encodes."
+        },
+        "translation_units": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/TranslationUnits"
+            }
+          ],
+          "description": "Translation units in the file."
+        }
+      },
+      "required": [
+        "transform",
+        "rotation_format",
+        "translation_units"
+      ],
+      "type": "object"
+    },
+    "PosePairing": {
+      "description": "How per-camera image lists align across views and (optionally)\nalign with robot poses.",
+      "oneOf": [
+        {
+          "description": "All cameras have the same number of images, paired by index\n(`image[i]` from cam0 ↔ `image[i]` from cam1 ↔ `pose[i]`).",
+          "properties": {
+            "kind": {
+              "const": "by_index",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A regex applied to filenames extracts a shared \"view token\"\n(e.g. timestamp or pose id). All cameras and the pose file\nmust produce the same set of tokens.",
+          "properties": {
+            "group": {
+              "description": "Name of the capture group whose value identifies the view.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "shared_filename_token",
+              "type": "string"
+            },
+            "regex": {
+              "description": "Regex with at least one named capture group.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "regex",
+            "group"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ProblemKind": {
       "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
       "oneOf": [
@@ -1445,62 +2725,6 @@
         }
       ]
     },
-    "ProjectError": {
-      "description": "Why a project command failed. `kind` is what the UI branches on;\n`message` is what it shows.",
-      "properties": {
-        "kind": {
-          "$ref": "#/definitions/ProjectErrorKind"
-        },
-        "message": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "kind",
-        "message"
-      ],
-      "type": "object"
-    },
-    "ProjectErrorKind": {
-      "description": "The kinds of [`ProjectError`].",
-      "oneOf": [
-        {
-          "const": "not_a_project",
-          "description": "The folder has no `calibration-project.json`.",
-          "type": "string"
-        },
-        {
-          "const": "project_exists",
-          "description": "The folder already holds a project; creating one would overwrite it.",
-          "type": "string"
-        },
-        {
-          "const": "unsupported_version",
-          "description": "The project file has a version this app does not read.",
-          "type": "string"
-        },
-        {
-          "const": "invalid_run_name",
-          "description": "A run name that is empty or not a plain folder name.",
-          "type": "string"
-        },
-        {
-          "const": "run_exists",
-          "description": "A run of that name is already saved; runs are never overwritten.",
-          "type": "string"
-        },
-        {
-          "const": "io",
-          "description": "A file or folder could not be read or written.",
-          "type": "string"
-        },
-        {
-          "const": "parse",
-          "description": "A project file did not parse.",
-          "type": "string"
-        }
-      ]
-    },
     "ProjectInfo": {
       "description": "An opened project, as the UI shows it.",
       "properties": {
@@ -1625,6 +2849,46 @@
         "sigma",
         "center",
         "max"
+      ],
+      "type": "object"
+    },
+    "ProjectionUncertaintyArgs": {
+      "additionalProperties": false,
+      "description": "The projection uncertainty of `camera` of the active export over an\nimage of `image_width` × `image_height` pixels.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image_height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image_width": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "image_width",
+        "image_height"
+      ],
+      "type": "object"
+    },
+    "ReadManifestArgs": {
+      "additionalProperties": false,
+      "description": "Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON\notherwise. Its folder becomes one the app may read.",
+      "properties": {
+        "path": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "path"
       ],
       "type": "object"
     },
@@ -2246,6 +3510,96 @@
       ],
       "type": "object"
     },
+    "RinggridCenterSpec": {
+      "description": "The ring-grid centre estimator: the manifest's own copy of the detector's\ncentre method, which has the same JSON spelling.",
+      "oneOf": [
+        {
+          "const": "ellipse",
+          "description": "The projective centre recovered from the fitted inner and outer\nellipses. Fast and accurate on sharp images; the default.",
+          "type": "string"
+        },
+        {
+          "const": "photometric",
+          "description": "A per-marker photometric fit of the blurred marker pattern. Use it\non blurred or low-contrast images; it costs about 2.5x the detection\ntime, and markers it cannot refine are dropped.",
+          "type": "string"
+        }
+      ]
+    },
+    "RinggridCodingSpec": {
+      "description": "How ring-grid markers are told apart: the manifest's own copy of the\ndetector's coding, which has the same JSON spelling.\n\nIn JSON: `\"coded\"`, or `{\"plain\": {\"origin_dots\": true}}`; in TOML,\n`coding = { plain = { origin_dots = true } }`.",
+      "oneOf": [
+        {
+          "const": "coded",
+          "description": "Every marker carries a 16-sector code between its two rings and\nidentifies its own board position, so any partial view is labelled.\nThe default.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plain rings without a code; the board frame comes from the origin\ndots.",
+          "properties": {
+            "plain": {
+              "properties": {
+                "origin_dots": {
+                  "default": true,
+                  "description": "The board carries the triad of filled origin dots that the\ntarget generator places near its centre. Defaults to `true`.\n\nA view is labelled in the board frame whenever all three dots are\nin it among detected markers, however small a part of the board\nit shows; a view without them, or with only one or two, yields no\nfeatures. `false`, a plain board without dots, is not supported:\nits views have no board coordinates, and a manifest that sets it\nis rejected before detection.",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "plain"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RinggridLatticeSpec": {
+      "description": "The ring-grid marker lattice: the manifest's own copy of the detector's\nlattice, which has the same JSON spelling.",
+      "oneOf": [
+        {
+          "const": "hex",
+          "description": "A hexagonal lattice: rows alternate between `long_row_cols` markers\nand one fewer, offset by half a step. The default.",
+          "type": "string"
+        },
+        {
+          "const": "rect",
+          "description": "A rectangular lattice of `rows × long_row_cols` markers, `pitch_m`\napart along both axes.",
+          "type": "string"
+        }
+      ]
+    },
+    "RobotPoseFormat": {
+      "description": "Robot-pose file format.",
+      "oneOf": [
+        {
+          "const": "csv",
+          "description": "Comma-separated values with a header row.",
+          "type": "string"
+        },
+        {
+          "const": "json",
+          "description": "JSON array of objects.",
+          "type": "string"
+        },
+        {
+          "const": "jsonl",
+          "description": "JSONL (one JSON object per line).",
+          "type": "string"
+        },
+        {
+          "const": "rowmajor4x4",
+          "description": "Headerless text: each non-empty line is 16 whitespace-separated\nfloats forming a row-major 4×4 homogeneous transform (KUKA-style\nexports). Requires `pose_convention.rotation_format =\n\"matrix4x4_row_major\"` and no `columns` mapping.",
+          "type": "string"
+        },
+        {
+          "const": "counted4x4",
+          "description": "Headerless text: the matrix count, then that many row-major 4×4\nhomogeneous transforms as whitespace-separated floats on any number\nof lines (the layout of the robot-world hand-eye datasets of Tabb\nand Ahmad Yousef). Same requirements as `rowmajor4x4`.",
+          "type": "string"
+        }
+      ]
+    },
     "RobotPoseSigma": {
       "description": "A robot's pose error: the standard deviations of the tool's orientation\nerror about each gripper axis and of its position error along each.",
       "properties": {
@@ -2263,6 +3617,47 @@
       "required": [
         "rot_sigma",
         "trans_sigma"
+      ],
+      "type": "object"
+    },
+    "RobotPoseSource": {
+      "additionalProperties": false,
+      "description": "Where and how robot poses are stored on disk.",
+      "properties": {
+        "columns": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PoseColumnMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be\nabsent for `rowmajor4x4` and `counted4x4`, whose matrix layout is\nfixed."
+        },
+        "format": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RobotPoseFormat"
+            }
+          ],
+          "description": "File-format selector."
+        },
+        "matrix_field": {
+          "description": "For `json` / `jsonl` files whose rows store the whole pose as a\nsingle nested 4×4 (or flat-16) array field, names that field\n(e.g. `\"tcp2base\"`). Mutually exclusive with `columns`; requires\n`pose_convention.rotation_format = matrix4x4_row_major`.\nTranslation comes from the matrix's fourth column, scaled by\n`translation_units`. No `pose_id` ⇒ `by_index` pairing only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Path to the pose file, relative to the manifest directory\nunless absolute.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "format"
       ],
       "type": "object"
     },
@@ -2328,6 +3723,72 @@
         }
       ]
     },
+    "RotationFormat": {
+      "description": "Rotation parameterisation in the file.",
+      "oneOf": [
+        {
+          "const": "quat_xyzw",
+          "description": "Hamilton quaternion as `[qx, qy, qz, qw]`.",
+          "type": "string"
+        },
+        {
+          "const": "quat_wxyz",
+          "description": "Hamilton quaternion as `[qw, qx, qy, qz]`.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_deg",
+          "description": "Intrinsic XYZ Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_rad",
+          "description": "Intrinsic XYZ Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_deg",
+          "description": "Intrinsic ZYX Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_rad",
+          "description": "Intrinsic ZYX Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "axis_angle_rad",
+          "description": "Axis-angle vector (length encodes magnitude, radians).",
+          "type": "string"
+        },
+        {
+          "const": "matrix4x4_row_major",
+          "description": "Row-major 4×4 homogeneous matrix flattened across 16 columns.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunCalibrationArgs": {
+      "additionalProperties": false,
+      "description": "Run a calibration end to end: detection (cached), the solve and the\nexport, reporting each stage and the library's reports within it. The\nfolder `manifest_dir` is what the manifest's relative paths resolve\nagainst; it becomes one the app may read. A successful run's export\nbecomes the active export.",
+      "properties": {
+        "config": {
+          "description": "The topology's `*Config` JSON."
+        },
+        "manifest": {
+          "description": "The dataset manifest (`DatasetSpec` JSON)."
+        },
+        "manifest_dir": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "manifest",
+        "config",
+        "manifest_dir"
+      ],
+      "type": "object"
+    },
     "RunDiagnostics": {
       "description": "`diagnostics.json`: how a run went.",
       "properties": {
@@ -2367,8 +3828,28 @@
       ],
       "type": "object"
     },
+    "RunLayout": {
+      "description": "How the run's files are laid out.",
+      "oneOf": [
+        {
+          "const": "vcal",
+          "description": "A `vcal run -o <dir>` folder: `calibration.json`, `quality.json`.",
+          "type": "string"
+        },
+        {
+          "const": "project_run",
+          "description": "A run the desktop app saved in a project: `runs/<name>/export.json`.",
+          "type": "string"
+        },
+        {
+          "const": "export_file",
+          "description": "One export file, wherever it is.",
+          "type": "string"
+        }
+      ]
+    },
     "RunProgress": {
-      "description": "A progress message streamed to the Run workspace over a\n[`tauri::ipc::Channel`]. One is sent as each `RunStage` begins (no\n`report`) and then for the library's reports within it; terminal\noutcomes (success / failure / cancellation) are carried by the\ncommand's `RunResponse` return value, not the channel.",
+      "description": "A progress report of a calibration run: the `run_calibration` job's\nevent. One is sent as each `RunStage` begins (no `report`) and then for\nthe library's reports within it; the outcome is the job's output (a\n`RunResponse`), or its `cancelled` state.",
       "properties": {
         "report": {
           "anyOf": [
@@ -2395,6 +3876,143 @@
       ],
       "type": "object"
     },
+    "RunRecord": {
+      "additionalProperties": false,
+      "description": "Everything a saved run records (`runs/<name>/*.json`).",
+      "properties": {
+        "config": true,
+        "dataset_dir": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            }
+          ],
+          "description": "The folder the run resolved the manifest's paths against."
+        },
+        "diagnostics": {
+          "$ref": "#/definitions/RunDiagnostics"
+        },
+        "export": {
+          "description": "The export as the runner returned it: its image manifest's `root` is\nrelative to `dataset_dir`."
+        },
+        "manifest": true
+      },
+      "required": [
+        "manifest",
+        "config",
+        "export",
+        "diagnostics",
+        "dataset_dir"
+      ],
+      "type": "object"
+    },
+    "RunResponse": {
+      "description": "Tagged response shape so the React layer can match on `kind` rather\nthan parsing free-form error strings.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RunSuccess"
+            }
+          ],
+          "description": "Calibration completed and an export was produced.",
+          "properties": {
+            "kind": {
+              "const": "ok",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The user cancelled the run; it stopped at the next image, solver\niteration or stage boundary. Surfaced as a distinct UI state, not\nan error.",
+          "properties": {
+            "kind": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Runtime ambiguity per ADR 0016 — Run workspace must render a\nmodal asking the user to fill `field`.",
+          "properties": {
+            "field": {
+              "description": "Dotted field path the runtime needs help with.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "ask_user",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Human-friendly prompt copy for the modal.",
+              "type": "string"
+            },
+            "suggestions": {
+              "description": "Optional preset suggestions (e.g. `[\"t_base_tcp\", \"t_tcp_base\"]`).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "field",
+            "prompt",
+            "suggestions"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Manifest validation failed before the runner could touch the\nfilesystem. Holds the underlying validation message.",
+          "properties": {
+            "kind": {
+              "const": "validation_failed",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "User-correctable detection / IO / decode error. The frontend\nsurfaces `message` directly in a non-modal error banner.",
+          "properties": {
+            "category": {
+              "description": "Stable kind tag for the frontend.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "failed",
+              "type": "string"
+            },
+            "message": {
+              "description": "Human-readable detail.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "category",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "RunStage": {
       "description": "Pipeline stage a run is currently executing. Within a stage the\nlibrary's own reports ([`Progress`]: each image detected, each\ncalibration step, each solver iteration) ride along in\n[`RunProgress::report`].",
       "oneOf": [
@@ -2414,6 +4032,44 @@
           "type": "string"
         }
       ]
+    },
+    "RunSuccess": {
+      "description": "Successful calibration run.",
+      "properties": {
+        "cache_used": {
+          "description": "Whether at least one detection was served from the cache.\n(Sanity check for \"second run is faster\"; precise per-image\nhit/miss counts are not surfaced yet.)",
+          "type": "boolean"
+        },
+        "duration_ms": {
+          "description": "Total wall-clock time for detection + calibration.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "export": {
+          "description": "Final export JSON, ready to drop into the diagnose viewer."
+        },
+        "total_views": {
+          "description": "Total number of views attempted (images for single-camera\ntopologies, paired rig views for rig topologies).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usable_views": {
+          "description": "Number of usable views after detection. For single-camera\ntopologies: views with >= 4 features. For rig topologies: views\nwhere at least one camera reached >= 4 features.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "export",
+        "duration_ms",
+        "usable_views",
+        "total_views",
+        "cache_used"
+      ],
+      "type": "object"
     },
     "RunSummary": {
       "description": "One saved run: its folder name and diagnostics.",
@@ -2436,6 +4092,42 @@
       },
       "required": [
         "name"
+      ],
+      "type": "object"
+    },
+    "SaveProjectManifestArgs": {
+      "additionalProperties": false,
+      "description": "Replace the project's dataset manifest (`dataset.json`).",
+      "properties": {
+        "dir": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "manifest": true
+      },
+      "required": [
+        "dir",
+        "manifest"
+      ],
+      "type": "object"
+    },
+    "SaveProjectRunArgs": {
+      "additionalProperties": false,
+      "description": "Save a run as `runs/<name>/`; `run_exists` rather than overwrite one.",
+      "properties": {
+        "dir": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "name": {
+          "type": "string"
+        },
+        "record": {
+          "$ref": "#/definitions/RunRecord"
+        }
+      },
+      "required": [
+        "dir",
+        "name",
+        "record"
       ],
       "type": "object"
     },
@@ -2538,6 +4230,36 @@
           "type": "object"
         }
       ]
+    },
+    "ServerEvent": {
+      "description": "One numbered event.",
+      "properties": {
+        "body": {
+          "$ref": "#/definitions/EventBody"
+        },
+        "seq": {
+          "description": "Process-wide, increasing; a subscriber resumes after the last one it\nsaw.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "body"
+      ],
+      "type": "object"
+    },
+    "SetActiveExportArgs": {
+      "additionalProperties": false,
+      "description": "Make `export` the active export, the one every viewer command reads.",
+      "properties": {
+        "export": true
+      },
+      "required": [
+        "export"
+      ],
+      "type": "object"
     },
     "SingleCamHandeyeExport": {
       "description": "Export format for single-camera hand-eye calibration.",
@@ -2700,6 +4422,48 @@
         }
       ]
     },
+    "SniffFolderArgs": {
+      "additionalProperties": false,
+      "description": "Infer a dataset manifest from the folder `folder`: images grouped into\ncameras, a robot-pose file, a guessed topology. What cannot be\ndetermined is left at a placeholder and listed in the manifest's\n`_unresolved` (the same inference as `vcal init`).",
+      "properties": {
+        "folder": {
+          "$ref": "#/definitions/UserPath"
+        }
+      },
+      "required": [
+        "folder"
+      ],
+      "type": "object"
+    },
+    "StudioError": {
+      "description": "Why a command, job or resource failed.",
+      "properties": {
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ErrorKind"
+            }
+          ],
+          "description": "What the UI branches on."
+        },
+        "message": {
+          "description": "What it shows.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The path the failure is about, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "type": "object"
+    },
     "TargetFeatureResidual": {
       "description": "Reprojection record for a single target feature in a single view.",
       "properties": {
@@ -2779,6 +4543,243 @@
         "observed_px"
       ],
       "type": "object"
+    },
+    "TargetSpec": {
+      "description": "Calibration-target metadata. Tagged on `kind`.",
+      "oneOf": [
+        {
+          "description": "Standard checkerboard. Counts are interior corners\n(i.e. `9x6` ⇒ a 10×7 black-and-white square grid).\n\nA plain chessboard has no markers: each view is labelled from the\ndetection's own top-left corner. Where views share one target frame\n(single-camera hand-eye and every rig topology) the runner therefore\nkeeps a view only when its corners reach every edge of the board.\nIn a rig, each camera's labels are turned to agree with the other\ncameras of the view, so a board seen turned is kept. Where the target\nis fixed through the views (hand-eye), the board must appear the same\nway up in every image of camera 0 (`cols` across and `rows` down);\na board seen turned by 90° is dropped, and one seen upside down, or a\nsquare board seen turned by 90°, cannot be told apart. Use a ChArUco\nor PuzzleBoard target to calibrate a shared frame from partial views.",
+          "properties": {
+            "cols": {
+              "description": "Number of interior corners across the board (the image's\ncolumns axis when the board is seen as declared).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "chessboard",
+              "type": "string"
+            },
+            "measure_blur": {
+              "description": "Measure the blur at each corner: the covariance `Σ` (px², image\naxes, including the pixel aperture) of the Gaussian kernel that\nbest blurs the printed pattern around the corner into the image,\nwith the covariance of that estimate, carried into each\nobservation. A corner the estimate declines has none. It costs a\nfew milliseconds per corner, single-threaded (a 476-corner board\nadds about 1–2 s per image), hence the default `false`. Corner\npositions are the same with or without it.",
+              "type": "boolean"
+            },
+            "rows": {
+              "description": "Number of interior corners down the board (the image's rows\naxis when the board is seen as declared).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "ChArUco board. Marker IDs and dictionary live here so detection\nis fully deterministic from the manifest.",
+          "properties": {
+            "cols": {
+              "description": "Number of squares along the cols axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "dictionary": {
+              "description": "ArUco dictionary identifier (e.g. `\"DICT_4X4_50\"`). The\ndetector validates this against the supported set.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "charuco",
+              "type": "string"
+            },
+            "marker_size_m": {
+              "description": "Edge length of an embedded marker in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of squares along the rows axis (full grid, not\ninterior corners).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m",
+            "marker_size_m",
+            "dictionary"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Puzzleboard target: a self-identifying chessboard. The layout name\ncarries the board's dimensions, so the manifest fully determines\ndetection.",
+          "properties": {
+            "cell_size_m": {
+              "description": "Edge length of one cell in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "puzzleboard",
+              "type": "string"
+            },
+            "layout": {
+              "description": "Board dimensions as `puzzle_<rows>x<cols>` (e.g.\n`\"puzzle_12x12\"`; the `puzzle_` prefix is optional).",
+              "type": "string"
+            },
+            "measure_blur": {
+              "description": "Measure the blur at each corner: the covariance `Σ` (px², image\naxes, including the pixel aperture) of the Gaussian kernel that\nbest blurs the printed pattern around the corner into the image,\nwith the covariance of that estimate, carried into each\nobservation. A corner the estimate declines has none. It costs a\nfew milliseconds per corner, single-threaded (a 476-corner board\nadds about 1–2 s per image), hence the default `false`. Corner\npositions are the same with or without it.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "layout",
+            "cell_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal\nor rectangular lattice, either coded (self-identifying) or plain with\na triad of origin dots. Its geometry mirrors the `ringgrid` target\nlayout, so the manifest fully determines detection.",
+          "properties": {
+            "center_method": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/RinggridCenterSpec"
+                }
+              ],
+              "description": "How each marker's centre is estimated. Omitted keeps the\nellipse-based centre; `\"photometric\"` fits the blurred marker\npattern instead, for blurred or low-contrast images."
+            },
+            "coding": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/RinggridCodingSpec"
+                }
+              ],
+              "description": "How the markers are told apart. Omitted keeps `\"coded\"`."
+            },
+            "kind": {
+              "const": "ringgrid",
+              "type": "string"
+            },
+            "lattice": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/RinggridLatticeSpec"
+                }
+              ],
+              "description": "The marker lattice. Omitted keeps `\"hex\"`."
+            },
+            "long_row_cols": {
+              "description": "Number of columns: on a hexagonal lattice, of the longest\n(even-indexed) rows, the shorter rows being derived by the\nlayout; on a rectangular lattice, of every row.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "marker_inner_radius_m": {
+              "description": "Inner ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "marker_outer_radius_m": {
+              "description": "Outer ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "marker_ring_width_m": {
+              "default": 0.0,
+              "description": "Width of each ring band in metres. Coded markers need it, greater\nthan zero; plain markers ignore it, so it may be left out for\nthem.",
+              "format": "double",
+              "type": "number"
+            },
+            "min_confidence": {
+              "description": "Floor on the detector's per-marker confidence, in `[0, 1]`.\nOmitted keeps the detector's floor of 0.03. The confidence is a\nproduct of factors in `[0, 1]`, one of them the edge sharpness\n`1 / (1 + (w / 3 px)²)`, so a floor `c` keeps only markers whose\nouter edge width `w` is at most `3 · √(1/c − 1)` px (0.17: 6.6 px).",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "pitch_m": {
+              "description": "Center-to-center spacing between adjacent markers in metres. On a\nrectangular lattice it is both the row and the column step.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of marker rows.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "pitch_m",
+            "rows",
+            "long_row_cols",
+            "marker_outer_radius_m",
+            "marker_inner_radius_m"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TransformConvention": {
+      "description": "Which transform a pose row encodes.",
+      "oneOf": [
+        {
+          "const": "t_base_tcp",
+          "description": "`T_base_tcp` — gripper pose in the robot base frame (KUKA, UR\ndefault).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_base",
+          "description": "`T_tcp_base` — base pose in the gripper frame (some ABB exports).",
+          "type": "string"
+        },
+        {
+          "const": "t_world_tcp",
+          "description": "`T_world_tcp` — gripper pose in a fixed world frame (less\ncommon; some lab-frame setups).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_world",
+          "description": "`T_tcp_world` — world pose in the gripper frame.",
+          "type": "string"
+        }
+      ]
+    },
+    "TranslationUnits": {
+      "description": "Translation units in the file.",
+      "oneOf": [
+        {
+          "const": "m",
+          "description": "Metres (SI, preferred).",
+          "type": "string"
+        },
+        {
+          "const": "mm",
+          "description": "Millimetres (some ABB / Fanuc exports).",
+          "type": "string"
+        }
+      ]
     },
     "Uncertainty": {
       "description": "The uncertainty of a result's estimated parameters.",
@@ -2924,6 +4925,68 @@
         }
       ]
     },
+    "UndistortPointsArgs": {
+      "additionalProperties": false,
+      "description": "Map raw (distorted) pixels of `camera` into its undistorted pixel frame;\n`null` where back-projection has no finite ray.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "points_px": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "camera",
+        "points_px"
+      ],
+      "type": "object"
+    },
+    "UndistortedImageQuery": {
+      "additionalProperties": false,
+      "description": "The image at `path` rendered into `camera`'s undistorted pixel frame (a\nPNG), cropped to `roi` when given.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "roi": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PixelRect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "path",
+        "camera"
+      ],
+      "type": "object"
+    },
+    "UserPath": {
+      "description": "An absolute path on the back end's machine. The back end refuses one outside the folders the user opened.",
+      "type": "string"
+    },
     "ViewCovariance": {
       "description": "The covariance of one view's own parameters.",
       "properties": {
@@ -2958,50 +5021,67 @@
         "covariance"
       ],
       "type": "object"
+    },
+    "ViewerSession": {
+      "description": "What `GET /api/session` answers: the run the browser viewer serves.",
+      "properties": {
+        "export_path": {
+          "description": "The export file to load (canonical, `/`-separated).",
+          "type": "string"
+        },
+        "layout": {
+          "$ref": "#/definitions/RunLayout"
+        },
+        "name": {
+          "description": "The run folder's name, for the page's header.",
+          "type": "string"
+        },
+        "run_dir": {
+          "description": "The run folder (canonical, `/`-separated).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "layout",
+        "run_dir",
+        "export_path"
+      ],
+      "type": "object"
     }
   },
-  "description": "Generated wire types for Calibration Studio. Do not edit by hand — run `bun run generate:types`. The top-level wrapper only anchors the `definitions`; consumers import the individual interfaces.",
-  "properties": {
-    "disparity_result": {
-      "$ref": "#/definitions/DisparityResult"
-    },
-    "epipolar_overlay": {
-      "$ref": "#/definitions/EpipolarOverlay"
-    },
-    "laserline_device_export": {
+  "description": "Calibration Studio's back-end API: every command with its argument, reply, event and output types, the event and error types, and the wire types the frontend reads. Do not edit by hand: `bun run generate:api` regenerates it.",
+  "error": {
+    "$ref": "#/definitions/StudioError"
+  },
+  "events": {
+    "$ref": "#/definitions/ServerEvent"
+  },
+  "title": "StudioApi",
+  "types": {
+    "LaserlineDeviceExport": {
       "$ref": "#/definitions/LaserlineDeviceExport"
     },
-    "planar_intrinsics_export": {
+    "PlanarIntrinsicsExport": {
       "$ref": "#/definitions/PlanarIntrinsicsExport"
     },
-    "project_error": {
-      "$ref": "#/definitions/ProjectError"
-    },
-    "project_info": {
-      "$ref": "#/definitions/ProjectInfo"
-    },
-    "projection_uncertainty": {
-      "$ref": "#/definitions/ProjectionUncertainty"
-    },
-    "rig_extrinsics_export": {
+    "RigExtrinsicsExport": {
       "$ref": "#/definitions/RigExtrinsicsExport"
     },
-    "rig_handeye_export": {
+    "RigHandeyeExport": {
       "$ref": "#/definitions/RigHandeyeExport"
     },
-    "rig_handeye_laserline_export": {
+    "RigHandeyeLaserlineExport": {
       "$ref": "#/definitions/RigHandeyeLaserlineExport"
     },
-    "rig_laserline_device_export": {
+    "RigLaserlineDeviceExport": {
       "$ref": "#/definitions/RigLaserlineDeviceExport"
     },
-    "run_progress": {
-      "$ref": "#/definitions/RunProgress"
-    },
-    "single_cam_handeye_export": {
+    "SingleCamHandeyeExport": {
       "$ref": "#/definitions/SingleCamHandeyeExport"
+    },
+    "ViewerSession": {
+      "$ref": "#/definitions/ViewerSession"
     }
-  },
-  "title": "StudioWireTypes",
-  "type": "object"
+  }
 }

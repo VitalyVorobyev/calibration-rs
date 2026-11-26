@@ -1,14 +1,12 @@
 // @vitest-environment jsdom
 /** The uncertainty panels against a mocked backend: values beside σ, the
  * projection summary, and the two states without a covariance. */
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setTransport } from "../../api";
+import { createMockTransport } from "../../api/transport/mock";
 import { UncertaintyPanels } from "./UncertaintyPanels";
-import type {
-  ProjectionUncertainty,
-  Uncertainty,
-} from "../../types/generated/studio-wire";
+import type { ProjectionUncertainty, Uncertainty } from "../../api/generated/types";
 
 const AVAILABLE: Uncertainty = {
   status: "available",
@@ -34,16 +32,19 @@ const MAP: ProjectionUncertainty = {
 };
 
 beforeEach(() => {
-  mockIPC((cmd) => {
-    if (cmd === "camera_parameter_values") return [812.25, 319.5];
-    if (cmd === "projection_uncertainty") return MAP;
-    return null;
-  });
+  setTransport(
+    createMockTransport({
+      commands: {
+        camera_parameter_values: () => [812.25, 319.5],
+        projection_uncertainty: () => MAP,
+      },
+    }),
+  );
 });
 
 afterEach(() => {
   cleanup();
-  clearMocks();
+  setTransport(null);
 });
 
 describe("UncertaintyPanels", () => {

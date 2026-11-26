@@ -8,9 +8,9 @@ repository = "https://github.com/VitalyVorobyev/calibration-rs"
 edition = "2024"
 rust-version = "1.93"
 publish = false
-# Disambiguates the app binary from the secondary `emit_schemas` bin
-# target for tools that pick "the" binary without honoring
-# `required-features` — see `tauri.conf.json`'s `mainBinaryName`.
+# Disambiguates the app binary from the secondary `calib-viewer` bin target
+# for tools that pick "the" binary — see `tauri.conf.json`'s
+# `mainBinaryName`.
 default-run = "calibration-studio"
 
 # A member of the `apps/studio` workspace (`../Cargo.toml`), which is
@@ -25,21 +25,9 @@ default-run = "calibration-studio"
 name = "calibration_studio_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
-# JSON Schema emitter. No `required-features` gate — Tauri's
-# release bundler copies every declared `[[bin]]` target unconditionally and
-# errors if one is missing, so this must always produce *a* binary. The gate
-# lives inside `emit_schemas.rs` instead: without `--features schema-export`
-# `main()` is a two-line stub, so `tauri dev`/the default clippy/test build
-# still never pull in the optional `schemars` dependency. The real emitter
-# only runs via `bun run generate:types` / the CI drift check, both of which
-# pass `--features schema-export`.
-[[bin]]
-name = "emit_schemas"
-path = "src/bin/emit_schemas.rs"
-
 # The browser report viewer: serves the built frontend and one run folder on
-# localhost (`calib-viewer <run-dir>`). It calls the same command bodies as
-# the desktop app and never starts the Tauri runtime.
+# localhost (`calib-viewer <run-dir>`). It dispatches through the same
+# command table as the desktop app and never starts the Tauri runtime.
 [[bin]]
 name = "calib-viewer"
 path = "src/bin/calib_viewer.rs"
@@ -53,16 +41,11 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# `fetch`: the Quick Start presets download their sample datasets.
-vision-calibration = { path = "../../../crates/vision-calibration", features = ["fetch"] }
 # Canonical paths without the Windows `\\?\` prefix, so the asset scope and
 # the webview's `convertFileSrc` URLs name a file the same way.
 dunce = "1"
 # calib-viewer's localhost HTTP server: synchronous, no async runtime.
 tiny_http = "0.12"
-# Optional: only pulled in by the `schema-export` feature for the
-# `emit_schemas` binary. schemars 1.x, matching the workspace pin.
-schemars = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -72,6 +55,3 @@ tempfile = "3"
 # `cargo tauri build`. `tauri dev` enables what it needs from the CLI.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-# JSON Schema emission: the `emit_schemas` binary over studio-core's wire
-# types (which derive `JsonSchema` under the same feature there).
-schema-export = ["dep:schemars", "studio-core/schema-export"]
