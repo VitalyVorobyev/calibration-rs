@@ -219,6 +219,24 @@ pub fn reject_ambiguous_detection(features: Vec<Feature>) -> Vec<Feature> {
     }
 }
 
+/// How far `features` repeat themselves: the number of features whose pixel
+/// repeats an earlier feature's and the number whose target point does, or
+/// `None` when both are zero. Repetition is judged exactly as
+/// [`reject_ambiguous_detection`] judges it, which drops the detection
+/// whenever this is `Some`.
+pub(crate) fn repetitions(features: &[Feature]) -> Option<(usize, usize)> {
+    use std::collections::HashSet;
+
+    let mut seen_img: HashSet<[u64; 2]> = HashSet::with_capacity(features.len());
+    let mut seen_world: HashSet<[u64; 3]> = HashSet::with_capacity(features.len());
+    let (mut pixels, mut points) = (0, 0);
+    for f in features {
+        pixels += usize::from(!seen_img.insert(img_key(f)));
+        points += usize::from(!seen_world.insert(world_key(f)));
+    }
+    (pixels + points > 0).then_some((pixels, points))
+}
+
 fn norm_bits(x: f64) -> u64 {
     if x == 0.0 {
         0.0_f64.to_bits()
@@ -301,6 +319,20 @@ mod tests {
 
         let old = r#"{"image_xy":[1.0,2.0],"world_xyz":[0.0,0.0,0.0]}"#;
         assert_eq!(serde_json::from_str::<Feature>(old).unwrap().cov_px, None);
+    }
+
+    #[test]
+    fn repetitions_count_what_reject_ambiguous_detection_drops() {
+        let distinct = vec![feat(1.0, 2.0, 0.0), feat(3.0, 4.0, 0.005)];
+        assert_eq!(repetitions(&distinct), None);
+        let both = vec![
+            feat(5.0, 5.0, 0.0),
+            feat(5.0, 5.0, 0.01),
+            feat(-0.0, 5.0, 0.01),
+            feat(0.0, 5.0, 0.02),
+        ];
+        assert_eq!(repetitions(&both), Some((2, 1)));
+        assert!(reject_ambiguous_detection(both).is_empty());
     }
 
     #[test]
