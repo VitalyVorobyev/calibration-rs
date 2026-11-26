@@ -176,13 +176,15 @@ RejectReason = Literal[
     "partial_chessboard",
     "turned_chessboard",
     "ambiguous_chessboard_turn",
+    "excluded",
     "other",
 ]
 """Why the runner left a detection out: fewer features than the per-view
 floor, or, for a plain chessboard where views share one target frame, a
 board that does not reach every edge, a board seen turned by 90° where the
 target is fixed through the views (hand-eye), or a rig camera whose turn of
-the board cannot be matched with the view's other cameras."""
+the board cannot be matched with the view's other cameras; or the run was
+told to leave the image out (``"excluded"``)."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -74,6 +74,7 @@ use vision_calibration_detect::{
 mod board_turn;
 mod calibrate;
 mod config_patch;
+mod convert_options;
 mod handeye;
 mod laser;
 mod pairing;
@@ -87,6 +88,7 @@ pub use calibrate::{
     calibrate_dataset,
 };
 pub use config_patch::ConfigPatch;
+pub(crate) use convert_options::ConvertOptions;
 pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
 pub use laser::{
     LaserPixelExtractor, LaserlineRunResult, RigHandeyeLaserlineRunResult, RigLaserlineRunResult,
@@ -94,6 +96,7 @@ pub use laser::{
     build_rig_laserline_device_input,
 };
 pub use pairing::PairedViews;
+pub(crate) use pairing::pair_dataset_views;
 pub use planar::{PlanarRunResult, build_planar_input};
 pub use rig::{RigRunResult, build_rig_extrinsics_input, build_rig_handeye_input};
 pub use view_filter::{RejectReason, RejectedDetection};

@@ -9,13 +9,17 @@
 
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
 use vision_calibration_dataset::{DatasetSpec, ProblemKind, TargetSpec};
 use vision_calibration_detect::Feature;
 
 use super::RunError;
 
 /// Why the runner left a target detection out of the calibration input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serialized in `snake_case` (`"too_few_features"`, `"excluded"`, ...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum RejectReason {
     /// Fewer features than the per-view floor: 4 (the homography minimum),
@@ -37,6 +41,9 @@ pub enum RejectReason {
     /// the camera's turn relative to the other cameras is not consistent
     /// across the views they share.
     AmbiguousChessboardTurn,
+    /// The run was told to leave the image out (an exclusion of the image
+    /// or of its whole view); it was not read.
+    Excluded,
 }
 
 impl std::fmt::Display for RejectReason {
@@ -50,6 +57,7 @@ impl std::fmt::Display for RejectReason {
             Self::AmbiguousChessboardTurn => {
                 "the chessboard's turn relative to the view's other cameras is ambiguous"
             }
+            Self::Excluded => "excluded",
         })
     }
 }
@@ -275,6 +283,16 @@ impl ViewFilter {
         match grid.extent(features)? {
             BoardExtent::Turned if !self.rig => Err(RejectReason::TurnedChessboard),
             _ => Ok(()),
+        }
+    }
+
+    /// Whether `features`, a detection [`Self::check`] kept and an
+    /// exclusion then thinned, still reaches the per-view feature floor.
+    pub(super) fn check_masked(&self, features: &[Feature]) -> Result<(), RejectReason> {
+        if features.len() < self.min_features {
+            Err(RejectReason::TooFewFeatures)
+        } else {
+            Ok(())
         }
     }
 

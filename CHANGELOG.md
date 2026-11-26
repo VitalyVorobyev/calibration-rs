@@ -130,6 +130,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   patch over another. `vcal run -c` reads its file as one, with the same
   results as before. Python: `dataset_runner.patched_config` (a patch is a
   mapping, `dataset_runner.ConfigPatch`).
+- `dataset_runner::RejectReason::Excluded`: a detection the run was told to
+  leave out, unread (Python `"excluded"`). `RejectReason` serializes in
+  `snake_case`. The dataset runner can now leave out whole views, one
+  camera's image of a view, or single features named by their target
+  point, the groundwork of project exclusions; every converter and
+  `calibrate_dataset` give the same results as before when nothing is left
+  out.
 
 ### Changed
 

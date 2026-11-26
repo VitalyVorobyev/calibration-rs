@@ -37,12 +37,13 @@ use crate::rig_handeye::RigHandeyeExport;
 use crate::rig_handeye_laserline::RigHandeyeLaserlineInput;
 use crate::rig_laserline_device::RigLaserlineDeviceInput;
 
+use super::convert_options::{ConvertOptions, kept};
 use super::pairing::pair_views;
 use super::poses::{load_manifest_robot_poses, match_poses_to_tokens};
 use super::require_pose_pairing;
 use super::{
-    Detection, ImageProgress, RejectedDetection, RunError, decode_gray, detect_features,
-    expand_camera_images, expand_image_pattern, features_to_obs, pattern_repr,
+    Detection, ImageProgress, RejectReason, RejectedDetection, RunError, decode_gray,
+    detect_features, expand_camera_images, expand_image_pattern, features_to_obs, pattern_repr,
     rig::{RigCore, build_rig_core},
     target_to_detector_config,
     view_filter::ViewFilter,
@@ -148,6 +149,26 @@ pub fn build_laserline_device_input(
     laser_extractor: &dyn LaserPixelExtractor,
     control: &RunControl,
 ) -> Result<LaserlineRunResult, RunError> {
+    build_laserline_device_input_with(
+        spec,
+        base_dir,
+        detection,
+        laser_extractor,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`build_laserline_device_input`], leaving out what `options` names. A
+/// view left out leaves its laser frame out with it.
+pub(crate) fn build_laserline_device_input_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    detection: Detection<'_>,
+    laser_extractor: &dyn LaserPixelExtractor,
+    control: &RunControl,
+    options: &ConvertOptions,
+) -> Result<LaserlineRunResult, RunError> {
     // Same gate ordering as the other converters: topology + target +
     // validation + pairing config before any filesystem access.
     if spec.topology != ProblemKind::LaserlineDevice {
@@ -208,9 +229,22 @@ pub fn build_laserline_device_input(
         let path = paths[0]
             .as_ref()
             .expect("single-camera pairing never produces gap slots");
-        let (features, _cache_hit) =
-            targets.read(|| detect_features(&detector_config, roi, path, detection))?;
-        if let Err(reason) = filter.check(&features) {
+        let (features, screened) = if options.excludes(0, path) {
+            targets.skip();
+            (Vec::new(), Err(RejectReason::Excluded))
+        } else {
+            let (mut features, _cache_hit) =
+                targets.read(|| detect_features(&detector_config, roi, path, detection))?;
+            let mut screened = filter.check(&features);
+            if screened.is_ok()
+                && let Some(keep) = options.kept_features(0, path, &features)
+            {
+                features = kept(&features, &keep);
+                screened = filter.check_masked(&features);
+            }
+            (features, screened)
+        };
+        if let Err(reason) = screened {
             rejected.push(RejectedDetection {
                 camera: 0,
                 path: path.clone(),
@@ -288,6 +322,26 @@ pub fn build_rig_laserline_device_input(
     laser_extractor: &dyn LaserPixelExtractor,
     control: &RunControl,
 ) -> Result<RigLaserlineRunResult, RunError> {
+    build_rig_laserline_device_input_with(
+        spec,
+        base_dir,
+        detection,
+        laser_extractor,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`build_rig_laserline_device_input`], leaving out what `options` names.
+/// A view left out leaves its laser frames out with it.
+pub(crate) fn build_rig_laserline_device_input_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    detection: Detection<'_>,
+    laser_extractor: &dyn LaserPixelExtractor,
+    control: &RunControl,
+    options: &ConvertOptions,
+) -> Result<RigLaserlineRunResult, RunError> {
     if spec.topology != ProblemKind::RigLaserlineDevice {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
@@ -311,7 +365,7 @@ pub fn build_rig_laserline_device_input(
     };
     let export = load_upstream_export(&upstream_path)?;
 
-    let core = build_rig_core(spec, base_dir, detection, control)?;
+    let core = build_rig_core(spec, base_dir, detection, control, options)?;
     let num_cameras = spec.cameras.len();
     let laser = extract_rig_laser(spec, base_dir, &core, detection, laser_extractor, control)?;
 
@@ -391,6 +445,26 @@ pub fn build_rig_handeye_laserline_input(
     laser_extractor: &dyn LaserPixelExtractor,
     control: &RunControl,
 ) -> Result<RigHandeyeLaserlineRunResult, RunError> {
+    build_rig_handeye_laserline_input_with(
+        spec,
+        base_dir,
+        detection,
+        laser_extractor,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`build_rig_handeye_laserline_input`], leaving out what `options` names.
+/// A view left out leaves its robot pose and laser frames out with it.
+pub(crate) fn build_rig_handeye_laserline_input_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    detection: Detection<'_>,
+    laser_extractor: &dyn LaserPixelExtractor,
+    control: &RunControl,
+    options: &ConvertOptions,
+) -> Result<RigHandeyeLaserlineRunResult, RunError> {
     if spec.topology != ProblemKind::RigHandeyeLaserline {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
@@ -401,7 +475,7 @@ pub fn build_rig_handeye_laserline_input(
     validate(spec)?;
     let poses = load_manifest_robot_poses(spec, base_dir)?;
 
-    let core = build_rig_core(spec, base_dir, detection, control)?;
+    let core = build_rig_core(spec, base_dir, detection, control, options)?;
     let num_cameras = spec.cameras.len();
     let laser = extract_rig_laser(spec, base_dir, &core, detection, laser_extractor, control)?;
 
@@ -1088,6 +1162,71 @@ mod tests {
         assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
     }
 
+    /// An excluded view leaves its laser frame out with it: neither image
+    /// is read, and the laser progress still reaches its total.
+    #[test]
+    fn an_excluded_laser_view_leaves_its_laser_frame_out() {
+        use std::sync::{Arc, Mutex};
+        use vision_calibration_core::Progress;
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        for view in 0..4 {
+            seed_target(
+                tmp.path(),
+                &cache,
+                &format!("target_{view}.png"),
+                board_features(),
+            );
+            seed_laser(
+                tmp.path(),
+                &cache,
+                &format!("laser_{view}.png"),
+                laser_features(30),
+            );
+        }
+        for name in ["target_1.png", "laser_1.png"] {
+            std::fs::write(tmp.path().join(name), b"not an image").unwrap();
+        }
+        let spec = laserline_spec(
+            &[
+                "target_0.png",
+                "target_1.png",
+                "target_2.png",
+                "target_3.png",
+            ],
+            &["laser_0.png", "laser_1.png", "laser_2.png", "laser_3.png"],
+        );
+        let mut options = ConvertOptions::default();
+        options.exclude_slot(0, &tmp.path().join("target_1.png"));
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&reports);
+        let control = RunControl::default().with_observer(move |p| {
+            if let Progress::LaserExtraction { done, total, .. } = p {
+                seen.lock().unwrap().push((done, total));
+            }
+        });
+        let fake = FakeLaser::new(30);
+        let result = build_laserline_device_input_with(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &fake,
+            &control,
+            &options,
+        )
+        .unwrap();
+        assert_eq!((result.usable_views, result.total_views), (3, 4));
+        assert_eq!(result.rejected[0].reason, RejectReason::Excluded);
+        let lasers: Vec<&str> = result
+            .laser_paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
+            .collect();
+        assert_eq!(lasers, ["laser_0.png", "laser_2.png", "laser_3.png"]);
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(reports.lock().unwrap().last(), Some(&(4, 4)));
+    }
+
     #[test]
     fn weak_laser_view_dropped() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1568,6 +1707,48 @@ mod tests {
             .iter()
             .map(|pose| pose.translation.vector.x)
             .collect()
+    }
+
+    /// A rig view whose every image is excluded is dropped with its robot
+    /// pose and its laser frames.
+    #[test]
+    fn an_excluded_rig_view_leaves_its_robot_pose_and_laser_frames_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_rig_views(tmp.path(), &cache, 3);
+        let mut spec = rig_laserline_spec(tmp.path(), 3);
+        spec.topology = ProblemKind::RigHandeyeLaserline;
+        spec.upstream_calibration = None;
+        let mut options = ConvertOptions::default();
+        for cam in 0..2 {
+            options.exclude_slot(cam, &tmp.path().join(format!("cam{cam}/target_1.png")));
+            std::fs::write(tmp.path().join(format!("cam{cam}/laser_1.png")), b"none").unwrap();
+        }
+        let fake = FakeLaser::new(30);
+        let result = build_rig_handeye_laserline_input_with(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &fake,
+            &RunControl::default(),
+            &options,
+        )
+        .unwrap();
+        assert_eq!((result.usable_views, result.total_views), (2, 3));
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
+        let xs: Vec<f64> = result
+            .input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper.translation.vector.x)
+            .collect();
+        assert_eq!(xs, [0.1, 0.3]);
+        assert!(
+            result.laser_paths[1][0]
+                .as_ref()
+                .unwrap()
+                .ends_with("cam0/laser_2.png")
+        );
     }
 
     /// Both runs kept the same views: the image manifest picks the views

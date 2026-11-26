@@ -18,6 +18,7 @@ use vision_calibration_detect::Feature;
 use vision_calibration_optim::RobotPoseMeta;
 
 use super::board_turn::match_rig_labels;
+use super::convert_options::{ConvertOptions, kept};
 use super::pairing::pair_views;
 use super::poses::{ParsedPose, load_manifest_robot_poses, match_poses_to_tokens};
 use super::require_pose_pairing;
@@ -55,6 +56,23 @@ pub fn build_rig_extrinsics_input(
     detection: Detection<'_>,
     control: &RunControl,
 ) -> Result<RigRunResult<NoMeta>, RunError> {
+    build_rig_extrinsics_input_with(
+        spec,
+        base_dir,
+        detection,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`build_rig_extrinsics_input`], leaving out what `options` names.
+pub(crate) fn build_rig_extrinsics_input_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    detection: Detection<'_>,
+    control: &RunControl,
+    options: &ConvertOptions,
+) -> Result<RigRunResult<NoMeta>, RunError> {
     if spec.topology != ProblemKind::RigExtrinsics {
         return Err(RunError::UnsupportedTopology {
             topology: spec.topology,
@@ -67,7 +85,7 @@ pub fn build_rig_extrinsics_input(
         total_views,
         rejected,
         ..
-    } = build_rig_core(spec, base_dir, detection, control)?;
+    } = build_rig_core(spec, base_dir, detection, control, options)?;
     let views = views
         .into_iter()
         .map(|(obs, _token)| RigView::new(obs, NoMeta))
@@ -84,6 +102,24 @@ pub fn build_rig_handeye_input(
     base_dir: &Path,
     detection: Detection<'_>,
     control: &RunControl,
+) -> Result<RigRunResult<RobotPoseMeta>, RunError> {
+    build_rig_handeye_input_with(
+        spec,
+        base_dir,
+        detection,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`build_rig_handeye_input`], leaving out what `options` names. A view
+/// left out drops its robot pose with it.
+pub(crate) fn build_rig_handeye_input_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    detection: Detection<'_>,
+    control: &RunControl,
+    options: &ConvertOptions,
 ) -> Result<RigRunResult<RobotPoseMeta>, RunError> {
     if spec.topology != ProblemKind::RigHandeye {
         return Err(RunError::UnsupportedTopology {
@@ -102,7 +138,7 @@ pub fn build_rig_handeye_input(
         total_views,
         rejected,
         ..
-    } = build_rig_core(spec, base_dir, detection, control)?;
+    } = build_rig_core(spec, base_dir, detection, control, options)?;
 
     let views = pair_poses_to_views(views, &poses, spec, total_views)?;
     finish(views, spec.cameras.len(), view_paths, total_views, rejected)
@@ -125,13 +161,21 @@ pub(super) struct RigCore {
     pub(super) rejected: Vec<RejectedDetection>,
 }
 
-/// Detect, screen and pair a validated rig manifest's target images.
-/// Every caller is a public converter that has run `validate(spec)`.
+/// Detect, screen and pair a validated rig manifest's target images,
+/// leaving out what `options` names. Every caller is a converter that has
+/// run `validate(spec)`.
+///
+/// An excluded slot is not read and becomes a gap, as a rejected detection
+/// does. A masked slot is screened and labelled on its whole detection
+/// (the whole-board rule and a rig's turn agreement see every corner the
+/// detector found), then thinned, and left out when it falls below the
+/// feature floor.
 pub(super) fn build_rig_core(
     spec: &DatasetSpec,
     base_dir: &Path,
     detection: Detection<'_>,
     control: &RunControl,
+    options: &ConvertOptions,
 ) -> Result<RigCore, RunError> {
     // Target + pairing config before any filesystem access.
     let detector_config = target_to_detector_config(spec)?;
@@ -160,6 +204,8 @@ pub(super) fn build_rig_core(
     // detected[view][camera]: the features of each detection the filter
     // keeps.
     let mut detected: Vec<Vec<Option<Vec<Feature>>>> = Vec::with_capacity(total_views);
+    // (view, camera, which features to keep) of each kept slot a mask thins.
+    let mut masks: Vec<(usize, usize, Vec<bool>)> = Vec::new();
     let images = paired.paths.iter().flatten().flatten().count();
     let mut progress = ImageProgress::targets(control, images);
     for (view, paths) in paired.paths.iter().enumerate() {
@@ -169,6 +215,12 @@ pub(super) fn build_rig_core(
                 cameras.push(None);
                 continue;
             };
+            if options.excludes(cam_idx, path) {
+                progress.skip();
+                rejected.push((view, rejection(cam_idx, path, RejectReason::Excluded)));
+                cameras.push(None);
+                continue;
+            }
             let (features, _cache_hit) = progress.read(|| {
                 detect_features(
                     &detector_config,
@@ -178,7 +230,12 @@ pub(super) fn build_rig_core(
                 )
             })?;
             match filter.check(&features) {
-                Ok(()) => cameras.push(Some(features)),
+                Ok(()) => {
+                    if let Some(keep) = options.kept_features(cam_idx, path, &features) {
+                        masks.push((view, cam_idx, keep));
+                    }
+                    cameras.push(Some(features));
+                }
                 Err(reason) => {
                     rejected.push((view, rejection(cam_idx, path, reason)));
                     cameras.push(None);
@@ -197,6 +254,29 @@ pub(super) fn build_rig_core(
             rejected.push((view, rejection(camera, path, reason)));
         }
         // In view order, and by camera within a view.
+        rejected.sort_by_key(|(view, r)| (*view, r.camera));
+    }
+    // The masks thin the slots the labels were matched on, in the
+    // detector's order (a turn relabels the features in place).
+    if !masks.is_empty() {
+        for (view, camera, keep) in masks {
+            let slot = &mut detected[view][camera];
+            // A slot the rig's turn matching left out stays out.
+            let Some(features) = slot.as_ref() else {
+                continue;
+            };
+            let thinned = kept(features, &keep);
+            match filter.check_masked(&thinned) {
+                Ok(()) => *slot = Some(thinned),
+                Err(reason) => {
+                    *slot = None;
+                    let path = paired.paths[view][camera]
+                        .as_ref()
+                        .expect("a detected slot has an image");
+                    rejected.push((view, rejection(camera, path, reason)));
+                }
+            }
+        }
         rejected.sort_by_key(|(view, r)| (*view, r.camera));
     }
     let rejected: Vec<RejectedDetection> = rejected.into_iter().map(|(_, r)| r).collect();
@@ -422,6 +502,142 @@ mod tests {
                 .ends_with("cam0/img_0.png")
         );
         assert!(result.input.views[2].obs.cameras[1].is_some());
+    }
+
+    /// A two-camera rig of three views of the whole board, every image's
+    /// detection in the cache.
+    fn three_view_rig(dir: &Path) -> (FsDetectionCache, DatasetSpec) {
+        let cache = FsDetectionCache::new(dir.join("cache"));
+        for cam in 0..2 {
+            for view in 0..3 {
+                seed_image(
+                    dir,
+                    &cache,
+                    &format!("cam{cam}/img_{view}.png"),
+                    board_features(),
+                );
+            }
+        }
+        let spec = rig_spec(&[
+            vec!["cam0/img_0.png", "cam0/img_1.png", "cam0/img_2.png"],
+            vec!["cam1/img_0.png", "cam1/img_1.png", "cam1/img_2.png"],
+        ]);
+        (cache, spec)
+    }
+
+    fn rig_run(
+        dir: &Path,
+        cache: &FsDetectionCache,
+        spec: &DatasetSpec,
+        options: &ConvertOptions,
+    ) -> RigRunResult<NoMeta> {
+        build_rig_extrinsics_input_with(
+            spec,
+            dir,
+            Detection::Cached(cache),
+            &RunControl::default(),
+            options,
+        )
+        .unwrap()
+    }
+
+    /// An excluded slot is a gap, unread, exactly as a rejected detection
+    /// is; a view whose every slot is excluded is dropped.
+    #[test]
+    fn an_excluded_slot_is_a_gap_like_a_rejected_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = three_view_rig(tmp.path());
+        std::fs::write(tmp.path().join("cam1/img_1.png"), b"not an image").unwrap();
+        let mut options = ConvertOptions::default();
+        options.exclude_slot(1, &tmp.path().join("cam1/img_1.png"));
+        let excluded = rig_run(tmp.path(), &cache, &spec, &options);
+
+        seed_image(tmp.path(), &cache, "cam1/img_1.png", grid_features(3));
+        let rejected = rig_run(tmp.path(), &cache, &spec, &ConvertOptions::default());
+        assert!(excluded.input.views[1].obs.cameras[1].is_none());
+        assert_eq!(
+            format!("{:?}", excluded.input),
+            format!("{:?}", rejected.input)
+        );
+        assert_eq!(excluded.view_paths, rejected.view_paths);
+        assert_eq!(excluded.rejected[0].reason, RejectReason::Excluded);
+        assert_eq!(excluded.rejected[0].path, rejected.rejected[0].path);
+
+        // Both of view 0's images out: the view is dropped.
+        options.exclude_slot(0, &tmp.path().join("cam0/img_0.png"));
+        options.exclude_slot(1, &tmp.path().join("cam1/img_0.png"));
+        let dropped = rig_run(tmp.path(), &cache, &spec, &options);
+        assert_eq!((dropped.usable_views, dropped.total_views), (2, 3));
+        let reasons: Vec<(usize, &str)> = dropped
+            .rejected
+            .iter()
+            .map(|r| (r.camera, r.path.file_name().unwrap().to_str().unwrap()))
+            .collect();
+        assert_eq!(
+            reasons,
+            [(0, "img_0.png"), (1, "img_0.png"), (1, "img_1.png")]
+        );
+    }
+
+    /// A plain chessboard is screened and labelled on its whole detection,
+    /// then thinned: a mask over a whole edge keeps the slot, without the
+    /// edge, where a detection missing that edge is a partial board.
+    #[test]
+    fn a_chessboard_is_labelled_on_its_whole_detection_before_a_mask() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = three_view_rig(tmp.path());
+        let top_edge: Vec<[f64; 3]> = (0..6u32)
+            .map(|u| [0.025 * f64::from(u), 0.0, 0.0])
+            .collect();
+        let mut options = ConvertOptions::default();
+        options.mask_points(1, &tmp.path().join("cam1/img_2.png"), &top_edge);
+        let masked = rig_run(tmp.path(), &cache, &spec, &options);
+        assert!(masked.rejected.is_empty(), "{:?}", masked.rejected);
+        let slot = masked.input.views[2].obs.cameras[1].as_ref().unwrap();
+        assert_eq!(slot.points_3d.len(), 48);
+        assert!(slot.points_3d.iter().all(|p| p.y > 0.0));
+        let untouched = masked.input.views[2].obs.cameras[0].as_ref().unwrap();
+        assert_eq!(untouched.points_3d.len(), 54);
+
+        // The same edge missing from the detection itself.
+        seed_image(
+            tmp.path(),
+            &cache,
+            "cam1/img_2.png",
+            board_features_without(&(0..6).map(|u| (u, 0)).collect::<Vec<_>>()),
+        );
+        let partial = rig_run(tmp.path(), &cache, &spec, &ConvertOptions::default());
+        assert_eq!(partial.rejected[0].reason, RejectReason::PartialChessboard);
+    }
+
+    /// A slot a mask leaves under the feature floor is left out for too few
+    /// features, listed in view order with the other rejections.
+    #[test]
+    fn a_slot_masked_under_the_floor_is_left_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = three_view_rig(tmp.path());
+        let all_but_three: Vec<[f64; 3]> = board_features()
+            .iter()
+            .skip(3)
+            .map(|f| f.world_xyz)
+            .collect();
+        let mut options = ConvertOptions::default();
+        options.mask_points(1, &tmp.path().join("cam1/img_0.png"), &all_but_three);
+        options.exclude_slot(0, &tmp.path().join("cam0/img_2.png"));
+        let result = rig_run(tmp.path(), &cache, &spec, &options);
+        let reasons: Vec<(usize, RejectReason)> = result
+            .rejected
+            .iter()
+            .map(|r| (r.camera, r.reason))
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                (1, RejectReason::TooFewFeatures),
+                (0, RejectReason::Excluded)
+            ]
+        );
+        assert!(result.input.views[0].obs.cameras[1].is_none());
     }
 
     #[test]

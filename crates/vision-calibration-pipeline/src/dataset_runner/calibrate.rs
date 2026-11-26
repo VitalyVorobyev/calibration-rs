@@ -11,12 +11,18 @@ use vision_calibration_core::{
 };
 use vision_calibration_dataset::{DatasetSpec, ProblemKind};
 
+use super::convert_options::ConvertOptions;
+use super::handeye::build_single_cam_handeye_input_with;
+use super::laser::{
+    build_laserline_device_input_with, build_rig_handeye_laserline_input_with,
+    build_rig_laserline_device_input_with,
+};
+use super::planar::build_planar_input_with;
+use super::rig::{build_rig_extrinsics_input_with, build_rig_handeye_input_with};
 use super::{
     Detection, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult, PlanarRunResult,
     RejectedDetection, RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,
-    build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
-    build_rig_handeye_input, build_rig_handeye_laserline_input, build_rig_laserline_device_input,
-    build_single_cam_handeye_input, camera_image_sizes, require_pose_pairing,
+    camera_image_sizes, require_pose_pairing,
 };
 use crate::Error;
 use crate::common::{CalibratedCameras, ExportDiagnostics};
@@ -348,6 +354,27 @@ pub fn calibrate_dataset(
     laser_extractor: Option<&dyn LaserPixelExtractor>,
     control: &RunControl,
 ) -> Result<DatasetCalibration, CalibrateDatasetError> {
+    calibrate_dataset_with(
+        spec,
+        base_dir,
+        config,
+        detection,
+        laser_extractor,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`calibrate_dataset`], leaving out of the input what `options` names.
+pub(crate) fn calibrate_dataset_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    config: Option<CalibrationConfig>,
+    detection: Detection<'_>,
+    laser_extractor: Option<&dyn LaserPixelExtractor>,
+    control: &RunControl,
+    options: &ConvertOptions,
+) -> Result<DatasetCalibration, CalibrateDatasetError> {
     let topology = spec.topology;
     let config = config.unwrap_or_else(|| CalibrationConfig::default_for(topology));
     if config.topology() != topology {
@@ -398,43 +425,64 @@ pub fn calibrate_dataset(
             c,
             PlanarIntrinsics,
             planar_intrinsics,
-            build_planar_input(spec, base_dir, detection, control)
+            build_planar_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::SingleCamHandeye(c) => calibrate!(
             c,
             SingleCamHandeye,
             single_cam_handeye,
-            build_single_cam_handeye_input(spec, base_dir, detection, control)
+            build_single_cam_handeye_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::LaserlineDevice(c) => calibrate!(
             c,
             LaserlineDevice,
             laserline_device,
-            build_laserline_device_input(spec, base_dir, detection, laser()?, control)
+            build_laserline_device_input_with(
+                spec,
+                base_dir,
+                detection,
+                laser()?,
+                control,
+                options
+            )
         ),
         CalibrationConfig::RigExtrinsics(c) => calibrate!(
             c,
             RigExtrinsics,
             rig_extrinsics,
-            build_rig_extrinsics_input(spec, base_dir, detection, control)
+            build_rig_extrinsics_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::RigHandeye(c) => calibrate!(
             c,
             RigHandeye,
             rig_handeye,
-            build_rig_handeye_input(spec, base_dir, detection, control)
+            build_rig_handeye_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::RigLaserlineDevice(c) => calibrate!(
             c,
             RigLaserlineDevice,
             rig_laserline_device,
-            build_rig_laserline_device_input(spec, base_dir, detection, laser()?, control)
+            build_rig_laserline_device_input_with(
+                spec,
+                base_dir,
+                detection,
+                laser()?,
+                control,
+                options
+            )
         ),
         CalibrationConfig::RigHandeyeLaserline(c) => calibrate!(
             c,
             RigHandeyeLaserline,
             rig_handeye_laserline,
-            build_rig_handeye_laserline_input(spec, base_dir, detection, laser()?, control)
+            build_rig_handeye_laserline_input_with(
+                spec,
+                base_dir,
+                detection,
+                laser()?,
+                control,
+                options
+            )
         ),
     }
 }
@@ -817,6 +865,67 @@ mod tests {
                 .join(&rebased.frames[0].path)
                 .is_file()
         );
+    }
+
+    /// A project's exclusions, resolved, reach the calibration: an excluded
+    /// image leaves the export exactly as a rejected detection does, and a
+    /// feature exclusion drops its point from the view.
+    #[test]
+    fn exclusions_reach_the_calibration() {
+        use crate::dataset_runner::RejectReason;
+        use crate::project::{Exclusions, FeatureExclusion, ImageExclusion};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = vision_calibration_detect::FsDetectionCache::new(tmp.path().join("cache"));
+        let spec = planar_dataset(tmp.path(), &cache);
+        let run = |exclusions: &Exclusions| {
+            let options = exclusions.resolve(&spec, tmp.path()).unwrap();
+            calibrate_dataset_with(
+                &spec,
+                tmp.path(),
+                None,
+                Detection::Cached(&cache),
+                None,
+                &RunControl::default(),
+                &options,
+            )
+            .unwrap()
+        };
+        let plain = run(&Exclusions::default());
+
+        // Image 3's detection is under the feature floor; excluding it
+        // instead changes the reason and nothing else.
+        let mut exclusions = Exclusions::default();
+        exclusions
+            .images
+            .push(ImageExclusion::new("cam0", "img/view03.png"));
+        let excluded = run(&exclusions);
+        assert_eq!(
+            serde_json::to_string(&excluded.export).unwrap(),
+            serde_json::to_string(&plain.export).unwrap()
+        );
+        assert_eq!(plain.rejected[0].reason, RejectReason::TooFewFeatures);
+        assert_eq!(excluded.rejected[0].reason, RejectReason::Excluded);
+        assert_eq!(excluded.rejected[0].path, plain.rejected[0].path);
+
+        let residuals = |run: &DatasetCalibration| {
+            run.export
+                .diagnostics()
+                .per_feature_residuals
+                .target
+                .iter()
+                .filter(|r| r.view == 0)
+                .map(|r| r.target_xyz_m)
+                .collect::<Vec<_>>()
+        };
+        let first = residuals(&plain)[0];
+        exclusions
+            .features
+            .push(FeatureExclusion::new("cam0", "img/view00.png", vec![first]));
+        let masked = run(&exclusions);
+        let kept = residuals(&masked);
+        assert_eq!(kept.len(), residuals(&plain).len() - 1);
+        assert!(!kept.contains(&first));
     }
 
     #[test]
