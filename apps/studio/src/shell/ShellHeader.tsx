@@ -1,6 +1,6 @@
 import { Button, ThemeToggle } from "@vitavision/ui";
 import { Logo } from "../components/Logo";
-import { capabilities, NO_BACKEND } from "../lib/backend";
+import { capabilities, NO_BACKEND } from "../api";
 import { THEME_STORAGE_KEY } from "../lib/theme";
 import { folderName } from "../project/projectModel";
 import { useStore } from "../store";

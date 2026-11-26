@@ -1,4 +1,4 @@
-import { call } from "../../lib/backend";
+import { api } from "../../api";
 import { useEffect, useState } from "react";
 import type { TargetFeatureResidual } from "../../types";
 
@@ -24,9 +24,9 @@ export function useUndistortedResiduals(
     let cancelled = false;
     const points: Promise<NullablePx[]> =
       residuals.length > 0
-        ? call<NullablePx[]>("undistort_points", {
+        ? api.undistortPoints({
             camera,
-            pointsPx: residuals.map((r) => r.observed_px),
+            points_px: residuals.map((r) => r.observed_px),
           })
         : Promise.resolve([]);
     points

@@ -1,6 +1,7 @@
 import { Button, Callout, ErrorBox, Toaster } from "@vitavision/ui";
 import { AppShell, StatusBar } from "@vitavision/workbench";
 import { Outlet } from "react-router";
+import type { ErrorKind } from "../api/generated/types";
 import { folderName } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
 import { useStore } from "../store";
@@ -41,7 +42,7 @@ function MainSurface() {
       {projectError && (
         <Callout
           tone="error"
-          title={PROJECT_ERROR_TITLE[projectError.kind]}
+          title={PROJECT_ERROR_TITLE[projectError.kind] ?? "Project error"}
           className="mb-2"
           actions={
             <Button size="sm" variant="ghost" onClick={clearProjectError}>
@@ -59,7 +60,9 @@ function MainSurface() {
   );
 }
 
-const PROJECT_ERROR_TITLE = {
+/** The title of each project error kind; any other kind (a refused path,
+ * a failure of the back end) is a "Project error". */
+const PROJECT_ERROR_TITLE: Partial<Record<ErrorKind, string>> = {
   not_a_project: "Not a project folder",
   project_exists: "That folder already holds a project",
   unsupported_version: "Unsupported project version",
@@ -67,7 +70,7 @@ const PROJECT_ERROR_TITLE = {
   run_exists: "A run of that name is already saved",
   io: "Project error",
   parse: "A project file does not parse",
-} as const;
+};
 
 /** The status line: the open project and the size of the loaded export
  * (its kind is in the header). */

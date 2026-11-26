@@ -7,10 +7,10 @@
   "extends": ["./node_modules/@vitavision/config-oxlint/oxlintrc.json"],
   "options": { "reportUnusedDisableDirectives": "error" },
   // Oxlint also skips what .gitignore lists (dist/, target/, ...).
-  // src-tauri/ and crates/ are Rust, and src/types/generated is
-  // generated from the Rust wire types (`bun run generate:types`): don't
-  // lint or hand-edit it. Keep in sync with .gitignore / .prettierignore.
-  "ignorePatterns": ["src-tauri/**", "crates/**", "src/types/generated/**"],
+  // src-tauri/ and crates/ are Rust, and src/api/generated is generated
+  // from the back end's command table (`bun run generate:api`): don't lint
+  // or hand-edit it. Keep in sync with .gitignore / .prettierignore.
+  "ignorePatterns": ["src-tauri/**", "crates/**", "src/api/generated/**"],
   "overrides": [
     {
       // The Vite/Vitest/Playwright configs run in Node, and the app's
@@ -67,12 +67,12 @@
       "rules": { "vitavision/tokens-only": "error" }
     },
     {
-      // One frontend, two back ends: only the back-end seam talks to Tauri,
-      // so every feature also runs on the browser viewer's HTTP back end.
-      // Tests mock Tauri's IPC directly. The `paths` repeat the shared
+      // One frontend, two back ends: only the Tauri transport talks to
+      // Tauri, so every feature also runs on the browser viewer's HTTP back
+      // end; the rest of the app calls the generated client (`src/api`). The `paths` repeat the shared
       // config's React 19 restrictions, which this rule setting replaces.
       "files": ["src/**/*.{ts,tsx}"],
-      "excludeFiles": ["src/lib/backend.ts", "src/**/*.test.{ts,tsx}"],
+      "excludeFiles": ["src/api/transport/tauri.ts", "src/**/*.test.{ts,tsx}"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -107,7 +107,7 @@
             "patterns": [
               {
                 "group": ["@tauri-apps/**"],
-                "message": "Only src/lib/backend.ts imports Tauri: use its call, fileUrl or openDialog."
+                "message": "Only src/api/transport/tauri.ts imports Tauri: call the back end through `api` (src/api)."
               }
             ]
           }

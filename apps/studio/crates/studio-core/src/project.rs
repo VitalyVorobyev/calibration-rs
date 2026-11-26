@@ -37,7 +37,6 @@ const PROJECT_VERSION: u32 = 1;
 /// Why a project command failed. `kind` is what the UI branches on;
 /// `message` is what it shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 pub struct ProjectError {
     pub kind: ProjectErrorKind,
     pub message: String,
@@ -45,7 +44,6 @@ pub struct ProjectError {
 
 /// The kinds of [`ProjectError`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectErrorKind {
     /// The folder has no `calibration-project.json`.
@@ -99,8 +97,7 @@ struct ProjectFile {
 }
 
 /// An opened project, as the UI shows it.
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct ProjectInfo {
     /// The project folder (absolute).
     pub dir: String,
@@ -113,8 +110,7 @@ pub struct ProjectInfo {
 }
 
 /// One saved run: its folder name and diagnostics.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct RunSummary {
     /// The run's folder name under `runs/`.
     pub name: String,
@@ -124,8 +120,7 @@ pub struct RunSummary {
 }
 
 /// `diagnostics.json`: how a run went.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RunDiagnostics {
     /// The manifest topology the run calibrated.
     pub topology: String,

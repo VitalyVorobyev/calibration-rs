@@ -12,7 +12,7 @@ import type {
   LaserLineTrace,
   PixelRect,
   TargetFeatureResidual,
-} from "./types/generated/studio-wire";
+} from "./api/generated/types";
 
 // The wire types the viewer reads with the same shape as their generated
 // definition are that definition.
@@ -23,7 +23,7 @@ export type {
   LaserLineTrace,
   PixelRect,
   TargetFeatureResidual,
-} from "./types/generated/studio-wire";
+} from "./api/generated/types";
 
 // The rest narrow their generated definition: the viewer reads an export
 // whose `diagnostics` group carries `per_feature_residuals` (with `target`)

@@ -12,14 +12,14 @@
  * one laser-manifest export (laser view + laser residuals).
  *
  * Fixtures are shared with the Playwright e2e specs via
- * `src/test/exportFixtures.ts` (see that module's header). The Tauri
- * IPC layer is mocked at the `invoke` seam via `@tauri-apps/api/mocks`
- * (`mockIPC`, `mockConvertFileSrc`) so `useImageData`'s asset URL resolves instead of
- * throwing outside a real Tauri runtime.
+ * `src/test/exportFixtures.ts` (see that module's header). The back end
+ * is a mock transport (`api/transport/mock.ts`), the desktop app's kind, so
+ * `useImageData`'s image URL resolves without a Tauri runtime.
  */
-import { clearMocks, mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setTransport } from "../../api";
+import { createMockTransport } from "../../api/transport/mock";
 import { DiagnoseWorkspace } from "./index";
 import { useStore } from "../../store";
 import { detectExportKind } from "../../store/exportKind";
@@ -46,16 +46,14 @@ const LASER_MANIFEST_EXPORT = {
 };
 
 beforeEach(() => {
-  // `useImageData` loads each frame through the asset protocol
-  // (`convertFileSrc`); jsdom never fetches the URL, so any mapping
-  // will do. No IPC call is expected on mount, but the mock makes the
-  // back end the desktop app's, as in the app.
-  mockIPC(() => null);
-  mockConvertFileSrc("macos");
+  // `useImageData` loads each frame by its URL; jsdom never fetches it,
+  // so the mock's stand-in will do. No command is expected on mount, but
+  // the mock makes the back end the desktop app's, as in the app.
+  setTransport(createMockTransport());
 });
 
 afterEach(() => {
-  clearMocks();
+  setTransport(null);
   cleanup();
   useStore.getState().resetExport();
 });

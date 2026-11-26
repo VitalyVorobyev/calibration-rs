@@ -2,11 +2,13 @@
 //!
 //! Routes:
 //!
-//! - `GET /api/session` — the run being served (`Session`).
-//! - `POST /api/<command>` — a viewer command, by the name and with the
-//!   camelCase argument object of its Tauri command, answered with the same
-//!   JSON (or PNG bytes for `load_undistorted_image`). A failure is the
-//!   command's error string as JSON, with a 4xx status.
+//! - `GET /api/session` — the run being served (`ViewerSession`).
+//! - `POST /api/cmd/<name>` — a command of studio-core's table, one of the
+//!   read-only ones this viewer offers ([`COMMANDS`]), with its JSON
+//!   argument object; answered with its JSON reply, or with the
+//!   `StudioError` envelope and a status from its kind.
+//! - `GET /api/r/<name>?q=<json>` — a resource of the table ([`RESOURCES`]),
+//!   `q` its query object, percent-encoded.
 //! - `GET /api/file?path=<absolute path>` — a file under the run folder or
 //!   the export's image root, the browser's stand-in for the asset protocol.
 //! - `GET /<path>` — the built frontend; `index.html` is marked with
@@ -22,16 +24,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use studio_core::api::{Api, ErrorKind, Kind, StudioError};
+use studio_core::run_source::{RunSource, ViewerSession, slash};
+use studio_core::scope::{FileScope, RootScope, ScopeError};
 use tiny_http::{Header, Method, Request, Response, Server};
-use vision_calibration::core::PixelRect;
-
-use super::source::{RunLayout, RunSource};
-use studio_core::disparity::DisparityParams;
-use studio_core::export_cache::ExportCache;
-use studio_core::ops;
-use studio_core::scope::{FileScope, ScopeError};
 
 /// Requests are served by this many threads, so an image keeps loading
 /// while an undistortion or a disparity map is computed.
@@ -41,47 +38,35 @@ const MAX_BODY: u64 = 256 * 1024 * 1024;
 /// What marks the page as served by this back end.
 const BACKEND_META: &str = r#"<meta name="calib-backend" content="http" />"#;
 
-/// What `GET /api/session` answers: the run the viewer serves.
-#[derive(Debug, Clone, Serialize)]
-pub struct Session {
-    /// The run folder's name, for the page's header.
-    pub name: String,
-    pub layout: RunLayout,
-    /// The run folder (canonical, `/`-separated).
-    pub run_dir: String,
-    /// The export file to load (canonical, `/`-separated).
-    pub export_path: String,
-}
+/// The commands of the table the browser viewer answers: the viewers'
+/// own, which read the run's files and the active export. Projects, the
+/// runner, folder sniffing, samples and jobs are the desktop app's.
+/// (`set_active_export` writes only the server's memory.)
+const COMMANDS: &[&str] = &[
+    "load_export",
+    "set_active_export",
+    "read_manifest",
+    "undistort_points",
+    "epipolar_overlay",
+    "epipolar_overlay_undistorted",
+    "camera_parameter_values",
+    "projection_uncertainty",
+    "disparity",
+];
 
-impl Session {
-    pub fn of(run: &RunSource) -> Self {
-        let name = run
-            .dir
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| slash(&run.dir));
-        Self {
-            name,
-            layout: run.layout,
-            run_dir: slash(&run.dir),
-            export_path: slash(&run.export),
-        }
-    }
-}
-
-fn slash(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
-}
+/// The resources of the table the browser viewer answers.
+const RESOURCES: &[&str] = &["undistorted_image"];
 
 /// Everything a request handler reads.
 struct State {
-    session: Session,
+    session: ViewerSession,
     /// The run folder and the export's image root.
     files: FileScope,
     /// The built frontend.
     dist: PathBuf,
     dist_scope: FileScope,
-    cache: ExportCache,
+    /// The command table over the run folder and the export's image root.
+    api: Api,
     /// The `Host` values the server answers to.
     hosts: [String; 2],
     /// The `Origin` values a `POST` may carry.
@@ -117,11 +102,11 @@ impl Viewer {
         let mut roots = vec![run.dir.clone()];
         roots.extend(images);
         let state = Arc::new(State {
-            session: Session::of(run),
-            files: FileScope::new(roots),
+            session: ViewerSession::of(run),
+            files: FileScope::new(roots.clone()),
             dist_scope: FileScope::new([dist.clone()]),
             dist,
-            cache: ExportCache::new(),
+            api: Api::new(RootScope::fixed(roots)),
             hosts: [format!("127.0.0.1:{port}"), format!("localhost:{port}")],
             origins: [
                 format!("http://127.0.0.1:{port}"),
@@ -198,8 +183,14 @@ impl Reply {
         }
     }
 
-    /// A failure: the message as a JSON string, as a rejected Tauri
-    /// command's error reaches the frontend.
+    /// A command's failure: the error envelope, with its kind's status.
+    fn envelope(error: &StudioError) -> Self {
+        let mut reply = Self::json(error);
+        reply.status = error.http_status();
+        reply
+    }
+
+    /// A failure of the file and page routes: the message as a JSON string.
     fn error(status: u16, message: impl Into<String>) -> Self {
         let message = message.into();
         Self {
@@ -242,7 +233,7 @@ fn handle(state: &State, mut request: Request) {
     let reply = route(state, &mut request).unwrap_or_else(|e| e);
     if reply.status >= 400 {
         let path = request.url().split('?').next().unwrap_or_default();
-        let message = serde_json::from_slice::<String>(&reply.body).unwrap_or_default();
+        let message = String::from_utf8_lossy(&reply.body);
         eprintln!("{} {path}: {} {message}", request.method(), reply.status);
     }
     let _ = request.respond(reply.into_response());
@@ -272,7 +263,7 @@ fn route(state: &State, request: &mut Request) -> Result<Reply, Reply> {
                 .map_err(|e| Reply::error(404, format!("read {}: {e}", file.display())))?;
             Ok(Reply::bytes(content_type(&file), bytes))
         }
-        (Method::Post, _) if path.starts_with("/api/") => {
+        (Method::Post, _) if path.starts_with("/api/cmd/") => {
             if let Some(origin) = header(request, "Origin")
                 && !state.origins.iter().any(|o| o == origin)
             {
@@ -284,7 +275,11 @@ fn route(state: &State, request: &mut Request) -> Result<Reply, Reply> {
                 .take(MAX_BODY)
                 .read_to_end(&mut body)
                 .map_err(|e| Reply::error(400, format!("read the request body: {e}")))?;
-            command(state, &path["/api/".len()..], &body)
+            command(state, &path["/api/cmd/".len()..], &body)
+        }
+        (Method::Get, _) if path.starts_with("/api/r/") => {
+            let query = query_param(query, "q").unwrap_or_else(|| "{}".to_owned());
+            resource(state, &path["/api/r/".len()..], &query)
         }
         (_, _) if path.starts_with("/api/") => Err(Reply::error(405, "method not allowed")),
         (Method::Get, _) => serve_static(state, path),
@@ -393,170 +388,63 @@ fn percent_decode(text: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-// The argument objects of the commands, as the frontend sends them (the
-// Tauri command parameters, camelCase).
-
-#[derive(Deserialize)]
-struct PathArgs {
-    path: String,
+fn unknown(name: &str) -> StudioError {
+    StudioError::new(
+        ErrorKind::UnknownCommand,
+        format!("`{name}` is not available in the browser viewer"),
+    )
 }
 
-#[derive(Deserialize)]
-struct ExportArgs {
-    export: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-struct UndistortedImageArgs {
-    path: String,
-    camera: usize,
-    roi: Option<PixelRect>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UndistortPointsArgs {
-    camera: usize,
-    points_px: Vec<[f64; 2]>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OverlayArgs {
-    cam_a: usize,
-    cam_b: usize,
-    point_px: [f64; 2],
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UndistortedOverlayArgs {
-    cam_a: usize,
-    cam_b: usize,
-    point_px: [f64; 2],
-    image_width_b: f64,
-    image_height_b: f64,
-}
-
-#[derive(Deserialize)]
-struct LabelsArgs {
-    labels: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectionArgs {
-    camera: usize,
-    image_width: u32,
-    image_height: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DisparityArgs {
-    path_a: String,
-    path_b: String,
-    cam_a: usize,
-    cam_b: usize,
-    pose: usize,
-    params: DisparityParams,
-}
-
-fn args<T: DeserializeOwned>(body: &[u8]) -> Result<T, Reply> {
-    serde_json::from_slice(body).map_err(|e| Reply::error(400, format!("invalid arguments: {e}")))
-}
-
-/// A command's result as a reply: its JSON, or its error with 422.
-fn answer<T: Serialize>(result: Result<T, String>) -> Result<Reply, Reply> {
-    result
-        .map(|value| Reply::json(&value))
-        .map_err(|e| Reply::error(422, e))
-}
-
-/// Run the viewer command `name`. The commands the browser does not offer
-/// (projects, calibration runs, dialogs) are 404s.
+/// Run the command `name` on the JSON argument object `body` (empty: no
+/// arguments). The commands the browser does not offer are 404s.
 fn command(state: &State, name: &str, body: &[u8]) -> Result<Reply, Reply> {
-    let cache = &state.cache;
-    match name {
-        "load_export" => {
-            let a: PathArgs = args(body)?;
-            let path = scoped(&state.files, &a.path)?;
-            answer(ops::read_export(&path).map(|loaded| loaded.result))
-        }
-        "set_active_export" => {
-            let a: ExportArgs = args(body)?;
-            cache.set(a.export);
-            answer(Ok(()))
-        }
-        "load_text_file" => {
-            let a: PathArgs = args(body)?;
-            answer(ops::read_text_file(&scoped(&state.files, &a.path)?))
-        }
-        "load_undistorted_image" => {
-            let a: UndistortedImageArgs = args(body)?;
-            let path = scoped(&state.files, &a.path)?;
-            ops::load_undistorted_image(cache, &path, a.camera, a.roi)
-                .map(|png| Reply::bytes("image/png", png))
-                .map_err(|e| Reply::error(422, e))
-        }
-        "undistort_points" => {
-            let a: UndistortPointsArgs = args(body)?;
-            answer(ops::undistort_points(cache, a.camera, a.points_px))
-        }
-        "compute_epipolar_overlay" => {
-            let a: OverlayArgs = args(body)?;
-            answer(ops::compute_epipolar_overlay(
-                cache, a.cam_a, a.cam_b, a.point_px,
-            ))
-        }
-        "compute_epipolar_overlay_undistorted" => {
-            let a: UndistortedOverlayArgs = args(body)?;
-            answer(ops::compute_epipolar_overlay_undistorted(
-                cache,
-                a.cam_a,
-                a.cam_b,
-                a.point_px,
-                [a.image_width_b, a.image_height_b],
-            ))
-        }
-        "camera_parameter_values" => {
-            let a: LabelsArgs = args(body)?;
-            answer(ops::camera_parameter_values(cache, &a.labels))
-        }
-        "projection_uncertainty" => {
-            let a: ProjectionArgs = args(body)?;
-            answer(ops::projection_uncertainty(
-                cache,
-                a.camera,
-                [a.image_width, a.image_height],
-            ))
-        }
-        "compute_disparity" => {
-            let a: DisparityArgs = args(body)?;
-            let path_a = scoped(&state.files, &a.path_a)?;
-            let path_b = scoped(&state.files, &a.path_b)?;
-            answer(ops::compute_disparity(
-                cache,
-                [&path_a, &path_b],
-                a.cam_a,
-                a.cam_b,
-                a.pose,
-                &a.params,
-            ))
-        }
-        other => Err(Reply::error(
-            404,
-            format!("`{other}` is not available in the browser viewer"),
-        )),
+    if !COMMANDS.contains(&name) || state.api.kind(name) != Some(Kind::Plain) {
+        return Err(Reply::envelope(&unknown(name)));
     }
+    let args = if body.iter().all(u8::is_ascii_whitespace) {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_slice(body).map_err(|e| {
+            Reply::envelope(&StudioError::new(
+                ErrorKind::InvalidArgs,
+                format!("{name}: the body is not JSON: {e}"),
+            ))
+        })?
+    };
+    state
+        .api
+        .invoke(name, args)
+        .map(|reply| Reply::json(&reply))
+        .map_err(|e| Reply::envelope(&e))
+}
+
+/// The bytes of resource `name` for the JSON query object `query`.
+fn resource(state: &State, name: &str, query: &str) -> Result<Reply, Reply> {
+    if !RESOURCES.contains(&name) {
+        return Err(Reply::envelope(&unknown(name)));
+    }
+    let query = serde_json::from_str(query).map_err(|e| {
+        Reply::envelope(&StudioError::new(
+            ErrorKind::InvalidArgs,
+            format!("{name}: `q` is not JSON: {e}"),
+        ))
+    })?;
+    let resource = state
+        .api
+        .resource(name, query)
+        .map_err(|e| Reply::envelope(&e))?;
+    let mut reply = Reply::bytes(resource.media_type, resource.body);
+    reply.no_store = true;
+    Ok(reply)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::viewer::source::find_run;
     use std::io::Write;
     use std::net::TcpStream;
+    use studio_core::ops;
+    use studio_core::run_source::find_run;
 
     struct Reply {
         status: u16,
@@ -613,7 +501,7 @@ mod tests {
         send(
             port,
             "POST",
-            &format!("/api/{command}"),
+            &format!("/api/cmd/{command}"),
             &[("Content-Type", "application/json")],
             &body.to_string(),
         )
@@ -671,19 +559,22 @@ mod tests {
     }
 
     #[test]
-    fn commands_answer_as_the_tauri_commands_do() {
+    fn commands_answer_through_the_table() {
         let (viewer, run, _dist) = start();
         let port = viewer.port();
 
-        // Before an export is active, a cached command fails with the
-        // command's own error string.
+        // Before an export is active, a command on it fails with the
+        // error envelope.
         let early = post(
             port,
             "undistort_points",
-            serde_json::json!({"camera": 0, "pointsPx": [[1.0, 2.0]]}),
+            serde_json::json!({"camera": 0, "points_px": [[1.0, 2.0]]}),
         );
         assert_eq!(early.status, 422);
-        assert_eq!(early.json(), "no export loaded yet");
+        assert_eq!(
+            early.json(),
+            serde_json::json!({"kind": "invalid", "message": "no export loaded yet"})
+        );
 
         let loaded = post(
             port,
@@ -707,40 +598,29 @@ mod tests {
         let points = post(
             port,
             "undistort_points",
-            serde_json::json!({"camera": 1, "pointsPx": [[10.0, 20.0]]}),
+            serde_json::json!({"camera": 1, "points_px": [[10.0, 20.0]]}),
         );
         assert_eq!(points.status, 200, "{}", points.text());
         let px = points.json();
         assert!((px[0][0].as_f64().unwrap() - 10.0).abs() < 1e-6, "{px}");
 
-        let values = post(
-            port,
-            "camera_parameter_values",
-            serde_json::json!({"labels": ["cam1.fx", "cam0.cy"]}),
-        );
-        assert_eq!(values.json(), serde_json::json!([200.0, 59.5]));
-
-        let map = post(
-            port,
-            "projection_uncertainty",
-            serde_json::json!({"camera": 0, "imageWidth": 160, "imageHeight": 120}),
-        );
-        assert_eq!(map.status, 200, "{}", map.text());
-
         let overlay = post(
             port,
-            "compute_epipolar_overlay_undistorted",
+            "epipolar_overlay_undistorted",
             serde_json::json!({
-                "camA": 0, "camB": 1, "pointPx": [80.0, 60.0], "imageWidthB": 160.0, "imageHeightB": 120.0
+                "cam_a": 0, "cam_b": 1, "point_px": [80.0, 60.0],
+                "image_width_b": 160.0, "image_height_b": 120.0
             }),
         );
         assert_eq!(overlay.status, 200, "{}", overlay.text());
 
-        let image = run.dir.join("images/cam0_view0.png");
-        let png = post(
+        // A resource: its query as JSON in `q`.
+        let query = serde_json::json!({
+            "path": slash(&run.dir.join("images/cam0_view0.png")), "camera": 0
+        });
+        let png = get(
             port,
-            "load_undistorted_image",
-            serde_json::json!({"path": slash(&image), "camera": 0, "roi": null}),
+            &format!("/api/r/undistorted_image?q={}", encode(&query.to_string())),
         );
         assert_eq!(png.status, 200, "{}", png.text());
         assert_eq!(png.content_type, "image/png");
@@ -752,8 +632,16 @@ mod tests {
             serde_json::json!({"camera": "zero"}),
         );
         assert_eq!(bad.status, 400);
-        let desktop = post(port, "run_calibration_cmd", serde_json::json!({}));
-        assert_eq!(desktop.status, 404);
+        assert_eq!(bad.json()["kind"], "invalid_args");
+        let not_json = send(port, "POST", "/api/cmd/undistort_points", &[], "{");
+        assert_eq!(not_json.status, 400);
+        // The desktop's commands and the jobs are not offered here.
+        for name in ["run_calibration", "open_project", "list_jobs", "nope"] {
+            let desktop = post(port, name, serde_json::json!({}));
+            assert_eq!(desktop.status, 404, "{name}");
+            assert_eq!(desktop.json()["kind"], "unknown_command");
+        }
+        assert_eq!(get(port, "/api/r/nope?q=%7B%7D").status, 404);
         viewer.stop();
     }
 
@@ -795,12 +683,13 @@ mod tests {
         // A command's path is scoped the same way.
         let outside = post(
             port,
-            "load_text_file",
+            "read_manifest",
             serde_json::json!({
                 "path": slash(&Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
             }),
         );
         assert_eq!(outside.status, 403);
+        assert_eq!(outside.json()["kind"], "forbidden_path");
         viewer.stop();
     }
 
@@ -822,7 +711,7 @@ mod tests {
         let foreign = send(
             port,
             "POST",
-            "/api/set_active_export",
+            "/api/cmd/set_active_export",
             &[("Origin", "http://evil.example")],
             r#"{"export": {}}"#,
         );
@@ -831,7 +720,7 @@ mod tests {
         let same = send(
             port,
             "POST",
-            "/api/set_active_export",
+            "/api/cmd/set_active_export",
             &[("Origin", &own)],
             r#"{"export": {}}"#,
         );

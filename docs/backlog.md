@@ -494,15 +494,13 @@ Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
   Gate: the app's run tests, and no `run_*_topology` left.
 - [ ] APP-WIRE-TYPES - `apps/studio/src/types.ts` hand-writes `FrameRef`,
   `ImageManifest`, `PerFeatureResiduals` and `ExportDiagnostics` stricter
-  than the generated wire types (`types/generated/studio-wire.ts`): the
-  wire allows a null `roi` and `image_manifest` and an absent `target` and
+  than the generated wire types (`src/api/generated/types.ts`): the wire
+  allows a null `roi` and `image_manifest` and an absent `target` and
   `per_feature_residuals`, the hand-written types do not. `AnyExport`
-  (`store/types.ts`), `RunResponse` (`lib/runCalibration.ts`) and `RunRecord`
-  (`project/projectApi.ts`) mirror Rust types that are not in the wire
-  schema. Use the generated types, handle the absent cases where the
-  components read them, and emit the last three from
-  `src-tauri/src/bin/emit_schemas.rs`. Gate: no hand-written mirror of a
-  Rust type in `apps/studio/src`.
+  (`store/types.ts`) mirrors the export types the generated client already
+  carries. Use the generated types and handle the absent cases where the
+  components read them. Gate: no hand-written mirror of a Rust type in
+  `apps/studio/src`.
 - [ ] VIEW-ERRMAP - A continuous reprojection-error colour map in the
   report viewer (desktop and `calib-viewer`): over each image, interpolated
   from its features' residuals, and per camera, accumulated over all views

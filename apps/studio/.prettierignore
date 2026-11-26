@@ -11,11 +11,11 @@ test-results
 
 # Rust-emitted JSON Schemas: byte-for-byte owned by their emitters and
 # drift-checked against them, so prettier must not reformat them.
-#   - schemas-generated/  <- src-tauri `emit_schemas` (the app's wire types)
+#   - schema/             <- studio-core `studio-schema` (the back end's API)
 #   - src/schemas/        <- `cargo xtask emit-schemas` (user-facing configs)
-# The generated *.ts under src/types/generated IS formatted (the
-# generate:types script runs prettier over it) and stays checked.
-schemas-generated
+# The generated *.ts under src/api/generated IS formatted (the
+# generate:api:ts script runs prettier over it) and stays checked.
+schema
 src/schemas
 
 # Prettier's markdown formatter mis-reformats blockquote continuation

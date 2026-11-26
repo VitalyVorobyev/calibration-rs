@@ -1,4 +1,4 @@
-import { call, capabilities } from "../../lib/backend";
+import { api, capabilities } from "../../api";
 import { imageBorderPixels } from "@vitavision/three";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -6,7 +6,7 @@ import {
   pinholeBorderRays,
   raysFromUndistortedPixels,
 } from "../../lib/frustumRays";
-import type { FxFyCxCy } from "../../types/generated/studio-wire";
+import type { FxFyCxCy } from "../../api/generated/types";
 
 /** The image border's viewing rays for camera `cameraIndex` (flat
  * `[x, y, 1, …]` on the camera's `z = 1` plane), for `CameraFrustum`.
@@ -35,10 +35,8 @@ export function useBorderRays(
     const px = imageBorderPixels(width, height, BORDER_SAMPLES_PER_EDGE);
     const pointsPx: [number, number][] = [];
     for (let i = 0; i < px.length; i += 2) pointsPx.push([px[i]!, px[i + 1]!]);
-    call<([number, number] | null)[] | null>("undistort_points", {
-      camera: cameraIndex,
-      pointsPx,
-    })
+    api
+      .undistortPoints({ camera: cameraIndex, points_px: pointsPx })
       .then((out) => {
         if (cancelled || !Array.isArray(out) || out.length !== pointsPx.length) return;
         const flat: number[] = [];

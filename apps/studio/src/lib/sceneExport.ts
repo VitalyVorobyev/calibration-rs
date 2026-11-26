@@ -11,7 +11,7 @@
  *
  * Pure and side-effect free so it unit-tests without React/Tauri. */
 import type { AnyExport, Iso3Wire, CameraWire } from "../store/types";
-import type { LaserlineDeviceExport } from "../types/generated/studio-wire";
+import type { LaserlineDeviceExport } from "../api/generated/types";
 
 const IDENTITY_ISO3: Iso3Wire = { rotation: [0, 0, 0, 1], translation: [0, 0, 0] };
 

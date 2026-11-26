@@ -1,6 +1,6 @@
 import { ColormapLegend, colormapValue } from "@vitavision/charts";
 import { Callout, ErrorBox, Panel, Table, type Column } from "@vitavision/ui";
-import { call } from "../../lib/backend";
+import { api } from "../../api";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   correlationMatrix,
@@ -14,7 +14,7 @@ import type {
   ParameterCovariance,
   ProjectionUncertainty,
   Uncertainty,
-} from "../../types/generated/studio-wire";
+} from "../../api/generated/types";
 
 interface UncertaintyPanelsProps {
   uncertainty: Uncertainty | null;
@@ -107,7 +107,8 @@ function ParametersPanel({ cov }: { cov: ParameterCovariance }) {
   const labels = cov.labels;
   useEffect(() => {
     let cancelled = false;
-    call<(number | null)[]>("camera_parameter_values", { labels })
+    api
+      .cameraParameterValues({ labels })
       .then((values) => {
         if (!cancelled) setFetched({ labels, values });
       })
@@ -242,11 +243,8 @@ function ProjectionPanel({ cov, camera, imageSize }: ProjectionPanelProps) {
     if (width === 0 || height === 0) return;
     let cancelled = false;
     const request = { cov, camera, width, height };
-    call<ProjectionUncertainty>("projection_uncertainty", {
-      camera,
-      imageWidth: width,
-      imageHeight: height,
-    })
+    api
+      .projectionUncertainty({ camera, image_width: width, image_height: height })
       .then((map) => {
         if (!cancelled) setFetched({ request, result: { status: "ready", map } });
       })

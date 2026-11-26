@@ -1,0 +1,8 @@
+//! The commands of the table, by what they serve. Each is a function of the
+//! [`Ctx`](super::Ctx) and its argument object; the argument object's
+//! rustdoc is the command's documentation in the generated client.
+
+pub mod jobs;
+pub mod project;
+pub mod setup;
+pub mod viewer;

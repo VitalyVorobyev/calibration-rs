@@ -440,16 +440,16 @@ jobs:
         working-directory: apps/studio
         run: bun run test:e2e
 
-      # Drift stage 2 (schema → TypeScript, bun-only). Regenerate the TS from
-      # the committed schema and fail if it differs from what's checked in.
-      # Stage 1 (Rust → schema) lives in the `app-src-tauri` job, which has the
-      # cargo toolchain; splitting keeps this job Rust-free (`bun run generate:types`
-      # regenerates both stages locally).
-      - name: Check generated types are up to date
+      # Drift stage 2 (API schema → TypeScript types and client, bun-only).
+      # Regenerate them from the committed schema and fail if they differ
+      # from what's checked in. Stage 1 (command table → schema) lives in the
+      # `app-src-tauri` job, which has the cargo toolchain; splitting keeps
+      # this job Rust-free (`bun run generate:api` regenerates both locally).
+      - name: Check the generated API client is up to date
         working-directory: apps/studio
         run: |
-          bun run generate:types:ts
-          git diff --exit-code src/types/generated
+          bun run generate:api:ts
+          git diff --exit-code src/api/generated
 
   # `apps/studio` is its own cargo workspace (`studio-core` + `src-tauri`),
   # excluded from the root one so `cargo build --workspace` does not pull in
@@ -488,19 +488,15 @@ jobs:
       - name: Cargo fmt (apps/studio)
         run: cargo fmt --manifest-path apps/studio/Cargo.toml --all --check
 
-      # `schema-export` is additive (only gates the extra `emit_schemas` bin +
-      # its `schemars` derives behind `#[cfg]`, never removes code), so one
-      # clippy pass with every feature enabled covers both the default build
-      # and the schema emitter.
       - name: Cargo clippy (apps/studio)
         run: cargo clippy --manifest-path apps/studio/Cargo.toml --workspace --all-targets --all-features -- -D warnings
 
       - name: Cargo test (apps/studio)
         run: cargo test --manifest-path apps/studio/Cargo.toml --workspace
 
-      # Drift stage 1 (Rust wire types → JSON schema, cargo-only). Fails if a
-      # `*Export` / command-type change wasn't regenerated. Stage 2 (schema →
-      # TypeScript) runs in the bun-only `app-frontend` job (`bun run generate:types`
-      # regenerates both stages locally).
-      - name: Check generated schema is up to date
-        run: cargo run --manifest-path apps/studio/Cargo.toml -p calibration-studio --features schema-export --bin emit_schemas -- --check
+      # Drift stage 1 (command table → `schema/studio-api.json`, cargo-only).
+      # Fails if a command or a wire type changed without regenerating.
+      # Stage 2 (schema → TypeScript) runs in the bun-only `app-frontend` job
+      # (`bun run generate:api` regenerates both locally).
+      - name: Check the API schema is up to date
+        run: cargo run --manifest-path apps/studio/Cargo.toml -p studio-core --bin studio-schema -- --check

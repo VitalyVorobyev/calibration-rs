@@ -1,5 +1,5 @@
 import { ErrorBox, Select, ToggleChip } from "@vitavision/ui";
-import { call } from "../../lib/backend";
+import { api } from "../../api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FrameCanvasHandle } from "../../components/FrameCanvas";
 import { PoseStepper } from "../../components/PoseStepper";
@@ -12,7 +12,7 @@ import { exportKindLabel } from "../../store/exportKind";
 import type { AnyExport, ExportKind } from "../../store/types";
 import type { FrameKey, TargetFeatureResidual, ViewportTransform } from "../../types";
 // Generated wire type; aliased to avoid colliding with the overlay component.
-import type { EpipolarOverlay as EpipolarOverlayResult } from "../../types/generated/studio-wire";
+import type { EpipolarOverlay as EpipolarOverlayResult } from "../../api/generated/types";
 import type { OverlayPoint } from "./EpipolarOverlay";
 import { EpipolarPane } from "./EpipolarPane";
 import {
@@ -121,16 +121,13 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
         return;
       }
       try {
-        const result = await call<EpipolarOverlayResult>(
-          "compute_epipolar_overlay_undistorted",
-          {
-            camA: cameraA,
-            camB: cameraB,
-            pointPx: snapped.px,
-            imageWidthB: imageB.naturalWidth,
-            imageHeightB: imageB.naturalHeight,
-          },
-        );
+        const result = await api.epipolarOverlayUndistorted({
+          cam_a: cameraA,
+          cam_b: cameraB,
+          point_px: snapped.px,
+          image_width_b: imageB.naturalWidth,
+          image_height_b: imageB.naturalHeight,
+        });
         if (request === latestRequestIdRef.current) setOverlay(result);
       } catch (e) {
         if (request !== latestRequestIdRef.current) return;

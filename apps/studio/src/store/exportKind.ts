@@ -7,7 +7,7 @@ import type {
   RigHandeyeLaserlineExport,
   RigLaserlineDeviceExport,
   SingleCamHandeyeExport,
-} from "../types/generated/studio-wire";
+} from "../api/generated/types";
 
 /** Discriminated union over every calibration export the app can
  * load. Members are the generated (Rust-sourced) `*Export` interfaces, each

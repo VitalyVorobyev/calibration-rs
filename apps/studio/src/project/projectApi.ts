@@ -1,53 +1,40 @@
-/** Typed wrappers around the backend's project commands
- * (`src-tauri/src/project.rs`). A project is a folder holding
- * `calibration-project.json`, the dataset manifest `dataset.json` and
- * `runs/<name>/`; the wire types are generated from the Rust ones. */
-import { call } from "../lib/backend";
+/** The back end's project commands, as the project store calls them. A
+ * project is a folder holding `calibration-project.json`, the dataset
+ * manifest `dataset.json` and `runs/<name>/`; the wire types are generated
+ * from the back end's. */
+import { api, asStudioError, StudioError } from "../api";
 import type {
-  ProjectError,
-  ProjectErrorKind,
+  ErrorKind,
   ProjectInfo,
   RunDiagnostics,
+  RunRecord,
   RunSummary,
-} from "../types/generated/studio-wire";
+} from "../api/generated/types";
 import { joinPath } from "../lib/paths";
 
-export type { ProjectError, ProjectInfo, RunDiagnostics, RunSummary };
+export type { ProjectInfo, RunDiagnostics, RunRecord, RunSummary };
 
-/** Everything a saved run records (`runs/<name>/*.json`). */
-export interface RunRecord {
-  manifest: unknown;
-  config: unknown;
-  /** The export as the runner returned it. */
-  export: unknown;
-  diagnostics: RunDiagnostics;
-  /** The folder the run resolved the manifest's paths against. */
-  dataset_dir: string;
+/** A failed project command, as the shell shows it. */
+export interface ProjectError {
+  kind: ErrorKind;
+  message: string;
 }
 
-const KINDS: readonly ProjectErrorKind[] = [
-  "not_a_project",
-  "project_exists",
-  "unsupported_version",
-  "invalid_run_name",
-  "run_exists",
-  "io",
-  "parse",
-];
-
-/** A rejected project command as a `ProjectError`. The backend rejects
- * with one; anything else (an IPC failure) is reported as `io`. */
+/** A rejected project command as a `ProjectError`. The back end rejects
+ * with its error envelope; anything else (an IPC failure) is reported as
+ * `io`. */
 export function asProjectError(e: unknown): ProjectError {
-  if (typeof e === "object" && e !== null) {
-    const { kind, message } = e as Record<string, unknown>;
-    if (KINDS.includes(kind as ProjectErrorKind) && typeof message === "string") {
-      return { kind: kind as ProjectErrorKind, message };
-    }
+  const envelope =
+    e instanceof StudioError ||
+    (typeof e === "object" && e !== null && "kind" in e && "message" in e);
+  if (envelope) {
+    const { kind, message } = asStudioError(e);
+    return { kind, message };
   }
   return { kind: "io", message: e instanceof Error ? e.message : String(e) };
 }
 
-// Every command below rejects with the backend's `ProjectError`; callers
+// Every command below rejects with the back end's error envelope; callers
 // narrow it with `asProjectError`.
 
 /** Make `dir` a project for the dataset in `datasetDir`. */
@@ -56,18 +43,18 @@ export function createProject(
   datasetDir: string,
   manifest: unknown,
 ): Promise<ProjectInfo> {
-  return call<ProjectInfo>("create_project", { dir, datasetDir, manifest });
+  return api.createProject({ dir, dataset_dir: datasetDir, manifest });
 }
 
 /** Open the project in `dir`; rejects with `not_a_project` for any other
  * folder. */
 export function openProject(dir: string): Promise<ProjectInfo> {
-  return call<ProjectInfo>("open_project", { dir });
+  return api.openProject({ dir });
 }
 
 /** Replace the project's `dataset.json`. */
-export function saveProjectManifest(dir: string, manifest: unknown): Promise<void> {
-  return call<void>("save_project_manifest", { dir, manifest });
+export async function saveProjectManifest(dir: string, manifest: unknown): Promise<void> {
+  await api.saveProjectManifest({ dir, manifest });
 }
 
 /** Save a run as `runs/<name>/`; rejects with `run_exists` rather than
@@ -77,7 +64,7 @@ export function saveProjectRun(
   name: string,
   record: RunRecord,
 ): Promise<RunSummary> {
-  return call<RunSummary>("save_project_run", { dir, name, record });
+  return api.saveProjectRun({ dir, name, record });
 }
 
 /** The `export.json` of a saved run. */

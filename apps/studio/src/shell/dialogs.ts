@@ -1,6 +1,6 @@
 /** Native file dialogs the shell opens (desktop only). Each resolves to the
  * chosen path, or `null` when the user cancels. */
-import { openDialog } from "../lib/backend";
+import { openDialog } from "../api";
 
 /** Choose one folder. */
 export function pickFolder(title: string): Promise<string | null> {

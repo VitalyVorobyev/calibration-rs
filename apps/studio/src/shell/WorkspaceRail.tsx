@@ -2,7 +2,7 @@ import { NavRail, NavRailItem } from "@vitavision/workbench";
 import { Box, Columns2, Crosshair, Layers, Play } from "lucide-react";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { capabilities } from "../lib/backend";
+import { capabilities } from "../api";
 import { availableWorkspaces, workspaceForShortcut } from "./workspaces";
 
 const ICONS: Record<string, ReactNode> = {

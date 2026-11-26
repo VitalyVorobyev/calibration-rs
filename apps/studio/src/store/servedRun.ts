@@ -1,5 +1,5 @@
 /** The browser viewer's start: load the run the server serves. */
-import { viewerSession } from "../lib/backend";
+import { viewerSession } from "../api";
 import { useStore } from "./index";
 
 /** Load the run the browser viewer serves into the store; does nothing on

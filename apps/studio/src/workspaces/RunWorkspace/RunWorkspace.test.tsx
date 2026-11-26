@@ -3,40 +3,36 @@
  * built-in preset, trigger Run, and assert the success banner renders
  * from a mocked `run_calibration_cmd` response.
  *
- * The Tauri IPC layer is mocked once, at the `invoke` seam, via
- * `@tauri-apps/api/mocks` (`mockIPC`) — no real backend, no disk I/O:
- * `load_text_file` returns a canned TOML manifest in place of the
- * preset's on-disk file, `default_config_cmd` returns a minimal
- * `PlanarIntrinsicsConfig`, and `run_calibration_cmd` returns a
+ * The back end is a mock transport — no real back end, no disk I/O:
+ * the `fetch_sample` job answers a fake manifest path, `read_manifest` a
+ * canned manifest in place of the preset's on-disk file, `default_config`
+ * a minimal `PlanarIntrinsicsConfig`, and the `run_calibration` job a
  * synthetic success payload.
  */
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { TooltipProvider } from "@vitavision/ui";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setTransport, StudioError } from "../../api";
+import type { DatasetSpec, RunResponse } from "../../api/generated/types";
+import {
+  type CommandHandlers,
+  createMockTransport,
+  type JobHandlers,
+  type MockTransport,
+} from "../../api/transport/mock";
 import { RunWorkspace } from "./index";
 import { useStore } from "../../store";
 import { resetRunSetup } from "../../store/runSetup";
 import { useProject } from "../../project/projectStore";
 
-const MANIFEST_TOML = `
-version = 1
-topology = "planar_intrinsics"
-
-[target]
-kind = "chessboard"
-rows = 9
-cols = 6
-square_size_m = 0.025
-
-[[cameras]]
-id = "cam0"
-
-[cameras.images]
-kind = "glob"
-pattern = "*.png"
-`;
+// The manifest as the back end reads it from the preset's TOML.
+const MANIFEST = {
+  version: 1,
+  topology: "planar_intrinsics",
+  target: { kind: "chessboard", rows: 9, cols: 6, square_size_m: 0.025 },
+  cameras: [{ id: "cam0", images: { kind: "glob", pattern: "*.png" } }],
+} as unknown as DatasetSpec;
 
 const DEFAULT_CONFIG = {
   intrinsics_init: { iterations: 2, fix_k3: true },
@@ -52,7 +48,7 @@ const DEFAULT_CONFIG = {
   optimize: { reprojection_loss: { kind: "none" }, fix_poses: [] },
 };
 
-const RUN_SUCCESS_RESPONSE = {
+const RUN_SUCCESS_RESPONSE: RunResponse = {
   kind: "ok",
   export: {
     kind: "planar_intrinsics",
@@ -68,25 +64,30 @@ const RUN_SUCCESS_RESPONSE = {
   cache_used: false,
 };
 
-beforeEach(() => {
-  mockIPC((cmd) => {
-    switch (cmd) {
-      case "fetch_sample_cmd":
-        return "/fake/cache/kuka_1/dataset.toml";
-      case "load_text_file":
-        return MANIFEST_TOML;
-      case "default_config_cmd":
-        return DEFAULT_CONFIG;
-      case "run_calibration_cmd":
-        return RUN_SUCCESS_RESPONSE;
-      default:
-        return null;
-    }
+/** The setup commands every test needs, plus `commands` and `jobs`. */
+function backend(commands: CommandHandlers = {}, jobs: JobHandlers = {}): MockTransport {
+  const mock = createMockTransport({
+    commands: {
+      read_manifest: () => MANIFEST,
+      default_config: () => DEFAULT_CONFIG,
+      ...commands,
+    },
+    jobs: {
+      fetch_sample: () => "/fake/cache/kuka_1/dataset.toml",
+      run_calibration: () => RUN_SUCCESS_RESPONSE,
+      ...jobs,
+    },
   });
+  setTransport(mock);
+  return mock;
+}
+
+beforeEach(() => {
+  backend();
 });
 
 afterEach(() => {
-  clearMocks();
+  setTransport(null);
   cleanup();
   useStore.getState().resetExport();
   resetRunSetup();
@@ -111,8 +112,8 @@ describe("RunWorkspace happy path", () => {
 
     fireEvent.click(presetUseButton());
 
-    // Preset load resolves asynchronously (load_text_file + TOML parse +
-    // default_config_cmd); the quick-start grid collapses to the active-
+    // Preset load resolves asynchronously (fetch_sample + read_manifest +
+    // default_config); the quick-start grid collapses to the active-
     // preset bar once state settles.
     await screen.findByText("KUKA handeye", {}, { timeout: 2000 });
     const runButton = await screen.findByRole("button", { name: "Run" });
@@ -127,35 +128,26 @@ describe("RunWorkspace happy path", () => {
 
     // The success payload is threaded into the shared store, ready for
     // the /diagnose handoff.
-    expect(useStore.getState().data).toEqual(RUN_SUCCESS_RESPONSE.export);
+    expect(useStore.getState().data).toEqual(
+      RUN_SUCCESS_RESPONSE.kind === "ok" ? RUN_SUCCESS_RESPONSE.export : null,
+    );
   });
 });
 
 describe("RunWorkspace progress + cancellation", () => {
   it("shows the stage checklist for a running solve and cancels it", async () => {
-    // Override the default mock: `run_calibration_cmd` stays pending
-    // until `cancel_run_cmd` resolves it with a cancelled response — so
+    // The run reports one stage and then waits until it is cancelled — so
     // the running state (and its Cancel button) is observable.
-    let resolveRun!: (value: unknown) => void;
-    mockIPC((cmd) => {
-      switch (cmd) {
-        case "fetch_sample_cmd":
-          return "/fake/cache/kuka_1/dataset.toml";
-        case "load_text_file":
-          return MANIFEST_TOML;
-        case "default_config_cmd":
-          return DEFAULT_CONFIG;
-        case "run_calibration_cmd":
-          return new Promise((res) => {
-            resolveRun = res;
-          });
-        case "cancel_run_cmd":
-          resolveRun({ kind: "cancelled" });
-          return true;
-        default:
-          return null;
-      }
-    });
+    backend(
+      {},
+      {
+        run_calibration: async (_args, control) => {
+          control.emit({ stage: "detect" });
+          await control.cancelled;
+          throw new StudioError({ kind: "cancelled", message: "cancelled" });
+        },
+      },
+    );
 
     render(
       <MemoryRouter>
@@ -191,25 +183,15 @@ describe("RunWorkspace with a project open", () => {
 
   it("saves a successful run into the project and reopens it from disk", async () => {
     const saved: { name: string; record: unknown }[] = [];
-    mockIPC((cmd, args) => {
-      const a = args as Record<string, unknown>;
-      switch (cmd) {
-        case "fetch_sample_cmd":
-          return "/fake/cache/kuka_1/dataset.toml";
-        case "load_text_file":
-          return MANIFEST_TOML;
-        case "default_config_cmd":
-          return DEFAULT_CONFIG;
-        case "run_calibration_cmd":
-          return RUN_SUCCESS_RESPONSE;
-        case "save_project_run":
-          saved.push({ name: a.name as string, record: a.record });
-          return { name: a.name, diagnostics: null };
-        case "load_export":
-          return { export: RUN_SUCCESS_RESPONSE.export, export_dir: "/p/runs/run-001" };
-        default:
-          return null;
-      }
+    backend({
+      save_project_run: (args) => {
+        saved.push({ name: args.name, record: args.record });
+        return { name: args.name, diagnostics: null };
+      },
+      load_export: () => ({
+        export: RUN_SUCCESS_RESPONSE.kind === "ok" ? RUN_SUCCESS_RESPONSE.export : {},
+        export_dir: "/p/runs/run-001",
+      }),
     });
     useProject.setState({
       project: { dir: "/p", dataset_dir: "/p", manifest: {}, runs: [] },
@@ -229,7 +211,7 @@ describe("RunWorkspace with a project open", () => {
     await screen.findByText(/saved as runs\/run-001/, {}, { timeout: 2000 });
     expect(saved).toHaveLength(1);
     expect(saved[0]!.record).toMatchObject({
-      export: RUN_SUCCESS_RESPONSE.export,
+      export: RUN_SUCCESS_RESPONSE.kind === "ok" ? RUN_SUCCESS_RESPONSE.export : null,
       config: DEFAULT_CONFIG,
       diagnostics: { topology: "planar_intrinsics", usable_views: 20, total_views: 20 },
     });

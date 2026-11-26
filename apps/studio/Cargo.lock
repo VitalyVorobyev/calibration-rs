@@ -553,7 +553,6 @@ name = "calibration-studio"
 version = "0.1.0"
 dependencies = [
  "dunce",
- "schemars 1.2.3",
  "serde",
  "serde_json",
  "studio-core",
@@ -562,7 +561,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "tiny_http",
- "vision-calibration",
 ]
 
 [[package]]

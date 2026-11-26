@@ -21,8 +21,8 @@ use vision_calibration::mvg::dense::{BlockMatchOptions, DisparityMap, GrayImage,
 use vision_calibration::mvg::rectification::{RectifyOptions, StereoRectification, rectify};
 
 /// Frontend-supplied matching controls.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DisparityParams {
     /// Matching-window side length (odd). 11 is a good default for real imagery.
     pub block_size: usize,
@@ -34,9 +34,7 @@ pub struct DisparityParams {
 
 /// Result returned to the Depth workspace. All images are `data:image/png`
 /// base64 URLs the webview can drop straight into `<img>`.
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct DisparityResult {
     /// Rectified left | right with shared epipolar rows (rectification sanity).
     pub rectified_pair_png: String,
@@ -70,9 +68,7 @@ pub struct DisparityResult {
 }
 
 /// A reprojected 3D point cloud for the frontend's WebGL renderer.
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct PointCloud {
     /// Flat `[x, y, z, …]` positions in the reference-camera frame (metres).
     pub positions: Vec<f32>,

@@ -11,7 +11,7 @@ export type RunStatus =
   | { kind: "idle" }
   | {
       kind: "running";
-      /** Correlation id for `cancelRun`. */
+      /** This run's id in the UI (a stale event names another). */
       runId: string;
       /** Last stage the runner announced; `null` until the first message. */
       stage: RunStage | null;

@@ -3,8 +3,13 @@
  * setup, a non-project is a typed error that drops off the recent list,
  * creating uses the current setup, and runs are saved under the next free
  * name. */
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setTransport, StudioError } from "../api";
+import {
+  type CommandHandlers,
+  createMockTransport,
+  type MockTransport,
+} from "../api/transport/mock";
 import { useStore } from "../store";
 import { resetRunSetup, useRunSetup } from "../store/runSetup";
 import type { ProjectError, ProjectInfo } from "./projectApi";
@@ -20,32 +25,29 @@ const PROJECT: ProjectInfo = {
   runs: [{ name: "run-001", diagnostics: null }],
 };
 
-let calls: { cmd: string; args: Record<string, unknown> }[] = [];
+let mock: MockTransport;
 
-/** A command's rejection as Tauri delivers it: the serialized error. */
+/** A command's rejection: the back end's error envelope. */
 function rejection(error: ProjectError): Promise<never> {
-  // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Tauri rejects with the command's serialized error object, not an Error
-  return Promise.reject(error);
+  return Promise.reject(new StudioError(error));
 }
 
-function backend(handlers: Record<string, (args: Record<string, unknown>) => unknown>) {
-  mockIPC((cmd, args) => {
-    calls.push({ cmd, args: args as Record<string, unknown> });
-    const handler = handlers[cmd];
-    if (handler) return handler(args as Record<string, unknown>);
-    if (cmd === "default_config_cmd") return CONFIG;
-    return null;
-  });
+function backend(commands: CommandHandlers) {
+  mock = createMockTransport({ commands: { default_config: () => CONFIG, ...commands } });
+  setTransport(mock);
+}
+
+function calls(command: string) {
+  return mock.calls.filter((c) => c.command === command);
 }
 
 beforeEach(() => {
-  calls = [];
   localStorage.clear();
   useProject.setState({ project: null, recent: [], error: null });
 });
 
 afterEach(() => {
-  clearMocks();
+  setTransport(null);
   resetRunSetup();
   useStore.getState().resetExport();
 });
@@ -100,10 +102,9 @@ describe("useProject", () => {
     backend({ create_project: () => ({ ...PROJECT, runs: [] }) });
     expect(await useProject.getState().create("/p")).toBe(true);
 
-    const create = calls.find((c) => c.cmd === "create_project");
-    expect(create?.args).toEqual({
+    expect(calls("create_project")[0]?.args).toEqual({
       dir: "/p",
-      datasetDir: "/data/kuka_1",
+      dataset_dir: "/data/kuka_1",
       manifest: MANIFEST,
     });
     expect(useProject.getState().project?.dir).toBe("/p");
@@ -113,7 +114,7 @@ describe("useProject", () => {
     backend({});
     expect(await useProject.getState().create("/p")).toBe(false);
     expect(useProject.getState().error?.kind).toBe("io");
-    expect(calls.some((c) => c.cmd === "create_project")).toBe(false);
+    expect(calls("create_project")).toEqual([]);
   });
 
   it("saves runs under the next free name and lists them", async () => {
@@ -121,7 +122,7 @@ describe("useProject", () => {
     backend({
       save_project_run: (args) => ({
         name: args.name,
-        diagnostics: (args.record as { diagnostics: unknown }).diagnostics,
+        diagnostics: args.record.diagnostics,
       }),
     });
     const diagnostics = {
@@ -174,7 +175,7 @@ describe("useProject", () => {
     useRunSetup.getState().setManifest(edited);
     backend({ save_project_manifest: () => null });
     expect(await useProject.getState().saveManifest()).toBe(true);
-    expect(calls.find((c) => c.cmd === "save_project_manifest")?.args).toEqual({
+    expect(calls("save_project_manifest")[0]?.args).toEqual({
       dir: "/p",
       manifest: edited,
     });
@@ -183,9 +184,12 @@ describe("useProject", () => {
 
   it("opens a saved run's export", async () => {
     useProject.setState({ project: PROJECT });
-    backend({ load_export: () => Promise.reject(new Error("not here")) });
+    backend({
+      load_export: () =>
+        Promise.reject(new StudioError({ kind: "io", message: "not here" })),
+    });
     await useProject.getState().openRun("run-001");
-    expect(calls.find((c) => c.cmd === "load_export")?.args).toEqual({
+    expect(calls("load_export")[0]?.args).toEqual({
       path: "/p/runs/run-001/export.json",
     });
   });
