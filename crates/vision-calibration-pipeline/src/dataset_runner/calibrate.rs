@@ -1,17 +1,21 @@
 //! One call from a manifest to an export: [`calibrate_dataset`] picks the
 //! converter and the problem type by the manifest's topology.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vision_calibration_core::{CameraParams, Iso3, LaserPlane, RunControl, Uncertainty};
+use vision_calibration_core::{
+    CameraParams, FrameKind, FrameRef, ImageManifest, Iso3, LaserPlane, PixelRect, RunControl,
+    Uncertainty, data_relative_path,
+};
 use vision_calibration_dataset::{DatasetSpec, ProblemKind};
 
 use super::{
-    Detection, LaserPixelExtractor, RejectedDetection, RunError, build_laserline_device_input,
-    build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
-    build_rig_handeye_laserline_input, build_rig_laserline_device_input,
+    Detection, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult, PlanarRunResult,
+    RejectedDetection, RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,
+    build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
+    build_rig_handeye_input, build_rig_handeye_laserline_input, build_rig_laserline_device_input,
     build_single_cam_handeye_input, camera_image_sizes, require_pose_pairing,
 };
 use crate::Error;
@@ -142,6 +146,21 @@ impl CalibrationExport {
         }
     }
 
+    /// The export's diagnostics, to change before it is written: for
+    /// instance its image manifest's root, restated with
+    /// [`ImageManifest::rebased`] for the folder the export goes to.
+    pub fn diagnostics_mut(&mut self) -> &mut ExportDiagnostics {
+        match self {
+            Self::PlanarIntrinsics(e) => &mut e.diagnostics,
+            Self::SingleCamHandeye(e) => &mut e.diagnostics,
+            Self::LaserlineDevice(e) => &mut e.diagnostics,
+            Self::RigExtrinsics(e) => &mut e.diagnostics,
+            Self::RigHandeye(e) => &mut e.diagnostics,
+            Self::RigLaserlineDevice(e) => &mut e.diagnostics,
+            Self::RigHandeyeLaserline(e) => &mut e.diagnostics,
+        }
+    }
+
     /// The problem type that produced this export.
     pub fn kind(&self) -> ProblemKind {
         match self {
@@ -264,6 +283,15 @@ impl From<Error> for CalibrateDatasetError {
 /// Relative paths in the manifest resolve against `base_dir`, usually the
 /// directory that holds it.
 ///
+/// The export's `diagnostics.image_manifest` names the image of each kept
+/// `(view, camera)` slot, and of each laser frame, in the input's view
+/// order: the identity of every view the calibration used. Its root is
+/// `.`, standing for `base_dir`, and each frame's path is relative to
+/// `base_dir` (absolute for an image outside it). An export written to
+/// another folder restates the root for it with
+/// [`ImageManifest::rebased`] through
+/// [`CalibrationExport::diagnostics_mut`].
+///
 /// `laser_extractor` is required by the laser topologies
 /// (`laserline_device`, `rig_laserline_device`, `rig_handeye_laserline`) and
 /// unused by the others.
@@ -353,7 +381,9 @@ pub fn calibrate_dataset(
     macro_rules! calibrate {
         ($config:ident, $variant:ident, $module:ident, $build:expr) => {{
             let run = $build?;
-            let export = solve(run.input, $config, crate::$module::run_calibration, control)?;
+            let image_manifest = run.image_manifest(spec, base_dir);
+            let mut export = solve(run.input, $config, crate::$module::run_calibration, control)?;
+            export.diagnostics.image_manifest = Some(image_manifest);
             Ok(DatasetCalibration {
                 export: CalibrationExport::$variant(export),
                 image_sizes,
@@ -406,6 +436,113 @@ pub fn calibrate_dataset(
             rig_handeye_laserline,
             build_rig_handeye_laserline_input(spec, base_dir, detection, laser()?, control)
         ),
+    }
+}
+
+/// A converter's run result as the export's image manifest: one frame per
+/// kept `(view, camera)` slot, in the input's view order, and one laser
+/// frame per slot with laser pixels. The root is `.`, the dataset folder
+/// `base_dir`; each path is relative to it ([`data_relative_path`]).
+trait RunFrames {
+    fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest;
+}
+
+/// Frames of a one-camera run: the kept views' target images, then the
+/// laser images aligned with them.
+fn one_camera_manifest(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    view_paths: &[PathBuf],
+    laser_paths: &[PathBuf],
+) -> ImageManifest {
+    let roi = spec.cameras.first().and_then(|c| c.roi_xywh);
+    let target = view_paths
+        .iter()
+        .enumerate()
+        .map(|(view, path)| frame(base_dir, view, 0, path, roi, FrameKind::Target));
+    let laser = laser_paths
+        .iter()
+        .enumerate()
+        .map(|(view, path)| frame(base_dir, view, 0, path, roi, FrameKind::Laser));
+    ImageManifest::new(".", target.chain(laser).collect())
+}
+
+/// Frames of a rig run, `paths[view][camera]`: the target slots, then the
+/// laser slots.
+fn rig_manifest(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    view_paths: &[Vec<Option<PathBuf>>],
+    laser_paths: &[Vec<Option<PathBuf>>],
+) -> ImageManifest {
+    let slots = |paths: &'_ [Vec<Option<PathBuf>>], kind: FrameKind| {
+        paths
+            .iter()
+            .enumerate()
+            .flat_map(move |(view, cameras)| {
+                cameras
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(camera, path)| {
+                        let roi = spec.cameras.get(camera).and_then(|c| c.roi_xywh);
+                        path.as_ref()
+                            .map(|path| frame(base_dir, view, camera, path, roi, kind))
+                    })
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut frames = slots(view_paths, FrameKind::Target);
+    frames.extend(slots(laser_paths, FrameKind::Laser));
+    ImageManifest::new(".", frames)
+}
+
+fn frame(
+    base_dir: &Path,
+    view: usize,
+    camera: usize,
+    path: &Path,
+    roi: Option<[u32; 4]>,
+    kind: FrameKind,
+) -> FrameRef {
+    let mut frame = FrameRef::new(view, camera, data_relative_path(base_dir, path));
+    frame.roi = roi.map(|[x, y, w, h]| PixelRect::new(x, y, w, h));
+    frame.kind = kind;
+    frame
+}
+
+impl RunFrames for PlanarRunResult {
+    fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest {
+        one_camera_manifest(spec, base_dir, &self.view_paths, &[])
+    }
+}
+
+impl RunFrames for HandeyeRunResult {
+    fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest {
+        one_camera_manifest(spec, base_dir, &self.view_paths, &[])
+    }
+}
+
+impl RunFrames for LaserlineRunResult {
+    fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest {
+        one_camera_manifest(spec, base_dir, &self.view_paths, &self.laser_paths)
+    }
+}
+
+impl<Meta> RunFrames for RigRunResult<Meta> {
+    fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest {
+        rig_manifest(spec, base_dir, &self.view_paths, &[])
+    }
+}
+
+impl RunFrames for RigLaserlineRunResult {
+    fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest {
+        rig_manifest(spec, base_dir, &self.view_paths, &self.laser_paths)
+    }
+}
+
+impl RunFrames for RigHandeyeLaserlineRunResult {
+    fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest {
+        rig_manifest(spec, base_dir, &self.view_paths, &self.laser_paths)
     }
 }
 
@@ -570,6 +707,116 @@ mod tests {
                 topology: ProblemKind::LaserlineDevice
             }
         ));
+    }
+
+    /// A planar dataset of eight synthetic views of a 8 × 6 board under
+    /// `dir/img`: each image a distinct blank PNG whose detection the cache
+    /// holds, the board's corners projected by an ideal camera. Image 3's
+    /// detection holds three corners, so the run leaves it out.
+    fn planar_dataset(
+        dir: &Path,
+        cache: &vision_calibration_detect::FsDetectionCache,
+    ) -> DatasetSpec {
+        use vision_calibration_core::synthetic::{planar, poses};
+        use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
+        use vision_calibration_detect::{
+            CacheKey, CachedFeatures, ChessboardConfig, DetectionCache, DetectorConfig, Feature,
+        };
+
+        let camera = make_pinhole_camera(
+            FxFyCxCy {
+                fx: 800.0,
+                fy: 800.0,
+                cx: 320.0,
+                cy: 240.0,
+            },
+            BrownConrady5::default(),
+        );
+        let board = planar::grid_points(8, 6, 0.03);
+        let specs = poses::seeded_board_pose_specs(8, 0.3, 7);
+        let poses = poses::centered_board_poses(&specs, (0.105, 0.075), 0.6);
+        let views = planar::project_views_all(&camera, &board, &poses).unwrap();
+        let config = DetectorConfig::Chessboard(ChessboardConfig::new(6, 8, 0.03));
+        std::fs::create_dir_all(dir.join("img")).unwrap();
+        let mut paths = Vec::new();
+        for (i, view) in views.iter().enumerate() {
+            let rel = format!("img/view{i:02}.png");
+            let mut image = image::GrayImage::new(640, 480);
+            image.put_pixel(i as u32, 0, image::Luma([255]));
+            image.save(dir.join(&rel)).unwrap();
+            let bytes = std::fs::read(dir.join(&rel)).unwrap();
+            let mut features: Vec<Feature> = view
+                .points_3d
+                .iter()
+                .zip(&view.points_2d)
+                .map(|(p, q)| Feature::new([q.x, q.y], [p.x, p.y, p.z]))
+                .collect();
+            if i == 3 {
+                features.truncate(3);
+            }
+            let key = CacheKey::for_detection(&bytes, &config, None);
+            cache.put(&key, &CachedFeatures::new(features)).unwrap();
+            paths.push(rel);
+        }
+        serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "topology": "planar_intrinsics",
+            "cameras": [{ "id": "cam0", "images": { "kind": "list", "paths": paths } }],
+            "target": { "kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.03 },
+        }))
+        .unwrap()
+    }
+
+    /// The export names the image of every view it used, relative to the
+    /// dataset folder, in the input's view order: the views' identity.
+    #[test]
+    fn the_export_records_each_kept_view_s_image() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = vision_calibration_detect::FsDetectionCache::new(tmp.path().join("cache"));
+        let spec = planar_dataset(tmp.path(), &cache);
+        let run = calibrate_dataset(
+            &spec,
+            tmp.path(),
+            None,
+            Detection::Cached(&cache),
+            None,
+            &RunControl::default(),
+        )
+        .unwrap();
+        assert_eq!((run.usable_views, run.total_views), (7, 8));
+        let manifest = run
+            .export
+            .diagnostics()
+            .image_manifest
+            .clone()
+            .expect("the runner fills the image manifest");
+        assert_eq!(manifest.root, Path::new("."));
+        let frames: Vec<(usize, usize, PathBuf)> = manifest
+            .frames
+            .iter()
+            .map(|f| (f.view, f.camera, f.path.clone()))
+            .collect();
+        let expected: Vec<(usize, usize, PathBuf)> = [0, 1, 2, 4, 5, 6, 7]
+            .iter()
+            .enumerate()
+            .map(|(view, i)| (view, 0, PathBuf::from(format!("img/view{i:02}.png"))))
+            .collect();
+        assert_eq!(frames, expected);
+        // Every residual's view has its frame.
+        for r in &run.export.diagnostics().per_feature_residuals.target {
+            assert!(manifest.frame(r.view, r.camera).is_some());
+        }
+
+        // Rebased to an output folder inside the dataset, it still finds them.
+        let out = tmp.path().join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let rebased = manifest.rebased(tmp.path(), &out, tmp.path());
+        assert_eq!(rebased.root, Path::new(".."));
+        assert!(
+            out.join(&rebased.root)
+                .join(&rebased.frames[0].path)
+                .is_file()
+        );
     }
 
     #[test]

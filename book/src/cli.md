@@ -88,6 +88,15 @@ projection-σ figures ([The Calibration Report](report.md)). `-o <dir>`
 writes them elsewhere. Detections are cached in `.detections` next to the
 manifest, so a second run skips detection; `--redetect` detects again.
 
+The export names the image of every view and camera it used, in
+`diagnostics.image_manifest`: each frame's path is relative to the
+manifest's folder, and the `root` leads there from the folder
+`calibration.json` is in (`..` for `-o out`, the absolute folder for an
+output folder outside the dataset). A viewer that overlays the residuals on
+the images, such as the desktop app, opens it directly, and a later run
+that builds on it, such as a rig laser calibration, finds its views by
+their images.
+
 ## Configuration
 
 Without a configuration file the workflow runs with its defaults: a pinhole

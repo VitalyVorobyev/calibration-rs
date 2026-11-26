@@ -393,6 +393,25 @@ pub enum RunError {
         message: String,
     },
 
+    /// A view of a rig laser run matches no view of the upstream
+    /// calibration, or more than one, by its images (path or path within
+    /// the dataset folder) or its pairing token, as the upstream export's
+    /// image manifest records them. No view matching means the upstream run
+    /// left that view out, so it has no board pose for it.
+    #[error(
+        "upstream calibration {path}: view {token:?} matches {matches} of its views \
+         (by image or pairing token); each laser view must be exactly one view of the \
+         upstream run"
+    )]
+    UpstreamViewMatch {
+        /// The export file referenced by `upstream_calibration`.
+        path: PathBuf,
+        /// The view's pairing token (its index under `by_index` pairing).
+        token: String,
+        /// How many upstream views it matches: 0, or 2 and more.
+        matches: usize,
+    },
+
     /// The run control's token was cancelled before the input was built.
     #[error("cancelled")]
     Cancelled,

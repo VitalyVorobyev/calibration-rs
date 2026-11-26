@@ -44,7 +44,8 @@
 //! [`LaserFeatureResidual`]: crate::LaserFeatureResidual
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::ffi::{OsStr, OsString};
+use std::path::{Component, Path, PathBuf};
 
 /// Image manifest carried alongside a calibration export.
 ///
@@ -52,6 +53,12 @@ use std::path::PathBuf;
 /// embeds the manifest. Each [`FrameRef::path`] is interpreted relative to
 /// `root`. Both layers of indirection make exports portable across machines
 /// as long as the image directory is co-located with the export.
+///
+/// The dataset runner fills the manifest before the export has a file: its
+/// `root` is `.`, the dataset folder its manifest's paths resolve against,
+/// and each frame's path is relative to that folder (absolute for an image
+/// outside it). A writer that puts the export in another folder restates
+/// the root with [`rebased`](Self::rebased).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -174,6 +181,119 @@ impl ImageManifest {
             root: root.into(),
             frames,
         }
+    }
+
+    /// This manifest for an export that moves from folder `from` to folder
+    /// `to`: the same images, with [`root`](Self::root) restated relative
+    /// to `to`. The frames are unchanged.
+    ///
+    /// `root` is read relative to `from` (unless it is absolute). The new
+    /// root is a relative path (`/`-separated, `..` where it climbs) when
+    /// both the images and `to` lie inside `within`, the folder that moves
+    /// as one, such as a project folder, or the dataset folder for output
+    /// written inside it; otherwise it is the images' absolute folder, so
+    /// the export still finds them when it is moved alone.
+    ///
+    /// The paths are compared lexically, after making each absolute against
+    /// the current directory and folding its `.` and `..` components;
+    /// symbolic links are not followed, so pass canonical paths where they
+    /// matter.
+    ///
+    /// ```
+    /// use std::path::Path;
+    /// use vision_calibration_core::ImageManifest;
+    ///
+    /// // Frames relative to the dataset folder, the export written to a run
+    /// // folder of a project that holds the dataset.
+    /// let manifest = ImageManifest::new(".", Vec::new());
+    /// let moved = manifest.rebased(
+    ///     Path::new("/work/project/images"),
+    ///     Path::new("/work/project/runs/run-001"),
+    ///     Path::new("/work/project"),
+    /// );
+    /// assert_eq!(moved.root, Path::new("../../images"));
+    /// ```
+    pub fn rebased(&self, from: &Path, to: &Path, within: &Path) -> Self {
+        let images = lexical_absolute(&from.join(&self.root));
+        let to = lexical_absolute(to);
+        let within = lexical_absolute(within);
+        let root = if images.starts_with(&within) && to.starts_with(&within) {
+            relative_path(&to, &images)
+        } else {
+            images
+        };
+        Self {
+            root,
+            frames: self.frames.clone(),
+        }
+    }
+}
+
+/// `path` as a frame path under `data_root`: relative to it and
+/// `/`-separated when the image lies inside it, the image's absolute path
+/// otherwise. Both are compared as [`lexical_absolute`] states them.
+///
+/// The dataset runner's one rule for the paths it records, shared by the
+/// workspace crates; not part of the public API.
+#[doc(hidden)]
+pub fn data_relative_path(data_root: &Path, path: &Path) -> PathBuf {
+    let root = lexical_absolute(data_root);
+    let path = lexical_absolute(path);
+    if path.starts_with(&root) {
+        relative_path(&root, &path)
+    } else {
+        path
+    }
+}
+
+/// `path` made absolute against the current directory (when it can be) and
+/// with its `.` and `..` components folded lexically. Symbolic links are not
+/// followed.
+///
+/// Shared by the workspace crates; not part of the public API.
+#[doc(hidden)]
+pub fn lexical_absolute(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let after_parent =
+                    matches!(out.components().next_back(), Some(Component::ParentDir));
+                if after_parent || out.as_os_str().is_empty() {
+                    // A relative path that climbs out of its start keeps it.
+                    out.push(component);
+                } else if out.parent().is_some() {
+                    out.pop();
+                }
+                // `..` at the root stays at the root.
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The `/`-separated relative path from folder `from` to `to`, both
+/// absolute and folded; `.` when they are the same folder.
+fn relative_path(from: &Path, to: &Path) -> PathBuf {
+    let from: Vec<Component<'_>> = from.components().collect();
+    let to: Vec<Component<'_>> = to.components().collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let parts = std::iter::repeat_n(OsStr::new(".."), from.len() - common)
+        .chain(to[common..].iter().map(|c| c.as_os_str()));
+    let mut out = OsString::new();
+    for part in parts {
+        if !out.is_empty() {
+            out.push("/");
+        }
+        out.push(part);
+    }
+    if out.is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(out)
     }
 }
 
@@ -343,6 +463,83 @@ mod tests {
         assert!(
             !pose_0_block.contains("roi"),
             "skip_serializing_if should omit absent ROI; got:\n{pose_0_block}"
+        );
+    }
+
+    /// Absolute folders under one temporary-looking root, so the tests
+    /// read the same on every platform.
+    fn abs(path: &str) -> PathBuf {
+        std::path::absolute(Path::new("/vc_rebase_test").join(path)).unwrap()
+    }
+
+    #[test]
+    fn rebased_is_relative_inside_the_folder_that_moves_as_one() {
+        let m = sample();
+        // The dataset is the project folder; the export goes to a run folder.
+        let moved = m.rebased(
+            &abs("project"),
+            &abs("project/runs/run-001"),
+            &abs("project"),
+        );
+        assert_eq!(moved.root, PathBuf::from("../../images"));
+        assert_eq!(moved.frames, m.frames);
+
+        // A dataset sub-folder of the project.
+        let flat = ImageManifest::new(".", Vec::new());
+        let moved = flat.rebased(
+            &abs("project/cam_left"),
+            &abs("project/runs/a"),
+            &abs("project"),
+        );
+        assert_eq!(moved.root, PathBuf::from("../../cam_left"));
+
+        // The export written where the images are.
+        let same = flat.rebased(&abs("data"), &abs("data"), &abs("data"));
+        assert_eq!(same.root, PathBuf::from("."));
+
+        // Output inside the dataset folder.
+        let out = flat.rebased(&abs("data"), &abs("data/out"), &abs("data"));
+        assert_eq!(out.root, PathBuf::from(".."));
+    }
+
+    #[test]
+    fn rebased_is_absolute_outside_the_folder_that_moves_as_one() {
+        let flat = ImageManifest::new(".", Vec::new());
+        let moved = flat.rebased(&abs("data"), &abs("project/runs/a"), &abs("project"));
+        assert_eq!(moved.root, abs("data"));
+
+        // An absolute root stays where it points.
+        let pinned = ImageManifest::new(abs("elsewhere/images"), Vec::new());
+        let moved = pinned.rebased(&abs("data"), &abs("out"), &abs("out"));
+        assert_eq!(moved.root, abs("elsewhere/images"));
+    }
+
+    #[test]
+    fn rebased_folds_dot_components_and_round_trips() {
+        let m = ImageManifest::new("./sub/../images", Vec::new());
+        let moved = m.rebased(&abs("data/./x/.."), &abs("data/out"), &abs("data"));
+        assert_eq!(moved.root, PathBuf::from("../images"));
+        // Back again: the images resolve to the same folder.
+        let back = moved.rebased(&abs("data/out"), &abs("data"), &abs("data"));
+        assert_eq!(back.root, PathBuf::from("images"));
+    }
+
+    #[test]
+    fn lexical_absolute_folds_parents_and_stops_at_the_root() {
+        assert_eq!(lexical_absolute(&abs("a/b/../..")), abs(""));
+        let root = std::path::absolute(Path::new("/")).unwrap();
+        assert_eq!(lexical_absolute(&root.join("..")), root);
+    }
+
+    #[test]
+    fn data_relative_path_is_relative_inside_the_root_and_absolute_outside() {
+        assert_eq!(
+            data_relative_path(&abs("data"), &abs("data/./cam0/../cam1/a.png")),
+            PathBuf::from("cam1/a.png")
+        );
+        assert_eq!(
+            data_relative_path(&abs("data"), &abs("other/a.png")),
+            abs("other/a.png")
         );
     }
 

@@ -116,6 +116,10 @@ pub(super) struct RigCore {
     pub(super) view_paths: Vec<Vec<Option<PathBuf>>>,
     /// Tokens of *all* paired views, pre-drop, in view order.
     pub(super) all_tokens: Vec<String>,
+    /// `all_paths[view][camera]`: the target image of *every* paired view,
+    /// pre-drop, aligned with `all_tokens`; `None` where the camera has no
+    /// image for the view.
+    pub(super) all_paths: Vec<Vec<Option<PathBuf>>>,
     pub(super) total_views: usize,
     /// Detections the view filter left out, in view order.
     pub(super) rejected: Vec<RejectedDetection>,
@@ -237,6 +241,7 @@ pub(super) fn build_rig_core(
         views,
         view_paths,
         all_tokens: paired.tokens,
+        all_paths: paired.paths,
         total_views,
         rejected,
     })

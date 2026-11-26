@@ -282,6 +282,16 @@ fn calibrate_dataset_matches_the_session_route() {
     let CalibrationExport::PlanarIntrinsics(export) = &one_call.export else {
         panic!("a planar manifest exports a planar calibration");
     };
+    // The one call adds the image of each view, which a session cannot
+    // know; the rest is the session's export.
+    let images = export
+        .diagnostics
+        .image_manifest
+        .clone()
+        .expect("calibrate_dataset records the views' images");
+    assert_eq!(images.frames.len(), run.usable_views);
+    let mut by_session = by_session;
+    by_session.diagnostics.image_manifest = Some(images);
     // The same route, so the same numbers, bit for bit.
     assert_eq!(
         serde_json::to_value(export).unwrap(),

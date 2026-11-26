@@ -109,6 +109,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cached feature whose blur is not valid (not finite, `Σ` not positive
   definite, its covariance not semi-definite) fails its image with a
   detection error.
+- Every export from `dataset_runner::calibrate_dataset` (and so from
+  `vcal run` and Python's `calibrate_dataset`) carries
+  `diagnostics.image_manifest`: the image of each `(view, camera)` the
+  calibration used, and of each laser frame, in the input's view order. Its
+  root is `.`, the dataset folder, and each frame's path is relative to it.
+  `vcal run` restates the root from the folder it writes `calibration.json`
+  to: relative when that lies inside the dataset folder, the absolute
+  folder otherwise. An optional field: the schemas are unchanged.
+- `core::ImageManifest::rebased` restates a manifest's root for an export
+  moved to another folder, relative when both lie inside a folder that
+  moves as one; `dataset_runner::CalibrationExport::diagnostics_mut` gives
+  the export's diagnostics to change before writing it.
 
 ### Changed
 
@@ -207,6 +219,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A rig laser run (`rig_laserline_device`) finds each of its views among
+  the upstream rig hand-eye run's views by their images (the same file, or
+  the same path within the dataset folder) or their pairing token, as the
+  upstream export's image manifest records them. Before, it placed them by
+  position when both runs kept the same number of views, so two runs that
+  left out different views took the wrong board poses without an error. A
+  view the upstream run left out, or one that matches two of its views, is
+  now the error `RunError::UpstreamViewMatch` (Python `kind`
+  `"upstream_view_match"`). An upstream export without an image manifest is
+  matched as before.
 - `mvg::decompose_homography` returns the plane normal (it returned a vector
   lying in the plane) and a proper rotation for reflected decompositions.
 - Distortion fitting bounds the radius by the board points, not the pixel

@@ -141,6 +141,10 @@ pub use types::stated_covariance;
 // promise.
 #[doc(hidden)]
 pub use types::{RigInFrame, se3_adjoint};
+// The path rules the dataset runner records image paths with; outside the
+// semver promise.
+#[doc(hidden)]
+pub use types::{data_relative_path, lexical_absolute};
 pub use view::{NoMeta, PlanarDataset, RigDataset, RigView, RigViewObs, View};
 
 /// Concrete pinhole camera with Brown-Conrady distortion and an untilted
