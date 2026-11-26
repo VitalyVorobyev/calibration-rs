@@ -32,6 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   feature under the `charuco` and `puzzleboard` features; detection results
   and speed are unchanged.
 
+- `device_seed::DeviceSeed`: the device quantities a calibration starts
+  from, by camera id — each camera's lens, its mount in the rig, its laser
+  plane and the rig's hand-eye — from a device spec
+  (`DeviceSeed::from_spec`) or from any calibration export
+  (`DeviceSeed::from_calibration`, the camera ids and image sizes given).
+  A calibrated lens is the camera whole; `nominal()` keeps its intrinsics
+  and tilt for a session of another camera model, and `select()` takes some
+  of the cameras. Its derivations give the manual-init seeds of every stage
+  (`intrinsics_init`, `rig_intrinsics_init`, `cam_se3_rig`, `rig_init`,
+  `handeye_init`, `single_cam_handeye_init`, `device_init`, `plane_init`),
+  with the mounts and the hand-eye re-expressed in the frame of the
+  configured reference camera. A seed is an initial value, never a prior,
+  and carries no uncertainty. It has a JSON form and a published schema
+  (`schemas/device_seed.json`); `DeviceSeedError` gains the variants of its
+  checks. Python: `vision_calibration.DeviceSeed` (`from_export`,
+  `from_spec`, `from_payload`, `nominal`, `select`). The existing
+  device-spec functions return the same values as before.
 - Facade re-exports under `vision_calibration`:
   `core::{CameraProject, DistortionModel, IntrinsicsModel, NoDistortion, ProjectionModel}`,
   `dataset::validate`, `mvg::refine`, and `mvg::solvers::essential_linear`.

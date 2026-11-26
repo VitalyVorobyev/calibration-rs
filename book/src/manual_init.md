@@ -189,6 +189,60 @@ This unblocks scenarios where Zhang's method fails on borderline data, for examp
 
 The `device_seed` module derives these seeds from a device description (focal length in millimetres, pixel pitch, mount tilt); see [Device Specifications](manifest.md#device-specifications).
 
+### Starting from a previous calibration
+
+A calibration of the same unit, or of another unit of the same type, is a better start than a datasheet. `device_seed::DeviceSeed` holds what belongs to the hardware, by camera id: each camera's lens, its mount in the rig, its laser plane and the rig's hand-eye. It is made from any calibration export (`DeviceSeed::from_calibration`) or from a device specification (`DeviceSeed::from_spec`), and its derivations give the seeds of the stages above:
+
+```rust,no_run
+use vision_calibration::common::calibrated_cameras;
+use vision_calibration::device_seed::DeviceSeed;
+use vision_calibration::rig_handeye::{
+    RigHandeyeProblem, step_handeye_init_with_seed, step_handeye_optimize,
+    step_intrinsics_init_all_with_seed, step_intrinsics_optimize_all, step_rig_init_with_seed,
+    step_rig_optimize,
+};
+use vision_calibration::session::CalibrationSession;
+# fn main() -> anyhow::Result<()> {
+# let mut session = CalibrationSession::<RigHandeyeProblem>::new();
+
+// The previous run's export; an export names neither its cameras nor their
+// image sizes, so the caller gives both, in the export's camera order.
+let previous = calibrated_cameras(&std::fs::read_to_string("previous/calibration.json")?)?;
+let previous_ids = ["cam0".to_string(), "cam1".to_string()];
+let seed = DeviceSeed::from_calibration(previous.as_ref(), &previous_ids, &[[1280, 1024]; 2])?;
+
+let ids = ["cam0", "cam1"]; // this session's camera order
+let reference = session.config().rig.reference_camera_idx;
+let mode = session.config().handeye_init.handeye_mode;
+step_intrinsics_init_all_with_seed(&mut session, seed.rig_intrinsics_init(&ids)?, None)?;
+let intrinsics = step_intrinsics_optimize_all(&mut session, None)?;
+let rig_seed = seed.rig_init(&ids, reference, &intrinsics.cam_se3_target)?;
+step_rig_init_with_seed(&mut session, rig_seed, None)?;
+step_rig_optimize(&mut session, None)?;
+step_handeye_init_with_seed(&mut session, seed.handeye_init(&ids, reference, mode)?, None)?;
+step_handeye_optimize(&mut session, None)?;
+# Ok(())
+# }
+```
+
+The derivations are `intrinsics_init` (one camera), `rig_intrinsics_init`, `cam_se3_rig` and `rig_init` (the rig stage, each view anchored on its first camera with a target pose), `handeye_init` (a rig) and `single_cam_handeye_init` (one camera of it), `device_init` (a laserline device) and `plane_init` (a rig laserline device's planes).
+
+What a seed carries, and what it does not:
+
+- **The device, not the capture.** A calibration seeds every camera whole (intrinsics, distortion and sensor tilt), the mounts of a rig of several cameras, the laser planes in their camera frames and the hand-eye. The target poses, the robot-pose corrections, the residuals and the configuration stay behind: they describe the capture. A single camera is a rig of one, its frame the rig frame.
+- **An initial value, never a prior.** A seed carries no uncertainty and adds no term to the cost: the solve moves away from it as the data says. A seed only changes where the solve starts, with the two exceptions below.
+- **The model is the config's.** A calibrated lens is a camera in its model: configure the session with that model. The seeded step refuses a distortion of another kind or a tilt for an untilted camera; the derivations do not compare the projection, so seeding a session of another projection with the same distortion kind is a mistake they do not catch. `DeviceSeed::nominal` keeps of each lens only its intrinsics and its tilt, the explicit way to start another model from a calibration. A camera with a sensor homography cannot be a seed.
+- **The rig frame is re-expressed at use.** A seed's mounts and hand-eye are stated in its own rig frame: a drawing's, or the reference camera of the run it came from. The derivations that take `reference` (the config's `rig.reference_camera_idx`) re-express them so that camera's mount is the identity: `cam_i_se3_rig · cam_ref_se3_rig⁻¹` for the mounts, `gripper_se3_rig · cam_ref_se3_rig⁻¹` for an eye-in-hand rig, `cam_ref_se3_rig · rig_se3_base` for an eye-to-hand rig. A seed is then the same whichever camera its run took as the reference.
+- **All or none per field.** A rig's intrinsics stage takes every camera's distortion or none, so a seed that has calibrated lenses for some cameras and nominal ones for others is a typed error for it rather than zeros for the nominal ones; likewise for the laser planes.
+- **Typed errors.** An unknown or repeated camera id, a hand-eye of the other mode, a reference camera out of range, mounts on some cameras only, a non-finite value: each is a `DeviceSeedError` before any work.
+
+Two workflows treat a seeded value as more than a start:
+
+- **Planar intrinsics with a Scheimpflug sensor.** A seeded tilt makes the solve trust it. It sweeps the leading radial coefficient over fixed starting values (`0`, `-0.20`, `-0.40`) with the intrinsics and the tilt held, so a seeded `k1` is replaced by the sweep's best start, then refines everything within bounds around the seed: `fx` and `fy` within `[0.75, 1.5]` times the seed, the principal point within `0.15·f` of it, the tilt within `0.35` rad. A seed far from the truth ends on a bound, and a solution on a bound has no covariance.
+- **The laserline device** holds a Scheimpflug camera's tilt at its seed unless `camera.fix.sensor` lists the tilts to estimate, so a seed from a previous calibration keeps that calibration's tilt.
+
+A seed is stored as JSON (`serde_json::to_string(&seed)`), with a `version`; `DeviceSeed::validate` checks one read back.
+
 ### Rig poses (rig stage)
 
 `cam_se3_rig` and `rig_se3_target` are geometrically coupled, so the rig stage's `RigManualInit` seeds them together: its `poses` is `None` (the linear fit) or a `RigPoses` holding both. A length that does not match the cameras or views is a typed `Error::InvalidInput`.
@@ -273,6 +327,15 @@ print(session.log[-1].notes)  # the init log names the manual and the estimated 
 ```
 
 Distortion seeds are the distortion dataclasses of the camera model (`BrownConradyDistortion`, `KannalaBrandt4Distortion`, …). A seed that does not fit the camera model (a tilt for an untilted camera, a distortion of another kind, one rig pose without the other) raises `ValueError`.
+
+`DeviceSeed` builds a seed from a result or a device spec, and keeps its JSON form in `payload`:
+
+```python
+seed = vc.DeviceSeed.from_export(previous_result, ["cam0", "cam1"], [(1280, 1024)] * 2)
+seed = seed.select(["cam1"])  # one camera, the rig frame kept
+nominal = seed.nominal()  # intrinsics and tilt only, for another camera model
+datasheet = vc.DeviceSeed.from_spec("spec.json")
+```
 
 The staged rig laser calibration takes the rig hand-eye session's export as it is:
 

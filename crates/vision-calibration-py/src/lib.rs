@@ -10,6 +10,7 @@ mod camera;
 mod control;
 mod dataset;
 mod detect;
+mod device_seed;
 mod errors;
 mod mvg;
 mod project;
@@ -884,6 +885,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     session::register(m)?;
     dataset::register(m)?;
     detect::register(m)?;
+    device_seed::register(m)?;
     mvg::register(m)?;
     project::register(m)?;
     Ok(())
