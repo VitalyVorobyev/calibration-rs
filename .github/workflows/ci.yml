@@ -550,3 +550,11 @@ jobs:
       - name: E2E (Playwright on the real server)
         working-directory: apps/studio
         run: bun run test:e2e
+
+      - name: Upload the failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: studio-e2e-results
+          path: apps/studio/test-results
+          retention-days: 7
