@@ -4,7 +4,10 @@ A detection is a :class:`Features` table: the image points of the target's
 features and their positions on the target. :func:`detect_target
 <vision_calibration.dataset_runner.detect_target>` produces one from a numpy
 image; :class:`FsDetectionCache` keeps them on disk so a manifest run skips
-images it has already seen.
+images it has already seen. A :class:`DetectionDetail` is a detection with
+what an overlay needs to judge it (:func:`detect_target_detail
+<vision_calibration.dataset_runner.detect_target_detail>`,
+:func:`detection_detail <vision_calibration.dataset_runner.detection_detail>`).
 """
 
 from __future__ import annotations
@@ -19,10 +22,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 from . import _vision_calibration as _native
+from ._generated_types import DetectionOutcome, RejectedPoint, TargetDetail
 from .models import Observation, PointBlur, PointCovariance
 
 __all__ = [
     "CacheKey",
+    "DetectionDetail",
     "Features",
     "FsDetectionCache",
     "reject_ambiguous_detection",
@@ -151,6 +156,42 @@ def _features(arrays: Any) -> Features:
         cov_px=cov_px,
         blur_psf_px=blur_psf_px,
         blur_cov=None if blur_cov is None else blur_cov.reshape(-1, 3, 3),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DetectionDetail:
+    """What a detector found in one image, with what an overlay needs to
+    judge it.
+
+    ``features`` are the features :func:`detect_target
+    <vision_calibration.dataset_runner.detect_target>` returns for the same
+    image, bit for bit. ``outcome`` says whether the target was detected, not
+    found (with the detector's reason), dropped as ambiguous, or found with
+    every feature filtered out. ``target`` holds the target-specific overlay
+    data (its ``kind`` is the detector's); its ``corners`` or ``rings`` list
+    has one entry per feature, in feature order. ``rejected`` lists the
+    point candidates left out, each with its reason. Positions are image
+    pixels, angles radians clockwise on screen from +x.
+    """
+
+    features: Features
+    """The detection's features."""
+    outcome: DetectionOutcome
+    """The image-level outcome."""
+    target: TargetDetail
+    """The target-specific overlay data."""
+    rejected: list[RejectedPoint]
+    """The point candidates left out, each with its reason."""
+
+
+def _detection_detail(parts: Any) -> DetectionDetail:
+    arrays, payload = parts
+    return DetectionDetail(
+        features=_features(arrays),
+        outcome=payload["outcome"],
+        target=payload["target"],
+        rejected=list(payload.get("rejected", [])),
     )
 
 

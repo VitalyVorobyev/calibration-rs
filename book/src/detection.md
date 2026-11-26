@@ -234,6 +234,42 @@ result = vc.planar_intrinsics.run_calibration(vc.PlanarIntrinsicsInput(views=vie
 
 `vc.reject_ambiguous_detection(features)` returns the detection, or an empty one when two features share an image point.
 
+## Inspecting a Detection
+
+A wrong detection is found by looking at it. `DetectorConfig::detect_detailed` returns a `DetectionDetail`: the features `detect` returns for the same image, bit for bit, with what an overlay needs to judge them.
+
+- **`outcome`**: `detected`; `not_found` with the detector's own reason (for a ChArUco board, why the marker match of each grid component failed); `ambiguous`, a detection that repeated a pixel or a target point and was dropped whole (with the counts); or `filtered`, a board found but every feature left out (see `rejected`).
+- **`target`**: the overlay data of the target kind, tagged by `kind`. Its `corners` (chessboard, ChArUco, PuzzleBoard) or `rings` (ring grid) list holds one entry per feature, in feature order, so an overlay item and the feature it draws share an index, and the feature's `world_xyz` names it in a project's feature exclusions. A corner carries its lattice label, its id (ChArUco, PuzzleBoard), the detector's score and, on a chessboard, the directions of its two grid lines; a ring carries its id or lattice cell, its confidence, its fitted ellipses, the estimator of its centre and, for a photometric centre, the detector's covariance of it. A ChArUco detail adds the decoded markers (their quads start at the square's top-left on the board) and the marker cells whose bits match another marker of the board better than the one the board places there; a PuzzleBoard detail adds each code bit read between two kept corners with whether it matches the master pattern, and the decode summary; a ring grid adds the origin dots of a plain board, predicted through the board homography. The chessboard, ChArUco and PuzzleBoard details carry the detector's localization summary (`quality`).
+- **`rejected`**: the point candidates left out, each with its reason: a chessboard corner no grid took (near the board, or the strongest 1 000 when no board was found), a corner labelled outside the declared board (with the target point it would have had), a ring marker the detector could not place on the board, or one whose photometric fit fell back to an ellipse centre.
+
+Positions are image pixels with the centre of pixel `i` at `i`, angles radians clockwise on screen from +x. What a detector does not report is left empty: ChArUco and PuzzleBoard corners carry no grid-line directions and list no unlabelled candidates, and the leave-one-out residual is an aggregate (`quality.local_residual_rms_px`), not a per-corner value.
+
+```rust,no_run
+use vision_calibration::detect::{
+    ChessboardConfig, DetectionOutcome, DetectorConfig, GrayImageView, TargetDetail,
+};
+# fn main() -> anyhow::Result<()> {
+
+let config = DetectorConfig::Chessboard(ChessboardConfig::new(17, 28, 0.02));
+let gray = image::open("data/kuka_1/01.png")?.to_luma8();
+let detail = config.detect_detailed(GrayImageView::new(gray.width(), gray.height(), gray.as_raw())?)?;
+if let DetectionOutcome::NotFound { reason } = &detail.outcome {
+    println!("no board: {reason}");
+}
+if let TargetDetail::Chessboard(board) = &detail.target {
+    for (feature, corner) in detail.features.iter().zip(&board.corners) {
+        println!("{:?} at {:?}, score {}", corner.grid, feature.image_xy, corner.score);
+    }
+}
+println!("{} candidates left out", detail.rejected.len());
+# Ok(())
+# }
+```
+
+`dataset_runner::detect_target_detail` does the same from a manifest's `target` section. `dataset_runner::detection_detail(spec, base_dir, camera, image, detection)` returns the detail of the detection a manifest run makes of one of its images: the same detector, region of interest and cache key, so with the run's cache it shows the features the run used. It stores the detail beside the cached features and reuses it while the two agree; when the cached features differ from a fresh detection it returns `RunError::DetailMismatch` rather than show a detection the run did not use. The detail is JSON with a published schema (`schemas/detection_detail.json`).
+
+In Python, `dataset_runner.detect_target_detail(image, target)` and `dataset_runner.detection_detail(manifest, camera, image, cache=...)` return a `DetectionDetail` whose `features` is a `Features` table and whose `outcome`, `target` and `rejected` are the payloads above.
+
 ## The Detection Cache
 
 Detection dominates the cost of iterating on a calibration: the solvers take milliseconds to seconds, the detectors seconds per image. The `DetectionCache` trait stores detections so a rerun with the same images and the same detector parameters reads files instead of detecting again.
@@ -269,7 +305,7 @@ let features = match cache.get(&key)? {
 # }
 ```
 
-`FsDetectionCache` writes one JSON file per entry under its root, named `<image>-<detector>-<config>.json` with a portable file-name encoding that is valid on Linux, macOS and Windows. Entries are written atomically, so the cache is safe under concurrent readers and writers. The dataset runner takes a `Detection` mode: `Detection::Cached(&cache)` reuses and stores entries, `Detection::Refresh(&cache)` detects every image again and overwrites its entry, and `Detection::Uncached` uses no cache. The cache is any `&dyn DetectionCache`, so an application can supply its own store.
+`FsDetectionCache` writes one JSON file per entry under its root, named `<image>-<detector>-<config>.json` with a portable file-name encoding that is valid on Linux, macOS and Windows, and a detection's detail beside it as `<image>-<detector>-<config>.detail.json` (`get_detail`, `put_detail`), which a calibration never reads. A cache of your own that does not implement the two detail methods stores no detail. Entries are written atomically, so the cache is safe under concurrent readers and writers. The dataset runner takes a `Detection` mode: `Detection::Cached(&cache)` reuses and stores entries, `Detection::Refresh(&cache)` detects every image again and overwrites its entry, and `Detection::Uncached` uses no cache. The cache is any `&dyn DetectionCache`, so an application can supply its own store.
 
 In Python, `vc.FsDetectionCache(root)` is the filesystem cache, passed as `cache=` to `calibrate_dataset` and the `build_*_input` functions (without one, every image is detected). Its `get(key)` and `put(key, features)` take a `CacheKey`; `CacheKey.from_inputs(image_bytes, detector, config)` keys entries you manage yourself.
 

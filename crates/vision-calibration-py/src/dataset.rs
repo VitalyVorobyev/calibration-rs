@@ -15,7 +15,7 @@ use vision_calibration::dataset_runner::{self as runner, Detection, LaserPixelEx
 use vision_calibration::detect::GrayImageView;
 
 use crate::control::PyRunControl;
-use crate::detect::PyFsDetectionCache;
+use crate::detect::{DetailParts, PyFsDetectionCache, detail_parts};
 use crate::errors::{calib_err, fetch_err, run_err, sniff_err};
 use crate::parse_payload;
 use crate::session::to_py;
@@ -480,6 +480,31 @@ pub(crate) fn patched_config(
     to_py(py, &tagged["config"])
 }
 
+/// `dataset_runner::detection_detail`: the detail of a run's detection of
+/// camera `camera`'s image `image`, through the run's cache.
+#[pyfunction]
+#[pyo3(signature = (manifest, camera, image, base_dir=None, cache=None, force_redetect=false))]
+pub(crate) fn detection_detail<'py>(
+    py: Python<'py>,
+    manifest: &Bound<'py, PyAny>,
+    camera: usize,
+    image: PathBuf,
+    base_dir: Option<PathBuf>,
+    cache: Option<PyRef<'py, PyFsDetectionCache>>,
+    force_redetect: bool,
+) -> PyResult<DetailParts<'py>> {
+    let (spec, base) = resolve_manifest(manifest, base_dir)?;
+    let detail = convert(
+        py,
+        cache,
+        force_redetect,
+        None,
+        |detection, _| runner::detection_detail(&spec, &base, camera, &image, detection),
+        |err| run_err(py, err),
+    )?;
+    detail_parts(py, &detail)
+}
+
 target_converter!(build_planar_input);
 target_converter!(build_single_cam_handeye_input);
 target_converter!(build_rig_extrinsics_input);
@@ -494,6 +519,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_manifest, m)?)?;
     m.add_function(wrap_pyfunction!(camera_image_sizes, m)?)?;
     m.add_function(wrap_pyfunction!(input_files, m)?)?;
+    m.add_function(wrap_pyfunction!(detection_detail, m)?)?;
     m.add_function(wrap_pyfunction!(vcal_main, m)?)?;
     m.add_function(wrap_pyfunction!(sample_catalogue, m)?)?;
     m.add_function(wrap_pyfunction!(fetch_sample, m)?)?;

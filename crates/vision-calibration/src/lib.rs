@@ -589,7 +589,7 @@ pub mod dataset_runner {
         build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
         build_rig_handeye_input, build_rig_handeye_laserline_input,
         build_rig_laserline_device_input, build_single_cam_handeye_input, calibrate_dataset,
-        camera_image_sizes, detect_target, input_files,
+        camera_image_sizes, detect_target, detect_target_detail, detection_detail, input_files,
     };
 }
 
@@ -621,14 +621,19 @@ pub mod project {
 /// these to avoid re-detecting corners/markers on repeated runs over the
 /// same images; [`FsDetectionCache`](detect::FsDetectionCache) is the
 /// filesystem-backed implementation of the [`DetectionCache`](detect::DetectionCache)
-/// trait.
+/// trait. [`DetectorConfig::detect_detailed`](detect::DetectorConfig::detect_detailed)
+/// returns a detection with what an overlay needs to judge it
+/// ([`DetectionDetail`](detect::DetectionDetail)).
 pub mod detect {
     pub use vision_calibration_detect::{
-        CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
-        CornerCovariance, CornerStrategy, DetectError, DetectionCache, DetectorConfig, Feature,
-        FeatureBlur, FsDetectionCache, GrayImageView, ImageNoise, PuzzleboardConfig,
-        RinggridCenterMethod, RinggridCoding, RinggridConfig, RinggridLattice,
-        reject_ambiguous_detection,
+        CacheError, CacheKey, CachedFeatures, CharucoConfig, CharucoDetail, ChessCornersConfig,
+        ChessboardConfig, ChessboardDetail, CornerCovariance, CornerDetail, CornerQuality,
+        CornerStrategy, DetectError, DetectionCache, DetectionDetail, DetectionOutcome,
+        DetectorConfig, EdgeBitDetail, EllipseDetail, Feature, FeatureBlur, FsDetectionCache,
+        GrayImageView, ImageNoise, MarkerDetail, PointRejection, PuzzleboardConfig,
+        PuzzleboardDecode, PuzzleboardDetail, RejectedMarker, RejectedPoint, RingCenter,
+        RingDetail, RinggridCenterMethod, RinggridCoding, RinggridConfig, RinggridDetail,
+        RinggridLattice, TargetDetail, reject_ambiguous_detection,
     };
 }
 

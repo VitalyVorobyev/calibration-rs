@@ -88,6 +88,8 @@ NATIVE_SUBMODULE_SURFACE: dict[str, tuple[str, str]] = {
     "sample_cache_dir": ("samples.py", "cache_dir"),
     "camera_image_sizes": ("dataset_runner.py", "camera_image_sizes"),
     "input_files": ("dataset_runner.py", "input_files"),
+    "detect_target_detail": ("dataset_runner.py", "detect_target_detail"),
+    "detection_detail": ("dataset_runner.py", "detection_detail"),
     "project_scan_library": ("project.py", "scan_library"),
     "patched_config": ("dataset_runner.py", "patched_config"),
     "build_planar_input": ("dataset_runner.py", "build_planar_input"),
