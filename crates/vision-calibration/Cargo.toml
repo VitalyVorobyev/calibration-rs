@@ -21,7 +21,7 @@ features = ["synthetic", "fetch", "schemars"]
 [features]
 default = []
 # Forward `schemars::JsonSchema` derives on the config + `*Export` types.
-# Consumed by the diagnose app's schema emitter to generate
+# Consumed by the desktop app's schema emitter to generate
 # TypeScript from the Rust types. Off by default so library
 # consumers don't pull in schemars.
 schemars = ["vision-calibration-pipeline/schemars"]

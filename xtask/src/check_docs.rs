@@ -162,7 +162,7 @@ fn user_facing_files(root: &Path) -> Result<Vec<DocFile>> {
             rustdoc_only: false,
         })
     };
-    for name in ["README.md", "CHANGELOG.md", "app/README.md"] {
+    for name in ["README.md", "CHANGELOG.md", "apps/studio/README.md"] {
         push_md(root.join(name));
     }
     for dir in ["book/src"] {

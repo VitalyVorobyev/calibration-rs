@@ -17,13 +17,13 @@ __pycache__/
 # — they hold reprojection statistics only.
 /crates/vision-calibration-bench/registry/private.json
 
-# Lockfiles. The workspace root's is tracked, and so is `app/src-tauri/`'s
+# Lockfiles. The workspace root's is tracked, and so is `apps/studio/src-tauri/`'s
 # (that crate is a binary, and binaries pin their dep tree). The rule below
 # exists for `crates/vision-calibration-examples-private/`, which is its own
 # workspace and whose lockfile we do not carry.
 Cargo.lock
 !/Cargo.lock
-!/app/src-tauri/Cargo.lock
+!/apps/studio/src-tauri/Cargo.lock
 
 # Scratch output from the review skills.
 REVIEW.md

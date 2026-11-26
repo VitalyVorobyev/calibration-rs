@@ -116,18 +116,19 @@ rather than guessing. `vcal run <manifest>` then calibrates it.
 
 ## Desktop app
 
-`app/` is a Tauri 2 + React desktop application that runs calibrations
-end-to-end and — the part a terminal cannot give you — *diagnoses* them:
-residual overlays on the source images, per-pose and per-camera residual
-panels, a 3D rig viewer, epipolar sanity checks, and dense stereo.
+Calibration Studio (`apps/studio/`) is a Tauri 2 + React desktop application
+that runs calibrations end-to-end and — the part a terminal cannot give you —
+*diagnoses* them: residual overlays on the source images, per-pose and
+per-camera residual panels, a 3D rig viewer, epipolar sanity checks, and dense
+stereo.
 
 ```bash
-cd app
+cd apps/studio
 bun install
 bun run tauri dev      # NOT `bun run dev` — that starts Vite without the Tauri APIs
 ```
 
-It uses **bun** exclusively. See [`app/README.md`](app/README.md).
+It uses **bun** exclusively. See [`apps/studio/README.md`](apps/studio/README.md).
 
 ## Examples
 

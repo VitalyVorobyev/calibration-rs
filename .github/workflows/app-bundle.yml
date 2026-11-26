@@ -1,4 +1,4 @@
-# Builds unsigned desktop bundles for the Tauri diagnose app (B-DIST-INSTALLERS).
+# Builds unsigned desktop bundles for Calibration Studio, the Tauri app (B-DIST-INSTALLERS).
 #
 # Scope, deliberately narrow:
 # - UNSIGNED. macOS bundles are not notarized and are not signed with an
@@ -39,15 +39,15 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact-name: calibration-diagnose-macos
+            artifact-name: calibration-studio-macos
             artifact-path: |
-              app/src-tauri/target/release/bundle/dmg/*.dmg
-              app/src-tauri/target/release/bundle/macos/*.app
+              apps/studio/src-tauri/target/release/bundle/dmg/*.dmg
+              apps/studio/src-tauri/target/release/bundle/macos/*.app
           - os: ubuntu-latest
-            artifact-name: calibration-diagnose-linux
+            artifact-name: calibration-studio-linux
             artifact-path: |
-              app/src-tauri/target/release/bundle/appimage/*.AppImage
-              app/src-tauri/target/release/bundle/deb/*.deb
+              apps/studio/src-tauri/target/release/bundle/appimage/*.AppImage
+              apps/studio/src-tauri/target/release/bundle/deb/*.deb
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -70,21 +70,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/src-tauri -> target
+          workspaces: apps/studio/src-tauri -> target
 
       - name: Set up bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: app/package.json
+          bun-version-file: apps/studio/package.json
 
       - name: Install dependencies
-        working-directory: app
+        working-directory: apps/studio
         run: bun install --frozen-lockfile
 
       # If DMG packaging fails with "AppleEvent timed out" (create-dmg needs an
       # Aqua session), drop `dmg` from `bundle.targets` in `tauri.conf.json`.
       - name: Build bundles
-        working-directory: app
+        working-directory: apps/studio
         run: bun run tauri build
 
       - name: Upload bundles

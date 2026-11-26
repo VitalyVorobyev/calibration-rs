@@ -112,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The desktop app is named Calibration Studio and lives in `apps/studio/`.
 - **Desktop app IPC types (breaking):** `DisparityResult::plane_rms` (`planeRms`
   in TypeScript) is now `Option<f64>` (`null` when fewer than three finite
   disparities exist or the plane fit is singular/non-finite; it was an

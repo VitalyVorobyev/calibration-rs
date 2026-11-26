@@ -1,0 +1,1960 @@
+//! In-process calibration runner for the Run workspace.
+//!
+//! Takes a JSON-encoded [`DatasetSpec`] manifest plus a JSON-encoded
+//! per-problem `*Config`, dispatches on the manifest's topology to the
+//! right `CalibrationSession`, runs detection (cached) + calibration on
+//! a `tauri::async_runtime::spawn_blocking` task, and returns the
+//! export plus run metrics. All seven topologies are supported; the
+//! laser topologies (ADR 0016) extract laser-line pixels through
+//! [`crate::laser::VmLaserExtractor`].
+//!
+//! Per ADR 0016, ambiguity that the runtime cannot auto-resolve is
+//! surfaced as a structured `RunResponse::AskUser` so the Run workspace
+//! can render a blocking modal instead of silently guessing.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::time::{Duration, Instant};
+
+use serde::{Deserialize, Serialize};
+use tauri::State;
+use tauri::ipc::Channel;
+
+use vision_calibration::control::{CancelToken, Progress, RunControl};
+use vision_calibration::core::{
+    FrameKind, FrameRef, ImageManifest, PixelRect, PlanarDataset, RigDataset,
+};
+use vision_calibration::dataset::{DatasetSpec, ProblemKind, validate};
+use vision_calibration::dataset_runner::{
+    Detection, RunError, build_laserline_device_input, build_planar_input,
+    build_rig_extrinsics_input, build_rig_handeye_input, build_rig_handeye_laserline_input,
+    build_rig_laserline_device_input, build_single_cam_handeye_input,
+};
+use vision_calibration::detect::{
+    CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
+};
+use vision_calibration::laserline_device::{
+    LaserlineDeviceConfig, LaserlineDeviceProblem,
+    run_calibration as run_laserline_device_calibration,
+};
+use vision_calibration::planar_intrinsics::{
+    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, run_calibration as run_planar_calibration,
+};
+use vision_calibration::rig_extrinsics::{
+    RigExtrinsicsConfig, RigExtrinsicsProblem, run_calibration as run_rig_extrinsics_calibration,
+};
+use vision_calibration::rig_handeye::{
+    RigHandeyeConfig, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
+};
+use vision_calibration::rig_handeye_laserline::{
+    RigHandeyeLaserlineConfig, RigHandeyeLaserlineProblem,
+    run_calibration as run_rig_handeye_laserline_calibration,
+};
+use vision_calibration::rig_laserline_device::{
+    RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
+    run_calibration as run_rig_laserline_device_calibration,
+};
+use vision_calibration::session::{CalibrationSession, ProblemType};
+use vision_calibration::single_cam_handeye::{
+    SingleCamHandeyeConfig, SingleCamHandeyeProblem,
+    run_calibration as run_single_cam_handeye_calibration,
+};
+
+use crate::export_cache::ExportCache;
+
+/// Successful calibration run.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RunSuccess {
+    /// Final export JSON, ready to drop into the diagnose viewer.
+    pub export: serde_json::Value,
+    /// Total wall-clock time for detection + calibration.
+    pub duration_ms: u64,
+    /// Number of usable views after detection. For single-camera
+    /// topologies: views with >= 4 features. For rig topologies: views
+    /// where at least one camera reached >= 4 features.
+    pub usable_views: usize,
+    /// Total number of views attempted (images for single-camera
+    /// topologies, paired rig views for rig topologies).
+    pub total_views: usize,
+    /// Whether at least one detection was served from the cache.
+    /// (Sanity check for "second run is faster"; precise per-image
+    /// hit/miss counts are not surfaced yet.)
+    pub cache_used: bool,
+}
+
+/// Pipeline stage a run is currently executing. Within a stage the
+/// library's own reports ([`Progress`]: each image detected, each
+/// calibration step, each solver iteration) ride along in
+/// [`RunProgress::report`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum RunStage {
+    /// Decoding images + detecting target/laser features (`build_*_input`).
+    Detect,
+    /// Linear init + non-linear bundle adjustment (`run_calibration`).
+    Solve,
+    /// Serializing the export + splicing the image manifest.
+    Export,
+}
+
+/// A progress message streamed to the Run workspace over a
+/// [`tauri::ipc::Channel`]. One is sent as each `RunStage` begins (no
+/// `report`) and then for the library's reports within it; terminal
+/// outcomes (success / failure / cancellation) are carried by the
+/// command's `RunResponse` return value, not the channel.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "schema-export", derive(schemars::JsonSchema))]
+pub struct RunProgress {
+    /// The stage under way.
+    pub stage: RunStage,
+    /// The library's report within the stage, absent when the stage
+    /// begins.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<Progress>,
+}
+
+impl RunProgress {
+    /// The stage `report` belongs to: images are detected, the rest solves.
+    fn of(report: Progress) -> Self {
+        let stage = match report {
+            Progress::Detection { .. } | Progress::LaserExtraction { .. } => RunStage::Detect,
+            _ => RunStage::Solve,
+        };
+        Self {
+            stage,
+            report: Some(report),
+        }
+    }
+}
+
+/// Solver iterations forwarded at most this often: a small solve iterates
+/// far faster than the webview redraws. Every other report is forwarded.
+const ITERATION_PERIOD: Duration = Duration::from_millis(50);
+
+/// The run control of one run: `token` stops it, and every report goes to
+/// `emit` (solver iterations no faster than [`ITERATION_PERIOD`]). The
+/// clock only throttles the display; nothing it reads enters a result.
+fn run_control(
+    token: CancelToken,
+    emit: impl Fn(RunProgress) + Send + Sync + 'static,
+) -> RunControl {
+    let last_iteration: Mutex<Option<Instant>> = Mutex::new(None);
+    RunControl::new()
+        .with_cancel(token)
+        .with_observer(move |report| {
+            if let Progress::Iteration { iter, .. } = report {
+                let now = Instant::now();
+                let Ok(mut last) = last_iteration.lock() else {
+                    return;
+                };
+                if iter > 1 && last.is_some_and(|t| now - t < ITERATION_PERIOD) {
+                    return;
+                }
+                *last = Some(now);
+            }
+            emit(RunProgress::of(report));
+        })
+}
+
+/// Per-run cancellation registry. Each in-flight `run_calibration_cmd`
+/// registers its run id against a [`CancelToken`]; `cancel_run_cmd`
+/// cancels it, and the library stops at its next image or solver
+/// iteration.
+///
+/// The map is only ever keyed by run id (insert / get / remove) — never
+/// iterated to produce a result — so its ordering is irrelevant to
+/// determinism (AGENTS.md).
+#[derive(Default)]
+pub struct RunRegistry {
+    inner: Mutex<HashMap<String, CancelToken>>,
+}
+
+impl RunRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register `run_id` and return its fresh token, or an error if `run_id`
+    /// is already in flight.
+    fn register(&self, run_id: &str) -> Result<CancelToken, String> {
+        let mut guard = self.inner.lock().expect("run registry mutex poisoned");
+        if guard.contains_key(run_id) {
+            return Err(format!("run {run_id:?} is already in flight"));
+        }
+        let token = CancelToken::new();
+        guard.insert(run_id.to_string(), token.clone());
+        Ok(token)
+    }
+
+    /// Drop `run_id` from the registry once its run has finished.
+    fn unregister(&self, run_id: &str) {
+        self.inner
+            .lock()
+            .expect("run registry mutex poisoned")
+            .remove(run_id);
+    }
+
+    /// Request cancellation of `run_id`. Returns `true` if a matching
+    /// in-flight run was found and flagged.
+    fn cancel(&self, run_id: &str) -> bool {
+        match self
+            .inner
+            .lock()
+            .expect("run registry mutex poisoned")
+            .get(run_id)
+        {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// Threaded through the runner so every topology arm can emit stage
+/// progress and hand the library its control without depending on the
+/// concrete `Channel` type (which keeps `run_blocking` unit-testable with
+/// a plain closure — see the tests).
+struct RunCtx<'a> {
+    progress: &'a dyn Fn(RunProgress),
+    control: RunControl,
+}
+
+impl RunCtx<'_> {
+    /// Announce that `stage` has begun (best-effort; a dropped channel
+    /// just means the UI went away mid-run).
+    fn stage(&self, stage: RunStage) {
+        (self.progress)(RunProgress {
+            stage,
+            report: None,
+        });
+    }
+
+    /// Whether the user has requested cancellation.
+    fn cancelled(&self) -> bool {
+        self.control.is_cancelled()
+    }
+}
+
+/// Tagged response shape so the React layer can match on `kind` rather
+/// than parsing free-form error strings.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RunResponse {
+    /// Calibration completed and an export was produced.
+    Ok(RunSuccess),
+    /// The user cancelled the run; it stopped at the next image, solver
+    /// iteration or stage boundary. Surfaced as a distinct UI state, not
+    /// an error.
+    Cancelled,
+    /// Runtime ambiguity per ADR 0016 — Run workspace must render a
+    /// modal asking the user to fill `field`.
+    AskUser {
+        /// Dotted field path the runtime needs help with.
+        field: String,
+        /// Human-friendly prompt copy for the modal.
+        prompt: String,
+        /// Optional preset suggestions (e.g. `["t_base_tcp", "t_tcp_base"]`).
+        suggestions: Vec<String>,
+    },
+    /// Manifest validation failed before the runner could touch the
+    /// filesystem. Holds the underlying validation message.
+    ValidationFailed { message: String },
+    /// User-correctable detection / IO / decode error. The frontend
+    /// surfaces `message` directly in a non-modal error banner.
+    Failed {
+        /// Stable kind tag for the frontend.
+        category: String,
+        /// Human-readable detail.
+        message: String,
+    },
+}
+
+/// Tauri command: run a calibration end-to-end.
+///
+/// `run_id` is a caller-generated correlation id (used to route
+/// cancellation via [`cancel_run_cmd`]). `manifest_json` is the raw JSON
+/// of a [`DatasetSpec`] (typically emitted by the schema-driven form in
+/// the Run workspace). `config_json` is the matching per-problem
+/// `*Config` JSON. `manifest_dir` is the directory whose globs are
+/// resolved against — usually the parent of the `dataset.toml` file the
+/// user picked. `on_progress` streams a [`RunProgress`] per stage.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri injects state and the app handle as arguments.
+pub async fn run_calibration_cmd<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    run_id: String,
+    manifest_json: serde_json::Value,
+    config_json: serde_json::Value,
+    manifest_dir: String,
+    on_progress: Channel<RunProgress>,
+    cache: State<'_, ExportCache>,
+    registry: State<'_, RunRegistry>,
+) -> Result<RunResponse, String> {
+    let token = registry.register(&run_id)?;
+    let images_dir = PathBuf::from(&manifest_dir);
+
+    // Long-running solve: keep IPC responsive by running on a blocking
+    // task. The State can't cross the spawn_blocking boundary directly,
+    // so we do detection + calibration on the worker thread and pop
+    // the produced export into the cache here, in the async caller.
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let reports = on_progress.clone();
+        let control = run_control(token, move |progress| {
+            let _ = reports.send(progress);
+        });
+        let emit = move |progress: RunProgress| {
+            let _ = on_progress.send(progress);
+        };
+        let ctx = RunCtx {
+            progress: &emit,
+            control,
+        };
+        run_blocking(manifest_json, config_json, &manifest_dir, &ctx)
+    })
+    .await;
+
+    registry.unregister(&run_id);
+
+    let response = result.map_err(|e| format!("runner task panicked: {e}"))?;
+    if let RunResponse::Ok(success) = &response {
+        cache.set(success.export.clone());
+        // The export's image manifest is relative to the dataset folder,
+        // whose images the webview now shows.
+        crate::assets::allow_dir(&app, &images_dir)?;
+    }
+    Ok(response)
+}
+
+/// Tauri command: request cancellation of an in-flight run.
+///
+/// Cancellation is cooperative: the library stops at its next image or
+/// solver iteration, and the runner at its next stage boundary. Returns `true` when a matching in-flight run was flagged,
+/// `false` if the run already finished (a benign race).
+#[tauri::command]
+pub fn cancel_run_cmd(run_id: String, registry: State<'_, RunRegistry>) -> bool {
+    registry.cancel(&run_id)
+}
+
+/// Tauri command: default `*Config` JSON for a topology.
+///
+/// Single source of truth for the Run workspace's config defaults —
+/// the TS side never hand-copies Rust default values.
+#[tauri::command]
+pub fn default_config_cmd(topology: String) -> Result<serde_json::Value, String> {
+    let value = match topology.as_str() {
+        "planar_intrinsics" => serde_json::to_value(PlanarIntrinsicsConfig::default()),
+        "single_cam_handeye" => serde_json::to_value(SingleCamHandeyeConfig::default()),
+        "laserline_device" => serde_json::to_value(LaserlineDeviceConfig::default()),
+        "rig_extrinsics" => serde_json::to_value(RigExtrinsicsConfig::default()),
+        "rig_handeye" => serde_json::to_value(RigHandeyeConfig::default()),
+        "rig_handeye_laserline" => serde_json::to_value(RigHandeyeLaserlineConfig::default()),
+        "rig_laserline_device" => serde_json::to_value(RigLaserlineDeviceConfig::default()),
+        other => return Err(format!("unknown topology {other:?}")),
+    };
+    value.map_err(|e| format!("default config serialization failed: {e}"))
+}
+
+struct CountingCache<C> {
+    inner: C,
+    hits: AtomicUsize,
+}
+
+impl<C> CountingCache<C> {
+    fn new(inner: C) -> Self {
+        Self {
+            inner,
+            hits: AtomicUsize::new(0),
+        }
+    }
+
+    fn hits(&self) -> usize {
+        self.hits.load(Ordering::Relaxed)
+    }
+}
+
+impl<C: DetectionCache> DetectionCache for CountingCache<C> {
+    fn get(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
+        let hit = self.inner.get(key)?;
+        if hit.is_some() {
+            self.hits.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(hit)
+    }
+
+    fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError> {
+        self.inner.put(key, value)
+    }
+}
+
+fn validate_config<P: ProblemType>(
+    config_json: &serde_json::Value,
+) -> Result<(), Box<RunResponse>> {
+    let config: P::Config = serde_json::from_value(config_json.clone()).map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "config_parse".into(),
+            message: format!("config parse failed: {e}"),
+        })
+    })?;
+    CalibrationSession::<P>::new()
+        .set_config(config)
+        .map_err(|e| {
+            Box::new(RunResponse::Failed {
+                category: "session_set_config".into(),
+                message: format!("set_config failed: {e}"),
+            })
+        })
+}
+
+fn validate_config_for_topology(
+    topology: ProblemKind,
+    config_json: &serde_json::Value,
+) -> Result<(), Box<RunResponse>> {
+    match topology {
+        ProblemKind::PlanarIntrinsics => validate_config::<PlanarIntrinsicsProblem>(config_json),
+        ProblemKind::RigExtrinsics => validate_config::<RigExtrinsicsProblem>(config_json),
+        ProblemKind::RigHandeye => validate_config::<RigHandeyeProblem>(config_json),
+        ProblemKind::SingleCamHandeye => validate_config::<SingleCamHandeyeProblem>(config_json),
+        ProblemKind::LaserlineDevice => validate_config::<LaserlineDeviceProblem>(config_json),
+        ProblemKind::RigLaserlineDevice => {
+            validate_config::<RigLaserlineDeviceProblem>(config_json)
+        }
+        ProblemKind::RigHandeyeLaserline => {
+            validate_config::<RigHandeyeLaserlineProblem>(config_json)
+        }
+        other => Err(Box::new(RunResponse::Failed {
+            category: "unsupported_topology".into(),
+            message: format!("topology {other:?} is not supported by this version"),
+        })),
+    }
+}
+
+fn run_blocking(
+    manifest_json: serde_json::Value,
+    config_json: serde_json::Value,
+    manifest_dir: &str,
+    ctx: &RunCtx,
+) -> RunResponse {
+    let started = Instant::now();
+    let spec: DatasetSpec = match serde_json::from_value(manifest_json) {
+        Ok(s) => s,
+        Err(e) => {
+            return RunResponse::Failed {
+                category: "manifest_parse".into(),
+                message: format!("manifest parse failed: {e}"),
+            };
+        }
+    };
+    // Detection (image decode + feature detection) is the long pole on a
+    // first run; announce it before validation / config / build_*_input so
+    // the stage checklist tracks progress even on early errors.
+    ctx.stage(RunStage::Detect);
+    if let Err(err) = validate(&spec) {
+        return RunResponse::ValidationFailed {
+            message: err.to_string(),
+        };
+    }
+    if let Err(boxed) = validate_config_for_topology(spec.topology, &config_json) {
+        return *boxed;
+    }
+    let base_dir = Path::new(manifest_dir);
+    let detection_cache =
+        CountingCache::new(FsDetectionCache::new(detection_cache_root(&spec, base_dir)));
+
+    match spec.topology {
+        ProblemKind::PlanarIntrinsics => run_planar_topology::<PlanarIntrinsicsProblem>(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+            ctx,
+            run_planar_calibration,
+        ),
+        ProblemKind::RigExtrinsics => run_rig_topology::<RigExtrinsicsProblem, _>(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+            ctx,
+            build_rig_extrinsics_input,
+            run_rig_extrinsics_calibration,
+        ),
+        ProblemKind::RigHandeye => run_rig_topology::<RigHandeyeProblem, _>(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+            ctx,
+            build_rig_handeye_input,
+            run_rig_handeye_calibration,
+        ),
+        ProblemKind::SingleCamHandeye => run_single_cam_handeye_topology(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+            ctx,
+        ),
+        ProblemKind::LaserlineDevice => {
+            run_laserline_topology(&spec, config_json, base_dir, &detection_cache, started, ctx)
+        }
+        ProblemKind::RigLaserlineDevice => {
+            run_rig_laserline_topology(&spec, config_json, base_dir, &detection_cache, started, ctx)
+        }
+        ProblemKind::RigHandeyeLaserline => run_rig_handeye_laserline_topology(
+            &spec,
+            config_json,
+            base_dir,
+            &detection_cache,
+            started,
+            ctx,
+        ),
+        other => RunResponse::Failed {
+            category: "unsupported_topology".into(),
+            message: format!("topology {other:?} is not supported by this version"),
+        },
+    }
+}
+
+/// Drive one `CalibrationSession` from parsed input to serialized
+/// export. Generic plumbing shared by every topology arm; the
+/// per-problem differences (input building, `run_calibration` wrapper,
+/// image-manifest shape) stay in the callers.
+fn run_session<P>(
+    input: P::Input,
+    config_json: serde_json::Value,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
+    ctx: &RunCtx,
+) -> Result<serde_json::Value, Box<RunResponse>>
+where
+    P: ProblemType,
+{
+    let config: P::Config = serde_json::from_value(config_json).map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "config_parse".into(),
+            message: format!("config parse failed: {e}"),
+        })
+    })?;
+    // Detect stage has completed (input is built). This is the first
+    // cancellation boundary; if the user hit cancel during detection,
+    // stop before the solve.
+    if ctx.cancelled() {
+        return Err(Box::new(RunResponse::Cancelled));
+    }
+    let mut session = CalibrationSession::<P>::new();
+    session.set_input(input).map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "session_set_input".into(),
+            message: format!("set_input failed: {e}"),
+        })
+    })?;
+    session.set_config(config).map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "session_set_config".into(),
+            message: format!("set_config failed: {e}"),
+        })
+    })?;
+    ctx.stage(RunStage::Solve);
+    session.set_control(ctx.control.clone());
+    run(&mut session).map_err(|e| {
+        Box::new(match e {
+            vision_calibration::Error::Cancelled => RunResponse::Cancelled,
+            e => RunResponse::Failed {
+                category: "calibration_failed".into(),
+                message: format!("calibration failed: {e}"),
+            },
+        })
+    })?;
+    // Second cancellation boundary: solve done, export not yet built.
+    if ctx.cancelled() {
+        return Err(Box::new(RunResponse::Cancelled));
+    }
+    ctx.stage(RunStage::Export);
+    let export = session.export().map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "session_export".into(),
+            message: format!("export failed: {e}"),
+        })
+    })?;
+    serde_json::to_value(&export).map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "export_serialize".into(),
+            message: format!("export serialization failed: {e}"),
+        })
+    })
+}
+
+/// Splice an image manifest into a serialized export. Every `*Export`
+/// carries it as `diagnostics.image_manifest: Option<ImageManifest>`
+/// (`#[serde(default)]`), so setting it on the JSON value is round-trip-safe
+/// and avoids a cross-export trait.
+fn splice_image_manifest(
+    export: &mut serde_json::Value,
+    manifest: Result<ImageManifest, String>,
+) -> Result<(), Box<RunResponse>> {
+    let manifest = manifest.map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "image_manifest".into(),
+            message: e,
+        })
+    })?;
+    let value = serde_json::to_value(&manifest).map_err(|e| {
+        Box::new(RunResponse::Failed {
+            category: "image_manifest".into(),
+            message: format!("image manifest serialization failed: {e}"),
+        })
+    })?;
+    export["diagnostics"]["image_manifest"] = value;
+    Ok(())
+}
+
+fn run_planar_topology<P>(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &CountingCache<FsDetectionCache>,
+    started: Instant,
+    ctx: &RunCtx,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
+) -> RunResponse
+where
+    P: ProblemType<Input = PlanarDataset>,
+{
+    let planar_run = match build_planar_input(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &ctx.control,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = detection_cache.hits() > 0;
+
+    let mut export = match run_session::<P>(planar_run.input.clone(), config_json, run, ctx) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        planar_image_manifest(&planar_run.view_paths, base_dir, spec.cameras[0].roi_xywh),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views: planar_run.usable_views,
+        total_views: planar_run.total_views,
+        cache_used,
+    })
+}
+
+fn run_single_cam_handeye_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &CountingCache<FsDetectionCache>,
+    started: Instant,
+    ctx: &RunCtx,
+) -> RunResponse {
+    let handeye_run = match build_single_cam_handeye_input(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &ctx.control,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = detection_cache.hits() > 0;
+    let usable_views = handeye_run.usable_views;
+    let total_views = handeye_run.total_views;
+
+    let mut export = match run_session::<SingleCamHandeyeProblem>(
+        handeye_run.input,
+        config_json,
+        run_single_cam_handeye_calibration,
+        ctx,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    // Single camera ⇒ the planar manifest shape (view = kept-view
+    // index, camera = 0) applies directly.
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        planar_image_manifest(&handeye_run.view_paths, base_dir, spec.cameras[0].roi_xywh),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+fn run_laserline_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &CountingCache<FsDetectionCache>,
+    started: Instant,
+    ctx: &RunCtx,
+) -> RunResponse {
+    let laser_run = match build_laserline_device_input(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &crate::laser::VmLaserExtractor,
+        &ctx.control,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = detection_cache.hits() > 0;
+    let usable_views = laser_run.usable_views;
+    let total_views = laser_run.total_views;
+
+    let mut export = match run_session::<LaserlineDeviceProblem>(
+        laser_run.input,
+        config_json,
+        run_laserline_device_calibration,
+        ctx,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    // Single camera ⇒ planar manifest shape (view = kept-view index,
+    // camera = 0) for the target frames, plus the aligned laser frames
+    // (ADR 0016 §5).
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        laserline_image_manifest(
+            &laser_run.view_paths,
+            &laser_run.laser_paths,
+            base_dir,
+            spec.cameras[0].roi_xywh,
+        ),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+fn run_rig_laserline_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &CountingCache<FsDetectionCache>,
+    started: Instant,
+    ctx: &RunCtx,
+) -> RunResponse {
+    let laser_run = match build_rig_laserline_device_input(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &crate::laser::VmLaserExtractor,
+        &ctx.control,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = detection_cache.hits() > 0;
+    let usable_views = laser_run.usable_views;
+    let total_views = laser_run.total_views;
+    let view_paths = laser_run.view_paths.clone();
+    let laser_paths = laser_run.laser_paths.clone();
+
+    let mut export = match run_session::<RigLaserlineDeviceProblem>(
+        laser_run.input,
+        config_json,
+        run_rig_laserline_device_calibration,
+        ctx,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        rig_laserline_image_manifest(&view_paths, &laser_paths, base_dir, spec),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+fn run_rig_handeye_laserline_topology(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &CountingCache<FsDetectionCache>,
+    started: Instant,
+    ctx: &RunCtx,
+) -> RunResponse {
+    let joint_run = match build_rig_handeye_laserline_input(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &crate::laser::VmLaserExtractor,
+        &ctx.control,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = detection_cache.hits() > 0;
+    let usable_views = joint_run.usable_views;
+    let total_views = joint_run.total_views;
+    let view_paths = joint_run.view_paths.clone();
+    let laser_paths = joint_run.laser_paths.clone();
+
+    let mut export = match run_session::<RigHandeyeLaserlineProblem>(
+        joint_run.input,
+        config_json,
+        run_rig_handeye_laserline_calibration,
+        ctx,
+    ) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        rig_laserline_image_manifest(&view_paths, &laser_paths, base_dir, spec),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+type RigBuilder<Meta> =
+    fn(
+        &DatasetSpec,
+        &Path,
+        Detection<'_>,
+        &RunControl,
+    ) -> Result<vision_calibration::dataset_runner::RigRunResult<Meta>, RunError>;
+
+// Internal generic dispatch helper: it fans the shared run inputs plus a
+// per-topology `build` + `run` pair into one code path shared by both rig
+// problem types. Bundling the six shared inputs into a struct just to
+// satisfy the arity lint would add indirection to every topology arm for
+// no readability gain.
+#[allow(clippy::too_many_arguments)]
+fn run_rig_topology<P, Meta>(
+    spec: &DatasetSpec,
+    config_json: serde_json::Value,
+    base_dir: &Path,
+    detection_cache: &CountingCache<FsDetectionCache>,
+    started: Instant,
+    ctx: &RunCtx,
+    build: RigBuilder<Meta>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), vision_calibration::Error>,
+) -> RunResponse
+where
+    P: ProblemType<Input = RigDataset<Meta>>,
+{
+    let rig_run = match build(
+        spec,
+        base_dir,
+        Detection::Cached(detection_cache),
+        &ctx.control,
+    ) {
+        Ok(r) => r,
+        Err(e) => return run_error_to_response(e),
+    };
+    let cache_used = detection_cache.hits() > 0;
+    let usable_views = rig_run.usable_views;
+    let total_views = rig_run.total_views;
+
+    let mut export = match run_session::<P>(rig_run.input, config_json, run, ctx) {
+        Ok(v) => v,
+        Err(boxed) => return *boxed,
+    };
+    if let Err(boxed) = splice_image_manifest(
+        &mut export,
+        rig_image_manifest(&rig_run.view_paths, base_dir, spec),
+    ) {
+        return *boxed;
+    }
+
+    RunResponse::Ok(RunSuccess {
+        export,
+        duration_ms: started.elapsed().as_millis() as u64,
+        usable_views,
+        total_views,
+        cache_used,
+    })
+}
+
+fn planar_image_manifest(
+    view_paths: &[PathBuf],
+    base_dir: &Path,
+    roi: Option<[u32; 4]>,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::with_capacity(view_paths.len());
+    for (view, path) in view_paths.iter().enumerate() {
+        frames.push(frame_ref(view, 0, path, &base_abs, roi)?);
+    }
+    Ok(manifest_from_frames(frames))
+}
+
+/// Single-camera laser manifest: target frames (kind omitted in JSON)
+/// plus one laser frame per kept view (ADR 0016 §5). `view_paths` and
+/// `laser_paths` are aligned by kept-view index.
+fn laserline_image_manifest(
+    view_paths: &[PathBuf],
+    laser_paths: &[PathBuf],
+    base_dir: &Path,
+    roi: Option<[u32; 4]>,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::with_capacity(view_paths.len() + laser_paths.len());
+    for (view, path) in view_paths.iter().enumerate() {
+        frames.push(frame_ref(view, 0, path, &base_abs, roi)?);
+    }
+    for (view, path) in laser_paths.iter().enumerate() {
+        frames.push(frame_ref_of_kind(
+            view,
+            0,
+            path,
+            &base_abs,
+            FrameKind::Laser,
+            roi,
+        )?);
+    }
+    Ok(manifest_from_frames(frames))
+}
+
+/// Rig laser manifest: target frames plus laser frames per
+/// `(view, camera)` slot that contributed a usable laser observation.
+fn rig_laserline_image_manifest(
+    view_paths: &[Vec<Option<PathBuf>>],
+    laser_paths: &[Vec<Option<PathBuf>>],
+    base_dir: &Path,
+    spec: &DatasetSpec,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::new();
+    for (view, cameras) in view_paths.iter().enumerate() {
+        for (camera, maybe_path) in cameras.iter().enumerate() {
+            if let Some(path) = maybe_path {
+                frames.push(frame_ref(
+                    view,
+                    camera,
+                    path,
+                    &base_abs,
+                    spec.cameras[camera].roi_xywh,
+                )?);
+            }
+        }
+    }
+    for (view, cameras) in laser_paths.iter().enumerate() {
+        for (camera, maybe_path) in cameras.iter().enumerate() {
+            if let Some(path) = maybe_path {
+                frames.push(frame_ref_of_kind(
+                    view,
+                    camera,
+                    path,
+                    &base_abs,
+                    FrameKind::Laser,
+                    spec.cameras[camera].roi_xywh,
+                )?);
+            }
+        }
+    }
+    Ok(manifest_from_frames(frames))
+}
+
+/// Build a rig manifest from `view_paths[view][camera]` — one frame
+/// per `(view, camera)` slot that contributed a usable observation.
+fn rig_image_manifest(
+    view_paths: &[Vec<Option<PathBuf>>],
+    base_dir: &Path,
+    spec: &DatasetSpec,
+) -> Result<ImageManifest, String> {
+    let base_abs = canonical_base(base_dir)?;
+    let mut frames = Vec::new();
+    for (view, cameras) in view_paths.iter().enumerate() {
+        for (camera, maybe_path) in cameras.iter().enumerate() {
+            if let Some(path) = maybe_path {
+                frames.push(frame_ref(
+                    view,
+                    camera,
+                    path,
+                    &base_abs,
+                    spec.cameras[camera].roi_xywh,
+                )?);
+            }
+        }
+    }
+    Ok(manifest_from_frames(frames))
+}
+
+fn canonical_base(base_dir: &Path) -> Result<PathBuf, String> {
+    dunce::canonicalize(base_dir)
+        .map_err(|e| format!("canonicalize manifest dir {}: {e}", base_dir.display()))
+}
+
+fn frame_ref(
+    view: usize,
+    camera: usize,
+    path: &Path,
+    base_abs: &Path,
+    roi: Option<[u32; 4]>,
+) -> Result<FrameRef, String> {
+    let abs = dunce::canonicalize(path)
+        .map_err(|e| format!("canonicalize image path {}: {e}", path.display()))?;
+    let rel = abs.strip_prefix(base_abs).map_err(|_| {
+        format!(
+            "accepted image {} is not under manifest dir {}",
+            abs.display(),
+            base_abs.display()
+        )
+    })?;
+    let mut frame = FrameRef::default();
+    frame.view = view;
+    frame.camera = camera;
+    frame.path = rel.to_path_buf();
+    frame.roi = roi.map(pixel_rect);
+    Ok(frame)
+}
+
+fn frame_ref_of_kind(
+    view: usize,
+    camera: usize,
+    path: &Path,
+    base_abs: &Path,
+    kind: FrameKind,
+    roi: Option<[u32; 4]>,
+) -> Result<FrameRef, String> {
+    let mut frame = frame_ref(view, camera, path, base_abs, roi)?;
+    frame.kind = kind;
+    Ok(frame)
+}
+
+fn pixel_rect([x, y, w, h]: [u32; 4]) -> PixelRect {
+    let mut rect = PixelRect::default();
+    rect.x = x;
+    rect.y = y;
+    rect.w = w;
+    rect.h = h;
+    rect
+}
+
+fn manifest_from_frames(frames: Vec<FrameRef>) -> ImageManifest {
+    let mut manifest = ImageManifest::default();
+    manifest.root = PathBuf::from(".");
+    manifest.frames = frames;
+    manifest
+}
+
+fn run_error_to_response(err: RunError) -> RunResponse {
+    match err {
+        RunError::AskUser {
+            field,
+            prompt,
+            suggestions,
+        } => RunResponse::AskUser {
+            field,
+            prompt,
+            suggestions,
+        },
+        RunError::Validation(v) => RunResponse::ValidationFailed {
+            message: v.to_string(),
+        },
+        RunError::Cancelled => RunResponse::Cancelled,
+        other => RunResponse::Failed {
+            category: error_category(&other).into(),
+            message: other.to_string(),
+        },
+    }
+}
+
+fn error_category(err: &RunError) -> &'static str {
+    match err {
+        RunError::Validation(_) => "validation",
+        RunError::UnsupportedTopology { .. } => "unsupported_topology",
+        RunError::UnsupportedTarget { .. } => "unsupported_target",
+        RunError::UnsupportedOption { .. } => "unsupported_option",
+        RunError::InvalidTargetConfig { .. } | RunError::CovarianceUnsupported { .. } => {
+            "invalid_target_config"
+        }
+        RunError::EmptyImageMatch { .. } => "empty_image_match",
+        RunError::BadGlob { .. } => "bad_glob",
+        RunError::ViewCountMismatch { .. } => "view_pairing",
+        RunError::PoseCountMismatch { .. } => "view_pairing",
+        RunError::PoseParse { .. } => "pose_parse",
+        RunError::BadPairingRegex { .. } => "view_pairing",
+        RunError::PairingTokenMismatch { .. } => "view_pairing",
+        RunError::Io(_) => "io",
+        RunError::Decode { .. } => "decode",
+        RunError::ImageSizeMismatch { .. } | RunError::RoiOutOfBounds { .. } => {
+            "image_size_mismatch"
+        }
+        RunError::Detection { .. } | RunError::CornerCovariance { .. } => "detection",
+        RunError::Cache(_) => "cache",
+        RunError::AskUser { .. } => "ask_user",
+        RunError::InsufficientUsableViews { .. } => "insufficient_views",
+        RunError::NoWholeChessboardViews { .. } => "insufficient_views",
+        RunError::LaserPairing { .. } => "view_pairing",
+        RunError::LaserExtraction { .. } => "detection",
+        RunError::InsufficientLaserViews { .. } => "insufficient_views",
+        RunError::UpstreamCalibration { .. } => "upstream_calibration",
+        RunError::Cancelled => "cancelled",
+        _ => "unknown",
+    }
+}
+
+fn detection_cache_root(spec: &DatasetSpec, base_dir: &Path) -> PathBuf {
+    // Per ADR 0016 the cache root is per-dataset. We use a stable id
+    // from the manifest's `description` if set, otherwise the absolute
+    // base directory mangled into a filesystem-safe slug.
+    let id = match &spec.description {
+        Some(d) if !d.is_empty() => slug(d),
+        _ => slug(&base_dir.to_string_lossy()),
+    };
+    let cache_home = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
+    cache_home
+        .join("calibration-rs")
+        .join("detections")
+        .join(id)
+}
+
+fn slug(input: &str) -> String {
+    input
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use vision_calibration::dataset::{CameraSource, ImagePattern, PosePairing, TargetSpec};
+
+    /// Drive `run_blocking` with a discarding progress sink and a
+    /// never-cancelled flag — the plumbing the `Channel`/`RunRegistry`
+    /// supply in production, stubbed so the topology arms stay testable
+    /// without a live Tauri runtime.
+    fn run_blocking_test(
+        manifest_json: serde_json::Value,
+        config_json: serde_json::Value,
+        manifest_dir: &str,
+    ) -> RunResponse {
+        let noop = |_progress: RunProgress| {};
+        let ctx = RunCtx {
+            progress: &noop,
+            control: RunControl::default(),
+        };
+        run_blocking(manifest_json, config_json, manifest_dir, &ctx)
+    }
+
+    /// Like [`run_blocking_test`] but records each stage announced and
+    /// each library report, and cancels the run at the first message
+    /// `cancel_at` accepts — used to assert the stage sequence and that a
+    /// cancel stops the run mid-stage.
+    fn run_blocking_capturing(
+        manifest_json: serde_json::Value,
+        config_json: serde_json::Value,
+        manifest_dir: &str,
+        cancel_at: fn(&RunProgress) -> bool,
+    ) -> (RunResponse, Vec<RunStage>, Vec<Progress>) {
+        use std::sync::Arc;
+        let stages = Mutex::new(Vec::new());
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let token = CancelToken::new();
+        let hook_token = token.clone();
+        let hook = |progress: RunProgress| {
+            stages.lock().unwrap().push(progress.stage);
+            if cancel_at(&progress) {
+                hook_token.cancel();
+            }
+        };
+        let log = Arc::clone(&reports);
+        let report_token = token.clone();
+        let control = run_control(token, move |progress| {
+            log.lock().unwrap().extend(progress.report);
+            if cancel_at(&progress) {
+                report_token.cancel();
+            }
+        });
+        let ctx = RunCtx {
+            progress: &hook,
+            control,
+        };
+        let response = run_blocking(manifest_json, config_json, manifest_dir, &ctx);
+        let seen = stages.lock().unwrap().clone();
+        let reported = reports.lock().unwrap().clone();
+        (response, seen, reported)
+    }
+
+    fn scheimpflug_rig_detector_override() -> serde_json::Value {
+        json!({
+            "chess_corners": {
+                "threshold_value": 30.0,
+            }
+        })
+    }
+
+    fn scheimpflug_rig_manual_intrinsics_init() -> serde_json::Value {
+        let intrinsics: Vec<_> = (0..6)
+            .map(|_| json!({"fx": 2000.0, "fy": 2000.0, "cx": 360.0, "cy": 270.0}))
+            .collect();
+        let distortion: Vec<_> = (0..6)
+            .map(|_| json!({"type": "brown_conrady5", "k1": 0.0, "k2": 0.0, "k3": 0.0, "p1": 0.0, "p2": 0.0, "iters": 8}))
+            .collect();
+        let sensors: Vec<_> = (0..6)
+            .map(|_| json!({"tilt_x": 0.0, "tilt_y": 0.0}))
+            .collect();
+        json!({
+            "per_cam_intrinsics": intrinsics,
+            "per_cam_distortion": distortion,
+            "per_cam_sensors": sensors,
+        })
+    }
+
+    fn spec_with_rois(rois: &[Option<[u32; 4]>]) -> DatasetSpec {
+        let cameras = rois
+            .iter()
+            .enumerate()
+            .map(|(i, roi)| {
+                let mut camera = CameraSource::new(
+                    format!("cam{i}"),
+                    ImagePattern::Glob {
+                        pattern: format!("cam{i}/*.png"),
+                    },
+                );
+                camera.roi_xywh = *roi;
+                camera
+            })
+            .collect();
+        let mut spec = DatasetSpec::new(
+            cameras,
+            TargetSpec::chessboard(9, 6, 0.025),
+            ProblemKind::RigExtrinsics,
+        );
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        spec
+    }
+
+    #[test]
+    fn run_registry_flags_only_the_matching_run() {
+        let registry = RunRegistry::new();
+        let flag = registry.register("run-a").unwrap();
+        assert!(!flag.is_cancelled());
+
+        // Cancelling an unknown id is a no-op that reports "not found".
+        assert!(!registry.cancel("run-b"));
+        assert!(!flag.is_cancelled());
+
+        // Cancelling the registered id flips its flag.
+        assert!(registry.cancel("run-a"));
+        assert!(flag.is_cancelled());
+
+        // After unregister, the id is gone.
+        registry.unregister("run-a");
+        assert!(!registry.cancel("run-a"));
+    }
+
+    #[test]
+    fn run_registry_rejects_duplicate_in_flight_id() {
+        let registry = RunRegistry::new();
+        let _first = registry.register("run-dup").unwrap();
+        let err = registry.register("run-dup").unwrap_err();
+        assert!(err.contains("already in flight"), "{err}");
+        registry.unregister("run-dup");
+        assert!(registry.register("run-dup").is_ok());
+    }
+
+    #[test]
+    fn counting_cache_counts_only_cache_hits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = CountingCache::new(FsDetectionCache::new(tmp.path()));
+        let key = CacheKey::from_inputs(b"img", "chessboard", &json!({ "rows": 5 }));
+        assert_eq!(cache.hits(), 0);
+        assert!(cache.get(&key).unwrap().is_none());
+        assert_eq!(cache.hits(), 0);
+
+        cache.put(&key, &CachedFeatures::new(vec![])).unwrap();
+        assert!(cache.get(&key).unwrap().is_some());
+        assert_eq!(cache.hits(), 1);
+    }
+
+    #[test]
+    fn run_blocking_validates_config_before_detection() {
+        let manifest = json!({
+            "version": 1,
+            "topology": "planar_intrinsics",
+            "target": { "kind": "chessboard", "cols": 9, "rows": 6, "square_size_m": 0.025 },
+            "cameras": [{ "id": "cam0", "images": { "kind": "glob", "pattern": "does_not_exist/*.png" } }]
+        });
+        let bad_config = json!({ "not_a_real_field": 123, "optimize": { "max_iters": 0 } });
+        let cancel = CancelToken::new();
+        let ctx = RunCtx {
+            progress: &|_| {},
+            control: RunControl::new().with_cancel(cancel),
+        };
+        let resp = run_blocking(manifest, bad_config, "/nonexistent_dir_12345", &ctx);
+        match resp {
+            RunResponse::Failed { category, .. } => {
+                assert!(
+                    category == "config_parse" || category == "session_set_config",
+                    "unexpected category {category}"
+                );
+            }
+            other => panic!("expected config error before detection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_progress_serializes_snake_case() {
+        let json = serde_json::to_value(RunProgress {
+            stage: RunStage::Detect,
+            report: None,
+        })
+        .unwrap();
+        assert_eq!(json, json!({ "stage": "detect" }));
+        let json = serde_json::to_value(RunProgress::of(Progress::detection(2, 5))).unwrap();
+        assert_eq!(
+            json,
+            json!({ "stage": "detect", "report": { "kind": "detection", "done": 2, "total": 5 } })
+        );
+        let json = serde_json::to_value(RunProgress::of(Progress::step("optimize"))).unwrap();
+        assert_eq!(json["stage"], "solve");
+        for (stage, tag) in [
+            (RunStage::Detect, "detect"),
+            (RunStage::Solve, "solve"),
+            (RunStage::Export, "export"),
+        ] {
+            assert_eq!(serde_json::to_value(stage).unwrap(), json!(tag));
+        }
+    }
+
+    #[test]
+    fn cancelled_response_serializes_as_kind_cancelled() {
+        assert_eq!(
+            serde_json::to_value(RunResponse::Cancelled).unwrap(),
+            json!({ "kind": "cancelled" })
+        );
+    }
+
+    #[test]
+    fn detect_stage_fires_before_a_validation_failure() {
+        // A rig laser manifest without laser_images fails inside
+        // `build_*_input`; the runner still announces the Detect stage
+        // first (and never reaches Solve / Export).
+        let manifest = json!({
+            "version": 1,
+            "topology": "rig_laserline_device",
+            "cameras": [
+                {"id": "cam0", "images": {"kind": "glob", "pattern": "*.png"}},
+                {"id": "cam1", "images": {"kind": "glob", "pattern": "*.png"}},
+            ],
+            "target": {"kind": "chessboard", "rows": 9, "cols": 6, "square_size_m": 0.025},
+            "robot_poses": {"path": "poses.txt", "format": "rowmajor4x4"},
+            "pose_convention": {
+                "transform": "t_base_tcp",
+                "rotation_format": "matrix4x4_row_major",
+                "translation_units": "m",
+            },
+        });
+        let (response, stages, _) = run_blocking_capturing(manifest, json!({}), "/tmp", |_| false);
+        assert!(
+            matches!(response, RunResponse::ValidationFailed { .. }),
+            "expected ValidationFailed, got {response:?}"
+        );
+        assert_eq!(stages, vec![RunStage::Detect]);
+    }
+
+    #[test]
+    fn laser_topologies_dispatch_and_fail_validation_without_laser_images() {
+        // The laser arms are wired (ADR 0016); a manifest without
+        // laser_images must now fail *validation*, not dispatch.
+        for (topology, num_cams) in [("laserline_device", 1), ("rig_laserline_device", 2)] {
+            let cameras: Vec<_> = (0..num_cams)
+                .map(|i| json!({"id": format!("cam{i}"), "images": {"kind": "glob", "pattern": "*.png"}}))
+                .collect();
+            let mut manifest = json!({
+                "version": 1,
+                "topology": topology,
+                "cameras": cameras,
+                "target": {"kind": "chessboard", "rows": 9, "cols": 6, "square_size_m": 0.025},
+            });
+            if topology == "rig_laserline_device" {
+                manifest["robot_poses"] = json!({"path": "poses.txt", "format": "rowmajor4x4"});
+                manifest["pose_convention"] = json!({
+                    "transform": "t_base_tcp",
+                    "rotation_format": "matrix4x4_row_major",
+                    "translation_units": "m",
+                });
+            }
+            let response = run_blocking_test(manifest, json!({}), "/tmp");
+            match response {
+                RunResponse::ValidationFailed { message } => {
+                    assert!(message.contains("laser_images"), "{topology}: {message}");
+                }
+                other => panic!("expected ValidationFailed for {topology}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn default_config_round_trips_per_topology() {
+        for topology in [
+            "planar_intrinsics",
+            "single_cam_handeye",
+            "laserline_device",
+            "rig_extrinsics",
+            "rig_handeye",
+            "rig_laserline_device",
+        ] {
+            let value = default_config_cmd(topology.to_string())
+                .unwrap_or_else(|e| panic!("default config for {topology}: {e}"));
+            assert!(value.is_object(), "{topology} default must be an object");
+        }
+        assert!(default_config_cmd("not_a_topology".into()).is_err());
+    }
+
+    #[test]
+    fn rig_manifest_skips_none_slots_and_indexes_cameras() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        std::fs::create_dir_all(base.join("cam0")).unwrap();
+        std::fs::create_dir_all(base.join("cam1")).unwrap();
+        std::fs::write(base.join("cam0/a.png"), b"x").unwrap();
+        std::fs::write(base.join("cam1/a.png"), b"x").unwrap();
+        std::fs::write(base.join("cam0/b.png"), b"x").unwrap();
+
+        let view_paths = vec![
+            vec![Some(base.join("cam0/a.png")), Some(base.join("cam1/a.png"))],
+            vec![Some(base.join("cam0/b.png")), None], // cam1 missed view 1
+        ];
+        let spec = spec_with_rois(&[Some([0, 0, 720, 540]), Some([720, 0, 720, 540])]);
+        let manifest = rig_image_manifest(&view_paths, base, &spec).unwrap();
+        assert_eq!(manifest.frames.len(), 3);
+        let f = &manifest.frames[2];
+        assert_eq!((f.view, f.camera), (1, 0));
+        assert_eq!(f.path, PathBuf::from("cam0/b.png"));
+        assert_eq!(f.roi, Some(pixel_rect([0, 0, 720, 540])));
+        // No frame for the None slot.
+        assert!(
+            !manifest.frames.iter().any(|f| f.view == 1 && f.camera == 1),
+            "None slots must not produce frames"
+        );
+    }
+
+    #[test]
+    fn laser_manifests_emit_both_frame_kinds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        std::fs::create_dir_all(base.join("cam0")).unwrap();
+        for name in ["cam0/t0.png", "cam0/t1.png", "cam0/l0.png", "cam0/l1.png"] {
+            std::fs::write(base.join(name), b"x").unwrap();
+        }
+
+        // Single-camera: target + laser frames aligned by kept-view index.
+        let manifest = laserline_image_manifest(
+            &[base.join("cam0/t0.png"), base.join("cam0/t1.png")],
+            &[base.join("cam0/l0.png"), base.join("cam0/l1.png")],
+            base,
+            Some([5, 6, 32, 24]),
+        )
+        .unwrap();
+        assert_eq!(manifest.target_frames().count(), 2);
+        assert_eq!(manifest.laser_frames().count(), 2);
+        let laser = manifest.frame_of_kind(1, 0, FrameKind::Laser).unwrap();
+        assert_eq!(laser.path, PathBuf::from("cam0/l1.png"));
+        assert_eq!(laser.roi, Some(pixel_rect([5, 6, 32, 24])));
+        // `frame()` stays target-only despite the laser entry for (1, 0).
+        assert_eq!(
+            manifest.frame(1, 0).unwrap().path,
+            PathBuf::from("cam0/t1.png")
+        );
+
+        // Rig: None laser slots produce no frames.
+        let manifest = rig_laserline_image_manifest(
+            &[vec![Some(base.join("cam0/t0.png"))]],
+            &[vec![None]],
+            base,
+            &spec_with_rois(&[Some([5, 6, 32, 24])]),
+        )
+        .unwrap();
+        assert_eq!(manifest.laser_frames().count(), 0);
+        assert_eq!(manifest.target_frames().count(), 1);
+    }
+
+    #[test]
+    fn image_manifest_splice_lands_in_export_json() {
+        let mut export =
+            json!({"kind": "planar_intrinsics", "diagnostics": {"per_feature_residuals": {}}});
+        let mut manifest = ImageManifest::default();
+        manifest.root = PathBuf::from(".");
+        splice_image_manifest(&mut export, Ok(manifest)).unwrap();
+        assert!(export["diagnostics"]["image_manifest"].is_object());
+        assert_eq!(export["diagnostics"]["image_manifest"]["root"], ".");
+        assert!(export["diagnostics"]["per_feature_residuals"].is_object());
+    }
+
+    /// Load a local-data preset (manifest JSON + default config + dir).
+    /// Skips (returns `None`) when the dataset is absent — `data/stereo*`
+    /// are gitignored, local-only.
+    fn load_local_preset(
+        rel_manifest: &str,
+    ) -> Option<(serde_json::Value, serde_json::Value, String)> {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let manifest_path = repo_root.join(rel_manifest);
+        if !manifest_path.exists() {
+            eprintln!("skipping: {} not present", manifest_path.display());
+            return None;
+        }
+        let raw = std::fs::read_to_string(&manifest_path).unwrap();
+        let manifest: serde_json::Value =
+            serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
+        let topology = manifest["topology"].as_str().unwrap().to_string();
+        let config = default_config_cmd(topology).unwrap();
+        let dir = manifest_path
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        Some((manifest, config, dir))
+    }
+
+    /// Run one local-data preset end-to-end through `run_blocking` and
+    /// return the success payload. Skips (returns `None`) when absent.
+    fn run_local_preset(rel_manifest: &str) -> Option<RunSuccess> {
+        let (manifest, config, dir) = load_local_preset(rel_manifest)?;
+        match run_blocking_test(manifest, config, &dir) {
+            RunResponse::Ok(success) => Some(success),
+            other => panic!("{rel_manifest}: expected Ok, got {other:?}"),
+        }
+    }
+
+    /// Progress + cancellation over the committed `data/kuka_1` dataset.
+    /// Ignored for time (full detect + solve), not availability. Verifies
+    /// (a) a clean run announces `[Detect, Solve, Export]` in order, with a
+    /// report per image detected and the solver's iterations, and (b) a
+    /// cancel during detection or in a solve stops the run there, as
+    /// `Cancelled`, never reaching Export.
+    #[test]
+    #[ignore = "full detection + solve takes tens of seconds; run with --ignored"]
+    fn kuka_progress_stages_and_cancellation() {
+        let (manifest, config, dir) = load_local_preset("data/kuka_1/dataset.toml")
+            .expect("data/kuka_1 is committed; the manifest must be present");
+
+        let (ok, stages, reports) =
+            run_blocking_capturing(manifest.clone(), config.clone(), &dir, |_| false);
+        let RunResponse::Ok(success) = ok else {
+            panic!("clean run: got {ok:?}");
+        };
+        let announced: Vec<RunStage> = stages.iter().copied().fold(Vec::new(), |mut acc, stage| {
+            if acc.last() != Some(&stage) {
+                acc.push(stage);
+            }
+            acc
+        });
+        assert_eq!(
+            announced,
+            vec![RunStage::Detect, RunStage::Solve, RunStage::Export],
+            "clean run must announce every stage in order"
+        );
+        let detected = reports
+            .iter()
+            .filter(|r| matches!(r, Progress::Detection { .. }))
+            .count();
+        assert_eq!(detected, success.total_views, "one report per image");
+        assert!(
+            reports
+                .iter()
+                .any(|r| matches!(r, Progress::Iteration { .. }))
+        );
+
+        for cancel_at in [
+            (|p: &RunProgress| matches!(p.report, Some(Progress::Detection { done: 2, .. })))
+                as fn(&RunProgress) -> bool,
+            // The first iteration of a solve is always forwarded.
+            |p: &RunProgress| matches!(p.report, Some(Progress::Iteration { iter: 1, .. })),
+        ] {
+            let (cancelled, stages, _) =
+                run_blocking_capturing(manifest.clone(), config.clone(), &dir, cancel_at);
+            assert!(
+                matches!(cancelled, RunResponse::Cancelled),
+                "cancelled mid-stage: got {cancelled:?}"
+            );
+            assert!(
+                !stages.contains(&RunStage::Export),
+                "cancellation must stop before Export"
+            );
+        }
+    }
+
+    /// Local-only end-to-end acceptance over the gitignored bundled
+    /// datasets. Run manually:
+    /// `cargo test -p calibration-studio -- --ignored --nocapture`
+    #[test]
+    #[ignore = "needs the local data/stereo + data/stereo_charuco datasets"]
+    fn local_presets_end_to_end() {
+        if let Some(s) = run_local_preset("data/stereo/dataset_rig.toml") {
+            assert!(
+                s.usable_views >= 10,
+                "stereo rig: {} usable",
+                s.usable_views
+            );
+            assert!(s.export["cameras"].is_array(), "rig export has cameras[]");
+            assert!(s.export["diagnostics"]["image_manifest"]["frames"].is_array());
+        }
+        if let Some(s) = run_local_preset("data/stereo_charuco/dataset_cam1.toml") {
+            assert!(
+                s.usable_views >= 10,
+                "charuco cam1: {} usable",
+                s.usable_views
+            );
+            assert!(s.export["diagnostics"]["image_manifest"]["frames"].is_array());
+        }
+        if let Some(s) = run_local_preset("data/stereo_charuco/dataset_rig.toml") {
+            assert!(
+                s.usable_views >= 10,
+                "charuco rig: {} usable",
+                s.usable_views
+            );
+            assert!(s.export["cameras"].is_array(), "rig export has cameras[]");
+        }
+    }
+
+    /// Frozen-upstream laser diagnostic over the local scheimpflug_rig dataset
+    /// (6-camera Scheimpflug rig, tiled strips, ChArUco + laser
+    /// frames): rig hand-eye first, then `RigLaserlineDevice` with the
+    /// stage-1 export as the frozen upstream — exactly the user
+    /// diagnostic path the laser slice ships (ADR 0016). Skips when
+    /// `privatedata/scheimpflug_rig` is absent (gitignored, local-only).
+    #[test]
+    #[ignore = "needs the local privatedata/scheimpflug_rig dataset; 6-cam detection + two solves"]
+    fn scheimpflug_rig_laser_end_to_end() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let data_dir = repo_root.join("privatedata/scheimpflug_rig");
+        if !data_dir.exists() {
+            eprintln!("skipping: {} not present", data_dir.display());
+            return;
+        }
+        let read_manifest = |name: &str| -> serde_json::Value {
+            let raw = std::fs::read_to_string(data_dir.join(name)).unwrap();
+            let mut manifest: serde_json::Value =
+                serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
+            manifest["detector"] = scheimpflug_rig_detector_override();
+            manifest
+        };
+        let dir = data_dir.to_string_lossy().to_string();
+
+        // ── Stage 1: rig hand-eye (Scheimpflug, EyeToHand) ────────────────
+        // Same overrides the scheimpflug_rig_calibrate example settled on; every one is
+        // plain config JSON, i.e. reachable from the app's config form.
+        let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
+        handeye_config["manual_init"] = scheimpflug_rig_manual_intrinsics_init();
+        handeye_config["camera"] = json!({
+            "model": {
+                "projection": "pinhole",
+                "distortion": "brown_conrady5",
+                "sensor": "scheimpflug",
+            },
+            "fix": {
+                "sensor": [],
+                "distortion": ["k3", "p1", "p2"],
+            },
+        });
+        handeye_config["rig"]["refine_sensor"] = json!(false);
+        handeye_config["rig"]["refine_intrinsics"] = json!(false);
+        handeye_config["handeye_init"]["handeye_mode"] = json!("eye_to_hand");
+        handeye_config["solver"]["max_iters"] = json!(200);
+        let huber = json!({"kind": "huber", "scale": 1.0});
+        handeye_config["intrinsics_optimize"]["reprojection_loss"] = huber.clone();
+        handeye_config["rig"]["reprojection_loss"] = huber.clone();
+        handeye_config["handeye_optimize"]["reprojection_loss"] = huber;
+        let handeye = match run_blocking_test(
+            read_manifest("dataset_rig_handeye.toml"),
+            handeye_config.clone(),
+            &dir,
+        ) {
+            RunResponse::Ok(s) => s,
+            other => panic!("rig handeye stage: expected Ok, got {other:?}"),
+        };
+        assert!(
+            handeye.usable_views >= 10,
+            "rig handeye: {} usable views",
+            handeye.usable_views
+        );
+        // The hand-eye stage lands at ~1.5-2 px on scheimpflug_rig (the example's
+        // own hand-eye stage shows 1.6-2.1 px per camera; sub-pixel
+        // needs the downstream joint BA). The oracle is ~2.2 px.
+        let mean_px = handeye.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(mean_px < 2.2, "rig handeye mean reproj {mean_px:.3} px");
+        std::fs::write(
+            data_dir.join("rig_handeye_export.json"),
+            serde_json::to_string(&handeye.export).unwrap(),
+        )
+        .unwrap();
+
+        // ── Stage 2: rig laserline over the frozen upstream diagnostic ────
+        // PointToPlane keeps the residual in metres (the example's
+        // stage-3 choice), so the σ gate below is unit-meaningful.
+        let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
+        laser_config["solver"]["max_iters"] = json!(200);
+        laser_config["optimize"]["laser_residual_type"] = json!("point_to_plane");
+        let laser = match run_blocking_test(read_manifest("dataset_laser.toml"), laser_config, &dir)
+        {
+            RunResponse::Ok(s) => s,
+            other => panic!("rig laserline stage: expected Ok, got {other:?}"),
+        };
+        // Persist the stage-2 export so the app can open it (laser
+        // overlay + 3D planes). Stop-gap until the app grows a
+        // "save export to file" action.
+        std::fs::write(
+            data_dir.join("rig_laserline_export.json"),
+            serde_json::to_string(&laser.export).unwrap(),
+        )
+        .unwrap();
+        let planes = laser.export["laser_planes_cam"].as_array().unwrap();
+        assert_eq!(planes.len(), 6, "one laser plane per camera");
+        // Viewer contract: the export must be self-contained for the
+        // 3D / diagnose workspaces (frozen upstream echo + headline
+        // reprojection number).
+        assert_eq!(laser.export["cameras"].as_array().unwrap().len(), 6);
+        assert_eq!(laser.export["cam_se3_rig"].as_array().unwrap().len(), 6);
+        assert_eq!(
+            laser.export["rig_se3_target"].as_array().unwrap().len(),
+            laser.usable_views
+        );
+        let frozen_mean_px = laser.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(
+            frozen_mean_px < 2.2,
+            "frozen laser diagnostic mean reproj {frozen_mean_px:.3} px"
+        );
+        let stats = laser.export["per_cam_stats"].as_array().unwrap();
+        assert_eq!(stats.len(), 6);
+        for (cam, s) in stats.iter().enumerate() {
+            // Plane-fit sanity gate, not an oracle-beating gate: with
+            // the upstream frozen at ~1.5 px the plane fit lands near
+            // ~1 mm; sub-0.1 mm needs the joint rig + laserline
+            // refinement (not run here). 2 mm flags a broken plane / wrong chain.
+            let laser_err = s["mean_laser_error"].as_f64().unwrap();
+            eprintln!("cam {cam}: mean point-to-plane {:.4} mm", laser_err * 1e3);
+            assert!(
+                laser_err < 2e-3,
+                "cam {cam}: mean laser residual {laser_err:.6} m"
+            );
+        }
+        // The manifest must carry both frame kinds (ADR 0016 §5): the
+        // target frames for the reprojection overlay and the laser
+        // frames Diagnose's laser view plots residuals onto.
+        let frames = laser.export["diagnostics"]["image_manifest"]["frames"]
+            .as_array()
+            .unwrap();
+        let n_laser = frames.iter().filter(|f| f["kind"] == "laser").count();
+        let n_target = frames.len() - n_laser;
+        assert!(n_target > 0, "manifest carries target frames");
+        assert!(
+            n_laser > 0,
+            "manifest carries laser-kind frames ({} total)",
+            frames.len()
+        );
+        let laser_residuals = laser.export["per_feature_residuals"]["laser"]
+            .as_array()
+            .unwrap();
+        assert!(
+            !laser_residuals.is_empty(),
+            "laser export carries per-pixel laser residuals"
+        );
+        eprintln!("manifest: {n_target} target + {n_laser} laser frames");
+        eprintln!(
+            "scheimpflug_rig laser E2E: handeye {mean_px:.3} px over {} views; laser stage {} views in {} ms",
+            handeye.usable_views, laser.usable_views, laser.duration_ms
+        );
+
+        // ── Stage 3: joint rig + laserline refinement ───────────────────
+        let mut joint_manifest = read_manifest("dataset_laser.toml");
+        joint_manifest["topology"] = json!("rig_handeye_laserline");
+        joint_manifest["upstream_calibration"] = serde_json::Value::Null;
+        let mut joint_config = default_config_cmd("rig_handeye_laserline".into()).unwrap();
+        joint_config["handeye"] = handeye_config;
+        joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
+        joint_config["laserline_init"]["optimize"]["laser_residual_type"] = json!("point_to_plane");
+        joint_config["solver"]["max_iters"] = json!(30);
+        joint_config["joint_optimize"]["laser_residual_type"] = json!("point_to_plane");
+        joint_config["joint_optimize"]["reprojection_weight"] = json!(1.0);
+        joint_config["joint_optimize"]["laser_weight"] = json!(10000.0);
+        // The joint solve always gauge-fixes camera 0 (ADR 0024): it pins
+        // `handeye.rig.reference_camera_idx`.
+        // Every camera is tilted: the principal point, the higher-order
+        // distortion terms and the tilt stay at their warm-start values.
+        let joint_fix = json!({
+            "intrinsics": ["cx", "cy"],
+            "distortion": ["k3", "p1", "p2"],
+            "sensor": ["tilt_x", "tilt_y"],
+        });
+        joint_config["joint_optimize"]["fix"] = json!(vec![joint_fix; 6]);
+        let joint = match run_blocking_test(joint_manifest, joint_config, &dir) {
+            RunResponse::Ok(s) => s,
+            other => panic!("joint rig handeye laserline stage: expected Ok, got {other:?}"),
+        };
+        std::fs::write(
+            data_dir.join("rig_handeye_laserline_export.json"),
+            serde_json::to_string(&joint.export).unwrap(),
+        )
+        .unwrap();
+        let joint_mean_px = joint.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(
+            joint_mean_px < 1.35,
+            "joint rig hand-eye laserline mean reproj {joint_mean_px:.3} px"
+        );
+        let joint_stats = joint.export["per_cam_stats"].as_array().unwrap();
+        assert_eq!(joint_stats.len(), 6);
+        for (cam, s) in joint_stats.iter().enumerate() {
+            let laser_err = s["mean_laser_error_m"].as_f64().unwrap();
+            eprintln!(
+                "joint cam {cam}: mean point-to-plane {:.4} mm",
+                laser_err * 1e3
+            );
+            assert!(
+                laser_err < 0.1e-3,
+                "joint cam {cam}: mean laser residual {laser_err:.6} m"
+            );
+        }
+        eprintln!(
+            "scheimpflug_rig joint E2E: reproj {joint_mean_px:.3} px over {} views in {} ms",
+            joint.usable_views, joint.duration_ms
+        );
+    }
+
+    /// End-to-end hand-eye run over the committed `data/kuka_1` dataset
+    /// (30 chessboard views + rowmajor4x4 robot poses). Ignored for
+    /// time, not data availability — kuka_1 ships with the repo.
+    #[test]
+    #[ignore = "full detection + solve takes tens of seconds; run with --ignored"]
+    fn kuka_handeye_end_to_end() {
+        let s = run_local_preset("data/kuka_1/dataset.toml")
+            .expect("data/kuka_1 is committed; the manifest must be present");
+        assert!(s.usable_views >= 20, "kuka_1: {} usable", s.usable_views);
+        assert_eq!(s.total_views, 30);
+        let mean_px = s.export["mean_reproj_error"].as_f64().unwrap();
+        assert!(
+            mean_px < 2.0,
+            "kuka_1 mean reprojection error {mean_px:.3} px (expected ~1.2)"
+        );
+        assert!(
+            s.export["handeye"]["gripper_se3_cam"].is_object(),
+            "eye-in-hand"
+        );
+        let frames = s.export["diagnostics"]["image_manifest"]["frames"]
+            .as_array()
+            .unwrap();
+        assert_eq!(frames.len(), s.usable_views);
+    }
+
+    /// Sample runs for the browser viewer (`calib-viewer`), as the app
+    /// saves them: a project per dataset with one run, `run-001`, whose
+    /// export carries its image list. Writes `kuka_1` (single-camera
+    /// hand-eye, committed) and `stereo_charuco` (a two-camera rig, when
+    /// present locally) under `$CALIB_VIEWER_SAMPLES` (default
+    /// `apps/studio/.tmp-runs`, git-ignored), reading the datasets from
+    /// `$CALIB_VIEWER_DATA` (default the repository's `data/`). Run:
+    /// `cargo test write_viewer_sample_runs -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a dev helper: detects and solves two datasets, writes apps/studio/.tmp-runs"]
+    fn write_viewer_sample_runs() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let out = std::env::var_os("CALIB_VIEWER_SAMPLES")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repo_root.join("apps/studio/.tmp-runs"));
+        let data = std::env::var_os("CALIB_VIEWER_DATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repo_root.join("data"));
+        for (name, manifest) in [
+            ("kuka_1", "kuka_1/dataset.toml"),
+            ("stereo_charuco", "stereo_charuco/dataset_rig.toml"),
+        ] {
+            let manifest_path = data.join(manifest);
+            if !manifest_path.is_file() {
+                eprintln!("skipping {name}: {} not present", manifest_path.display());
+                continue;
+            }
+            let raw = std::fs::read_to_string(&manifest_path).unwrap();
+            let manifest: serde_json::Value =
+                serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
+            let topology = manifest["topology"].as_str().unwrap().to_string();
+            let config = default_config_cmd(topology.clone()).unwrap();
+            let dataset_dir = manifest_path.parent().unwrap();
+            let response = run_blocking_test(
+                manifest.clone(),
+                config.clone(),
+                &dataset_dir.to_string_lossy(),
+            );
+            let RunResponse::Ok(success) = response else {
+                panic!("{name}: expected Ok, got {response:?}");
+            };
+            let project = out.join(name);
+            if project.join("calibration-project.json").is_file() {
+                std::fs::remove_dir_all(&project).unwrap();
+            }
+            std::fs::create_dir_all(&project).unwrap();
+            crate::project::create(&project, dataset_dir, &manifest).unwrap();
+            let record = crate::project::RunRecord {
+                manifest,
+                config,
+                export: success.export,
+                diagnostics: crate::project::RunDiagnostics {
+                    topology,
+                    usable_views: success.usable_views,
+                    total_views: success.total_views,
+                    duration_ms: success.duration_ms,
+                    cache_used: success.cache_used,
+                },
+                dataset_dir: dataset_dir.to_path_buf(),
+            };
+            crate::project::save_run(&project, "run-001", record).unwrap();
+            println!("{}", project.join("runs/run-001").display());
+        }
+    }
+}

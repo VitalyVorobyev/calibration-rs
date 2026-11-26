@@ -20,7 +20,7 @@ workspace.**
 - The webview only renders. All calibration logic runs in Rust through the
   `vision-calibration` facade, and every viewer is built on the export
   contract (ADR 0012).
-- `app/src-tauri` has its own lockfile, so the Tauri build tree never slows
+- `apps/studio/src-tauri` has its own lockfile, so the Tauri build tree never slows
   the library build.
 - Distribution is local builds: no signed installers, no auto-update.
 - The frame is the shared `@vitavision/workbench` shell; components and the
@@ -55,12 +55,12 @@ workspace.**
 **One frontend, two back ends: the viewers also run in a browser.**
 - A run is reviewed where it lies, without the desktop app:
   `calib-viewer <run-dir | export.json>` (a second binary of
-  `app/src-tauri`) serves the built frontend and one run on localhost and
+  `apps/studio/src-tauri`) serves the built frontend and one run on localhost and
   opens a browser on it. A run is a `vcal run -o` folder
   (`calibration.json`), a run the app saved (`runs/<name>/export.json`) or
   one export file; anything else is an error that says what to pass.
 - The frontend reaches its back end through one module
-  (`app/src/lib/backend.ts`), the only one that imports Tauri, with two
+  (`apps/studio/src/lib/backend.ts`), the only one that imports Tauri, with two
   implementations: Tauri IPC, and `POST /api/<command>` with the same
   command names, arguments, answers and error values. The command bodies
   are shared Rust functions that the Tauri commands and the HTTP handlers
@@ -82,11 +82,11 @@ workspace.**
   without frontend code.
 - The TypeScript types of the export and command wire format are generated
   too, and CI fails when any of them drift. The target is no hand-written
-  mirror of a Rust type in `app/src`; the ones left are backlog
+  mirror of a Rust type in `apps/studio/src`; the ones left are backlog
   APP-WIRE-TYPES.
 
 How the shell, stores, commands and tests are built is in
-`app/DEVELOPING.md`.
+`apps/studio/DEVELOPING.md`.
 
 ## Consequences
 
@@ -102,7 +102,7 @@ How the shell, stores, commands and tests are built is in
   a new command is added to both (the Tauri wrapper and the HTTP route over
   one shared body), and a lint rule keeps Tauri imports in the seam.
 - `calib-viewer` needs the frontend built (`bun run build`); it serves
-  `app/dist` from the source tree and is not distributed on its own.
+  `apps/studio/dist` from the source tree and is not distributed on its own.
 
 ## Alternatives rejected
 

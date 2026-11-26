@@ -2,7 +2,7 @@
 //! generated from them.
 //!
 //! - Config schemas and the dataset manifest's go to both
-//!   `app/src/schemas/<name>.json` and `schemas/<name>.json`, plus
+//!   `apps/studio/src/schemas/<name>.json` and `schemas/<name>.json`, plus
 //!   `<name>.default.json` (the type's `Default` value) for every config that
 //!   has one. The Tauri app reads its copy at build time to drive
 //!   schema-driven forms in the Run workspace; the defaults feed the app's
@@ -114,7 +114,7 @@ struct Python {
 }
 
 pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
-    let app_dir = workspace_root.join("app/src/schemas");
+    let app_dir = workspace_root.join("apps/studio/src/schemas");
     let api_dir = workspace_root.join("schemas");
     let suite_dir = workspace_root.join("regression/schema");
 
