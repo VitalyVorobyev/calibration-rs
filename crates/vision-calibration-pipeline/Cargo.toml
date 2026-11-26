@@ -38,6 +38,8 @@ vision-calibration-detect = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Reads a `ConfigPatch` written in TOML, as the manifest and `vcal` read theirs.
+toml = "1"
 nalgebra = { workspace = true }
 image = { workspace = true }
 glob = { workspace = true }

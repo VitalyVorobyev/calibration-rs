@@ -102,7 +102,9 @@ their images.
 Without a configuration file the workflow runs with its defaults: a pinhole
 camera with Brown-Conrady distortion. `-c <file>` changes the defaults the
 file names and keeps the rest. The file is TOML or JSON and holds the
-workflow's `*Config` fields. A fisheye camera needs a fisheye model:
+workflow's `*Config` fields: the library's `ConfigPatch`
+([Changes to the Defaults](getting_started.md#changes-to-the-defaults)). A
+fisheye camera needs a fisheye model:
 
 ```toml
 # fisheye.toml

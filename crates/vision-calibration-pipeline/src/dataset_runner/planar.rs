@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use vision_calibration_core::{NoMeta, PlanarDataset, RunControl, View};
 use vision_calibration_dataset::{DatasetSpec, ProblemKind, validate};
 
+use super::convert_options::{ConvertOptions, kept};
 use super::{
-    Detection, ImageProgress, RejectedDetection, RunError, detect_features, expand_camera_images,
-    features_to_view, pattern_repr, target_to_detector_config,
+    Detection, ImageProgress, RejectReason, RejectedDetection, RunError, detect_features,
+    expand_camera_images, features_to_view, pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -27,6 +28,23 @@ pub fn build_planar_input(
     base_dir: &Path,
     detection: Detection<'_>,
     control: &RunControl,
+) -> Result<PlanarRunResult, RunError> {
+    build_planar_input_with(
+        spec,
+        base_dir,
+        detection,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`build_planar_input`], leaving out what `options` names.
+pub(crate) fn build_planar_input_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    detection: Detection<'_>,
+    control: &RunControl,
+    options: &ConvertOptions,
 ) -> Result<PlanarRunResult, RunError> {
     // Order matters: gate on topology + target before touching the
     // filesystem so users with broken globs still see helpful
@@ -69,10 +87,26 @@ pub fn build_planar_input(
 
     let mut progress = ImageProgress::targets(control, total);
     for image_path in &images {
-        let (features, _cache_hit) =
+        if options.excludes(0, image_path) {
+            progress.skip();
+            rejected.push(RejectedDetection {
+                camera: 0,
+                path: image_path.clone(),
+                reason: RejectReason::Excluded,
+            });
+            continue;
+        }
+        let (mut features, _cache_hit) =
             progress.read(|| detect_features(&detector_config, roi, image_path, detection))?;
 
-        if let Err(reason) = filter.check(&features) {
+        let mut screened = filter.check(&features);
+        if screened.is_ok()
+            && let Some(keep) = options.kept_features(0, image_path, &features)
+        {
+            features = kept(&features, &keep);
+            screened = filter.check_masked(&features);
+        }
+        if let Err(reason) = screened {
             // Drop the view but keep walking, so an all-rejected camera
             // surfaces a meaningful error.
             rejected.push(RejectedDetection {
@@ -199,6 +233,140 @@ mod tests {
         .unwrap();
         assert_eq!((result.usable_views, result.total_views), (3, 3));
         assert!(result.rejected.is_empty());
+    }
+
+    /// Three planar views of the whole 9 × 6 board, `a.png`, `b.png` and
+    /// `c.png`, their detections in the cache.
+    fn three_views(dir: &Path) -> (FsDetectionCache, DatasetSpec) {
+        use vision_calibration_detect::{CacheKey, CachedFeatures};
+        let cache = FsDetectionCache::new(dir.join("cache"));
+        let config = vision_calibration_detect::DetectorConfig::Chessboard(
+            vision_calibration_detect::ChessboardConfig::new(9, 6, 0.025),
+        );
+        let names = ["a.png", "b.png", "c.png"];
+        for (i, rel) in names.iter().enumerate() {
+            std::fs::write(dir.join(rel), rel.as_bytes()).unwrap();
+            let key = CacheKey::for_detection(rel.as_bytes(), &config, None);
+            cache
+                .put(&key, &CachedFeatures::new(board(i as f64)))
+                .unwrap();
+        }
+        let mut spec = planar_spec_for_globless_test();
+        spec.cameras[0].images = ImagePattern::List {
+            paths: names.iter().map(PathBuf::from).collect(),
+        };
+        (cache, spec)
+    }
+
+    /// The board's 54 corners, `(u, v)` at `0.025 · (u, v)` m, seen at an
+    /// offset of `shift` pixels.
+    fn board(shift: f64) -> Vec<vision_calibration_detect::Feature> {
+        (0..9u32)
+            .flat_map(|v| (0..6u32).map(move |u| (u, v)))
+            .map(|(u, v)| {
+                vision_calibration_detect::Feature::new(
+                    [shift + 40.0 * f64::from(u), 40.0 * f64::from(v)],
+                    [0.025 * f64::from(u), 0.025 * f64::from(v), 0.0],
+                )
+            })
+            .collect()
+    }
+
+    /// An excluded image is not read, is listed as excluded, and still
+    /// counts as done, so the progress reaches its total.
+    #[test]
+    fn an_excluded_image_is_left_out_unread() {
+        use std::sync::{Arc, Mutex};
+        use vision_calibration_core::Progress;
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = three_views(tmp.path());
+        // b.png's bytes change, so its cached detection no longer applies:
+        // reading it would decode them and fail.
+        std::fs::write(tmp.path().join("b.png"), b"not an image").unwrap();
+        let mut options = ConvertOptions::default();
+        options.exclude_slot(0, &tmp.path().join("b.png"));
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&reports);
+        let control = RunControl::default().with_observer(move |p| {
+            if let Progress::Detection { done, total, .. } = p {
+                seen.lock().unwrap().push((done, total));
+            }
+        });
+        let result = build_planar_input_with(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &control,
+            &options,
+        )
+        .unwrap();
+        assert_eq!((result.usable_views, result.total_views), (2, 3));
+        assert_eq!(result.rejected.len(), 1);
+        assert_eq!(result.rejected[0].reason, RejectReason::Excluded);
+        assert!(result.rejected[0].path.ends_with("b.png"));
+        assert!(result.view_paths[1].ends_with("c.png"));
+        assert_eq!(reports.lock().unwrap().last(), Some(&(3, 3)));
+    }
+
+    /// A mask drops exactly the features at its points; a point it names
+    /// that the detection lacks drops nothing; a view the mask leaves under
+    /// the feature floor is left out for too few features.
+    #[test]
+    fn a_feature_mask_drops_the_features_at_its_points() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = three_views(tmp.path());
+        let a = tmp.path().join("a.png");
+        let mut options = ConvertOptions::default();
+        options.mask_points(
+            0,
+            &a,
+            &[[0.025, 0.05, 0.0], [0.0, 0.0, 0.0], [9.0, 9.0, 0.0]],
+        );
+        let masked = build_planar_input_with(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+            &options,
+        )
+        .unwrap();
+        let unmasked = build_planar_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
+        let view = &masked.input.views[0].obs;
+        assert_eq!(view.points_3d.len(), 52);
+        for dropped in [[0.025, 0.05], [0.0, 0.0]] {
+            assert!(
+                !view
+                    .points_3d
+                    .iter()
+                    .any(|p| (p.x - dropped[0]).abs() < 1e-12 && (p.y - dropped[1]).abs() < 1e-12)
+            );
+        }
+        // The other views are untouched.
+        assert_eq!(
+            format!("{:?}", &masked.input.views[1..]),
+            format!("{:?}", &unmasked.input.views[1..])
+        );
+
+        let mut options = ConvertOptions::default();
+        let all_but_three: Vec<[f64; 3]> = board(0.0).iter().skip(3).map(|f| f.world_xyz).collect();
+        options.mask_points(0, &a, &all_but_three);
+        let thinned = build_planar_input_with(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+            &options,
+        )
+        .unwrap();
+        assert_eq!(thinned.usable_views, 2);
+        assert_eq!(thinned.rejected.len(), 1);
+        assert_eq!(thinned.rejected[0].reason, RejectReason::TooFewFeatures);
     }
 
     #[test]

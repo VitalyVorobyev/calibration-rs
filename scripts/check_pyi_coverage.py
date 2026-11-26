@@ -87,6 +87,7 @@ NATIVE_SUBMODULE_SURFACE: dict[str, tuple[str, str]] = {
     "fetch_sample": ("samples.py", "fetch"),
     "sample_cache_dir": ("samples.py", "cache_dir"),
     "camera_image_sizes": ("dataset_runner.py", "camera_image_sizes"),
+    "patched_config": ("dataset_runner.py", "patched_config"),
     "build_planar_input": ("dataset_runner.py", "build_planar_input"),
     "build_single_cam_handeye_input": ("dataset_runner.py", "build_single_cam_handeye_input"),
     "build_rig_extrinsics_input": ("dataset_runner.py", "build_rig_extrinsics_input"),

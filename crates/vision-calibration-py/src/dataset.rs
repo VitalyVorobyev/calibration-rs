@@ -262,6 +262,7 @@ fn reject_reason_name(reason: runner::RejectReason) -> &'static str {
         runner::RejectReason::PartialChessboard => "partial_chessboard",
         runner::RejectReason::TurnedChessboard => "turned_chessboard",
         runner::RejectReason::AmbiguousChessboardTurn => "ambiguous_chessboard_turn",
+        runner::RejectReason::Excluded => "excluded",
         // `RejectReason` is `#[non_exhaustive]`; a reason added upstream
         // shows as "other" until it is named here.
         _ => "other",
@@ -444,6 +445,27 @@ pub(crate) fn calibrate_dataset(
     )
 }
 
+/// `CalibrationConfig::patched`: the default config of `topology` with the
+/// `ConfigPatch` `patch` (a mapping of the config's fields) applied and
+/// checked; returns the config payload.
+#[pyfunction]
+pub(crate) fn patched_config(
+    py: Python<'_>,
+    topology: String,
+    patch: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let topology: vision_calibration::dataset::ProblemKind =
+        serde_json::from_value(serde_json::Value::String(topology.clone()))
+            .map_err(|_| value_err(format!("unknown topology {topology:?}")))?;
+    reject_non_finite("patch", patch)?;
+    let patch: runner::ConfigPatch = parse_payload(patch, "patch")?;
+    let config = runner::CalibrationConfig::patched(topology, &patch)
+        .map_err(|err| value_err(format!("invalid config patch: {err}")))?;
+    let tagged = serde_json::to_value(&config)
+        .map_err(|err| value_err(format!("config serialization failed: {err}")))?;
+    to_py(py, &tagged["config"])
+}
+
 target_converter!(build_planar_input);
 target_converter!(build_single_cam_handeye_input);
 target_converter!(build_rig_extrinsics_input);
@@ -462,6 +484,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fetch_sample, m)?)?;
     m.add_function(wrap_pyfunction!(sample_cache_dir, m)?)?;
     m.add_function(wrap_pyfunction!(calibrate_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(patched_config, m)?)?;
     m.add_function(wrap_pyfunction!(build_planar_input, m)?)?;
     m.add_function(wrap_pyfunction!(build_single_cam_handeye_input, m)?)?;
     m.add_function(wrap_pyfunction!(build_rig_extrinsics_input, m)?)?;

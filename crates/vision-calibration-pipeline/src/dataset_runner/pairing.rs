@@ -10,11 +10,11 @@
 //!   `pose_id` column equalling the token.
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use vision_calibration_dataset::PosePairing;
+use vision_calibration_dataset::{DatasetSpec, PosePairing};
 
-use super::RunError;
+use super::{RunError, expand_camera_images, require_pose_pairing};
 
 /// Per-camera image lists aligned into rig views.
 #[derive(Debug)]
@@ -26,6 +26,36 @@ pub struct PairedViews {
     /// View token per view (token pairing) or stringified index
     /// (`by_index`). Used to pair robot poses by `pose_id`.
     pub tokens: Vec<String>,
+}
+
+/// The views a manifest's images pair into, without reading any image:
+/// each camera's images listed (relative paths resolved against
+/// `base_dir`) and aligned by the manifest's `pose_pairing`; one view per
+/// image for a topology that pairs nothing.
+///
+/// # Errors
+///
+/// As the converters fail before detection: an image pattern that does not
+/// expand ([`RunError::BadGlob`]), an open pairing
+/// ([`RunError::AskUser`]) and the pairing's own errors.
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the project's exclusions are its caller")
+)]
+pub(crate) fn pair_dataset_views(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+) -> Result<PairedViews, RunError> {
+    let images = spec
+        .cameras
+        .iter()
+        .map(|camera| expand_camera_images(camera, base_dir))
+        .collect::<Result<Vec<_>, _>>()?;
+    let camera_ids: Vec<String> = spec.cameras.iter().map(|c| c.id.clone()).collect();
+    match require_pose_pairing(spec)? {
+        Some(pairing) => pair_views(&images, &camera_ids, pairing),
+        None => pair_views(&images, &camera_ids, &PosePairing::ByIndex),
+    }
 }
 
 /// Align per-camera image lists into views using `pairing`.

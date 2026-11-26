@@ -15,12 +15,13 @@ use vision_calibration_dataset::{DatasetSpec, ProblemKind, validate};
 use crate::common::RobotPoseMeta;
 use crate::single_cam_handeye::SingleCamHandeyeInput;
 
+use super::convert_options::{ConvertOptions, kept};
 use super::pairing::pair_views;
 use super::poses::{load_manifest_robot_poses, match_poses_to_tokens};
 use super::require_pose_pairing;
 use super::{
-    Detection, ImageProgress, RejectedDetection, RunError, detect_features, expand_camera_images,
-    features_to_obs, pattern_repr, target_to_detector_config,
+    Detection, ImageProgress, RejectReason, RejectedDetection, RunError, detect_features,
+    expand_camera_images, features_to_obs, pattern_repr, target_to_detector_config,
     view_filter::{ViewFilter, no_usable_views},
 };
 
@@ -50,6 +51,24 @@ pub fn build_single_cam_handeye_input(
     base_dir: &Path,
     detection: Detection<'_>,
     control: &RunControl,
+) -> Result<HandeyeRunResult, RunError> {
+    build_single_cam_handeye_input_with(
+        spec,
+        base_dir,
+        detection,
+        control,
+        &ConvertOptions::default(),
+    )
+}
+
+/// [`build_single_cam_handeye_input`], leaving out what `options` names. A
+/// view left out drops its robot pose with it.
+pub(crate) fn build_single_cam_handeye_input_with(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    detection: Detection<'_>,
+    control: &RunControl,
+    options: &ConvertOptions,
 ) -> Result<HandeyeRunResult, RunError> {
     // Same gate ordering as the other converters: topology + target +
     // validation + pairing config before any filesystem access.
@@ -106,9 +125,25 @@ pub fn build_single_cam_handeye_input(
         let path = paths[0]
             .as_ref()
             .expect("single-camera pairing never produces gap slots");
-        let (features, _cache_hit) =
+        if options.excludes(0, path) {
+            progress.skip();
+            rejected.push(RejectedDetection {
+                camera: 0,
+                path: path.clone(),
+                reason: RejectReason::Excluded,
+            });
+            continue;
+        }
+        let (mut features, _cache_hit) =
             progress.read(|| detect_features(&detector_config, roi, path, detection))?;
-        if let Err(reason) = filter.check(&features) {
+        let mut screened = filter.check(&features);
+        if screened.is_ok()
+            && let Some(keep) = options.kept_features(0, path, &features)
+        {
+            features = kept(&features, &keep);
+            screened = filter.check_masked(&features);
+        }
+        if let Err(reason) = screened {
             // Drop the view (still counted in total_views, keeping
             // by_index pose alignment).
             rejected.push(RejectedDetection {
@@ -280,6 +315,70 @@ mod tests {
             .collect();
         assert_eq!(xs, vec![0.1, 0.2, 0.3]);
         assert!(result.view_paths[2].ends_with("img_2.png"));
+    }
+
+    /// An excluded view is left out unread, as a rejected one is, and its
+    /// robot pose goes with it: the input equals the run whose detection of
+    /// the view was rejected.
+    #[test]
+    fn an_excluded_view_drops_its_robot_pose_like_a_rejected_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        for view in [0, 2, 3] {
+            seed_image(
+                tmp.path(),
+                &cache,
+                &format!("img_{view}.png"),
+                board_features(),
+            );
+        }
+        let poses: String = (0..4)
+            .map(|i| identity_pose_line((i + 1) as f64 / 10.0))
+            .collect();
+        let images = ["img_0.png", "img_1.png", "img_2.png", "img_3.png"];
+        let spec = handeye_spec(tmp.path(), &images, &poses);
+        // View 1's image is no image and the cache has no detection of it:
+        // reading it would fail.
+        std::fs::write(tmp.path().join("img_1.png"), b"not an image").unwrap();
+        let mut options = ConvertOptions::default();
+        options.exclude_slot(0, &tmp.path().join("img_1.png"));
+        let excluded = build_single_cam_handeye_input_with(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+            &options,
+        )
+        .unwrap();
+
+        seed_image(tmp.path(), &cache, "img_1.png", grid_features(3));
+        let rejected = build_single_cam_handeye_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&cache),
+            &RunControl::default(),
+        )
+        .unwrap();
+
+        let xs: Vec<f64> = excluded
+            .input
+            .views
+            .iter()
+            .map(|v| v.meta.base_se3_gripper.translation.x)
+            .collect();
+        assert_eq!(xs, vec![0.1, 0.3, 0.4]);
+        assert_eq!(
+            format!("{:?}", excluded.input),
+            format!("{:?}", rejected.input)
+        );
+        assert_eq!(excluded.view_paths, rejected.view_paths);
+        assert_eq!(
+            (excluded.usable_views, excluded.total_views),
+            (rejected.usable_views, rejected.total_views)
+        );
+        assert_eq!(excluded.rejected.len(), 1);
+        assert_eq!(excluded.rejected[0].reason, RejectReason::Excluded);
+        assert_eq!(excluded.rejected[0].path, rejected.rejected[0].path);
     }
 
     #[test]
