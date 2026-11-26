@@ -24,7 +24,7 @@ test("diagnose, the fixture run", async ({ page }) => {
   await page.getByRole("button", { name: /Project/ }).click();
   await page.getByRole("menuitem", { name: "Open project…" }).click();
   const picker = page.getByRole("dialog", { name: "Open a project" });
-  await picker.getByRole("option").first().dblclick();
+  await picker.getByRole("option", { name: /library$/ }).dblclick();
   await picker.getByRole("option", { name: /rig-demo/ }).click();
   await picker.getByRole("button", { name: "Choose", exact: true }).click();
   await page.getByRole("tree", { name: "Saved runs" }).getByText("run-001").click();

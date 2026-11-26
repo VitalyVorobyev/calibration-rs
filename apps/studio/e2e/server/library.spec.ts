@@ -5,7 +5,10 @@ import { command, imageWidth, libraryRoot, openLoggedIn, trackErrors } from "./s
  * open its run, see its frames (images through the `image` resource); and
  * nothing outside the root. */
 
-test("opens a project through the path picker and shows its run", async ({ page }) => {
+test("opens a project through the path picker and shows its run", async ({
+  page,
+  request,
+}) => {
   const errors = trackErrors(page);
   await openLoggedIn(page);
 
@@ -13,8 +16,9 @@ test("opens a project through the path picker and shows its run", async ({ page 
   await page.getByRole("menuitem", { name: "Open project…" }).click();
   const picker = page.getByRole("dialog", { name: "Open a project" });
   await expect(picker).toBeVisible();
-  // The roots first; into the library; the project is marked and chosen.
-  await picker.getByRole("option").first().dblclick();
+  // The roots first (sorted by path, so the library's place among them
+  // depends on the machine); into the library; the project is marked and chosen.
+  await picker.getByRole("option", { name: await libraryRoot(request) }).dblclick();
   await picker.getByRole("option", { name: /rig-demo/ }).click();
   await picker.getByRole("button", { name: "Choose", exact: true }).click();
   await expect(picker).toHaveCount(0);
