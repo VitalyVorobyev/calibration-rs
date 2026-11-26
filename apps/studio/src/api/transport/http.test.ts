@@ -55,21 +55,14 @@ describe("the HTTP transport", () => {
     });
   });
 
-  it("puts a resource's query in the URL as encoded JSON", async () => {
+  it("puts a resource's query in the URL as encoded JSON", () => {
     const query = { path: "/r/a b&c.png", camera: 0, roi: null };
     const url = resourceUrl("undistorted_image", query);
     expect(url.startsWith("/api/r/undistorted_image?q=")).toBe(true);
     const q = new URL(url, "http://h").searchParams.get("q");
     expect(JSON.parse(q ?? "")).toEqual(query);
 
-    vi.stubGlobal("fetch", (u: string) =>
-      Promise.resolve(
-        new Response(new Uint8Array([137, 80]), { status: u === url ? 200 : 404 }),
-      ),
-    );
-    const bytes = await httpTransport.fetchResource("undistorted_image", query);
-    expect(new Uint8Array(bytes)).toEqual(new Uint8Array([137, 80]));
-    expect(httpTransport.fileUrl("C:\\r\\a.png")).toBe("/api/file?path=C%3A%2Fr%2Fa.png");
+    expect(httpTransport.resourceUrl("undistorted_image", query)).toBe(url);
   });
 
   it("subscribes to the event stream after the last event seen", () => {

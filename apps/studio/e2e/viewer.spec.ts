@@ -82,13 +82,13 @@ test("refuses files outside the run and commands it does not offer", async ({
   const session = (await (await request.get(`${WITH_IMAGES}/api/session`)).json()) as {
     run_dir: string;
   };
-  const inside = await request.get(
-    `${WITH_IMAGES}/api/file?path=${encodeURIComponent(`${session.run_dir}/images/cam0_view0.png`)}`,
-  );
+  const image = (path: string) =>
+    request.get(
+      `${WITH_IMAGES}/api/r/image?q=${encodeURIComponent(JSON.stringify({ path }))}`,
+    );
+  const inside = await image(`${session.run_dir}/images/cam0_view0.png`);
   expect(inside.status()).toBe(200);
-  const outside = await request.get(
-    `${WITH_IMAGES}/api/file?path=${encodeURIComponent(`${session.run_dir}/../viewer-run-vcal/calibration.json`)}`,
-  );
+  const outside = await image(`${session.run_dir}/../viewer-run-vcal/calibration.json`);
   expect(outside.status()).toBe(403);
   const run = await request.post(`${WITH_IMAGES}/api/cmd/run_calibration`, { data: {} });
   expect(run.status()).toBe(404);

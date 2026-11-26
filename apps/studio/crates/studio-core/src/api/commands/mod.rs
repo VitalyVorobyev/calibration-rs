@@ -5,5 +5,6 @@
 pub mod forms;
 pub mod jobs;
 pub mod project;
+pub mod resources;
 pub mod setup;
 pub mod viewer;

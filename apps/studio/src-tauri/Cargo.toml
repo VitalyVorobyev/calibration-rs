@@ -37,12 +37,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 studio-core = { path = "../crates/studio-core" }
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Canonical paths without the Windows `\\?\` prefix, so the asset scope and
-# the webview's `convertFileSrc` URLs name a file the same way.
+# Canonical paths without the Windows `\\?\` prefix (calib-viewer's folders).
 dunce = "1"
 # calib-viewer's localhost HTTP server: synchronous, no async runtime.
 tiny_http = "0.12"

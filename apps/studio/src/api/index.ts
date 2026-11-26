@@ -23,6 +23,7 @@ import type { ViewerSession } from "./generated/types";
 export type { Job } from "./jobs";
 export type { BackendKind, Capabilities, OpenDialog, Transport } from "./transport";
 export { asStudioError, isCancelled, NO_BACKEND, StudioError } from "./transport";
+export { fetchBytes, fetchPlane } from "./resources";
 
 function isHttp(): boolean {
   if (import.meta.env.VITE_CALIB_BACKEND === "http") return true;
@@ -52,8 +53,7 @@ const transport: Transport = {
   },
   invoke: (name, args) => current().invoke(name, args),
   subscribe: (onEvent, after) => current().subscribe(onEvent, after),
-  fetchResource: (name, query) => current().fetchResource(name, query),
-  fileUrl: (path) => current().fileUrl(path),
+  resourceUrl: (name, query) => current().resourceUrl(name, query),
 };
 
 const hub = new JobHub(transport);
@@ -71,11 +71,6 @@ export function setTransport(next: Transport | null): void {
 export function capabilities(): Capabilities {
   const kind = current().kind;
   return { kind, viewer: kind !== "none", desktop: kind === "tauri" };
-}
-
-/** The URL the page loads the file at absolute `path` from. */
-export function fileUrl(path: string): string {
-  return current().fileUrl(path);
 }
 
 /** Ask the user for one file or folder with a native dialog; `null` when

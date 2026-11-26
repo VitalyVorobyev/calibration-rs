@@ -1,18 +1,18 @@
 //! The viewers' commands: loading an export and making it active, and the
 //! math over the active export ([`crate::ops`]): undistortion, epipolar
-//! overlays, uncertainty, disparity.
-
-use std::path::Path;
+//! overlays, uncertainty, and the disparity job.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use vision_calibration::core::PixelRect;
 use vision_calibration::optim::ProjectionUncertainty;
 
-use crate::api::{Ctx, Resource, StudioError};
-use crate::disparity::{DisparityParams, DisparityResult};
+use crate::api::{Ctx, JobCx, StudioError};
+use crate::blobs::{BlobRef, BlobStore};
+use crate::disparity::{DisparityMetrics, DisparityParams};
 use crate::epipolar::EpipolarOverlay;
+use crate::images::ImageCache;
 use crate::ops;
+use crate::planes;
 use crate::scope::{RootMode, UserPath};
 
 /// Read and parse the calibration export at `path` and check its schema
@@ -169,8 +169,11 @@ pub fn projection_uncertainty(
 }
 
 /// A disparity map of the stereo pair `path_a` (camera `cam_a`) and
-/// `path_b` (camera `cam_b`) at `pose`: rectified from the active export,
-/// dense-matched, with colour-mapped images and quality metrics.
+/// `path_b` (camera `cam_b`) at `pose`: rectified from the active export and
+/// dense-matched. The output names its fields as blobs: a value plane of
+/// disparity, depth and the rectified left image, the point cloud, and the
+/// rectified pair. The same request again answers from the blob store while
+/// it still holds them.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DisparityArgs {
@@ -182,37 +185,106 @@ pub struct DisparityArgs {
     pub params: DisparityParams,
 }
 
-pub fn disparity(ctx: &Ctx, args: DisparityArgs) -> Result<DisparityResult, StudioError> {
+/// A dense match, its fields as blobs (`blob` resource).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DisparityResult {
+    /// A `VAM1` value plane of the matched size with three channels:
+    /// disparity (px) and metric depth (m), both `NaN` where there is no
+    /// match, and the rectified left image's luminance (0–255).
+    pub planes: BlobRef,
+    /// Rectified left | right side by side with shared horizontal epipolar
+    /// lines (a PNG).
+    pub rectified_pair: BlobRef,
+    /// The point cloud's positions: `3 · point_count` little-endian `f32`
+    /// (x, y, z in the reference camera's frame, metres).
+    pub point_positions: BlobRef,
+    /// Its colours: `3 · point_count` little-endian `f32` in `[0, 1]`.
+    pub point_colors: BlobRef,
+    pub point_count: usize,
+    /// Matched (downscaled) image width.
+    pub width: usize,
+    /// Matched (downscaled) image height.
+    pub height: usize,
+    pub metrics: DisparityMetrics,
+}
+
+pub fn disparity(
+    ctx: &Ctx,
+    args: DisparityArgs,
+    _: &JobCx<()>,
+) -> Result<DisparityResult, StudioError> {
     let path_a = ctx.scope.existing_file(&args.path_a)?;
     let path_b = ctx.scope.existing_file(&args.path_b)?;
-    Ok(ops::compute_disparity(
-        &ctx.exports,
-        [&path_a, &path_b],
+    let export = ctx
+        .exports
+        .snapshot()
+        .ok_or_else(|| StudioError::invalid("no export loaded yet"))?;
+    // What makes the result: the request, the images as they are on disk
+    // and the calibration.
+    let request = serde_json::json!({
+        "images": [ImageCache::key(&path_a, "")?, ImageCache::key(&path_b, "")?],
+        "cam_a": args.cam_a,
+        "cam_b": args.cam_b,
+        "pose": args.pose,
+        "block_size": args.params.block_size,
+        "semi_global": args.params.semi_global,
+        "downscale": args.params.downscale,
+        "calibration": export.fingerprint,
+    })
+    .to_string();
+    let id = |part: &str| BlobStore::id(&[b"disparity", request.as_bytes(), part.as_bytes()]);
+    if let Some((_, memo)) = ctx.blobs.get(&id("result"))
+        && let Ok(result) = serde_json::from_slice::<DisparityResult>(&memo)
+        && ctx.blobs.has_all([
+            &result.planes,
+            &result.rectified_pair,
+            &result.point_positions,
+            &result.point_colors,
+        ])
+    {
+        return Ok(result);
+    }
+
+    let data = crate::disparity::compute(
+        &export.value,
+        &path_a,
+        &path_b,
         args.cam_a,
         args.cam_b,
         args.pose,
         &args.params,
-    )?)
-}
-
-/// The image at `path` rendered into `camera`'s undistorted pixel frame (a
-/// PNG), cropped to `roi` when given.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct UndistortedImageQuery {
-    pub path: UserPath,
-    pub camera: usize,
-    #[serde(default)]
-    pub roi: Option<PixelRect>,
-}
-
-pub fn undistorted_image(ctx: &Ctx, query: UndistortedImageQuery) -> Result<Resource, StudioError> {
-    let file = ctx.scope.existing_file(&query.path)?;
-    let png = ops::load_undistorted_image(&ctx.exports, Path::new(&file), query.camera, query.roi)?;
-    Ok(Resource {
-        media_type: "image/png",
-        body: png,
-    })
+    )
+    .map_err(StudioError::invalid)?;
+    let plane = planes::encode(
+        data.width,
+        data.height,
+        1,
+        &[&data.disparity, &data.depth, &data.left],
+    )
+    .map_err(|e| StudioError::internal(format!("encode the disparity plane: {e}")))?;
+    let cloud = &data.point_cloud;
+    let result = DisparityResult {
+        planes: ctx.blobs.put(id("planes"), planes::MEDIA_TYPE, plane),
+        rectified_pair: ctx.blobs.put(id("pair"), "image/png", data.pair_png),
+        point_positions: ctx.blobs.put(
+            id("positions"),
+            planes::F32_MEDIA_TYPE,
+            planes::f32_bytes(&cloud.positions),
+        ),
+        point_colors: ctx.blobs.put(
+            id("colors"),
+            planes::F32_MEDIA_TYPE,
+            planes::f32_bytes(&cloud.colors),
+        ),
+        point_count: cloud.count,
+        width: data.width,
+        height: data.height,
+        metrics: data.metrics,
+    };
+    let memo = serde_json::to_vec(&result)
+        .map_err(|e| StudioError::internal(format!("serialize the disparity result: {e}")))?;
+    ctx.blobs.put(id("result"), "application/json", memo);
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -221,22 +293,26 @@ mod tests {
 
     use serde_json::json;
 
-    use crate::api::{Api, ErrorKind};
+    use crate::api::{Api, Conditions, Dirs, ErrorKind};
     use crate::run_source::{find_run, slash};
     use crate::scope::RootScope;
 
     /// The committed fixture run (a two-camera rig with images), behind the
     /// fixed scope the browser viewer gives it.
-    fn viewer() -> (Api, crate::run_source::RunSource) {
+    fn viewer() -> (Api, crate::run_source::RunSource, tempfile::TempDir) {
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/viewer-run");
         let run = find_run(&fixture).unwrap();
-        let api = Api::new(RootScope::fixed([run.dir.clone()]));
-        (api, run)
+        let cache = tempfile::tempdir().unwrap();
+        let dirs = Dirs {
+            cache: cache.path().to_path_buf(),
+        };
+        let api = Api::new(RootScope::fixed([run.dir.clone()]), dirs);
+        (api, run, cache)
     }
 
     #[test]
     fn the_viewer_commands_answer_over_the_active_export() {
-        let (api, run) = viewer();
+        let (api, run, _cache) = viewer();
         let early = api
             .invoke(
                 "undistort_points",
@@ -286,10 +362,11 @@ mod tests {
             .resource(
                 "undistorted_image",
                 json!({"path": image, "camera": 0, "roi": null}),
+                &Conditions::default(),
             )
             .unwrap();
         assert_eq!(png.media_type, "image/png");
-        assert!(png.body.starts_with(b"\x89PNG"));
+        assert!(png.read_body().unwrap().starts_with(b"\x89PNG"));
 
         let bad = api
             .invoke("undistort_points", json!({"camera": "zero"}))
@@ -302,9 +379,75 @@ mod tests {
         assert_eq!(camel.kind, ErrorKind::InvalidArgs);
     }
 
+    /// Wait for job `id` to end; its terminal state.
+    fn finish(api: &Api, id: &serde_json::Value) -> serde_json::Value {
+        for _ in 0..600 {
+            let info = api.invoke("job_status", json!({ "id": id })).unwrap();
+            if !matches!(info["state"]["kind"].as_str(), Some("queued" | "running")) {
+                return info["state"].clone();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("job {id} did not end");
+    }
+
+    #[test]
+    fn a_disparity_job_answers_blobs_and_memoizes_them() {
+        let (api, run, _cache) = viewer();
+        let loaded = api
+            .invoke("load_export", json!({"path": slash(&run.export)}))
+            .unwrap();
+        api.invoke("set_active_export", json!({"export": loaded["export"]}))
+            .unwrap();
+        let args = json!({
+            "path_a": slash(&run.dir.join("images/cam0_view0.png")),
+            "path_b": slash(&run.dir.join("images/cam1_view0.png")),
+            "cam_a": 0, "cam_b": 1, "pose": 0,
+            "params": {"block_size": 5, "semi_global": true, "downscale": 1}
+        });
+        let job = api.invoke("disparity", args.clone()).unwrap();
+        let state = finish(&api, &job["id"]);
+        assert_eq!(state["kind"], "done", "{state}");
+        let output = &state["output"];
+        let (w, h) = (
+            output["width"].as_u64().unwrap(),
+            output["height"].as_u64().unwrap(),
+        );
+        let plane = api
+            .resource(
+                "blob",
+                json!({"id": output["planes"]["id"]}),
+                &Conditions::default(),
+            )
+            .unwrap();
+        assert_eq!(plane.media_type, "application/x-vam1");
+        let bytes = plane.read_body().unwrap();
+        assert_eq!(&bytes[..4], b"VAM1");
+        assert_eq!(u32::from_le_bytes(bytes[16..20].try_into().unwrap()), 3);
+        assert_eq!(bytes.len() as u64, 24 + w * h * 3 * 4);
+        let pair = api
+            .resource(
+                "blob",
+                json!({"id": output["rectified_pair"]["id"]}),
+                &Conditions::default(),
+            )
+            .unwrap();
+        assert!(pair.read_body().unwrap().starts_with(b"\x89PNG"));
+        let count = output["point_count"].as_u64().unwrap();
+        assert_eq!(
+            output["point_positions"]["len"].as_u64().unwrap(),
+            count * 12
+        );
+
+        // The same request answers the same blobs, from the store.
+        let again = api.invoke("disparity", args).unwrap();
+        let state = finish(&api, &again["id"]);
+        assert_eq!(&state["output"], output);
+    }
+
     #[test]
     fn paths_outside_the_viewer_scope_are_refused() {
-        let (api, run) = viewer();
+        let (api, run, _cache) = viewer();
         let outside = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         let err = api
             .invoke("read_manifest", json!({"path": slash(&outside)}))
@@ -314,6 +457,7 @@ mod tests {
             .resource(
                 "undistorted_image",
                 json!({"path": slash(&run.dir.join("../viewer-run-vcal/calibration.json")), "camera": 0}),
+                &Conditions::default(),
             )
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::ForbiddenPath);

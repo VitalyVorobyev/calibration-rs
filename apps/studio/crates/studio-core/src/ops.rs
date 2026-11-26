@@ -7,10 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use vision_calibration::core::PixelRect;
 use vision_calibration::optim::ProjectionUncertainty;
 
-use crate::disparity::{self, DisparityParams, DisparityResult};
 use crate::epipolar::{self, EpipolarOverlay};
 use crate::export_cache::ExportCache;
 use crate::uncertainty;
@@ -85,17 +83,6 @@ pub fn read_text_file(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))
 }
 
-/// The image at `path` rendered into `camera`'s undistorted pixel frame, as
-/// PNG bytes.
-pub fn load_undistorted_image(
-    cache: &ExportCache,
-    path: &Path,
-    camera: usize,
-    roi: Option<PixelRect>,
-) -> Result<Vec<u8>, String> {
-    cache.with(|export| epipolar::undistort_image_png(export, path, camera, roi))
-}
-
 /// Raw camera pixels mapped into `camera`'s undistorted pixel frame.
 pub fn undistort_points(
     cache: &ExportCache,
@@ -152,18 +139,6 @@ pub fn projection_uncertainty(
     image_size: [u32; 2],
 ) -> Result<ProjectionUncertainty, String> {
     cache.with(|export| uncertainty::projection_uncertainty(export, camera, image_size))
-}
-
-/// A disparity map for the `(cam_a, cam_b)` pair at `pose`.
-pub fn compute_disparity(
-    cache: &ExportCache,
-    paths: [&Path; 2],
-    cam_a: usize,
-    cam_b: usize,
-    pose: usize,
-    params: &DisparityParams,
-) -> Result<DisparityResult, String> {
-    cache.with(|export| disparity::compute(export, paths[0], paths[1], cam_a, cam_b, pose, params))
 }
 
 #[cfg(test)]

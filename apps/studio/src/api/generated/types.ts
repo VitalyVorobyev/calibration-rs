@@ -467,6 +467,7 @@ export type RinggridCodingSpec =
  * lattice, which has the same JSON spelling.
  */
 export type RinggridLatticeSpec = "hex" | "rect";
+export type DisparityEvent = null;
 /**
  * The kinds of [`StudioError`].
  */
@@ -475,7 +476,9 @@ export type ErrorKind =
   | "unknown_command"
   | "invalid_args"
   | "busy"
+  | "too_large"
   | "job_not_found"
+  | "blob_expired"
   | "internal"
   | "not_a_project"
   | "project_exists"
@@ -800,6 +803,8 @@ export type SingleCamHandeyeSolution =
 export type UndistortPointsReply = ([number, number] | null)[];
 
 export interface StudioApiTypes {
+  BlobQuery?: BlobQuery;
+  BlobRef?: BlobRef;
   CameraParameterValuesArgs?: CameraParameterValuesArgs;
   CameraParameterValuesReply?: CameraParameterValuesReply;
   CameraParams?: CameraParams;
@@ -816,6 +821,8 @@ export interface StudioApiTypes {
   DatasetSpec?: DatasetSpec;
   DetectorSpec?: DetectorSpec;
   DisparityArgs?: DisparityArgs;
+  DisparityEvent?: DisparityEvent;
+  DisparityMetrics?: DisparityMetrics;
   DisparityParams?: DisparityParams;
   DisparityResult?: DisparityResult;
   DistortionParams?: DistortionParams;
@@ -837,6 +844,7 @@ export interface StudioApiTypes {
   ImageManifest?: ImageManifest;
   ImageNoiseSpec?: ImageNoiseSpec;
   ImagePattern?: ImagePattern;
+  ImageQuery?: ImageQuery;
   Iso3Schema?: Iso3Schema;
   JobEvent?: JobEvent;
   JobInfo?: JobInfo;
@@ -858,7 +866,6 @@ export interface StudioApiTypes {
   PerFeatureResiduals?: PerFeatureResiduals;
   PixelRect?: PixelRect;
   PlanarIntrinsicsExport?: PlanarIntrinsicsExport;
-  PointCloud?: PointCloud;
   PoseColumnMap?: PoseColumnMap;
   PoseConvention?: PoseConvention;
   PosePairing?: PosePairing;
@@ -920,6 +927,28 @@ export interface StudioApiTypes {
   UserPath?: UserPath;
   ViewCovariance?: ViewCovariance;
   ViewerSession?: ViewerSession;
+}
+/**
+ * The blob `id` a command made (a value plane, raw floats, a PNG).
+ * `blob_expired` once the store has evicted it: run the command again.
+ */
+export interface BlobQuery {
+  id: string;
+}
+/**
+ * A blob a command made: fetch it from the `blob` resource with its id.
+ */
+export interface BlobRef {
+  id: string;
+  /**
+   * Its length in bytes.
+   */
+  len: number;
+  /**
+   * `application/x-vam1` (a value plane), `application/x-f32` (raw
+   * little-endian floats), `image/png`, …
+   */
+  media_type: string;
 }
 /**
  * The value of each labelled parameter of the active export that is a
@@ -1373,8 +1402,11 @@ export interface PoseColumnMap {
 }
 /**
  * A disparity map of the stereo pair `path_a` (camera `cam_a`) and
- * `path_b` (camera `cam_b`) at `pose`: rectified from the active export,
- * dense-matched, with colour-mapped images and quality metrics.
+ * `path_b` (camera `cam_b`) at `pose`: rectified from the active export and
+ * dense-matched. The output names its fields as blobs: a value plane of
+ * disparity, depth and the rectified left image, the point cloud, and the
+ * rectified pair. The same request again answers from the blob store while
+ * it still holds them.
  */
 export interface DisparityArgs {
   cam_a: number;
@@ -1402,10 +1434,9 @@ export interface DisparityParams {
   semi_global: boolean;
 }
 /**
- * Result returned to the Depth workspace. All images are `data:image/png`
- * base64 URLs the webview can drop straight into `<img>`.
+ * The quality of a dense match.
  */
-export interface DisparityResult {
+export interface DisparityMetrics {
   /**
    * Stereo baseline in calibration units (m).
    */
@@ -1415,29 +1446,13 @@ export interface DisparityResult {
    */
   density: number;
   /**
-   * Depth colormap (jet over metric depth `Z = f·B / d`; invalid black).
-   */
-  depth_png: string;
-  /**
-   * See [`DisparityResult::disp_min`].
+   * See [`DisparityMetrics::disp_min`].
    */
   disp_max: number;
   /**
    * Min / max recovered disparity (px).
    */
   disp_min: number;
-  /**
-   * Disparity colormap (jet; invalid pixels black).
-   */
-  disparity_png: string;
-  /**
-   * Matched (downscaled) image height.
-   */
-  height: number;
-  /**
-   * Disparity colormap blended over the rectified left image.
-   */
-  overlay_png: string;
   /**
    * Inlier pixel count of that planar fit.
    */
@@ -1448,38 +1463,44 @@ export interface DisparityResult {
    */
   plane_rms?: number | null;
   /**
-   * Reprojected 3D point cloud (reference-camera frame, metres).
-   */
-  point_cloud: PointCloud;
-  /**
-   * Rectified left | right with shared epipolar rows (rectification sanity).
-   */
-  rectified_pair_png: string;
-  /**
    * Whether semi-global aggregation was used.
    */
   semi_global: boolean;
+}
+/**
+ * A dense match, its fields as blobs (`blob` resource).
+ */
+export interface DisparityResult {
+  /**
+   * Matched (downscaled) image height.
+   */
+  height: number;
+  metrics: DisparityMetrics;
+  /**
+   * A `VAM1` value plane of the matched size with three channels:
+   * disparity (px) and metric depth (m), both `NaN` where there is no
+   * match, and the rectified left image's luminance (0–255).
+   */
+  planes: BlobRef;
+  /**
+   * Its colours: `3 · point_count` little-endian `f32` in `[0, 1]`.
+   */
+  point_colors: BlobRef;
+  point_count: number;
+  /**
+   * The point cloud's positions: `3 · point_count` little-endian `f32`
+   * (x, y, z in the reference camera's frame, metres).
+   */
+  point_positions: BlobRef;
+  /**
+   * Rectified left | right side by side with shared horizontal epipolar
+   * lines (a PNG).
+   */
+  rectified_pair: BlobRef;
   /**
    * Matched (downscaled) image width.
    */
   width: number;
-}
-/**
- * A reprojected 3D point cloud for the frontend's WebGL renderer.
- */
-export interface PointCloud {
-  /**
-   * Flat `[r, g, b, …]` per-point grayscale colours in `[0, 1]`.
-   */
-  colors: number[];
-  /**
-   * Number of points (`positions.len() / 3`).
-   */
-  count: number;
-  /**
-   * Flat `[x, y, z, …]` positions in the reference-camera frame (metres).
-   */
-  positions: number[];
 }
 /**
  * Result of a single epipolar overlay computation.
@@ -1901,6 +1922,17 @@ export interface Iso3Schema {
    * @maxItems 3
    */
   translation: [number, number, number];
+}
+/**
+ * The image file at `path`, as a browser can decode it: JPEG, PNG, WebP,
+ * GIF and BMP are the file itself; TIFF, PNM and the other formats the
+ * back end reads become an 8-bit PNG (a 16-bit image reduced as the
+ * detectors reduce it). With `max`, a JPEG thumbnail whose longest side is
+ * at most `max`, snapped up to 160, 320, 640 or 1280.
+ */
+export interface ImageQuery {
+  max?: number | null;
+  path: UserPath;
 }
 /**
  * A job as the registry knows it.
@@ -2854,8 +2886,8 @@ export interface UndistortPointsArgs {
   points_px: [number, number][];
 }
 /**
- * The image at `path` rendered into `camera`'s undistorted pixel frame (a
- * PNG), cropped to `roi` when given.
+ * The image at `path` rendered into `camera`'s undistorted pixel frame of
+ * the active export (a PNG), cropped to `roi` when given.
  */
 export interface UndistortedImageQuery {
   camera: number;

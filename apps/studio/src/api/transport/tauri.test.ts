@@ -4,7 +4,7 @@
  * is the error envelope, resources through `studio_resource`, and the event
  * stream is a channel opened by `studio_subscribe` and closed by
  * `studio_unsubscribe`. */
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks, mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import { StudioError } from "../transport";
 import { isTauri, tauriTransport } from "./tauri";
@@ -40,29 +40,27 @@ describe("the Tauri transport", () => {
     expect(error).toMatchObject({ kind: "not_a_project", message: "/tmp is no project" });
   });
 
-  it("fetches a resource and opens and closes the event stream", async () => {
+  it("names a resource on the studio: scheme and opens and closes the event stream", async () => {
     const seen: { cmd: string; args: Record<string, unknown> }[] = [];
     mockIPC((cmd, args) => {
       seen.push({ cmd, args: args as Record<string, unknown> });
       if (cmd === "studio_subscribe") return 7;
-      if (cmd === "studio_resource") return new Uint8Array([137, 80]).buffer;
       return null;
     });
-    await tauriTransport.fetchResource("undistorted_image", {
-      path: "/a.png",
-      camera: 0,
-    });
-    expect(seen[0]).toEqual({
-      cmd: "studio_resource",
-      args: { name: "undistorted_image", query: { path: "/a.png", camera: 0 } },
-    });
+    mockConvertFileSrc("macos");
+    const query = { path: "/a b.png", camera: 0 };
+    const url = tauriTransport.resourceUrl("undistorted_image", query);
+    // The whole target is encoded once; the shell's handler decodes it.
+    expect(url).toBe(
+      `studio://localhost/${encodeURIComponent(`r/undistorted_image?q=${JSON.stringify(query)}`)}`,
+    );
 
     const subscription = tauriTransport.subscribe(() => {}, 3);
     await subscription.ready;
-    expect(seen[1]!.cmd).toBe("studio_subscribe");
-    expect(seen[1]!.args.after).toBe(3);
+    expect(seen[0]!.cmd).toBe("studio_subscribe");
+    expect(seen[0]!.args.after).toBe(3);
     subscription.close();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(seen[2]).toEqual({ cmd: "studio_unsubscribe", args: { id: 7 } });
+    expect(seen[1]).toEqual({ cmd: "studio_unsubscribe", args: { id: 7 } });
   });
 });

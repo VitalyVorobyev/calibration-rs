@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn the_forms_are_the_published_schemas_and_defaults() {
-        let api = Api::new(RootScope::fixed([]));
+        let api = Api::for_tests(RootScope::fixed([]));
         for topology in TOPOLOGIES {
             let form = api
                 .invoke("config_form", json!({ "topology": topology }))
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn a_patch_resolves_by_the_library_rule() {
-        let api = Api::new(RootScope::fixed([]));
+        let api = Api::for_tests(RootScope::fixed([]));
         let defaults = api
             .invoke("config_form", json!({ "topology": "planar_intrinsics" }))
             .unwrap()["default"]

@@ -110,7 +110,7 @@ mod tests {
         let base = dunce::canonicalize(tmp.path()).unwrap();
         let project = base.join("p");
         std::fs::create_dir(&project).unwrap();
-        let api = Api::new(RootScope::growable(None));
+        let api = Api::for_tests(RootScope::growable(None));
         let dir = project.to_string_lossy().into_owned();
         let info = api
             .invoke(

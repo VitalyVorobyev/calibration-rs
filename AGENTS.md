@@ -307,7 +307,9 @@ Calibration Studio, Tauri 2 + React 19 + TypeScript; the developer guide is
 * UI comes from `@vitavision/ui`, `@vitavision/workbench` and
   `@vitavision/three(-react)`; no app-local component kit, colour only from
   design tokens. No `apps/studio/src` module over ~400 lines (generated files
-  excepted). Source images load over the asset protocol, never as IPC text.
+  excepted). Images and dense results are resources loaded by URL (the
+  `studio:` scheme on the desktop, `/api/r/…` in the browser), never IPC
+  replies.
 * Gates, as CI runs them. From `apps/studio/`: `bun run lint` (oxlint, zero
   warnings), `bun run format:check`, `bun run typecheck`, `bun run test`
   (Vitest), `bun run test:e2e` (Playwright), and `bun run generate:api:ts`

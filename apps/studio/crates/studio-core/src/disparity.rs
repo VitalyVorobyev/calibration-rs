@@ -4,15 +4,16 @@
 //! rectifies the pair from the calibration
 //! ([`vision_calibration::mvg::rectification::rectify`], any camera model),
 //! dense-matches it ([`vision_calibration::mvg::dense::match_block`], block or
-//! semi-global), and returns colormapped PNG data URLs plus quality metrics.
+//! semi-global), and returns the fields themselves — disparity, metric
+//! depth and the rectified left image as one value plane, the point cloud as
+//! raw floats, the rectified pair as a PNG — plus quality metrics. Colour
+//! mapping is the frontend's.
 //! Math lives here, not in the frontend, so rectification uses the canonical
 //! [`vision_calibration`] models — the same reason the epipolar overlay is
 //! server-side.
 
-use std::io::Cursor;
 use std::path::Path;
 
-use base64::Engine;
 use nalgebra::Matrix3;
 use serde::{Deserialize, Serialize};
 use vision_calibration::common::calibrated_cameras;
@@ -32,29 +33,36 @@ pub struct DisparityParams {
     pub downscale: usize,
 }
 
-/// Result returned to the Depth workspace. All images are `data:image/png`
-/// base64 URLs the webview can drop straight into `<img>`.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
-pub struct DisparityResult {
-    /// Rectified left | right with shared epipolar rows (rectification sanity).
-    pub rectified_pair_png: String,
-    /// Disparity colormap (jet; invalid pixels black).
-    pub disparity_png: String,
-    /// Disparity colormap blended over the rectified left image.
-    pub overlay_png: String,
-    /// Depth colormap (jet over metric depth `Z = f·B / d`; invalid black).
-    pub depth_png: String,
-    /// Reprojected 3D point cloud (reference-camera frame, metres).
-    pub point_cloud: PointCloud,
+/// What a dense match computes, before it is stored as blobs.
+#[derive(Debug, Clone)]
+pub struct DisparityData {
     /// Matched (downscaled) image width.
     pub width: usize,
     /// Matched (downscaled) image height.
     pub height: usize,
+    /// Disparity per rectified pixel (px), row-major; `NaN` where invalid.
+    pub disparity: Vec<f32>,
+    /// Metric depth `Z = f·B / d` per rectified pixel (m); `NaN` where
+    /// invalid.
+    pub depth: Vec<f32>,
+    /// The rectified left image's luminance (0–255), the overlay's base.
+    pub left: Vec<f32>,
+    /// Rectified left | right side by side with shared horizontal epipolar
+    /// lines (a PNG).
+    pub pair_png: Vec<u8>,
+    /// The reprojected point cloud (reference-camera frame, metres).
+    pub point_cloud: PointCloud,
+    pub metrics: DisparityMetrics,
+}
+
+/// The quality of a dense match.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DisparityMetrics {
     /// Fraction of pixels with a valid disparity.
     pub density: f64,
     /// Min / max recovered disparity (px).
     pub disp_min: f32,
-    /// See [`DisparityResult::disp_min`].
+    /// See [`DisparityMetrics::disp_min`].
     pub disp_max: f32,
     /// Robust planar-fit RMS over the dominant surface (px) — low ⇒ coherent;
     /// `None` when fewer than 3 finite disparities are available or the fit is degenerate.
@@ -68,7 +76,7 @@ pub struct DisparityResult {
 }
 
 /// A reprojected 3D point cloud for the frontend's WebGL renderer.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Clone)]
 pub struct PointCloud {
     /// Flat `[x, y, z, …]` positions in the reference-camera frame (metres).
     pub positions: Vec<f32>,
@@ -90,7 +98,7 @@ pub fn compute(
     cam_b: usize,
     pose: usize,
     params: &DisparityParams,
-) -> Result<DisparityResult, String> {
+) -> Result<DisparityData, String> {
     if params.block_size == 0 || params.block_size.is_multiple_of(2) {
         return Err("block_size must be odd".to_string());
     }
@@ -159,21 +167,23 @@ pub fn compute(
     // Reproject to metric depth + a 3D point cloud (reference-camera frame).
     let (point_cloud, depth) = reproject(&disp, &rect_left, &rect);
 
-    Ok(DisparityResult {
-        rectified_pair_png: pair_with_epilines_url(&rect_left, &rect_right)?,
-        disparity_png: disparity_url(&disp, lo, hi)?,
-        overlay_png: overlay_url(&rect_left, &disp, lo, hi)?,
-        depth_png: depth_url(&depth, w, h)?,
-        point_cloud,
+    Ok(DisparityData {
         width: w,
         height: h,
-        density,
-        disp_min: lo,
-        disp_max: hi,
-        plane_rms,
-        plane_inliers,
-        baseline_m: rect.baseline(),
-        semi_global: params.semi_global,
+        disparity: disp.data().to_vec(),
+        depth,
+        left: rect_left.data().iter().map(|&g| f32::from(g)).collect(),
+        pair_png: pair_with_epilines_png(&rect_left, &rect_right)?,
+        point_cloud,
+        metrics: DisparityMetrics {
+            density,
+            disp_min: lo,
+            disp_max: hi,
+            plane_rms,
+            plane_inliers,
+            baseline_m: rect.baseline(),
+            semi_global: params.semi_global,
+        },
     })
 }
 
@@ -356,80 +366,8 @@ fn reproject(
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// Jet colormap, `t` in `[0, 1]` → `[r, g, b]`.
-fn jet(t: f32) -> [u8; 3] {
-    let t = t.clamp(0.0, 1.0);
-    let r = ((1.5 - (4.0 * t - 3.0).abs()).clamp(0.0, 1.0) * 255.0) as u8;
-    let g = ((1.5 - (4.0 * t - 2.0).abs()).clamp(0.0, 1.0) * 255.0) as u8;
-    let b = ((1.5 - (4.0 * t - 1.0).abs()).clamp(0.0, 1.0) * 255.0) as u8;
-    [r, g, b]
-}
-
-/// Depth colormap (jet over the metric depth range; near = blue, far = red).
-fn depth_url(depth: &[f32], w: usize, h: usize) -> Result<String, String> {
-    let mut lo = f32::INFINITY;
-    let mut hi = f32::NEG_INFINITY;
-    for &z in depth {
-        if z.is_finite() {
-            lo = lo.min(z);
-            hi = hi.max(z);
-        }
-    }
-    let span = (hi - lo).max(1e-6);
-    let rgb: Vec<[u8; 3]> = depth
-        .iter()
-        .map(|&z| {
-            if z.is_finite() {
-                jet((z - lo) / span)
-            } else {
-                [0, 0, 0]
-            }
-        })
-        .collect();
-    rgb_to_url(w, h, &rgb)
-}
-
-fn disparity_url(d: &DisparityMap, lo: f32, hi: f32) -> Result<String, String> {
-    let span = (hi - lo).max(1e-6);
-    let rgb: Vec<[u8; 3]> = d
-        .data()
-        .iter()
-        .map(|&v| {
-            if v.is_finite() {
-                jet((v - lo) / span)
-            } else {
-                [0, 0, 0]
-            }
-        })
-        .collect();
-    rgb_to_url(d.width(), d.height(), &rgb)
-}
-
-fn overlay_url(left: &GrayImage, d: &DisparityMap, lo: f32, hi: f32) -> Result<String, String> {
-    let span = (hi - lo).max(1e-6);
-    let rgb: Vec<[u8; 3]> = left
-        .data()
-        .iter()
-        .zip(d.data())
-        .map(|(&g8, &v)| {
-            let g = g8 as f32;
-            if v.is_finite() {
-                let c = jet((v - lo) / span);
-                [
-                    (0.65 * c[0] as f32 + 0.35 * g) as u8,
-                    (0.65 * c[1] as f32 + 0.35 * g) as u8,
-                    (0.65 * c[2] as f32 + 0.35 * g) as u8,
-                ]
-            } else {
-                [g8, g8, g8]
-            }
-        })
-        .collect();
-    rgb_to_url(left.width(), left.height(), &rgb)
-}
-
 /// Rectified left | right side-by-side with shared horizontal epipolar lines.
-fn pair_with_epilines_url(left: &GrayImage, right: &GrayImage) -> Result<String, String> {
+fn pair_with_epilines_png(left: &GrayImage, right: &GrayImage) -> Result<Vec<u8>, String> {
     let (w, h) = (left.width(), left.height());
     let gap = 6usize;
     let total_w = w * 2 + gap;
@@ -450,19 +388,18 @@ fn pair_with_epilines_url(left: &GrayImage, right: &GrayImage) -> Result<String,
         }
         yy += step;
     }
-    rgb_to_url(total_w, h, &rgb)
+    rgb_to_png(total_w, h, &rgb)
 }
 
-fn rgb_to_url(w: usize, h: usize, rgb: &[[u8; 3]]) -> Result<String, String> {
+fn rgb_to_png(w: usize, h: usize, rgb: &[[u8; 3]]) -> Result<Vec<u8>, String> {
     let flat: Vec<u8> = rgb.iter().flat_map(|p| p.iter().copied()).collect();
     let img =
         image::RgbImage::from_raw(w as u32, h as u32, flat).ok_or("rgb buffer size mismatch")?;
-    let mut cursor = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(img)
-        .write_to(&mut cursor, image::ImageFormat::Png)
-        .map_err(|e| format!("encode PNG: {e}"))?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-    Ok(format!("data:image/png;base64,{b64}"))
+    crate::images::encode(
+        &image::DynamicImage::ImageRgb8(img),
+        image::ImageFormat::Png,
+    )
+    .map_err(|e| e.message)
 }
 
 #[cfg(test)]
@@ -491,22 +428,21 @@ mod tests {
         };
         let res = compute(&export, &pa, &pb, 0, 1, 0, &params).expect("compute disparity");
 
-        assert!(res.density > 0.1, "density too low: {}", res.density);
-        assert!(
-            res.plane_inliers > 1000,
-            "few inliers: {}",
-            res.plane_inliers
-        );
-        let plane_rms = res
+        let m = &res.metrics;
+        assert!(m.density > 0.1, "density too low: {}", m.density);
+        assert!(m.plane_inliers > 1000, "few inliers: {}", m.plane_inliers);
+        let plane_rms = m
             .plane_rms
             .expect("calibrated stereo pair should yield finite planarity RMS");
         assert!(plane_rms < 2.0, "planarity RMS too high: {plane_rms}");
-        assert!(res.baseline_m > 0.0);
-        assert!(res.disparity_png.starts_with("data:image/png;base64,"));
-        assert!(res.overlay_png.starts_with("data:image/png;base64,"));
-        assert!(res.rectified_pair_png.starts_with("data:image/png;base64,"));
-        assert!(res.depth_png.starts_with("data:image/png;base64,"));
-        assert!(res.semi_global);
+        assert!(m.baseline_m > 0.0);
+        assert!(m.semi_global);
+        let pixels = res.width * res.height;
+        assert_eq!(
+            (res.disparity.len(), res.depth.len(), res.left.len()),
+            (pixels, pixels, pixels)
+        );
+        assert!(res.pair_png.starts_with(b"\x89PNG"));
 
         // Point cloud: reprojected board points cluster near the calibrated
         // board depth (~0.5 m) in the reference frame.
@@ -519,21 +455,5 @@ mod tests {
             (0.3..0.9).contains(&mean_z),
             "mean reprojected depth off: {mean_z} m"
         );
-
-        // Optional visual dump for manual inspection (DUMP_DISPARITY=1).
-        if std::env::var("DUMP_DISPARITY").is_ok() {
-            for (name, url) in [
-                ("overlay", &res.overlay_png),
-                ("disparity", &res.disparity_png),
-                ("depth", &res.depth_png),
-                ("pair", &res.rectified_pair_png),
-            ] {
-                let b64 = url.strip_prefix("data:image/png;base64,").unwrap();
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(b64)
-                    .unwrap();
-                std::fs::write(format!("/tmp/depth_{name}.png"), bytes).unwrap();
-            }
-        }
     }
 }

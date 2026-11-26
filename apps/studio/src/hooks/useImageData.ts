@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, fileUrl } from "../api";
+import { api } from "../api";
 import { decodeImage, type ImageData } from "../lib/imagePixels";
 import type { FrameKey } from "../types";
 
@@ -12,7 +12,8 @@ interface Loaded {
   data: ImageData;
 }
 
-/** Loads a frame's source image from disk through the back end's file URL and
+/** Loads a frame's source image through the back end's `image` resource
+ * (the file itself, or a PNG of a format the browser cannot decode) and
  * decodes its luminance once, so both `FrameCanvas` (drawing) and
  * `DiagnoseWorkspace` (cursor readout + histogram) share one decode. */
 export function useImageData(
@@ -28,7 +29,7 @@ export function useImageData(
   useEffect(() => {
     if (path === null) return;
     let cancelled = false;
-    decodeImage(fileUrl(path))
+    decodeImage(api.urls.image({ path }))
       .then((data) => {
         if (!cancelled) setLoaded({ key: path, data });
       })
@@ -44,8 +45,7 @@ export function useImageData(
 }
 
 /** Loads a frame through the backend's canonical camera model into the
- * undistorted pixel frame. The backend answers with PNG bytes, shown
- * through a blob URL that lives as long as the image is current. The
+ * undistorted pixel frame (the `undistorted_image` resource, a PNG). The
  * returned image is already
  * ROI-local when `frame.roi` is set, so callers should render it without
  * applying the ROI crop a second time. */
@@ -71,25 +71,15 @@ export function useUndistortedImageData(
         ? null
         : { x: roiX, y: roiY, w: roiW, h: roiH };
     let cancelled = false;
-    let url: string | null = null;
-    api.resources
-      .undistortedImage({ path, camera, roi })
-      .then((bytes) => {
-        if (cancelled) return null;
-        url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-        return decodeImage(url);
-      })
+    decodeImage(api.urls.undistortedImage({ path, camera, roi }))
       .then((data) => {
-        if (!cancelled && data) setLoaded({ key, data });
+        if (!cancelled) setLoaded({ key, data });
       })
       .catch((e: unknown) => {
         if (!cancelled) onError?.(`Could not load undistorted image: ${errorText(e)}`);
       });
     return () => {
       cancelled = true;
-      // The frame viewer displays the image by its URL, so the URL lives
-      // until this key's image is no longer returned.
-      if (url) URL.revokeObjectURL(url);
     };
   }, [path, roiX, roiY, roiW, roiH, camera, key, onError]);
 

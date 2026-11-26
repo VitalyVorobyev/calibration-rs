@@ -31,15 +31,21 @@ export type JobHandlers = {
   ) => Awaitable<Jobs[K]["output"]>;
 };
 
-export type ResourceHandlers = {
-  [K in keyof Resources]?: (query: Resources[K]) => Awaitable<ArrayBuffer>;
+/** A resource's URL in tests; a one-pixel PNG for every resource without
+ * one. */
+export type ResourceUrls = {
+  [K in keyof Resources]?: (query: Resources[K]) => string;
 };
+
+/** A one-pixel PNG. */
+export const PIXEL_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 export interface MockOptions {
   kind?: BackendKind;
   commands?: CommandHandlers;
   jobs?: JobHandlers;
-  resources?: ResourceHandlers;
+  resources?: ResourceUrls;
   dialog?: (options: OpenDialog) => string | null;
   session?: ViewerSession;
 }
@@ -152,18 +158,11 @@ export function createMockTransport(options: MockOptions = {}): MockTransport {
       return { ready: Promise.resolve(), close: () => subscribers.delete(onEvent) };
     },
 
-    async fetchResource(name, query) {
-      const handler = (options.resources as Record<string, unknown> | undefined)?.[
-        name
-      ] as ((query: unknown) => Awaitable<ArrayBuffer>) | undefined;
-      if (!handler)
-        throw asStudioError({ kind: "unknown_command", message: `no mock ${name}` });
-      return handler(query);
+    resourceUrl(name, query) {
+      const url = (options.resources as Record<string, unknown> | undefined)?.[name] as
+        ((query: unknown) => string) | undefined;
+      return url ? url(query) : PIXEL_PNG;
     },
-
-    // A one-pixel PNG stands in for every source image.
-    fileUrl: () =>
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
 
     ...(dialog ? { openDialog: (o: OpenDialog) => Promise.resolve(dialog(o)) } : {}),
     ...(session ? { session: () => Promise.resolve(session) } : {}),

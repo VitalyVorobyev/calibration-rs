@@ -1,7 +1,8 @@
 /** The seam between the app and its back end: a transport carries the
- * command table's calls (`invoke`), its event stream (`subscribe`) and its
- * resources (`fetchResource`). The typed client (`generated/client.ts`) is
- * written over it, so a transport never knows a command by name.
+ * command table's calls (`invoke`), its event stream (`subscribe`) and the
+ * URLs of its resources (`resourceUrl`). The typed client
+ * (`generated/client.ts`) is written over it, so a transport never knows a
+ * command by name.
  *
  * - **Tauri** (`transport/tauri.ts`) — the desktop app's IPC.
  * - **HTTP** (`transport/http.ts`) — the browser viewer (`calib-viewer`):
@@ -54,11 +55,10 @@ export interface Transport {
   /** The event stream, from after event `after` (from each live job's
    * latest state without it). */
   subscribe(onEvent: (event: ServerEvent) => void, after?: number): Subscription;
-  /** A resource's bytes; rejects with a `StudioError`. */
-  fetchResource(resource: string, query: unknown): Promise<ArrayBuffer>;
-  /** The URL the page loads the file at absolute `path` from: the asset
-   * protocol in the desktop app, the viewer's file route in the browser. */
-  fileUrl(path: string): string;
+  /** The URL of resource `resource` for `query`: the `studio:` scheme in
+   * the desktop app, `/api/r/…` in the browser. A failed load answers the
+   * `StudioError` envelope with a 4xx/5xx status. */
+  resourceUrl(resource: string, query: unknown): string;
   /** A native open dialog; `null` when the user cancels. Desktop only. */
   openDialog?(options: OpenDialog): Promise<string | null>;
   /** The run the browser viewer serves. HTTP only. */
@@ -119,7 +119,6 @@ export const noBackend: Transport = {
   invoke: () =>
     Promise.reject(new StudioError({ kind: "internal", message: NO_BACKEND })),
   subscribe: () => ({ ready: Promise.resolve(), close: () => {} }),
-  fetchResource: () =>
-    Promise.reject(new StudioError({ kind: "internal", message: NO_BACKEND })),
-  fileUrl: (path) => path.replace(/\\/g, "/"),
+  resourceUrl: (name, query) =>
+    `/api/r/${encodeURIComponent(name)}?q=${encodeURIComponent(JSON.stringify(query ?? {}))}`,
 };
