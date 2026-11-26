@@ -1136,7 +1136,9 @@ fn error_category(err: &RunError) -> &'static str {
         RunError::LaserPairing { .. } => "view_pairing",
         RunError::LaserExtraction { .. } => "detection",
         RunError::InsufficientLaserViews { .. } => "insufficient_views",
-        RunError::UpstreamCalibration { .. } => "upstream_calibration",
+        RunError::UpstreamCalibration { .. } | RunError::UpstreamViewMatch { .. } => {
+            "upstream_calibration"
+        }
         RunError::Cancelled => "cancelled",
         _ => "unknown",
     }

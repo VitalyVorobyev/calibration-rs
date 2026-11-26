@@ -274,6 +274,11 @@ class ManifestRunTest(unittest.TestCase):
             self.assertAlmostEqual(k.fx, _images.FX, delta=0.03 * _images.FX)
             self.assertAlmostEqual(k.fy, _images.FY, delta=0.03 * _images.FY)
             self.assertLess(result.mean_reproj_error, 0.5)
+            # The export names each view's image, relative to base_dir.
+            images = result.export["diagnostics"]["image_manifest"]
+            self.assertEqual(images["root"], ".")
+            self.assertEqual(len(images["frames"]), 8)
+            self.assertTrue((root / images["frames"][0]["path"]).is_file())
 
     def test_calibrate_dataset_reports_each_image_and_stops_on_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

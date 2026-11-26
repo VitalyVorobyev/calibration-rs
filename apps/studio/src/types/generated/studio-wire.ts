@@ -725,6 +725,12 @@ export interface ExportDiagnostics {
  * embeds the manifest. Each [`FrameRef::path`] is interpreted relative to
  * `root`. Both layers of indirection make exports portable across machines
  * as long as the image directory is co-located with the export.
+ *
+ * The dataset runner fills the manifest before the export has a file: its
+ * `root` is `.`, the dataset folder its manifest's paths resolve against,
+ * and each frame's path is relative to that folder (absolute for an image
+ * outside it). A writer that puts the export in another folder restates
+ * the root with [`rebased`](Self::rebased).
  */
 export interface ImageManifest {
   /**

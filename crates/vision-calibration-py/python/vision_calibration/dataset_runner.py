@@ -96,7 +96,8 @@ RunError = _native.RunError
 """A manifest run failed; ``kind`` names the failure: ``"validation"``,
 ``"empty_image_match"``, ``"image_size_mismatch"``, ``"roi_out_of_bounds"``,
 ``"pose_count_mismatch"``, ``"detection"``, ``"insufficient_usable_views"``,
-``"no_whole_chessboard_views"``, ...."""
+``"no_whole_chessboard_views"``, ``"upstream_view_match"`` (a rig laser view
+that is not exactly one view of its upstream calibration), ...."""
 
 AskUserError = _native.AskUserError
 """The manifest leaves a convention open and the runner will not guess.
@@ -580,7 +581,10 @@ def calibrate_dataset(
     A :class:`DatasetCalibration`: the topology's export dataclass (e.g.
     :class:`~vision_calibration.models.SingleCamHandeyeExport`) in
     ``export``, the cameras' image sizes, the view counts and the rejected
-    detections.
+    detections. The export's ``diagnostics.image_manifest`` names the image
+    of every view and camera the calibration used; its ``root`` is ``"."``,
+    standing for ``base_dir``, and each frame's path is relative to
+    ``base_dir``.
 
     Raises
     ------

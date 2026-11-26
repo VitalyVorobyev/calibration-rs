@@ -19,10 +19,11 @@
 //! [`ProjectErrorKind::NotAProject`] error: nothing is guessed from a folder's
 //! contents.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
+use vision_calibration::core::ImageManifest;
 
 /// The file that makes a folder a project.
 pub const PROJECT_FILE: &str = "calibration-project.json";
@@ -244,7 +245,7 @@ pub fn save_run(dir: &Path, name: &str, record: RunRecord) -> Result<RunSummary,
     }
     let dataset_dir = canonical_dir(&record.dataset_dir)?;
     let mut export = record.export;
-    rebase_image_root(&mut export, &dataset_dir, &project);
+    rebase_image_root(&mut export, &dataset_dir, &project, &run_dir);
     let runs_dir = project.join(RUNS_DIR);
     std::fs::create_dir_all(&runs_dir).map_err(|e| ProjectError::io(&runs_dir, e))?;
     let mut staging = StagingDir::create(&runs_dir, name)?;
@@ -344,10 +345,16 @@ fn validate_run_name(name: &str) -> Result<(), ProjectError> {
     }
 }
 
-/// Point the export's `diagnostics.image_manifest.root` (relative to `dataset_dir`) at
-/// the same folder as seen from `<project>/runs/<name>/`: a relative path
+/// Point the export's `diagnostics.image_manifest.root` (relative to
+/// `dataset_dir`) at the same folder as seen from the run folder `run_dir`,
+/// with the library's rule ([`ImageManifest::rebased`]): a relative path
 /// when the images lie inside the project, the absolute folder otherwise.
-fn rebase_image_root(export: &mut serde_json::Value, dataset_dir: &Path, project: &Path) {
+fn rebase_image_root(
+    export: &mut serde_json::Value,
+    dataset_dir: &Path,
+    project: &Path,
+    run_dir: &Path,
+) {
     let Some(manifest) = export
         .get_mut("diagnostics")
         .and_then(|d| d.get_mut("image_manifest"))
@@ -360,31 +367,11 @@ fn rebase_image_root(export: &mut serde_json::Value, dataset_dir: &Path, project
         .and_then(|r| r.as_str())
         .unwrap_or(".")
         .to_owned();
-    let images = normalize(&dataset_dir.join(old_root));
-    let new_root = match images.strip_prefix(project) {
-        Ok(rel) if rel.as_os_str().is_empty() => PathBuf::from("../.."),
-        Ok(rel) => Path::new("../..").join(rel),
-        Err(_) => images,
-    };
+    let rebased = ImageManifest::new(old_root, Vec::new()).rebased(dataset_dir, run_dir, project);
     manifest.insert(
         "root".into(),
-        serde_json::Value::String(path_string(&new_root)),
+        serde_json::Value::String(path_string(&rebased.root)),
     );
-}
-
-/// `path` with its `.` and `..` components folded (lexically).
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 /// `dir` made absolute and canonical; an error unless it is a folder.

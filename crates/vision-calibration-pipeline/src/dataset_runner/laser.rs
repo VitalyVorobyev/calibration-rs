@@ -16,12 +16,12 @@
 //! without a laser image is a gap — `None` laser slot for rigs, a
 //! dropped view for the single-camera topology.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use vision_calibration_core::{Iso3, Pt2, RunControl, View};
+use vision_calibration_core::{Iso3, Pt2, RunControl, View, data_relative_path, lexical_absolute};
 use vision_calibration_dataset::{
     DatasetSpec, ImagePattern, LaserExtractionSpec, PosePairing, ProblemKind, validate,
 };
@@ -331,20 +331,24 @@ pub fn build_rig_laserline_device_input(
             ),
         });
     }
+    // Each kept view's place among the upstream run's views, when the
+    // upstream export records its views' images.
+    let upstream_views = match_upstream_views(&export, &upstream_path, spec, base_dir, &core)?;
     let rig_se3_target: Vec<Iso3> = matched
         .iter()
         .zip(kept_tokens.iter())
         .enumerate()
         .map(|(view_idx, (base_se3_gripper, token))| {
-            rig_se3_target_from_upstream(
-                &export,
-                base_se3_gripper,
-                token,
-                view_idx,
-                core.views.len(),
-                core.total_views,
-                &upstream_path,
-            )
+            let view = match &upstream_views {
+                Some(indices) => UpstreamView::Recorded(indices[view_idx]),
+                None => UpstreamView::Unrecorded {
+                    token,
+                    kept_idx: view_idx,
+                    kept_views: core.views.len(),
+                    total_views: core.total_views,
+                },
+            };
+            rig_se3_target_from_upstream(&export, base_se3_gripper, view, &upstream_path)
         })
         .collect::<Result<_, _>>()?;
     let upstream = export
@@ -694,54 +698,152 @@ fn load_upstream_export(path: &Path) -> Result<RigHandeyeExport, RunError> {
     read_export(&text).map_err(|e| not_an_export(&e))
 }
 
-/// Per-view rig→target pose through the frozen hand-eye chain
-/// (hand-eye chain, frozen):
+/// Where a laser view sits among the upstream run's views.
+#[derive(Debug, Clone, Copy)]
+enum UpstreamView<'a> {
+    /// The upstream export records its views' images, and this view is
+    /// its view at this index.
+    Recorded(usize),
+    /// An upstream export without an image manifest: the view is placed by
+    /// its numeric token among all paired views, or by its position among
+    /// the kept views, whichever the export's lengths allow.
+    Unrecorded {
+        token: &'a str,
+        kept_idx: usize,
+        kept_views: usize,
+        total_views: usize,
+    },
+}
+
+/// Each kept view's index among the upstream run's views, matched through
+/// the upstream export's image manifest; `None` when the export has none.
+///
+/// A view matches an upstream view that shows one of its target images
+/// (the same file, or the same path within the dataset folder) or, under
+/// `shared_filename_token` pairing, whose images carry its token. It must
+/// match exactly one: none means the upstream run left the view out, two
+/// or more that the match is ambiguous; both are
+/// [`RunError::UpstreamViewMatch`].
+fn match_upstream_views(
+    export: &RigHandeyeExport,
+    upstream_path: &Path,
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    core: &RigCore,
+) -> Result<Option<Vec<usize>>, RunError> {
+    let Some(manifest) = export.diagnostics.image_manifest.as_ref() else {
+        return Ok(None);
+    };
+    if manifest.target_frames().next().is_none() {
+        return Ok(None);
+    }
+    let upstream_dir = upstream_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let upstream_root = upstream_dir.join(&manifest.root);
+    let token_regex = match spec.pose_pairing.as_ref() {
+        Some(PosePairing::SharedFilenameToken { regex, group }) => Some((
+            regex::Regex::new(regex).map_err(|e| RunError::BadPairingRegex {
+                regex: regex.clone(),
+                message: e.to_string(),
+            })?,
+            group.as_str(),
+        )),
+        _ => None,
+    };
+    let token_of = |path: &Path| -> Option<String> {
+        let (re, group) = token_regex.as_ref()?;
+        let name = path.file_name()?.to_string_lossy();
+        re.captures(&name)
+            .and_then(|c| c.name(group))
+            .map(|m| m.as_str().to_string())
+    };
+
+    // Every way an upstream view is recognised, each with the views it
+    // names.
+    let mut by_file: HashMap<PathBuf, BTreeSet<usize>> = HashMap::new();
+    let mut by_data_path: HashMap<PathBuf, BTreeSet<usize>> = HashMap::new();
+    let mut by_token: HashMap<String, BTreeSet<usize>> = HashMap::new();
+    for frame in manifest.target_frames() {
+        by_file
+            .entry(lexical_absolute(&upstream_root.join(&frame.path)))
+            .or_default()
+            .insert(frame.view);
+        by_data_path
+            .entry(frame.path.clone())
+            .or_default()
+            .insert(frame.view);
+        if let Some(token) = token_of(&frame.path) {
+            by_token.entry(token).or_default().insert(frame.view);
+        }
+    }
+
+    let paired: HashMap<&str, &Vec<Option<PathBuf>>> = core
+        .all_tokens
+        .iter()
+        .map(String::as_str)
+        .zip(&core.all_paths)
+        .collect();
+    core.views
+        .iter()
+        .map(|(_, token)| {
+            let mut matches: BTreeSet<usize> = BTreeSet::new();
+            let images = paired
+                .get(token.as_str())
+                .into_iter()
+                .flat_map(|paths| paths.iter().flatten());
+            for image in images {
+                let keys = [
+                    by_file.get(&lexical_absolute(image)),
+                    by_data_path.get(&data_relative_path(base_dir, image)),
+                ];
+                matches.extend(keys.into_iter().flatten().flatten());
+            }
+            if token_regex.is_some() {
+                matches.extend(by_token.get(token).into_iter().flatten());
+            }
+            match (matches.len(), matches.first()) {
+                (1, Some(&view)) => Ok(view),
+                (n, _) => Err(RunError::UpstreamViewMatch {
+                    path: upstream_path.to_path_buf(),
+                    token: token.clone(),
+                    matches: n,
+                }),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+/// Per-view rig→target pose: the upstream export's own board pose of the
+/// view when it lists one per view, otherwise through the frozen hand-eye
+/// chain:
 ///
 /// - `EyeInHand`:  `T_R_T = T_G_R⁻¹ · T_B_G⁻¹ · T_B_T`
 /// - `EyeToHand`:  `T_R_T = T_R_B · T_B_G · T_G_T`
 fn rig_se3_target_from_upstream(
     export: &RigHandeyeExport,
     base_se3_gripper: &Iso3,
-    token: &str,
-    kept_idx: usize,
-    kept_views: usize,
-    total_views: usize,
+    view: UpstreamView<'_>,
     path: &Path,
 ) -> Result<Iso3, RunError> {
     if !export.rig_se3_target.is_empty() {
-        if export.rig_se3_target.len() == total_views {
-            let idx = token.parse::<usize>().map_err(|_| RunError::UpstreamCalibration {
+        let poses = &export.rig_se3_target;
+        let index = upstream_index(view, poses.len(), "rig_se3_target", path)?;
+        return poses
+            .get(index)
+            .copied()
+            .ok_or_else(|| RunError::UpstreamCalibration {
                 path: path.to_path_buf(),
                 message: format!(
-                    "upstream rig_se3_target has {total_views} entries but view token {token:?} \
-                     is not an index"
+                    "view index {index} is outside upstream rig_se3_target length {}",
+                    poses.len()
                 ),
-            })?;
-            return export.rig_se3_target.get(idx).copied().ok_or_else(|| {
-                RunError::UpstreamCalibration {
-                    path: path.to_path_buf(),
-                    message: format!(
-                        "view token {token:?} resolved to index {idx}, outside upstream \
-                         rig_se3_target length {}",
-                        export.rig_se3_target.len()
-                    ),
-                }
             });
-        }
-        if export.rig_se3_target.len() == kept_views {
-            return Ok(export.rig_se3_target[kept_idx]);
-        }
-        return Err(RunError::UpstreamCalibration {
-            path: path.to_path_buf(),
-            message: format!(
-                "upstream rig_se3_target has {} entries, but this run has {kept_views} kept \
-                 views and {total_views} total paired views",
-                export.rig_se3_target.len()
-            ),
-        });
     }
 
-    let delta = robot_delta_for_view(export, token, kept_idx, kept_views, total_views, path)?;
+    let delta = robot_delta_for_view(export, view, path)?;
     let chain = handeye_observer_se3_target(
         export.handeye.mode(),
         export.handeye.handeye().pose(),
@@ -754,47 +856,64 @@ fn rig_se3_target_from_upstream(
 
 fn robot_delta_for_view(
     export: &RigHandeyeExport,
-    token: &str,
-    kept_idx: usize,
-    kept_views: usize,
-    total_views: usize,
+    view: UpstreamView<'_>,
     path: &Path,
 ) -> Result<Option<[f64; 6]>, RunError> {
     let Some(deltas) = export.robot_refinement.as_ref().map(|r| &r.deltas) else {
         return Ok(None);
     };
-    if deltas.len() == total_views {
-        let idx = token
+    let index = upstream_index(view, deltas.len(), "robot_refinement.deltas", path)?;
+    deltas
+        .get(index)
+        .copied()
+        .map(Some)
+        .ok_or_else(|| RunError::UpstreamCalibration {
+            path: path.to_path_buf(),
+            message: format!(
+                "view index {index} is outside upstream robot_refinement.deltas length {}",
+                deltas.len()
+            ),
+        })
+}
+
+/// The index of `view` into an upstream per-view list of `len` entries
+/// named `field`. A recorded view is its own index; an unrecorded one is
+/// placed by its numeric token when the list covers every paired view, by
+/// its position when it covers the kept views.
+fn upstream_index(
+    view: UpstreamView<'_>,
+    len: usize,
+    field: &str,
+    path: &Path,
+) -> Result<usize, RunError> {
+    let (token, kept_idx, kept_views, total_views) = match view {
+        UpstreamView::Recorded(index) => return Ok(index),
+        UpstreamView::Unrecorded {
+            token,
+            kept_idx,
+            kept_views,
+            total_views,
+        } => (token, kept_idx, kept_views, total_views),
+    };
+    if len == total_views {
+        return token
             .parse::<usize>()
             .map_err(|_| RunError::UpstreamCalibration {
                 path: path.to_path_buf(),
                 message: format!(
-                    "upstream robot_refinement.deltas has {total_views} entries but view token {token:?} \
-                 is not an index"
-                ),
-            })?;
-        return deltas
-            .get(idx)
-            .copied()
-            .map(Some)
-            .ok_or_else(|| RunError::UpstreamCalibration {
-                path: path.to_path_buf(),
-                message: format!(
-                    "view token {token:?} resolved to index {idx}, outside upstream \
-                     robot_refinement.deltas length {}",
-                    deltas.len()
+                    "upstream {field} has {total_views} entries but view token {token:?} \
+                     is not an index"
                 ),
             });
     }
-    if deltas.len() == kept_views {
-        return Ok(Some(deltas[kept_idx]));
+    if len == kept_views {
+        return Ok(kept_idx);
     }
     Err(RunError::UpstreamCalibration {
         path: path.to_path_buf(),
         message: format!(
-            "upstream robot_refinement.deltas has {} entries, but this run has {kept_views} kept views \
-             and {total_views} total paired views",
-            deltas.len()
+            "upstream {field} has {len} entries, but this run has {kept_views} kept \
+             views and {total_views} total paired views"
         ),
     })
 }
@@ -1377,6 +1496,159 @@ mod tests {
                 - 0.2)
                 .abs()
                 < 1e-12
+        );
+    }
+
+    /// A rig laser dataset of four views whose view 1 no camera detects, so
+    /// the run keeps views 0, 2 and 3; and an upstream export with one board
+    /// pose per upstream view, `x = 10 + its image index`.
+    fn rig_laserline_dropping_view_1(dir: &Path) -> (FsDetectionCache, DatasetSpec) {
+        let cache = FsDetectionCache::new(dir.join("cache"));
+        seed_rig_views(dir, &cache, 4);
+        for cam in 0..2 {
+            seed_target(dir, &cache, &format!("cam{cam}/target_1.png"), vec![]);
+        }
+        (cache, rig_laserline_spec(dir, 4))
+    }
+
+    /// An upstream export that kept the views of `images` (indices into the
+    /// dataset's images), recorded in its image manifest at `root` relative
+    /// to the export's folder.
+    fn upstream_with_views(root: &str, images: &[usize]) -> RigHandeyeExport {
+        let mut upstream = upstream_export(2);
+        upstream.rig_se3_target = images
+            .iter()
+            .map(|&i| Iso3::translation(10.0 + i as f64, 0.0, 1.0))
+            .collect();
+        let frames = images
+            .iter()
+            .enumerate()
+            .flat_map(|(view, &i)| {
+                (0..2).map(move |cam| {
+                    vision_calibration_core::FrameRef::new(
+                        view,
+                        cam,
+                        format!("cam{cam}/target_{i}.png"),
+                    )
+                })
+            })
+            .collect();
+        upstream.diagnostics.image_manifest =
+            Some(vision_calibration_core::ImageManifest::new(root, frames));
+        upstream
+    }
+
+    fn write_upstream(dir: &Path, upstream: &RigHandeyeExport) {
+        std::fs::write(
+            dir.join("rig_handeye_export.json"),
+            serde_json::to_string(upstream).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn rig_laserline_run(
+        dir: &Path,
+        cache: &FsDetectionCache,
+        spec: &DatasetSpec,
+    ) -> Result<RigLaserlineRunResult, RunError> {
+        build_rig_laserline_device_input(
+            spec,
+            dir,
+            Detection::Cached(cache),
+            &FakeLaser::new(30),
+            &RunControl::default(),
+        )
+    }
+
+    fn board_x(result: &RigLaserlineRunResult) -> Vec<f64> {
+        result
+            .input
+            .upstream
+            .rig_se3_target
+            .iter()
+            .map(|pose| pose.translation.vector.x)
+            .collect()
+    }
+
+    /// Both runs kept the same views: the image manifest picks the views
+    /// the positional rule picked, bit for bit.
+    #[test]
+    fn rig_laserline_matches_upstream_views_by_their_images() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = rig_laserline_dropping_view_1(tmp.path());
+
+        let recorded = upstream_with_views(".", &[0, 2, 3]);
+        let mut unrecorded = recorded.clone();
+        unrecorded.diagnostics.image_manifest = None;
+
+        write_upstream(tmp.path(), &unrecorded);
+        let by_position = rig_laserline_run(tmp.path(), &cache, &spec).unwrap();
+        write_upstream(tmp.path(), &recorded);
+        let by_image = rig_laserline_run(tmp.path(), &cache, &spec).unwrap();
+
+        assert_eq!(board_x(&by_image), [10.0, 12.0, 13.0]);
+        let bits = |r: &RigLaserlineRunResult| {
+            serde_json::to_string(&r.input.upstream.rig_se3_target).unwrap()
+        };
+        assert_eq!(bits(&by_image), bits(&by_position));
+    }
+
+    /// An export written to another folder with its root left at the
+    /// dataset folder still matches, by the images' paths within it.
+    #[test]
+    fn rig_laserline_matches_upstream_views_by_their_path_in_the_dataset() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, mut spec) = rig_laserline_dropping_view_1(tmp.path());
+        std::fs::create_dir_all(tmp.path().join("upstream")).unwrap();
+        std::fs::write(
+            tmp.path().join("upstream/export.json"),
+            serde_json::to_string(&upstream_with_views(".", &[3, 0, 2])).unwrap(),
+        )
+        .unwrap();
+        spec.upstream_calibration = Some(PathBuf::from("upstream/export.json"));
+        let result = rig_laserline_run(tmp.path(), &cache, &spec).unwrap();
+        assert_eq!(board_x(&result), [10.0, 12.0, 13.0]);
+    }
+
+    /// The upstream run dropped view 2 where this one dropped view 1: both
+    /// kept three views, so the positional rule would pair view 2 with the
+    /// upstream's view 1 silently. The image manifest refuses it.
+    #[test]
+    fn rig_laserline_refuses_a_view_the_upstream_dropped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = rig_laserline_dropping_view_1(tmp.path());
+        write_upstream(tmp.path(), &upstream_with_views(".", &[0, 1, 3]));
+        let err = rig_laserline_run(tmp.path(), &cache, &spec).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                RunError::UpstreamViewMatch { token, matches: 0, .. } if token == "2"
+            ),
+            "{err:?}"
+        );
+    }
+
+    /// A view whose images two upstream views show is ambiguous.
+    #[test]
+    fn rig_laserline_refuses_an_ambiguous_upstream_view() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, spec) = rig_laserline_dropping_view_1(tmp.path());
+        let mut upstream = upstream_with_views(".", &[0, 2, 3]);
+        let manifest = upstream.diagnostics.image_manifest.as_mut().unwrap();
+        // Upstream view 1 also claims camera 1's image of view 0.
+        manifest.frames.push(vision_calibration_core::FrameRef::new(
+            1,
+            1,
+            "cam1/target_0.png",
+        ));
+        write_upstream(tmp.path(), &upstream);
+        let err = rig_laserline_run(tmp.path(), &cache, &spec).unwrap_err();
+        assert!(
+            matches!(
+                &err,
+                RunError::UpstreamViewMatch { token, matches: 2, .. } if token == "0"
+            ),
+            "{err:?}"
         );
     }
 

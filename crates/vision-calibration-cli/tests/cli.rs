@@ -162,6 +162,16 @@ fn init_check_run_calibrates_a_folder() {
             "{name} = {value}, truth {truth}"
         );
     }
+    // The export names each view's image, from the folder it is written to:
+    // `out` lies inside the dataset folder, so the root climbs out of it.
+    let images = &export["diagnostics"]["image_manifest"];
+    assert_eq!(images["root"], "..");
+    let frames = images["frames"].as_array().unwrap();
+    assert_eq!(frames.len(), VIEWS.len());
+    for frame in frames {
+        let image = out.join("..").join(frame["path"].as_str().unwrap());
+        assert!(image.is_file(), "{}", image.display());
+    }
     let report: serde_json::Value =
         serde_json::from_slice(&std::fs::read(out.join("quality.json")).unwrap()).unwrap();
     assert_ne!(report["verdict"], "fail");
@@ -467,6 +477,21 @@ fn a_hand_eye_run_goes_from_a_manifest_to_the_export() {
     );
     let error = estimated.angle_to(&tcp_se3_cam().rotation);
     assert!(error < 0.05, "hand-eye rotation off by {error} rad");
+
+    // Written outside the dataset folder, the export names the images by
+    // their absolute folder.
+    let elsewhere = tempfile::tempdir().unwrap();
+    assert_eq!(
+        vcal(&["run", path(&manifest), "-o", path(elsewhere.path())]),
+        0
+    );
+    let export = read_json(&elsewhere.path().join("calibration.json"));
+    let images = &export["diagnostics"]["image_manifest"];
+    let root = Path::new(images["root"].as_str().unwrap());
+    assert!(root.is_absolute(), "{}", root.display());
+    for frame in images["frames"].as_array().unwrap() {
+        assert!(root.join(frame["path"].as_str().unwrap()).is_file());
+    }
 }
 
 /// A run whose verdict is fail still calibrates and writes its files, and

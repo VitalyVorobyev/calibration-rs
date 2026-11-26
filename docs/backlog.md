@@ -64,19 +64,6 @@ Real-image entries are fetched from their publishers, not archived by us:
 entries need no images. Comparison tools must run on Linux, macOS and
 Windows. `stereo_charuco` stays local-only, as do the private sets.
 
-- [ ] DATA-VIEW-IDENTITY - A rig laser run matches its upstream rig
-  hand-eye export to its views by position or by a numeric pairing token
-  (`dataset_runner/laser.rs`, `rig_se3_target_from_upstream`,
-  `robot_delta_for_view`). When both runs kept the same number of views but
-  dropped different ones, the positional match pairs the wrong target
-  poses with no error. The cause: `calibrate_dataset` never fills the
-  export's `diagnostics.image_manifest` (the app builds its own), so an
-  export from the CLI or Python carries no view identity. Fill the
-  manifest in `calibrate_dataset` (one source with the app), match the
-  upstream by its frames' image paths or tokens, and make an ambiguous
-  match a typed error. Gate: a rig laser run whose upstream dropped a
-  different view than it did fails; the matching cases give bit-identical
-  results.
 - [~] DATA-LICENCE-KUKA - The `kuka_1` images (RWHE-Calib, published
   without a licence) are committed through LFS. Parked on the maintainer
   asking the RWHE-Calib authors for a licence. Reopens when they answer: on
@@ -503,8 +490,8 @@ Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
   the image manifest it splices into each export. Move it onto
   `calibrate_dataset` with a `RunControl` built from its cancel token and
   observer, and surface the returned `rejected`, `usable_views` and
-  `image_sizes`. Needs: DATA-VIEW-IDENTITY (which puts the manifest in
-  every export). Gate: the app's run tests, and no `run_*_topology` left.
+  `image_sizes`; the export already carries the runner's image manifest.
+  Gate: the app's run tests, and no `run_*_topology` left.
 - [ ] APP-WIRE-TYPES - `apps/studio/src/types.ts` hand-writes `FrameRef`,
   `ImageManifest`, `PerFeatureResiduals` and `ExportDiagnostics` stricter
   than the generated wire types (`types/generated/studio-wire.ts`): the

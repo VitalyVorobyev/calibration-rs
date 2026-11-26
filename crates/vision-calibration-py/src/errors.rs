@@ -99,6 +99,7 @@ pub(crate) fn run_error_kind(err: &RustRunError) -> &'static str {
         RustRunError::LaserExtraction { .. } => "laser_extraction",
         RustRunError::InsufficientLaserViews { .. } => "insufficient_laser_views",
         RustRunError::UpstreamCalibration { .. } => "upstream_calibration",
+        RustRunError::UpstreamViewMatch { .. } => "upstream_view_match",
         RustRunError::Cancelled => "cancelled",
         _ => "unknown",
     }

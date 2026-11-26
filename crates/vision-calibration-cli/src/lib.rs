@@ -399,10 +399,17 @@ fn calibrate(
     if let Some(line) = &status {
         line.clear();
     }
-    let run = run?;
+    let mut run = run?;
     // Interrupted after the last check: still stop before writing anything.
     if control.is_cancelled() {
         return Err(CalibrateDatasetError::Cancelled.into());
+    }
+    let out = out.map_or(base.clone(), Path::to_path_buf);
+    // The export's image root is the manifest's folder; restate it from the
+    // folder the export is written to: relative when that lies inside the
+    // manifest's folder, absolute otherwise.
+    if let Some(images) = run.export.diagnostics_mut().image_manifest.as_mut() {
+        *images = images.rebased(&base, &out, &base);
     }
 
     say!(
@@ -467,7 +474,6 @@ fn calibrate(
         );
     }
 
-    let out = out.map_or(base.clone(), Path::to_path_buf);
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     // Every file is built before any is written, and written all or none: a
     // run that cannot write its report leaves no half-written result.

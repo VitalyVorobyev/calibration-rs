@@ -711,7 +711,7 @@
       ]
     },
     "ImageManifest": {
-      "description": "Image manifest carried alongside a calibration export.\n\n`root` is interpreted relative to the directory of the `export.json` that\nembeds the manifest. Each [`FrameRef::path`] is interpreted relative to\n`root`. Both layers of indirection make exports portable across machines\nas long as the image directory is co-located with the export.",
+      "description": "Image manifest carried alongside a calibration export.\n\n`root` is interpreted relative to the directory of the `export.json` that\nembeds the manifest. Each [`FrameRef::path`] is interpreted relative to\n`root`. Both layers of indirection make exports portable across machines\nas long as the image directory is co-located with the export.\n\nThe dataset runner fills the manifest before the export has a file: its\n`root` is `.`, the dataset folder its manifest's paths resolve against,\nand each frame's path is relative to that folder (absolute for an image\noutside it). A writer that puts the export in another folder restates\nthe root with [`rebased`](Self::rebased).",
       "properties": {
         "frames": {
           "description": "One entry per `(view, camera)` slot the viewer can render.\nView-major; aligns with the indexing of `PerFeatureResiduals.target`.",
