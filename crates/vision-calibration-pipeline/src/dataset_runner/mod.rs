@@ -73,6 +73,7 @@ use vision_calibration_detect::{
 
 mod board_turn;
 mod calibrate;
+mod config_patch;
 mod handeye;
 mod laser;
 mod pairing;
@@ -85,6 +86,7 @@ pub use calibrate::{
     CalibrateDatasetError, CalibrationConfig, CalibrationExport, DatasetCalibration,
     calibrate_dataset,
 };
+pub use config_patch::ConfigPatch;
 pub use handeye::{HandeyeRunResult, build_single_cam_handeye_input};
 pub use laser::{
     LaserPixelExtractor, LaserlineRunResult, RigHandeyeLaserlineRunResult, RigLaserlineRunResult,

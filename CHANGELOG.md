@@ -121,6 +121,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moved to another folder, relative when both lie inside a folder that
   moves as one; `dataset_runner::CalibrationExport::diagnostics_mut` gives
   the export's diagnostics to change before writing it.
+- `dataset_runner::ConfigPatch`: changes to a workflow's default
+  configuration, keyed like its config, read from TOML or JSON
+  (`from_toml_str`, `from_json_str`); what it names replaces the default
+  and what it leaves out keeps it. `CalibrationConfig::patched` applies one
+  to a topology's defaults and checks the result, `ConfigPatch::from_config`
+  gives the smallest patch that makes a configuration, and `then` layers one
+  patch over another. `vcal run -c` reads its file as one, with the same
+  results as before. Python: `dataset_runner.patched_config` (a patch is a
+  mapping, `dataset_runner.ConfigPatch`).
 
 ### Changed
 

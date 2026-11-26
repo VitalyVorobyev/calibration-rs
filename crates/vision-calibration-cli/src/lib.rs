@@ -42,7 +42,6 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
-use serde_json::Value;
 use vision_calibration::analysis::{
     CheckStatus, QualityThresholds, ReportOptions, Verdict, assess, html_report,
 };
@@ -51,7 +50,8 @@ use vision_calibration::control::{Progress, RunControl};
 use vision_calibration::core::Uncertainty;
 use vision_calibration::dataset::{DatasetSpec, ProblemKind, samples, sniff_folder};
 use vision_calibration::dataset_runner::{
-    CalibrateDatasetError, CalibrationConfig, Detection, calibrate_dataset, camera_image_sizes,
+    CalibrateDatasetError, CalibrationConfig, ConfigPatch, Detection, calibrate_dataset,
+    camera_image_sizes,
 };
 use vision_calibration::detect::FsDetectionCache;
 
@@ -511,40 +511,20 @@ fn calibrate(
 }
 
 /// The default configuration of `topology` with the changes the file at
-/// `path` makes.
+/// `path` makes: a [`ConfigPatch`], TOML or JSON by the file's extension.
 fn configuration(topology: ProblemKind, path: &Path) -> Result<CalibrationConfig> {
     let context = || format!("reading the configuration {}", path.display());
     let text = std::fs::read_to_string(path).with_context(context)?;
-    let changes: Value = if path
+    let patch = if path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
     {
-        toml::from_str(&text).with_context(context)?
+        ConfigPatch::from_toml_str(&text)
     } else {
-        serde_json::from_str(&text).with_context(context)?
-    };
-    // The tagged form: {"topology": ..., "config": {...}}.
-    let mut config = serde_json::to_value(CalibrationConfig::default_for(topology))?;
-    merge(&mut config["config"], &changes);
-    serde_json::from_value(config).with_context(context)
-}
-
-/// Merges `changes` into `base`: objects merge key by key, any other value
-/// replaces the base value.
-fn merge(base: &mut Value, changes: &Value) {
-    match (base, changes) {
-        (Value::Object(base), Value::Object(changes)) => {
-            for (key, value) in changes {
-                match base.get_mut(key) {
-                    Some(slot) => merge(slot, value),
-                    None => {
-                        base.insert(key.clone(), value.clone());
-                    }
-                }
-            }
-        }
-        (slot, value) => *slot = value.clone(),
+        ConfigPatch::from_json_str(&text)
     }
+    .with_context(context)?;
+    CalibrationConfig::patched(topology, &patch).with_context(context)
 }
 
 fn json_text(value: &impl Serialize) -> Result<String> {

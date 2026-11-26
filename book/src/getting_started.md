@@ -379,6 +379,38 @@ result = vc.planar_intrinsics.run_calibration(dataset, config)
 result = vc.calibrate_dataset("my_board_images/dataset.json", config)  # from a manifest
 ```
 
+### Changes to the Defaults
+
+A configuration can also be stated as the changes it makes to the workflow's defaults: a `ConfigPatch`, keyed like the workflow's config. What it names replaces the default and what it leaves out keeps it; two tables merge key by key, and any other value replaces what it lands on. It is the file `vcal run -c` reads ([The Command Line](cli.md#configuration)). `CalibrationConfig::patched` applies a patch to a topology's defaults and checks the result, so a misspelt field is an error, and `ConfigPatch::from_config` gives the smallest patch back from a configuration:
+
+```rust
+use vision_calibration::dataset::ProblemKind;
+use vision_calibration::dataset_runner::{CalibrationConfig, ConfigPatch};
+# fn main() -> Result<(), vision_calibration::Error> {
+
+let patch = ConfigPatch::from_toml_str(
+    r#"
+    solver.max_iters = 80
+    camera.model.distortion = "none"
+    "#,
+)?;
+let config = CalibrationConfig::patched(ProblemKind::PlanarIntrinsics, &patch)?;
+assert_eq!(ConfigPatch::from_config(&config), patch);
+assert!(CalibrationConfig::patched(
+    ProblemKind::PlanarIntrinsics,
+    &ConfigPatch::from_json_str(r#"{"solver": {"max_iter": 80}}"#)?,
+)
+.is_err());
+# Ok(())
+# }
+```
+
+TOML has no `null`, so a patch written in TOML cannot set an optional field back to none; a JSON patch can. In Python a patch is a mapping:
+
+```python
+config = vc.dataset_runner.patched_config("planar_intrinsics", {"solver": {"max_iters": 80}})
+```
+
 ## Where to Go Next
 
 - [Stereo Rig with Real Data](stereo_real_data.md): a two-camera rig from detected corners, in under a minute.

@@ -580,7 +580,7 @@ pub mod dataset {
 /// [`RunError::AskUser`](dataset_runner::RunError::AskUser) implements.
 pub mod dataset_runner {
     pub use vision_calibration_pipeline::dataset_runner::{
-        CalibrateDatasetError, CalibrationConfig, CalibrationExport, CovarianceFault,
+        CalibrateDatasetError, CalibrationConfig, CalibrationExport, ConfigPatch, CovarianceFault,
         DatasetCalibration, Detection, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult,
         PairedViews, PlanarRunResult, RejectReason, RejectedDetection,
         RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,

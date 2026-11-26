@@ -68,7 +68,7 @@ pub enum CalibrationConfig {
 impl CalibrationConfig {
     /// Check the configuration on its own, as its problem's `set_config`
     /// does; [`calibrate_dataset`] runs it before any detection.
-    fn validate(&self) -> Result<(), Error> {
+    pub(super) fn validate(&self) -> Result<(), Error> {
         match self {
             Self::PlanarIntrinsics(c) => PlanarIntrinsicsProblem::validate_config(c),
             Self::SingleCamHandeye(c) => SingleCamHandeyeProblem::validate_config(c),

@@ -203,6 +203,88 @@ fn init_check_run_calibrates_a_folder() {
     assert_eq!(export["camera"]["distortion"]["type"], "none");
 }
 
+/// The rule `vcal run -c` merged a configuration file with before the
+/// library's `ConfigPatch` held it: tables merge key by key, any other value
+/// replaces the default.
+fn former_merge(base: &mut serde_json::Value, changes: &serde_json::Value) {
+    match (base, changes) {
+        (serde_json::Value::Object(base), serde_json::Value::Object(changes)) => {
+            for (key, value) in changes {
+                match base.get_mut(key) {
+                    Some(slot) => former_merge(slot, value),
+                    None => {
+                        base.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (slot, value) => *slot = value.clone(),
+    }
+}
+
+/// `vcal run -c` writes, byte for byte, the export it wrote when it merged
+/// the file itself: the library's patch makes the same configuration.
+#[test]
+fn a_config_file_gives_the_export_the_former_merge_gave() {
+    use vision_calibration::dataset::DatasetSpec;
+    use vision_calibration::dataset_runner::{CalibrationConfig, Detection, calibrate_dataset};
+    use vision_calibration::detect::FsDetectionCache;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    write_views(dir);
+    assert_eq!(vcal(&["init", path(dir)]), 0);
+    complete_manifest(dir);
+    let manifest = dir.join("dataset.toml");
+    let text = "solver.max_iters = 30\n\
+                camera.model = { projection = \"pinhole\", distortion = \"none\", sensor = \"identity\" }\n\
+                [intrinsics_init]\niterations = 3\n";
+    let config_path = dir.join("config.toml");
+    std::fs::write(&config_path, text).unwrap();
+    let out = dir.join("out");
+    assert_eq!(
+        vcal(&[
+            "run",
+            path(&manifest),
+            "-o",
+            path(&out),
+            "-c",
+            path(&config_path)
+        ]),
+        0
+    );
+
+    // The former route: the defaults as JSON, the file's table merged in.
+    let spec = DatasetSpec::from_path(&manifest).unwrap();
+    let mut tagged = serde_json::to_value(CalibrationConfig::default_for(spec.topology)).unwrap();
+    let changes: serde_json::Value = toml::from_str(text).unwrap();
+    former_merge(&mut tagged["config"], &changes);
+    let config: CalibrationConfig = serde_json::from_value(tagged).unwrap();
+    let cache = FsDetectionCache::new(dir.join(".detections"));
+    let mut run = calibrate_dataset(
+        &spec,
+        dir,
+        Some(config),
+        Detection::Cached(&cache),
+        None,
+        &RunControl::default(),
+    )
+    .unwrap();
+    let images = run
+        .export
+        .diagnostics_mut()
+        .image_manifest
+        .as_mut()
+        .unwrap();
+    *images = images.rebased(dir, &out, dir);
+    let expected = serde_json::to_string_pretty(&run.export).unwrap() + "\n";
+    let written = std::fs::read_to_string(out.join("calibration.json")).unwrap();
+    assert!(
+        written == expected,
+        "calibration.json differs from the former route's export"
+    );
+}
+
 /// A cancelled run (the binary's Ctrl-C handler cancels the token) exits
 /// with the interrupt status and writes nothing, whether it stops in
 /// detection or in a solve.

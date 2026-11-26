@@ -69,6 +69,7 @@ __all__ = [
     "AskUserError",
     "CalibrationConfig",
     "CalibrationExport",
+    "ConfigPatch",
     "DatasetCalibration",
     "HandeyeRunResult",
     "LaserPixelExtractor",
@@ -90,6 +91,7 @@ __all__ = [
     "calibrate_dataset",
     "camera_image_sizes",
     "detect_target",
+    "patched_config",
 ]
 
 RunError = _native.RunError
@@ -118,6 +120,12 @@ CalibrationConfig = (
     | RigHandeyeLaserlineConfig
     | Mapping[str, Any]
 )
+
+ConfigPatch = Mapping[str, Any]
+"""Changes to a workflow's default configuration, keyed like its config
+(``{"solver": {"max_iters": 20}}``): what the patch names replaces the
+default, what it leaves out keeps it. Two mappings merge key by key; any
+other value replaces what it lands on. :func:`patched_config` applies one."""
 
 CalibrationExport = (
     PlanarIntrinsicsExport
@@ -627,6 +635,34 @@ def calibrate_dataset(
         total_views=int(raw["total_views"]),
         rejected=_rejected(raw["rejected"]),
     )
+
+
+def patched_config(topology: str, patch: ConfigPatch) -> CalibrationConfig:
+    """The default config of ``topology`` with ``patch`` applied: the config
+    ``vcal run -c`` makes from the same patch.
+
+    Parameters
+    ----------
+    topology:
+        The manifest topology whose config to patch, e.g.
+        ``"planar_intrinsics"``.
+    patch:
+        The :data:`ConfigPatch`, a mapping of the config's fields.
+
+    Returns
+    -------
+    The topology's config dataclass, e.g.
+    :class:`~vision_calibration.models.PlanarIntrinsicsConfig`.
+
+    Raises
+    ------
+    ValueError
+        The topology is unknown, or the patched fields do not form a valid
+        config (a field the workflow does not have, a value out of range).
+    """
+    payload = _native.patched_config(topology, dict(patch))
+    config: CalibrationConfig = _PROBLEMS[topology][0].from_mapping(payload)
+    return config
 
 
 def camera_image_sizes(

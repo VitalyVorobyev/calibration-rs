@@ -6183,6 +6183,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "toml 1.2.1+spec-1.1.0",
  "vision-calibration-core",
  "vision-calibration-dataset",
  "vision-calibration-detect",

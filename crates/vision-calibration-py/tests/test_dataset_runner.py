@@ -428,5 +428,19 @@ class ManifestRunTest(unittest.TestCase):
             self.assertEqual(len(result.per_feature_residuals.target), 30 * 17 * 28)
 
 
+class ConfigPatchTest(unittest.TestCase):
+    def test_a_patch_changes_the_defaults_it_names(self) -> None:
+        config = dataset_runner.patched_config("planar_intrinsics", {"solver": {"max_iters": 7}})
+        assert isinstance(config, vc.PlanarIntrinsicsConfig)
+        self.assertEqual(config.solver.max_iters, 7)
+        self.assertEqual(config.camera, vc.PlanarIntrinsicsConfig().camera)
+
+    def test_a_patch_the_config_does_not_take_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            dataset_runner.patched_config("planar_intrinsics", {"solver": {"max_iter": 7}})
+        with self.assertRaises(ValueError):
+            dataset_runner.patched_config("stereo", {})
+
+
 if __name__ == "__main__":
     unittest.main()

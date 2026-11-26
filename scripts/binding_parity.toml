@@ -192,7 +192,8 @@
 "dataset_runner::RejectedDetection" = "dataset_runner.RejectedDetection"
 "dataset_runner::RigRunResult" = "dataset_runner.RigRunResult"
 "dataset_runner::CalibrateDatasetError" = ["RunError", "AskUserError", "builtins.ValueError", "builtins.RuntimeError"]
-"dataset_runner::CalibrationConfig" = "dataset_runner.CalibrationConfig"
+"dataset_runner::CalibrationConfig" = ["dataset_runner.CalibrationConfig", "dataset_runner.patched_config"]
+"dataset_runner::ConfigPatch" = ["dataset_runner.ConfigPatch", "dataset_runner.patched_config"]
 "dataset_runner::CalibrationExport" = "dataset_runner.CalibrationExport"
 "dataset_runner::DatasetCalibration" = "dataset_runner.DatasetCalibration"
 "dataset_runner::calibrate_dataset" = "calibrate_dataset"
