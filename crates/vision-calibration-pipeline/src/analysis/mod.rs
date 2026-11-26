@@ -15,6 +15,16 @@
 //! verdict and its checks, each camera's parameters with their σ, and the
 //! residual and projection-σ figures.
 //!
+//! # Residual map
+//!
+//! [`residual_map`] estimates the systematic part of a camera's
+//! reprojection residuals over its image (`observed − projected`, a
+//! local-linear smoother with view-clustered standard errors and a
+//! cross-validated bandwidth), on the same
+//! [`ImageGrid`](vision_calibration_core::ImageGrid) as the
+//! [`distortion_map`](vision_calibration_core::distortion_map). See
+//! [`ResidualMap`] for how to read it.
+//!
 //! # Next-view planning
 //!
 //! [`predict_with_views`] predicts the covariance a planar calibration would
@@ -109,6 +119,10 @@ pub use next_view::{
 };
 mod report;
 pub use report::{ReportOptions, html_report};
+mod residual_map;
+pub use residual_map::{
+    Bandwidth, BandwidthSelection, ResidualMap, ResidualMapOptions, residual_map,
+};
 mod quality;
 pub use quality::{
     CheckKind, CheckStatus, Measurement, QualityCheck, QualityReport, QualityThresholds, Unit,
