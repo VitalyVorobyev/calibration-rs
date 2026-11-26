@@ -535,7 +535,7 @@ pub mod core {
 /// metadata live for a calibration run; see [`dataset_runner`] for the
 /// converters that turn a manifest into the per-problem `*Input` types.
 /// [`sniff_folder`](dataset::sniff_folder) heuristically infers a
-/// `DatasetSpec` from a dataset folder (used by `vcal init` and the diagnose
+/// `DatasetSpec` from a dataset folder (used by `vcal init` and the desktop
 /// app's "Sniff folder" command). [`samples`](dataset::samples)
 /// lists real sample datasets with ready manifests and, with the `fetch`
 /// feature, downloads them.

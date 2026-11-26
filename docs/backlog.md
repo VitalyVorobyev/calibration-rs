@@ -484,7 +484,7 @@ Design: ADR 0028; what each σ promises: `notes/mvg-measurements.md`.
 
 ## App (alongside)
 
-Design: ADR 0014; developer guide: `app/DEVELOPING.md`.
+Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
 
 - [ ] APP-IA - Organize the app as Project → Dataset → Detect → Calibrate →
   Diagnose → Use.
@@ -505,9 +505,9 @@ Design: ADR 0014; developer guide: `app/DEVELOPING.md`.
   observer, and surface the returned `rejected`, `usable_views` and
   `image_sizes`. Needs: DATA-VIEW-IDENTITY (which puts the manifest in
   every export). Gate: the app's run tests, and no `run_*_topology` left.
-- [ ] APP-WIRE-TYPES - `app/src/types.ts` hand-writes `FrameRef`,
+- [ ] APP-WIRE-TYPES - `apps/studio/src/types.ts` hand-writes `FrameRef`,
   `ImageManifest`, `PerFeatureResiduals` and `ExportDiagnostics` stricter
-  than the generated wire types (`types/generated/diagnose-wire.ts`): the
+  than the generated wire types (`types/generated/studio-wire.ts`): the
   wire allows a null `roi` and `image_manifest` and an absent `target` and
   `per_feature_residuals`, the hand-written types do not. `AnyExport`
   (`store/types.ts`), `RunResponse` (`lib/runCalibration.ts`) and `RunRecord`
@@ -515,7 +515,7 @@ Design: ADR 0014; developer guide: `app/DEVELOPING.md`.
   schema. Use the generated types, handle the absent cases where the
   components read them, and emit the last three from
   `src-tauri/src/bin/emit_schemas.rs`. Gate: no hand-written mirror of a
-  Rust type in `app/src`.
+  Rust type in `apps/studio/src`.
 - [ ] VIEW-ERRMAP - A continuous reprojection-error colour map in the
   report viewer (desktop and `calib-viewer`): over each image, interpolated
   from its features' residuals, and per camera, accumulated over all views

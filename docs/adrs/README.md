@@ -18,7 +18,7 @@ as rules), **Consequences**, **Alternatives rejected** (each with its
 reason). Aim for about 120 lines or fewer. Measurements behind a choice go to
 `docs/notes/`; type and function names only where the decision is about
 them; layouts, commands and component wiring go to rustdoc or
-`app/DEVELOPING.md`.
+`apps/studio/DEVELOPING.md`.
 
 ## Structure
 

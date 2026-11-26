@@ -237,7 +237,7 @@ All published crates and the PyPI package share one version.
   `docs/` paths, backlog IDs, PR numbers, private datasets or agent files, and
   state the current design without narrating history. `cargo xtask
   check-docs` enforces the mechanical part. Dev-facing docs (this file,
-  `.claude/`, `docs/`, `app/DEVELOPING.md`) may cite anything.
+  `.claude/`, `docs/`, `apps/studio/DEVELOPING.md`) may cite anything.
 
 ## 10) Extension recipes
 
@@ -292,25 +292,25 @@ All published crates and the PyPI package share one version.
   separate repositories: an edit there is its own commit in that repo, called
   out as a cross-repo change.
 
-## 12) Desktop app (`app/`)
+## 12) Desktop app (`apps/studio/`)
 
-Tauri 2 + React 19 + TypeScript; the developer guide is
-[`app/DEVELOPING.md`](app/DEVELOPING.md), the design
+Calibration Studio, Tauri 2 + React 19 + TypeScript; the developer guide is
+[`apps/studio/DEVELOPING.md`](apps/studio/DEVELOPING.md), the design
 [ADR 0014](docs/adrs/0014-desktop-app.md).
 
 * **Always `bun`**, never `npm`/`pnpm`/`yarn`; `bun run tauri dev` launches
   the app (`bun run dev` alone is Vite without Tauri IPC).
-* `app/src-tauri` is **excluded from the root workspace** (`exclude =
-  ["app"]`) and pins its own `Cargo.lock`; root `cargo test --workspace` does
+* `apps/studio/src-tauri` is **excluded from the root workspace** (`exclude =
+  ["apps"]`) and pins its own `Cargo.lock`; root `cargo test --workspace` does
   not cover it.
 * UI comes from `@vitavision/ui`, `@vitavision/workbench` and
   `@vitavision/three(-react)`; no app-local component kit, colour only from
-  design tokens. No `app/src` module over ~400 lines (generated files
+  design tokens. No `apps/studio/src` module over ~400 lines (generated files
   excepted). Source images load over the asset protocol, never as IPC text.
-* Gates, as CI runs them. From `app/`: `bun run lint` (oxlint, zero
+* Gates, as CI runs them. From `apps/studio/`: `bun run lint` (oxlint, zero
   warnings), `bun run format:check`, `bun run typecheck`, `bun run test`
   (Vitest), `bun run test:e2e` (Playwright), and `bun run generate:types:ts`
-  leaving `src/types/generated` unchanged. From `app/src-tauri`:
+  leaving `src/types/generated` unchanged. From `apps/studio/src-tauri`:
   `cargo fmt --check`, `cargo clippy --all-targets --features schema-export
   -- -D warnings`, `cargo test`, and `cargo run --features schema-export
   --bin emit_schemas -- --check`. `bun run generate:types` regenerates both

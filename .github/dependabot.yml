@@ -12,7 +12,7 @@
 #     Advisories are covered by `.github/workflows/audit.yml` instead, which
 #     is the check that actually matters.
 #   * The desktop app uses bun (AGENTS.md §12) and dependabot does not
-#     understand `app/bun.lock`.
+#     understand `apps/studio/bun.lock`.
 version: 2
 updates:
   - package-ecosystem: github-actions

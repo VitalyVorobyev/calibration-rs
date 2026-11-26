@@ -393,33 +393,33 @@ jobs:
       - name: Set up bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: app/package.json
+          bun-version-file: apps/studio/package.json
 
       - name: Install dependencies
-        working-directory: app
+        working-directory: apps/studio
         run: bun install --frozen-lockfile
 
       - name: Lint
-        working-directory: app
+        working-directory: apps/studio
         run: bun run lint
 
       - name: Format check
-        working-directory: app
+        working-directory: apps/studio
         run: bun run format:check
 
       - name: Typecheck
-        working-directory: app
+        working-directory: apps/studio
         run: bun run typecheck
 
       - name: Test
-        working-directory: app
+        working-directory: apps/studio
         run: bun run test
 
       # Playwright smoke: boots the plain Vite dev server (no
       # Tauri build, no Rust toolchain) and drives it in real Chromium.
       # Tauri IPC is either absent (empty-state assertions) or mocked at
       # the `window.__TAURI_INTERNALS__` seam per-spec — see
-      # `app/e2e/support/tauriMock.ts` and `app/README.md`'s dev notes on
+      # `apps/studio/e2e/support/tauriMock.ts` and `apps/studio/README.md`'s dev notes on
       # the Tauri-native vs mocked-IPC boundary.
       #
       # Cache the downloaded browser binaries keyed on the lockfile (the
@@ -430,14 +430,14 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('app/bun.lock') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/studio/bun.lock') }}
 
       - name: Install Playwright browsers
-        working-directory: app
+        working-directory: apps/studio
         run: bunx playwright install chromium --with-deps
 
       - name: E2E smoke (Playwright)
-        working-directory: app
+        working-directory: apps/studio
         run: bun run test:e2e
 
       # Drift stage 2 (schema → TypeScript, bun-only). Regenerate the TS from
@@ -446,12 +446,12 @@ jobs:
       # cargo toolchain; splitting keeps this job Rust-free (`bun run generate:types`
       # regenerates both stages locally).
       - name: Check generated types are up to date
-        working-directory: app
+        working-directory: apps/studio
         run: |
           bun run generate:types:ts
           git diff --exit-code src/types/generated
 
-  # `app/src-tauri` is excluded from the root Cargo workspace (see its
+  # `apps/studio/src-tauri` is excluded from the root Cargo workspace (see its
   # Cargo.toml) so it doesn't pull Tauri's build-time dep tree into
   # `cargo build --workspace`. It gets its own job, gated with
   # `--manifest-path` the same way the release docs already tell
@@ -482,25 +482,25 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/src-tauri -> target
+          workspaces: apps/studio/src-tauri -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cargo fmt (src-tauri)
-        run: cargo fmt --manifest-path app/src-tauri/Cargo.toml --check
+        run: cargo fmt --manifest-path apps/studio/src-tauri/Cargo.toml --check
 
       # `schema-export` is additive (only gates the extra `emit_schemas` bin +
       # its `schemars` derives behind `required-features`/`#[cfg]`, never
       # removes code), so one clippy pass with the feature enabled covers
       # both the default build and the schema emitter.
       - name: Cargo clippy (src-tauri)
-        run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets --features schema-export -- -D warnings
+        run: cargo clippy --manifest-path apps/studio/src-tauri/Cargo.toml --all-targets --features schema-export -- -D warnings
 
       - name: Cargo test (src-tauri)
-        run: cargo test --manifest-path app/src-tauri/Cargo.toml
+        run: cargo test --manifest-path apps/studio/src-tauri/Cargo.toml
 
       # Drift stage 1 (Rust wire types → JSON schema, cargo-only). Fails if a
       # `*Export` / command-type change wasn't regenerated. Stage 2 (schema →
       # TypeScript) runs in the bun-only `app-frontend` job (`bun run generate:types`
       # regenerates both stages locally).
       - name: Check generated schema is up to date
-        run: cargo run --manifest-path app/src-tauri/Cargo.toml --features schema-export --bin emit_schemas -- --check
+        run: cargo run --manifest-path apps/studio/src-tauri/Cargo.toml --features schema-export --bin emit_schemas -- --check

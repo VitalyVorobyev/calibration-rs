@@ -846,7 +846,7 @@ mod tests {
         // Note: per the `image_manifest` coordinate convention, residual
         // pixel coords are *ROI-local* — the ROI is a render-time crop
         // hint only. This test pins the wire format; the convention
-        // itself is exercised by the viewer (see app/src/components).
+        // itself is exercised by the viewer (see apps/studio/src/components).
         use vision_calibration_core::{FrameRef, PixelRect};
 
         let output = make_dummy_output();

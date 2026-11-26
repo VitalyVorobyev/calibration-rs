@@ -36,7 +36,7 @@ How you work:
   round-trips for new config/export types. The CHANGELOG entry goes under
   `[Unreleased]`, in user terms.
 - Run every gate of AGENTS.md §3, and the app gates (§12) when the change
-  reaches `app/src-tauri`, which is outside the workspace.
+  reaches `apps/studio/src-tauri`, which is outside the workspace.
 
 Standing constraints:
 

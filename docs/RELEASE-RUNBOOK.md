@@ -43,10 +43,10 @@ Then refresh the lockfiles:
 
 ```bash
 cargo build --workspace
-cargo build --manifest-path app/src-tauri/Cargo.toml   # committed app Cargo.lock
+cargo build --manifest-path apps/studio/src-tauri/Cargo.toml   # committed app Cargo.lock
 ```
 
-The app has its own product version (`app/src-tauri/Cargo.toml`); leave it
+The app has its own product version (`apps/studio/src-tauri/Cargo.toml`); leave it
 alone in a library release. Its `vision-calibration` path dep carries no
 `version` constraint; if one is ever added, bump it in step 2 too.
 

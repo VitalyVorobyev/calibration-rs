@@ -62,7 +62,7 @@ and `triangulate` return the rig frame.
   dual-number `CameraJacobian` dominates); the joint covariance of 1000
   points 38 ms.
 - The app's Depth workspace test `compute_disparity_recovers_board_on_committed_rig`
-  (`app/src-tauri/src/disparity.rs`) runs the pipeline on the committed
+  (`apps/studio/src-tauri/src/disparity.rs`) runs the pipeline on the committed
   `data/stereo` rig.
 - **Related**: [two-view-triangulation.md](two-view-triangulation.md),
   [mvg-measurements.md](mvg-measurements.md).
