@@ -694,3 +694,310 @@ fn a_config_file_extension_is_matched_ignoring_case() {
     let export = read_json(&out.join("calibration.json"));
     assert_eq!(export["camera"]["distortion"]["type"], "none");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Projects
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The eight views and their completed manifest, in `dir`.
+fn manifest_folder(dir: &Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    write_views(dir);
+    assert_eq!(vcal(&["init", path(dir)]), 0);
+    complete_manifest(dir);
+    dir.join("dataset.toml")
+}
+
+/// A project over a manifest gives the manifest's run: the same export but
+/// for the image root restated for the run folder, and the same quality
+/// report byte for byte. The manifest's own run is unchanged.
+#[test]
+fn a_project_run_is_the_manifest_s_run_kept_in_the_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let manifest = manifest_folder(dir);
+    let out = dir.join("out");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 0);
+
+    // A folder without a project file is read as a manifest: an error.
+    assert_eq!(vcal(&["run", path(dir)]), 1);
+    assert_eq!(
+        vcal(&["project", "init", path(dir), "--manifest", path(&manifest)]),
+        0
+    );
+    let project_file = read_toml(&dir.join("calibration-project.toml"));
+    assert_eq!(project_file["dataset"]["manifest"], "dataset.toml".into());
+    assert_eq!(vcal(&["check", path(dir)]), 0);
+    assert_eq!(vcal(&["run", path(dir), "--label", "first"]), 0);
+    let run = dir.join("runs/run-001");
+    let mut export = read_json(&run.join("export.json"));
+    assert_eq!(export["diagnostics"]["image_manifest"]["root"], "../..");
+    export["diagnostics"]["image_manifest"]["root"] = "..".into();
+    assert_eq!(export, read_json(&out.join("calibration.json")));
+    assert_eq!(
+        std::fs::read(run.join("quality.json")).unwrap(),
+        std::fs::read(out.join("quality.json")).unwrap()
+    );
+    let record = read_json(&run.join("run.json"));
+    assert!(record["tool"].as_str().unwrap().starts_with("vcal "));
+    assert_eq!(read_json(&run.join("notes.json"))["label"], "first");
+
+    // The project file decides: its path works as well as its folder.
+    assert_eq!(
+        vcal(&[
+            "run",
+            path(&dir.join("calibration-project.toml")),
+            "--report"
+        ]),
+        0
+    );
+    assert!(dir.join("runs/run-002/report.html").is_file());
+
+    // `-o` is a manifest's, `--label` a project's: usage errors.
+    assert_eq!(vcal(&["run", path(dir), "-o", path(&out)]), 2);
+    assert_eq!(vcal(&["run", path(&manifest), "--label", "x"]), 2);
+    assert!(!dir.join("runs/run-003").exists());
+}
+
+fn read_toml(path: &Path) -> toml::Table {
+    toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+#[test]
+fn project_init_drafts_references_or_embeds_and_refuses_a_fork() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    write_views(&data);
+
+    // No manifest: one is drafted into the project file.
+    let drafted = tmp.path().join("drafted");
+    assert_eq!(
+        vcal(&[
+            "project",
+            "init",
+            path(&drafted),
+            "--data",
+            path(&data),
+            "--name",
+            "bench",
+            "--device-id",
+            "SN-1",
+            "--device-product",
+            "rig"
+        ]),
+        0
+    );
+    let file = read_toml(&drafted.join("calibration-project.toml"));
+    assert_eq!(file["version"], 2.into());
+    assert_eq!(file["name"], "bench".into());
+    assert_eq!(file["device"]["id"], "SN-1".into());
+    assert_eq!(file["device"]["product"], "rig".into());
+    // The draft is outside the project: its root is absolute.
+    let root = file["dataset"]["root"].as_str().unwrap();
+    assert!(Path::new(root).is_absolute(), "{root}");
+    assert!(file["dataset"]["manifest"]["_unresolved"].is_array());
+    // The draft leaves the board open: the check fails until it is filled in.
+    assert_eq!(vcal(&["check", path(&drafted)]), 1);
+    // A second init is refused.
+    assert_eq!(
+        vcal(&["project", "init", path(&drafted), "--data", path(&data)]),
+        1
+    );
+
+    // A folder holding a manifest is not drafted over: pass the manifest.
+    let manifest = manifest_folder(&tmp.path().join("withmanifest"));
+    let folder = manifest.parent().unwrap();
+    assert_eq!(vcal(&["project", "init", path(folder)]), 1);
+    assert!(!folder.join("calibration-project.toml").exists());
+
+    // Embedded: the manifest's table, its folder as the root.
+    let embedded = folder.join("embedded");
+    assert_eq!(
+        vcal(&[
+            "project",
+            "init",
+            path(&embedded),
+            "--manifest",
+            path(&manifest),
+            "--embed"
+        ]),
+        0
+    );
+    let file = read_toml(&embedded.join("calibration-project.toml"));
+    assert_eq!(
+        file["dataset"]["manifest"]["topology"],
+        "planar_intrinsics".into()
+    );
+    assert_eq!(vcal(&["check", path(&embedded)]), 0);
+
+    // Device options need the id; --embed needs a manifest.
+    let other = tmp.path().join("other");
+    assert_eq!(
+        vcal(&["project", "init", path(&other), "--device-product", "rig"]),
+        2
+    );
+    assert_eq!(vcal(&["project", "init", path(&other), "--embed"]), 2);
+}
+
+#[test]
+fn project_runs_import_note_and_scan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let library = tmp.path().join("library");
+    let dir = library.join("bench");
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = manifest_folder(&dir);
+    assert_eq!(
+        vcal(&[
+            "project",
+            "init",
+            path(&dir),
+            "--manifest",
+            path(&manifest),
+            "--device-id",
+            "SN-9"
+        ]),
+        0
+    );
+    assert_eq!(vcal(&["run", path(&dir)]), 0);
+    assert_eq!(vcal(&["project", "runs", path(&dir)]), 0);
+    assert_eq!(vcal(&["project", "runs", path(&dir), "--json"]), 0);
+
+    // An export calibrated with `vcal run -o` joins the project.
+    let out = tmp.path().join("out");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 0);
+    assert_eq!(
+        vcal(&[
+            "project",
+            "import",
+            path(&dir),
+            path(&out),
+            "--label",
+            "outside"
+        ]),
+        0
+    );
+    let imported = dir.join("runs/run-002");
+    assert_eq!(
+        read_json(&imported.join("run.json"))["source"]["kind"],
+        "imported"
+    );
+    assert_eq!(read_json(&imported.join("notes.json"))["label"], "outside");
+
+    assert_eq!(
+        vcal(&[
+            "project",
+            "note",
+            path(&dir),
+            "run-001",
+            "--label",
+            "kept",
+            "--star"
+        ]),
+        0
+    );
+    let notes = read_json(&dir.join("runs/run-001/notes.json"));
+    assert_eq!(
+        (notes["label"].as_str(), notes["starred"].as_bool()),
+        (Some("kept"), Some(true))
+    );
+    assert_eq!(
+        vcal(&[
+            "project",
+            "note",
+            path(&dir),
+            "run-001",
+            "--unstar",
+            "--label",
+            ""
+        ]),
+        0
+    );
+    assert!(!dir.join("runs/run-001/notes.json").exists());
+    assert_eq!(
+        vcal(&["project", "note", path(&dir), "run-404", "--star"]),
+        1
+    );
+    assert_eq!(
+        vcal(&[
+            "project",
+            "note",
+            path(&dir),
+            "run-001",
+            "--star",
+            "--unstar"
+        ]),
+        2
+    );
+
+    // A scan finishes, a missing root among them, and lists the device.
+    let missing = tmp.path().join("missing");
+    assert_eq!(
+        vcal(&["project", "scan", path(&library), path(&missing)]),
+        0
+    );
+    assert_eq!(
+        vcal(&[
+            "project",
+            "scan",
+            path(&library),
+            "--json",
+            "--max-depth",
+            "2"
+        ]),
+        0
+    );
+    assert_eq!(vcal(&["project", "scan"]), 2);
+    assert_eq!(vcal(&["project", "runs", path(tmp.path())]), 1);
+}
+
+/// A project's quality thresholds judge its runs: a stated feature noise far
+/// below the residuals fails the variance check, and the run is written
+/// with exit status 3. A stale exclusion fails before any detection.
+#[test]
+fn a_project_s_failed_verdict_exits_3_and_a_stale_exclusion_1() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let manifest = manifest_folder(dir);
+    assert_eq!(
+        vcal(&["project", "init", path(dir), "--manifest", path(&manifest)]),
+        0
+    );
+    let file = dir.join("calibration-project.toml");
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text.push_str("\n[quality]\nexpected_feature_noise_px = 0.000001\n");
+    std::fs::write(&file, &text).unwrap();
+    assert_eq!(vcal(&["run", path(dir)]), 3);
+    assert_eq!(
+        read_json(&dir.join("runs/run-001/quality.json"))["verdict"],
+        "fail"
+    );
+
+    text.push_str("\n[exclude]\nimages = [{ camera = \"cam0\", image = \"view99.png\" }]\n");
+    std::fs::write(&file, &text).unwrap();
+    assert_eq!(vcal(&["check", path(dir)]), 1);
+    assert_eq!(vcal(&["run", path(dir)]), 1);
+    assert!(!dir.join("runs/run-002").exists());
+}
+
+/// The repository's datasets each have a project that opens and reads its
+/// manifest: `vcal run data/kuka_1` and the rest work from a checkout.
+#[test]
+fn the_committed_projects_open() {
+    use vision_calibration::project::Project;
+
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+    for dir in [
+        "kuka_1",
+        "DS8",
+        "opencv_stereo",
+        "stereo/left",
+        "stereo/right",
+        "stereo/rig",
+    ] {
+        let project = Project::open(data.join(dir)).unwrap_or_else(|e| panic!("{dir}: {e}"));
+        assert!(project.spec().name.is_some(), "{dir}");
+        project.dataset().unwrap_or_else(|e| panic!("{dir}: {e}"));
+        assert!(project.data_root().unwrap().is_dir(), "{dir}");
+    }
+}

@@ -47,3 +47,4 @@ them; layouts, commands and component wiring go to rustdoc or
 - [0016 — Dataset ingestion](0016-dataset-ingestion.md)
 - [0012 — The export is the result's wire contract](0012-export-contract.md)
 - [0014 — Desktop app](0014-desktop-app.md)
+- [0033 — Projects and runs belong to the library](0033-projects-and-runs.md)

@@ -52,6 +52,7 @@ use crate::single_cam_handeye::{
 /// the `config` field:
 /// `{"topology": "planar_intrinsics", "config": {...}}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "topology", content = "config", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum CalibrationConfig {

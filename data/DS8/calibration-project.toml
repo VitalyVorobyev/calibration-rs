@@ -1,0 +1,9 @@
+# Calibration project of DS8 (three-camera rig hand-eye). The images are not
+# in the repository: see dataset.toml for where they come from.
+
+version = 2
+name = "DS8 rig hand-eye"
+description = "Three-camera rig hand-eye of dataset 8 of the USDA robot-world hand-eye data"
+
+[dataset]
+manifest = "dataset.toml"

@@ -1,0 +1,9 @@
+# Calibration project of OpenCV's stereo sample (rig extrinsics). The images
+# are not in the repository: see dataset.toml for where they come from.
+
+version = 2
+name = "OpenCV stereo"
+description = "Rig extrinsics of the OpenCV stereo calibration sample"
+
+[dataset]
+manifest = "dataset.toml"

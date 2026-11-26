@@ -71,6 +71,8 @@
 //! ## Data, Detection and Geometry
 //!
 //! - [`dataset`] / [`dataset_runner`] - Dataset manifests and manifest-driven runs
+//! - [`project`] - Calibration projects: a dataset, its configuration changes,
+//!   exclusions and run history, and the library of projects
 //! - [`detect`] - Calibration-target detection
 //! - [`mvg`] - Two-view solvers and N-view MVG (bundle adjustment,
 //!   rectification, dense stereo)
@@ -587,7 +589,29 @@ pub mod dataset_runner {
         build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
         build_rig_handeye_input, build_rig_handeye_laserline_input,
         build_rig_laserline_device_input, build_single_cam_handeye_input, calibrate_dataset,
-        camera_image_sizes, detect_target,
+        camera_image_sizes, detect_target, input_files,
+    };
+}
+
+/// Calibration projects: one dataset with the changes to its workflow's
+/// configuration, what to leave out of it and every run calibrated from it,
+/// in a folder the library alone reads and writes.
+///
+/// [`Project`](project::Project) opens, creates, edits and saves a project and
+/// runs it ([`calibrate`](project::Project::calibrate)) into `runs/run-NNN/`
+/// with an immutable [`RunRecord`](project::RunRecord);
+/// [`scan_library`](project::scan_library) finds the projects under a set of
+/// folders and groups their runs by device. Re-exported from the pipeline
+/// crate's `project` module.
+pub mod project {
+    pub use vision_calibration_pipeline::project::{
+        CalibratedRun, CameraSummary, DETECTIONS_DIR, DatasetSource, DeviceHistory, DeviceIdentity,
+        DeviceRun, EXPORT_FILE, ExclusionFault, Exclusions, FeatureExclusion, ImageExclusion,
+        InputDigest, LeftOutImage, LibraryScan, LibraryScanOptions, PROJECT_FILE,
+        PROJECT_FILE_JSON, PROJECT_VERSION, Project, ProjectEntry, ProjectError, ProjectRunOptions,
+        ProjectSpec, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
+        RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSource, RunState,
+        RunSummary, ScanFailure, UnrecordedRun, ViewExclusion, ViewRef, scan_library,
     };
 }
 

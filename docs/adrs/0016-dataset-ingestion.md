@@ -66,6 +66,12 @@ a `Detection` mode: `Cached`, `Refresh` (bypass reads, for local detector
 edits that change no version) or `Uncached`. The cache is a trait
 (`DetectionCache`) with a filesystem default.
 
+A project's runs use the cache in the project folder, `<project>/.detections`
+([ADR 0033](0033-projects-and-runs.md)), as `vcal run` uses `.detections`
+next to its manifest; content-addressed keys make the two safe to share
+when the project folder is the manifest's. A project run also records the
+sorted set of keys it read, which its input digest covers.
+
 ### Laser extraction is injected
 
 The laser-pixel extractor lives in a crate that is not on crates.io, so no

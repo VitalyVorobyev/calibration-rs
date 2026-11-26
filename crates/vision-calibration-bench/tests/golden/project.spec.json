@@ -1,0 +1,105 @@
+[
+  {
+    "config": {
+      "solver": {
+        "max_iters": 80
+      }
+    },
+    "dataset": {
+      "manifest": {
+        "cameras": [
+          {
+            "id": "cam0",
+            "images": {
+              "kind": "glob",
+              "pattern": "*.png"
+            }
+          }
+        ],
+        "description": "kuka_1",
+        "pose_convention": {
+          "rotation_format": "matrix4x4_row_major",
+          "transform": "t_base_tcp",
+          "translation_units": "m"
+        },
+        "pose_pairing": {
+          "kind": "by_index"
+        },
+        "robot_poses": {
+          "format": "rowmajor4x4",
+          "path": "RobotPosesVec.txt"
+        },
+        "target": {
+          "cols": 28,
+          "kind": "chessboard",
+          "rows": 17,
+          "square_size_m": 0.02
+        },
+        "topology": "single_cam_handeye",
+        "version": 1
+      },
+      "root": "images"
+    },
+    "description": "hand-eye of the KUKA sample",
+    "device": {
+      "id": "SN-0042",
+      "label": "left",
+      "product": "bench camera"
+    },
+    "exclude": {
+      "features": [
+        {
+          "camera": "cam0",
+          "image": "05.png",
+          "note": "glare",
+          "points": [
+            [
+              0.02,
+              0.04,
+              0.0
+            ]
+          ]
+        }
+      ],
+      "images": [
+        {
+          "camera": "cam0",
+          "image": "03.png",
+          "note": "blurred"
+        }
+      ],
+      "views": [
+        {
+          "note": "robot pose glitch",
+          "view": {
+            "token": "12"
+          }
+        },
+        {
+          "view": {
+            "image": "13.png"
+          }
+        }
+      ]
+    },
+    "name": "kuka_1",
+    "quality": {
+      "coverage_fail_below": 0.3,
+      "coverage_warn_below": 0.5,
+      "expected_feature_noise_px": null,
+      "max_parameter_correlation": 0.99,
+      "max_projection_sigma_px": 1.0,
+      "max_second_order_scatter": 1.2,
+      "max_sigma_inflation": 7.0,
+      "max_view_residual": 3.0,
+      "variance_test_alpha": 0.01
+    },
+    "version": 2
+  },
+  {
+    "dataset": {
+      "manifest": "../captures/dataset.toml"
+    },
+    "version": 2
+  }
+]

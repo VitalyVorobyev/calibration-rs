@@ -1,0 +1,10 @@
+# Calibration project of the stereo dataset's right camera alone (planar
+# intrinsics). One project per manifest of the folder: the projects sit in
+# sub-folders and reference the manifests beside them.
+
+version = 2
+name = "Stereo right camera"
+description = "Planar intrinsics of the right camera of the Kaggle stereo chessboard set"
+
+[dataset]
+manifest = "../dataset_right.toml"

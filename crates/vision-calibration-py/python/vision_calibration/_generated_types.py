@@ -16,7 +16,113 @@ methods exchange with the Rust extension.
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias, TypedDict
+from typing import Any, Literal, TypeAlias, TypedDict
+
+
+class _CalibratedRunRequired(TypedDict):
+    """The keys of `CalibratedRun` that every payload has."""
+
+    digest: InputDigest
+    """The digest of the inputs."""
+
+    duration_ms: int
+    """How long the run took, milliseconds; for display only."""
+
+    inputs: RunInputs
+    """What the run was given."""
+
+    left_out: list[LeftOutImage]
+    """The images left out, rejected by the screening or excluded."""
+
+    redetected: bool
+    """Whether every image was detected again rather than read from the
+    detection cache.
+    """
+
+    total_views: int
+    """Views the dataset's images formed before screening."""
+
+    usable_views: int
+    """Views that entered the calibration."""
+
+
+class CalibratedRun(_CalibratedRunRequired, total=False):
+    """A run the project calibrated: its inputs, their digest and what the
+    detection kept.
+    """
+
+    unmatched_exclusions: list[FeatureExclusion]
+    """Feature exclusions whose points matched no feature of the detection
+    they were applied to, with those points only. An image left out
+    before its features were screened is listed in `left_out` instead.
+    """
+
+
+class CalibrationConfig_LaserlineDevice(TypedDict):
+    """For a `laserline_device` manifest."""
+
+    config: LaserlineDeviceConfig
+    topology: Literal["laserline_device"]
+
+
+class CalibrationConfig_PlanarIntrinsics(TypedDict):
+    """For a `planar_intrinsics` manifest."""
+
+    config: PlanarIntrinsicsConfig
+    topology: Literal["planar_intrinsics"]
+
+
+class CalibrationConfig_RigExtrinsics(TypedDict):
+    """For a `rig_extrinsics` manifest."""
+
+    config: RigExtrinsicsConfig
+    topology: Literal["rig_extrinsics"]
+
+
+class CalibrationConfig_RigHandeye(TypedDict):
+    """For a `rig_handeye` manifest."""
+
+    config: RigHandeyeConfig
+    topology: Literal["rig_handeye"]
+
+
+class CalibrationConfig_RigHandeyeLaserline(TypedDict):
+    """For a `rig_handeye_laserline` manifest."""
+
+    config: RigHandeyeLaserlineConfig
+    topology: Literal["rig_handeye_laserline"]
+
+
+class CalibrationConfig_RigLaserlineDevice(TypedDict):
+    """For a `rig_laserline_device` manifest."""
+
+    config: RigLaserlineDeviceConfig
+    topology: Literal["rig_laserline_device"]
+
+
+class CalibrationConfig_SingleCamHandeye(TypedDict):
+    """For a `single_cam_handeye` manifest."""
+
+    config: SingleCamHandeyeConfig
+    topology: Literal["single_cam_handeye"]
+
+
+CalibrationConfig: TypeAlias = (
+    CalibrationConfig_PlanarIntrinsics
+    | CalibrationConfig_SingleCamHandeye
+    | CalibrationConfig_LaserlineDevice
+    | CalibrationConfig_RigExtrinsics
+    | CalibrationConfig_RigHandeye
+    | CalibrationConfig_RigLaserlineDevice
+    | CalibrationConfig_RigHandeyeLaserline
+)
+"""The configuration of one calibration, tagged by the manifest topology it
+applies to.
+
+In JSON the variant is the `topology` field and the problem's config is
+the `config` field:
+`{"topology": "planar_intrinsics", "config": {...}}`.
+"""
 
 
 class _CameraConfigRequired(TypedDict):
@@ -158,6 +264,28 @@ class CameraSource(_CameraSourceRequired, total=False):
     """Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.
     When set, only the cropped region is fed to the detector and
     stored in the export's image manifest.
+    """
+
+
+class _CameraSummaryRequired(TypedDict):
+    """The keys of `CameraSummary` that every payload has."""
+
+    features: int
+    """Its features in the calibration."""
+
+    id: str
+    """The camera's id in the manifest."""
+
+    views: int
+    """The views it saw."""
+
+
+class CameraSummary(_CameraSummaryRequired, total=False):
+    """One camera of a `RunSummary`."""
+
+    rms_px: float | None
+    """The root-mean-square reprojection error of its features, pixels:
+    √(mean of the squared error lengths); `None` without residuals.
     """
 
 
@@ -320,6 +448,41 @@ class CombinationTerm(TypedDict):
     `[-1, 1]` with the largest term at +1. Terms of equal weight and
     opposite sign are a difference the combination measures.
     """
+
+
+ConfigPatch: TypeAlias = dict[str, Any]
+"""Changes to a workflow's default configuration: what the patch names
+replaces the default, what it leaves out keeps it.
+
+A patch is keyed like the problem's own config, a table of its fields
+(`{"solver": {"max_iters": 20}}`, or in TOML `solver.max_iters = 20`),
+not the tagged `{"topology": …, "config": …}` form of
+`CalibrationConfig`. It applies by one rule: two tables merge key by
+key, and any other value (a number, a string, a list, `null`) replaces
+what it lands on. `CalibrationConfig::patched` applies a patch to the
+defaults of a topology and checks the result; a field the workflow does
+not have is an error there, so a misspelt name never passes silently.
+
+TOML has no `null`, so a patch read from TOML cannot set an optional
+field back to none; JSON can.
+
+The patch serializes as its table, with the keys of every table sorted.
+
+```
+use vision_calibration_dataset::ProblemKind;
+use vision_calibration_pipeline::dataset_runner::{CalibrationConfig, ConfigPatch};
+
+let patch = ConfigPatch::from_toml_str("solver.max_iters = 20")?;
+let config = CalibrationConfig::patched(ProblemKind::PlanarIntrinsics, &patch)?;
+let CalibrationConfig::PlanarIntrinsics(planar) = &config else {
+    unreachable!("the patch applies to the topology's own config");
+};
+assert_eq!(planar.solver.max_iters, 20);
+// The smallest patch that makes the configuration from the defaults.
+assert_eq!(ConfigPatch::from_config(&config), patch);
+# Ok::<(), vision_calibration_pipeline::Error>(())
+```
+"""
 
 
 class CornerCovarianceSpec(TypedDict, total=False):
@@ -505,6 +668,32 @@ class DatasetSpec(_DatasetSpecRequired, total=False):
     """
 
 
+DatasetManifest: TypeAlias = str | DatasetSpec
+"""A manifest file's path, or the manifest."""
+
+
+class _DatasetSourceRequired(TypedDict):
+    """The keys of `DatasetSource` that every payload has."""
+
+    manifest: DatasetManifest
+    """The manifest file's path (relative to the project folder unless
+    absolute), or the manifest.
+    """
+
+
+class DatasetSource(_DatasetSourceRequired, total=False):
+    """Where a project's dataset manifest is: `manifest` the path of a
+    manifest file of its own, or the manifest itself, written in the project
+    file, with `root` the folder its relative paths resolve against.
+    """
+
+    root: str | None
+    """For a manifest written in the project file: the folder its relative
+    paths resolve against, relative to the project folder unless
+    absolute. Default `.`. Not allowed beside a manifest file.
+    """
+
+
 class DepthOfField(TypedDict):
     """The depth of field for a blur limit `σ_max`: the wedge between a near
     and a far plane.
@@ -570,6 +759,31 @@ class DetectorSpec(TypedDict, total=False):
     are noisy enough to poison a solve. A plain chessboard needs no
     floor to stay consistent: where views share one target frame the
     runner already keeps only views that span the whole board.
+    """
+
+
+class _DeviceIdentityRequired(TypedDict):
+    """The keys of `DeviceIdentity` that every payload has."""
+
+    id: str
+    """The device's own identifier: a serial number, a MAC address. Not
+    empty, without leading or trailing white space, compared as written.
+    """
+
+
+class DeviceIdentity(_DeviceIdentityRequired, total=False):
+    """The device a project calibrates.
+
+    Projects of one device, in any folder, form its calibration history:
+    the library groups them by `product` and `id` together.
+    """
+
+    label: str | None
+    """A name for display."""
+
+    product: str | None
+    """The device type or product line it belongs to; `None` when the id
+    alone names the device.
     """
 
 
@@ -772,6 +986,38 @@ DistortionParams: TypeAlias = (
 """Serializable distortion model parameters."""
 
 
+class Exclusions(TypedDict, total=False):
+    """What a project leaves out of its dataset.
+
+    Image paths are relative to the dataset's folder unless absolute, and
+    `/`-separated; they match the images the manifest lists after both are
+    made absolute and their `.` and `..` folded.
+
+    In TOML:
+
+    ```toml
+    [exclude]
+    views  = [{ view = { token = "0012" }, note = "robot pose glitch" }]
+    images = [{ camera = "cam1", image = "cam1/0003.png" }]
+    [[exclude.features]]
+    camera = "cam0"
+    image  = "cam0/0005.png"
+    points = [[0.03, 0.06, 0.0]]
+    ```
+    """
+
+    features: list[FeatureExclusion]
+    """Single features of one camera's detection in one image."""
+
+    images: list[ImageExclusion]
+    """One camera's image of a view; the view keeps its other cameras."""
+
+    views: list[ViewExclusion]
+    """Whole views: every camera's image of the view, its robot pose and
+    its laser frames.
+    """
+
+
 class _ExportDiagnosticsRequired(TypedDict):
     """The keys of `ExportDiagnostics` that every payload has."""
 
@@ -796,6 +1042,34 @@ class ExportDiagnostics(_ExportDiagnosticsRequired, total=False):
     residuals on them. The calibration never reads it; `None` means no
     images were recorded (the dataset runner and the desktop app fill it).
     """
+
+
+class _FeatureExclusionRequired(TypedDict):
+    """The keys of `FeatureExclusion` that every payload has."""
+
+    camera: str
+    """The camera's id in the manifest."""
+
+    image: str
+    """The image, one of the camera's."""
+
+    points: list[tuple[float, float, float] | list[float]]
+    """The target points of the features to leave out, metres."""
+
+
+class FeatureExclusion(_FeatureExclusionRequired, total=False):
+    """Features of one camera's detection in one image, left out.
+
+    A feature is named by its target point as the detector labelled it,
+    before a rig turns a plain chessboard's labels to agree with its other
+    cameras: the detection a review shows. A point matches a feature within
+    a micrometre in each coordinate. A point that matches no feature of the
+    detection leaves nothing out and is not an error, since what the
+    detector finds is known only once it has run.
+    """
+
+    note: str | None
+    """Why, for the reader; the calibration does not read it."""
 
 
 class FeatureResidualHistogram(TypedDict):
@@ -1578,6 +1852,27 @@ class HeldOutScore(TypedDict):
     """
 
 
+class _ImageExclusionRequired(TypedDict):
+    """The keys of `ImageExclusion` that every payload has."""
+
+    camera: str
+    """The camera's id in the manifest."""
+
+    image: str
+    """The image, one of the camera's."""
+
+
+class ImageExclusion(_ImageExclusionRequired, total=False):
+    """One camera's image of a view, left out.
+
+    The camera is named with the image because a tiled image holds several
+    cameras' views.
+    """
+
+    note: str | None
+    """Why, for the reader; the calibration does not read it."""
+
+
 class ImageManifest(TypedDict):
     """Image manifest carried alongside a calibration export.
 
@@ -1643,6 +1938,41 @@ class ImagePattern_List(TypedDict):
 
 ImagePattern: TypeAlias = ImagePattern_Glob | ImagePattern_List
 """How image paths for a camera are listed."""
+
+
+class InputDigest(TypedDict):
+    """The digest of a calibrated run's inputs: each `sha256:<hex>` of the
+    canonical JSON (keys sorted) of what it covers.
+
+    Two runs with equal `inputs` digests, by the same library version, have
+    byte-identical `export.json` and `quality.json`. The data root's
+    location is not part of any digest: a dataset moved whole keeps them.
+    """
+
+    config: str
+    """The resolved configuration."""
+
+    dataset: str
+    """The manifest, and the content of the files it names other than
+    images (the robot pose file, the upstream calibration).
+    """
+
+    detections: str
+    """The sorted set of detection cache keys the run read or wrote: each
+    image's content, its detector and detector configuration and the
+    detector's version.
+    """
+
+    exclusions: str
+    """The exclusions, notes left out, each list sorted and without
+    repeats.
+    """
+
+    inputs: str
+    """Over the other five, in their order here."""
+
+    quality: str
+    """The quality thresholds."""
 
 
 class IntrinsicsInitConfig(TypedDict):
@@ -2008,6 +2338,31 @@ class LaserlineView(TypedDict):
 
     obs: CorrespondenceView
     """2D-3D correspondences observed in this view."""
+
+
+class LeftOutImage(TypedDict):
+    """An image a run left out, with the reason."""
+
+    camera: str
+    """The camera's id in the manifest."""
+
+    image: str
+    """The image, relative to the data root (absolute when outside it),
+    `/`-separated.
+    """
+
+    reason: RejectReason
+    """Why it was left out."""
+
+
+class LibraryScan(TypedDict):
+    """What a scan found: the projects, and what it could not read."""
+
+    failures: list[ScanFailure]
+    """The folders and projects that could not be read, sorted by path."""
+
+    projects: list[ProjectEntry]
+    """The projects, sorted by folder."""
 
 
 class Measurement(TypedDict):
@@ -2685,6 +3040,96 @@ In JSON the variant is the `kind` field:
 """
 
 
+class _ProjectEntryRequired(TypedDict):
+    """The keys of `ProjectEntry` that every payload has."""
+
+    dir: str
+    """The project folder, absolute."""
+
+    name: str
+    """The project's name, or its folder's."""
+
+    runs: list[RunInfo]
+    """Its runs, in listing order."""
+
+
+class ProjectEntry(_ProjectEntryRequired, total=False):
+    """One project a scan found."""
+
+    device: DeviceIdentity | None
+    """The device it calibrates."""
+
+    topology: ProblemKind | None
+    """Its dataset's workflow; `None` when a referenced manifest cannot be
+    read.
+    """
+
+
+class _ProjectSpecRequired(TypedDict):
+    """The keys of `ProjectSpec` that every payload has."""
+
+    dataset: DatasetSource
+    """The dataset: its manifest, written in the project file or kept in a
+    file of its own.
+    """
+
+    version: int
+    """The project file's format version, `PROJECT_VERSION`."""
+
+
+class ProjectSpec(_ProjectSpecRequired, total=False):
+    """A calibration project's definition: its dataset, the changes to its
+    workflow's default configuration, the quality thresholds its runs are
+    judged by and what it leaves out of the dataset.
+
+    It is the content of `calibration-project.toml` (or of
+    `calibration-project.json`). An unknown field is an error, so a misspelt
+    section such as `[exlude]` never passes silently.
+
+    ```toml
+    version = 2
+    name = "Bench camera"
+
+    [device]
+    product = "line scanner"
+    id = "SN-0042"
+
+    [dataset]
+    manifest = "captures/dataset.toml"
+
+    [config]
+    solver.max_iters = 80
+
+    [exclude]
+    images = [{ camera = "cam0", image = "cam0/0003.png" }]
+    ```
+    """
+
+    config: ConfigPatch
+    """Changes to the default configuration of the dataset's workflow."""
+
+    description: str | None
+    """What the project is about, for the reader."""
+
+    device: DeviceIdentity | None
+    """The device the project calibrates: the key its runs are grouped by
+    across projects.
+    """
+
+    exclude: Exclusions
+    """What the runs leave out of the dataset."""
+
+    name: str | None
+    """The project's name, for display; without one, the project's folder
+    name is shown.
+    """
+
+    quality: QualityThresholds | None
+    """The thresholds the runs' quality is judged by; `None` for the
+    defaults.
+    """
+
+
 ProjectionKind: TypeAlias = Literal["pinhole", "equidistant"]
 """Which projection model a camera uses.
 
@@ -2932,6 +3377,37 @@ class RankedRobotPose(TypedDict):
     """Per camera, the target points that land in its image. A camera that
     sees fewer than four adds no information.
     """
+
+
+RejectReason: TypeAlias = Literal[
+    "too_few_features",
+    "partial_chessboard",
+    "turned_chessboard",
+    "ambiguous_chessboard_turn",
+    "excluded",
+]
+"""Why the runner left a target detection out of the calibration input.
+
+Serialized in `snake_case` (`"too_few_features"`, `"excluded"`, ...).
+
+- ``"too_few_features"``: Fewer features than the per-view floor: 4 (the homography minimum),
+  or the manifest's `detector.min_features_per_view`.
+- ``"partial_chessboard"``: A plain chessboard whose detected corners do not reach every edge of
+  the board, or reach an edge with fewer than half of its corners. The detector labels a view from its own top-left corner,
+  so a partial board would move the shared target frame.
+- ``"turned_chessboard"``: A plain chessboard seen turned by 90° where the target frame is fixed
+  through the views (hand-eye, and the laser rigs). Its corners span
+  `rows` across and `cols` down instead of the declared `cols` across
+  and `rows` down, as camera 0 sees the board, so its labels are a
+  rotation of the fixed frame's.
+- ``"ambiguous_chessboard_turn"``: A plain chessboard in a rig view whose turn relative to the view's
+  other cameras cannot be told: the board's direction in this image
+  is not within the tolerance of any of its candidate labellings, or
+  the camera's turn relative to the other cameras is not consistent
+  across the views they share.
+- ``"excluded"``: The run was told to leave the image out (an exclusion of the image
+  or of its whole view); it was not read.
+"""
 
 
 class ReprojectionStats(TypedDict):
@@ -4015,6 +4491,231 @@ RotationFormat: TypeAlias = Literal[
 """
 
 
+class RunInfo(TypedDict):
+    """One run of a project, as a listing shows it."""
+
+    dir: str
+    """The run's folder, absolute."""
+
+    id: str
+    """The run's id: its folder's name under `runs/`."""
+
+    notes: RunNotes
+    """Its notes."""
+
+    state: RunState
+    """What its files say."""
+
+
+class RunInputs(TypedDict):
+    """What a calibrated run was given, resolved."""
+
+    config: CalibrationConfig
+    """The configuration they made."""
+
+    config_patch: ConfigPatch
+    """The configuration changes: the project's, then the run's own."""
+
+    data_root: str
+    """The data root as the project stated it: the inline manifest's
+    `root`, or the manifest file's path. For the reader only.
+    """
+
+    dataset: DatasetSpec
+    """The manifest as the run used it."""
+
+    exclusions: Exclusions
+    """The project's exclusions."""
+
+    quality: QualityThresholds
+    """The thresholds the quality report was judged by."""
+
+
+class RunNotes(TypedDict, total=False):
+    """What a person notes on a run, `notes.json`: the only file of a run that
+    changes after it is written.
+    """
+
+    label: str | None
+    """A short name for the run."""
+
+    notes: str | None
+    """Free text."""
+
+    starred: bool
+    """Whether the run is marked as one to keep."""
+
+
+class RunRecord(TypedDict):
+    """The record of one run, `run.json`: what went in, a digest of it, and a
+    summary of what came out. Written once with the run and never changed.
+
+    `timestamp` and `CalibratedRun::duration_ms` are the only clock
+    readings in a run's files; neither enters a digest, the export or the
+    quality report.
+    """
+
+    library_version: str
+    """The version of this library that wrote the run."""
+
+    source: RunSource
+    """Where the run's export came from."""
+
+    summary: RunSummary
+    """What came out, for listing without reading the export."""
+
+    timestamp: int
+    """When the run was written, seconds since the Unix epoch; for display
+    and ordering only.
+    """
+
+    tool: str
+    """The program that made the run, as it named itself (`vcal 1.1.0`)."""
+
+    version: int
+    """The record's format version, `RUN_RECORD_VERSION`."""
+
+
+class _RunSource_CalibratedRequired(TypedDict):
+    """The keys of `RunSource_Calibrated` that every payload has."""
+
+    digest: InputDigest
+    """The digest of the inputs."""
+
+    duration_ms: int
+    """How long the run took, milliseconds; for display only."""
+
+    inputs: RunInputs
+    """What the run was given."""
+
+    kind: Literal["calibrated"]
+    left_out: list[LeftOutImage]
+    """The images left out, rejected by the screening or excluded."""
+
+    redetected: bool
+    """Whether every image was detected again rather than read from the
+    detection cache.
+    """
+
+    total_views: int
+    """Views the dataset's images formed before screening."""
+
+    usable_views: int
+    """Views that entered the calibration."""
+
+
+class RunSource_Calibrated(_RunSource_CalibratedRequired, total=False):
+    """The project calibrated it."""
+
+    unmatched_exclusions: list[FeatureExclusion]
+    """Feature exclusions whose points matched no feature of the detection
+    they were applied to, with those points only. An image left out
+    before its features were screened is listed in `left_out` instead.
+    """
+
+
+class RunSource_Imported(TypedDict):
+    """It was imported from an export calibrated elsewhere."""
+
+    file_name: str
+    """The imported file's name (not its path)."""
+
+    kind: Literal["imported"]
+
+
+RunSource: TypeAlias = RunSource_Calibrated | RunSource_Imported
+"""Where a run's export came from."""
+
+
+class RunState_Recorded(TypedDict):
+    """A run with its record."""
+
+    kind: Literal["recorded"]
+    library_version: str
+    """The version of this library that wrote the run."""
+
+    source: RunSource
+    """Where the run's export came from."""
+
+    summary: RunSummary
+    """What came out, for listing without reading the export."""
+
+    timestamp: int
+    """When the run was written, seconds since the Unix epoch; for display
+    and ordering only.
+    """
+
+    tool: str
+    """The program that made the run, as it named itself (`vcal 1.1.0`)."""
+
+    version: int
+    """The record's format version, `RUN_RECORD_VERSION`."""
+
+
+class RunState_Unreadable(TypedDict):
+    """A run whose record this version cannot read."""
+
+    kind: Literal["unreadable"]
+    message: str
+    """Why."""
+
+
+class _RunState_UnrecordedRequired(TypedDict):
+    """The keys of `RunState_Unrecorded` that every payload has."""
+
+    kind: Literal["unrecorded"]
+
+
+class RunState_Unrecorded(_RunState_UnrecordedRequired, total=False):
+    """A run of the desktop app's earlier format: an export with no
+    record. It is listed, never rewritten.
+    """
+
+    summary: RunSummary | None
+    """The summary of its export, when the export reads."""
+
+    total_views: int | None
+    """Views attempted, from its `diagnostics.json`."""
+
+    usable_views: int | None
+    """Views that entered the calibration, from its `diagnostics.json`."""
+
+
+RunState: TypeAlias = RunState_Recorded | RunState_Unrecorded | RunState_Unreadable
+"""What a run's files say."""
+
+
+class _RunSummaryRequired(TypedDict):
+    """The keys of `RunSummary` that every payload has."""
+
+    cameras: list[CameraSummary]
+    """Each camera, in camera order."""
+
+    kind: ProblemKind
+    """The workflow that produced the export."""
+
+
+class RunSummary(_RunSummaryRequired, total=False):
+    """What a run produced, in brief: enough to list runs without reading
+    their exports, and recomputable from the export.
+    """
+
+    verdict: Verdict | None
+    """The quality report's verdict; `None` when the quality could not be
+    assessed.
+    """
+
+
+class ScanFailure(TypedDict):
+    """A folder or project a scan could not read. A scan never fails on one."""
+
+    message: str
+    """Why it could not be read."""
+
+    path: str
+    """The folder."""
+
+
 class ScheimpflugParams(TypedDict):
     """Scheimpflug tilt parameters (OpenCV-compatible)."""
 
@@ -4734,6 +5435,19 @@ Unit: TypeAlias = Literal["pixel", "fraction", "ratio", "sigma", "correlation"]
 """
 
 
+class UnrecordedRun(TypedDict, total=False):
+    """A run of the desktop app's earlier format."""
+
+    summary: RunSummary | None
+    """The summary of its export, when the export reads."""
+
+    total_views: int | None
+    """Views attempted, from its `diagnostics.json`."""
+
+    usable_views: int | None
+    """Views that entered the calibration, from its `diagnostics.json`."""
+
+
 Verdict: TypeAlias = Literal["pass", "warn", "fail"]
 """The judgment of a result, or of one check.
 
@@ -4758,26 +5472,75 @@ class ViewCovariance(TypedDict):
     """View index, as in the result's per-view lists."""
 
 
+class _ViewExclusionRequired(TypedDict):
+    """The keys of `ViewExclusion` that every payload has."""
+
+    view: ViewRef
+    """Which view."""
+
+
+class ViewExclusion(_ViewExclusionRequired, total=False):
+    """A view left out, with every camera's image of it."""
+
+    note: str | None
+    """Why, for the reader; the calibration does not read it."""
+
+
+class ViewRef_Image(TypedDict):
+    """Any one of the view's images."""
+
+    image: str
+
+
+class ViewRef_Token(TypedDict):
+    """The view's pairing token, under `shared_filename_token` pairing."""
+
+    token: str
+
+
+ViewRef: TypeAlias = ViewRef_Token | ViewRef_Image
+"""How an exclusion names a view.
+
+A view has no index that survives an image added to the dataset; its
+pairing token and its images do. Serialized as `{ token = "0012" }` or
+`{ image = "cam0/0012.png" }`.
+"""
+
+
 __all__ = [
+    "CalibratedRun",
+    "CalibrationConfig",
+    "CalibrationConfig_LaserlineDevice",
+    "CalibrationConfig_PlanarIntrinsics",
+    "CalibrationConfig_RigExtrinsics",
+    "CalibrationConfig_RigHandeye",
+    "CalibrationConfig_RigHandeyeLaserline",
+    "CalibrationConfig_RigLaserlineDevice",
+    "CalibrationConfig_SingleCamHandeye",
     "CameraConfig",
     "CameraFix",
     "CameraModelSpec",
     "CameraOverride",
     "CameraParams",
     "CameraSource",
+    "CameraSummary",
     "CandidateCameraConfig",
     "CandidateGrid",
     "CheckKind",
     "CheckStatus",
     "ChessCornersDetectorSpec",
     "CombinationTerm",
+    "ConfigPatch",
     "CornerCovarianceSpec",
     "CornerStrategySpec",
     "CorrespondenceView",
     "CrossValidationOptions",
+    "DatasetManifest",
+    "DatasetSource",
     "DatasetSpec",
     "DepthOfField",
     "DetectorSpec",
+    "DeviceIdentity",
     "DeviceOptimizeConfig",
     "DistortionKind",
     "DistortionParams",
@@ -4787,7 +5550,9 @@ __all__ = [
     "DistortionParams_None",
     "DistortionParams_Rational",
     "DistortionParams_ThinPrism",
+    "Exclusions",
     "ExportDiagnostics",
+    "FeatureExclusion",
     "FeatureResidualHistogram",
     "FocusDiagnostic",
     "FocusDiagnostic_Fitted",
@@ -4816,12 +5581,14 @@ __all__ = [
     "HandeyeSolution_EyeInHand",
     "HandeyeSolution_EyeToHand",
     "HeldOutScore",
+    "ImageExclusion",
     "ImageManifest",
     "ImageNoiseSpec",
     "ImageNoiseSpec_Stated",
     "ImagePattern",
     "ImagePattern_Glob",
     "ImagePattern_List",
+    "InputDigest",
     "IntrinsicsInitConfig",
     "IntrinsicsOptimizeConfig",
     "Iso3",
@@ -4838,6 +5605,8 @@ __all__ = [
     "LaserlineResidualType",
     "LaserlineStats",
     "LaserlineView",
+    "LeftOutImage",
+    "LibraryScan",
     "Measurement",
     "ModelComparison",
     "ModelOutcome",
@@ -4869,6 +5638,8 @@ __all__ = [
     "Progress_Iteration",
     "Progress_LaserExtraction",
     "Progress_Step",
+    "ProjectEntry",
+    "ProjectSpec",
     "ProjectionKind",
     "ProjectionParams",
     "ProjectionParams_Equidistant",
@@ -4879,6 +5650,7 @@ __all__ = [
     "QualityThresholds",
     "RankedCandidate",
     "RankedRobotPose",
+    "RejectReason",
     "ReprojectionStats",
     "ResidualKind",
     "ResidualKind_Custom",
@@ -4925,6 +5697,19 @@ __all__ = [
     "RobustLoss_Huber",
     "RobustLoss_None",
     "RotationFormat",
+    "RunInfo",
+    "RunInputs",
+    "RunNotes",
+    "RunRecord",
+    "RunSource",
+    "RunSource_Calibrated",
+    "RunSource_Imported",
+    "RunState",
+    "RunState_Recorded",
+    "RunState_Unreadable",
+    "RunState_Unrecorded",
+    "RunSummary",
+    "ScanFailure",
     "ScheimpflugParams",
     "SecondOrderError",
     "SensorKind",
@@ -4962,6 +5747,11 @@ __all__ = [
     "Uncertainty_Available",
     "Uncertainty_Unavailable",
     "Unit",
+    "UnrecordedRun",
     "Verdict",
     "ViewCovariance",
+    "ViewExclusion",
+    "ViewRef",
+    "ViewRef_Image",
+    "ViewRef_Token",
 ]

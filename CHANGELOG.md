@@ -159,6 +159,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vision_calibration.residual_map`.
 - `TargetFeatureResidual::residual_px` returns a record's residual vector,
   `observed_px − projected_px`, the sign the solver minimizes.
+- Calibration projects (`project`): a folder holding
+  `calibration-project.toml` (`ProjectSpec`), the runs calibrated from it
+  and its detection cache. The project file names its dataset, written in
+  it (with the folder its paths resolve against) or kept as a manifest file
+  of its own that the library never writes (`DatasetSource`); the device it
+  calibrates (`DeviceIdentity`: `product`, `id`, `label`); changes to the
+  workflow's default configuration (`ConfigPatch`); the quality thresholds;
+  and what to leave out (`Exclusions`: views by pairing token or image,
+  one camera's image, single features by target point). An unknown field is
+  an error. `Project::open`, `create`, `save` (atomic; refused with
+  `ProjectError::ChangedOnDisk` when the file changed since it was read)
+  and `reload`; `revision` names the content read, for a caller that keeps
+  no `Project` between an edit and its save; `check` runs every check a run
+  makes before it reads an image, a stale exclusion included
+  (`ProjectError::Exclusion`). A project of the desktop app's earlier format
+  (`calibration-project.json` version 1 with `dataset.json`) opens as is and
+  is written as version 2 on its first save. The schema is
+  `schemas/project_spec.json`.
+- Project runs. `Project::calibrate` checks the project, detects through
+  its cache (`<project>/.detections`), calibrates and writes
+  `runs/run-NNN/`: `export.json`, `quality.json` and `run.json`, with
+  `notes.json` and `report.html` when asked for (`ProjectRunOptions`: the
+  run's own configuration changes over the project's, redetection, the
+  page, the notes, the tool's name). A run is written whole or not at all,
+  a cancelled one writes nothing, and run numbers are claimed so that
+  several programs can write into one project at once. `run.json`
+  (`RunRecord`) is written once: the tool and library version, the inputs
+  as resolved (manifest, exclusions, configuration changes and the
+  configuration they made, quality thresholds), what detection left out
+  and why (excluded images included), feature exclusions that matched
+  nothing, and a summary (verdict, each camera's RMS error, features and
+  views). Its `InputDigest` hashes the manifest (with its robot pose and
+  upstream calibration files), the exclusions, the configuration, the
+  thresholds and the detection-cache keys read: equal digests and library
+  versions give byte-identical `export.json` and `quality.json`; the
+  record's time stamp and duration are never hashed, and moving the data
+  changes no digest. The export's image root is restated for the run
+  folder, so a moved project still finds its images. `Project::runs`
+  (`RunInfo`, with the desktop app's earlier runs listed as `Unrecorded`),
+  `run`, `set_run_notes` (`RunNotes`, the only file of a run that changes),
+  `delete_run`, and `import_export`, which adds an export calibrated
+  elsewhere (a file, a `vcal run -o` folder) after checking its workflow
+  and camera count. Schemas `schemas/run_record.json`,
+  `schemas/run_notes.json`, `schemas/run_info.json`.
+- `project::scan_library` finds the projects under a set of folders (no
+  symbolic links or hidden folders, no search inside a project, a depth
+  limit in `LibraryScanOptions`, default 8) and reads each with its runs;
+  a project or folder that cannot be read is listed as a `ScanFailure`,
+  never an error. `LibraryScan::devices` groups the runs of every device by
+  the project file's `[device]` `product` and `id` (`DeviceHistory`),
+  oldest first. Nothing is indexed: the folders are the library. Schema
+  `schemas/library_scan.json`.
+- The project types and functions are `vision_calibration::project` in the
+  facade. Python: `vision_calibration.project` with the `Project` class
+  (`open`, `create`, `save`, `reload`, `spec`, `check`, `calibrate`,
+  `import_export`, `runs`, `run`, `set_run_notes`, `delete_run`, ...),
+  `scan_library` (with each device's history) and `ProjectError`, whose
+  `kind` names the failure; the payloads are the generated
+  `types.ProjectSpec`, `types.RunInfo`, `types.RunRecord`,
+  `types.RunNotes` and `types.LibraryScan`. The book has a new chapter,
+  Projects.
+- `vcal` runs projects. `vcal check` and `vcal run` take a project when the
+  path is a project folder or its project file (a manifest otherwise, with
+  the same files, output and exit statuses as before); a project's run goes
+  to its next `runs/run-NNN/`, `-c` changing the configuration for that run
+  only and `--label` naming it (`-o` with a project, or `--label` with a
+  manifest, is a command-line error, status 2). `vcal project init`
+  references a manifest (`--manifest`, `--embed` to copy it in) or drafts
+  one from the file names, and refuses a folder that already holds a
+  manifest; `vcal project runs` (`--json`), `import`, `note` (`--label`,
+  `--notes`, `--star`, `--unstar`) and `scan` (`--json`, `--max-depth`).
+  A folder passed to `vcal run` or `vcal check` without a project file is
+  still read as a manifest, and the error now names `vcal project init`.
+- The repository's datasets (`data/kuka_1`, `data/DS8`,
+  `data/opencv_stereo`, and the left, right and rig manifests of
+  `data/stereo`) have calibration projects referencing their manifests, so
+  `vcal run data/kuka_1` keeps its runs in `data/kuka_1/runs/`.
+- `dataset_runner::input_files` lists every file a run of a manifest reads
+  (images, laser frames, the robot pose file, the upstream calibration)
+  without reading any. Python: `dataset_runner.input_files`.
 
 ### Changed
 

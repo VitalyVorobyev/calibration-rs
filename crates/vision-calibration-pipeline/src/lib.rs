@@ -40,13 +40,8 @@ pub mod single_cam_handeye;
 // Manifest-driven dataset runner: detection and problem input from a DatasetSpec
 pub mod dataset_runner;
 
-// The calibration project. Crate-private until the project file and its
-// runs land on it; until then only its tests call it.
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "the project file and its runs are its callers")
-)]
-mod project;
+// Calibration projects: a dataset, its configuration changes, exclusions and runs
+pub mod project;
 
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]

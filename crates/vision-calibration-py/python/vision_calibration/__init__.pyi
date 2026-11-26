@@ -106,6 +106,7 @@ from . import laserline_device as laserline_device
 from . import maps as maps
 from . import mvg as mvg
 from . import planar_intrinsics as planar_intrinsics
+from . import project as project
 from . import residuals as residuals
 from . import rig_extrinsics as rig_extrinsics
 from . import rig_handeye as rig_handeye

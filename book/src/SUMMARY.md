@@ -10,6 +10,7 @@
 
 - [Getting Started](getting_started.md)
 - [The Command Line](cli.md)
+- [Projects](projects.md)
 - [Capturing Calibration Images](capture.md)
 - [Stereo Rig with Real Data](stereo_real_data.md)
 

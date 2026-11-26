@@ -8,7 +8,8 @@
 //!   against these files) and keeps no copy.
 //! - The input, export and quality schemas — what a workflow reads and what
 //!   it returns — the progress report a long call streams, the reason a
-//!   solve stopped and the device specification's go to
+//!   solve stopped, the device specification's, and the project file's, a
+//!   run's record and notes, a run listing's and a library scan's go to
 //!   `schemas/<name>.json`, for tools that consume the results. Inputs and
 //!   thresholds describe what deserializes, exports and reports what
 //!   serializes.
@@ -46,6 +47,9 @@ use vision_calibration_pipeline::laserline_device::{
 };
 use vision_calibration_pipeline::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsInput,
+};
+use vision_calibration_pipeline::project::{
+    LibraryScan, ProjectSpec, RunInfo, RunNotes, RunRecord,
 };
 use vision_calibration_pipeline::rig_extrinsics::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput,
@@ -209,6 +213,11 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         writes::<FocusDiagnostic>("focus_diagnostic", "FocusDiagnostic"),
         writes::<Progress>("progress", "Progress"),
         writes::<SolveTermination>("solve_termination", "SolveTermination"),
+        reads::<ProjectSpec>("project_spec", "ProjectSpec", &[]),
+        reads::<RunRecord>("run_record", "RunRecord", &[]),
+        reads::<RunNotes>("run_notes", "RunNotes", &[]),
+        reads::<RunInfo>("run_info", "RunInfo", &[]),
+        reads::<LibraryScan>("library_scan", "LibraryScan", &[]),
         plain("device_spec", schema_value::<DeviceSpec>()),
     ];
     let suite = vec![

@@ -1,0 +1,3101 @@
+{
+  "$defs": {
+    "CalibratedRun": {
+      "description": "A run the project calibrated: its inputs, their digest and what the\ndetection kept.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/InputDigest",
+          "description": "The digest of the inputs."
+        },
+        "duration_ms": {
+          "description": "How long the run took, milliseconds; for display only.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inputs": {
+          "$ref": "#/$defs/RunInputs",
+          "description": "What the run was given."
+        },
+        "left_out": {
+          "description": "The images left out, rejected by the screening or excluded.",
+          "items": {
+            "$ref": "#/$defs/LeftOutImage"
+          },
+          "type": "array"
+        },
+        "redetected": {
+          "description": "Whether every image was detected again rather than read from the\ndetection cache.",
+          "type": "boolean"
+        },
+        "total_views": {
+          "description": "Views the dataset's images formed before screening.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unmatched_exclusions": {
+          "description": "Feature exclusions whose points matched no feature of the detection\nthey were applied to, with those points only. An image left out\nbefore its features were screened is listed in `left_out` instead.",
+          "items": {
+            "$ref": "#/$defs/FeatureExclusion"
+          },
+          "type": "array"
+        },
+        "usable_views": {
+          "description": "Views that entered the calibration.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "inputs",
+        "digest",
+        "usable_views",
+        "total_views",
+        "left_out",
+        "redetected",
+        "duration_ms"
+      ],
+      "type": "object"
+    },
+    "CalibrationConfig": {
+      "description": "The configuration of one calibration, tagged by the manifest topology it\napplies to.\n\nIn JSON the variant is the `topology` field and the problem's config is\nthe `config` field:\n`{\"topology\": \"planar_intrinsics\", \"config\": {...}}`.",
+      "oneOf": [
+        {
+          "description": "For a `planar_intrinsics` manifest.",
+          "properties": {
+            "config": {
+              "$ref": "#/$defs/PlanarIntrinsicsConfig"
+            },
+            "topology": {
+              "const": "planar_intrinsics",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topology",
+            "config"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "For a `single_cam_handeye` manifest.",
+          "properties": {
+            "config": {
+              "$ref": "#/$defs/SingleCamHandeyeConfig"
+            },
+            "topology": {
+              "const": "single_cam_handeye",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topology",
+            "config"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "For a `laserline_device` manifest.",
+          "properties": {
+            "config": {
+              "$ref": "#/$defs/LaserlineDeviceConfig"
+            },
+            "topology": {
+              "const": "laserline_device",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topology",
+            "config"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "For a `rig_extrinsics` manifest.",
+          "properties": {
+            "config": {
+              "$ref": "#/$defs/RigExtrinsicsConfig"
+            },
+            "topology": {
+              "const": "rig_extrinsics",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topology",
+            "config"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "For a `rig_handeye` manifest.",
+          "properties": {
+            "config": {
+              "$ref": "#/$defs/RigHandeyeConfig"
+            },
+            "topology": {
+              "const": "rig_handeye",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topology",
+            "config"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "For a `rig_laserline_device` manifest.",
+          "properties": {
+            "config": {
+              "$ref": "#/$defs/RigLaserlineDeviceConfig"
+            },
+            "topology": {
+              "const": "rig_laserline_device",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topology",
+            "config"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "For a `rig_handeye_laserline` manifest.",
+          "properties": {
+            "config": {
+              "$ref": "#/$defs/RigHandeyeLaserlineConfig"
+            },
+            "topology": {
+              "const": "rig_handeye_laserline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "topology",
+            "config"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CameraConfig": {
+      "additionalProperties": false,
+      "description": "The camera model a workflow calibrates, and which of its parameters stay\nfixed.\n\nThe model names one kind per slot — projection, distortion and sensor —\nso a tilted (Scheimpflug) sensor is a value of `model.sensor`, not a\nseparate workflow. Behaviour that depends on the sensor (default fix\nlists, the linear stage's tangential terms, the tilt multi-start) follows\nfrom the model.",
+      "properties": {
+        "fix": {
+          "$ref": "#/$defs/CameraFix",
+          "default": {},
+          "description": "Parameters held fixed during the non-linear solve, named per slot\n(`{\"intrinsics\": [\"cx\", \"cy\"], \"distortion\": [\"k3\"], \"sensor\":\n[\"tilt_y\"]}`). A slot left out keeps the model's default: `k3` for\nBrown-Conrady, and everything but the low-order radial terms (`k1`,\n`k2`; the division model's `lambda`) under a Scheimpflug sensor,\nbecause tangential and higher-order terms trade off against the tilt.\nAn unknown name is a configuration error."
+        },
+        "model": {
+          "$ref": "#/$defs/CameraModelSpec",
+          "description": "The camera model, one kind per slot. Default: pinhole projection,\nBrown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity\n(untilted) sensor — the model every workflow accepts."
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "CameraFix": {
+      "additionalProperties": false,
+      "description": "Camera parameters held fixed during a solve, named per slot.\n\nEach list names parameters of the model in that slot (`fx`, `cy`, `k3`,\n`tilt_y`, …). `None` means the model's default\n([`CameraModelSpec::default_fix`]); an empty list fixes nothing in that\nslot. Names are checked against the model by [`CameraFix::resolve`], before\nany work.",
+      "properties": {
+        "distortion": {
+          "description": "Fixed distortion coefficients; default: `k3` for Brown-Conrady, and\neverything but the low-order radial terms under a Scheimpflug sensor.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "intrinsics": {
+          "description": "Fixed intrinsics (`fx`, `fy`, `cx`, `cy`); default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "projection": {
+          "description": "Fixed projection parameters; default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sensor": {
+          "description": "Fixed sensor parameters (`tilt_x`, `tilt_y`); default: none.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "CameraModelSpec": {
+      "additionalProperties": false,
+      "description": "A camera model: the kind in each slot. The values live in\n[`CameraParams`](super::CameraParams); [`CameraParams::spec`](super::CameraParams::spec)\nrecovers the spec from them.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionKind",
+          "description": "Distortion slot."
+        },
+        "projection": {
+          "$ref": "#/$defs/ProjectionKind",
+          "description": "Projection slot."
+        },
+        "sensor": {
+          "$ref": "#/$defs/SensorKind",
+          "description": "Sensor slot."
+        }
+      },
+      "required": [
+        "projection",
+        "distortion",
+        "sensor"
+      ],
+      "type": "object"
+    },
+    "CameraOverride": {
+      "additionalProperties": false,
+      "description": "One camera of a rig whose model differs from the rig's `camera`, so a\nrig can mix lenses (a tilted laser camera beside a frontal one, a fisheye\nbeside a narrow lens).",
+      "properties": {
+        "camera": {
+          "description": "Index of the camera in the rig (`0..num_cameras`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fix": {
+          "$ref": "#/$defs/CameraFix",
+          "default": {},
+          "description": "Parameters held fixed during the non-linear solves, named per slot;\na slot left out keeps the model's default (see [`CameraConfig::fix`])."
+        },
+        "model": {
+          "$ref": "#/$defs/CameraModelSpec",
+          "description": "The camera's model, one kind per slot."
+        }
+      },
+      "required": [
+        "camera",
+        "model"
+      ],
+      "type": "object"
+    },
+    "CameraSource": {
+      "additionalProperties": false,
+      "description": "Per-camera image source.",
+      "properties": {
+        "id": {
+          "description": "Stable camera identifier (e.g. `\"cam0\"`). Used as a key in\npose pairings and downstream exports.",
+          "type": "string"
+        },
+        "images": {
+          "$ref": "#/$defs/ImagePattern",
+          "description": "Glob pattern (e.g. `\"cam0/*.png\"`) or explicit list of image\npaths, relative to the manifest's directory unless absolute."
+        },
+        "laser_images": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImagePattern"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Laser-frame image source for the laser topologies.\nOne laser image per view, captured by the same sensor with the\nline projector on; `roi_xywh` applies to laser frames too.\nLaser images pair with target views through `pose_pairing`."
+        },
+        "roi_xywh": {
+          "description": "Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.\nWhen set, only the cropped region is fed to the detector and\nstored in the export's image manifest.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "images"
+      ],
+      "type": "object"
+    },
+    "CameraSummary": {
+      "description": "One camera of a [`RunSummary`].",
+      "properties": {
+        "features": {
+          "description": "Its features in the calibration.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "rms_px": {
+          "description": "The root-mean-square reprojection error of its features, pixels:\n√(mean of the squared error lengths); `None` without residuals.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "views": {
+          "description": "The views it saw.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "features",
+        "views"
+      ],
+      "type": "object"
+    },
+    "ChessCornersDetectorSpec": {
+      "additionalProperties": false,
+      "description": "ChESS corner extractor overrides. The manifest's copy of the detector's\nChESS options (see [`DetectorSpec`]).",
+      "properties": {
+        "covariance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CornerCovarianceSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Attach the detector's per-corner position covariance to every\nobservation. Absent (the default) = off.\n\nThe covariance is the image noise propagated through the corner\nlocalizer, plus the localizer's systematic-error model. When present,\na calibration weights each corner by it (whitened residuals) and its\nreport gives the unit-weight scale factor σ̂₀ instead of an RMS in\npixels.\n\nOff by default, and not recommended for calibration. On real\nchessboard and ChArUco images, weighting by it did not improve the\naccuracy on held-out views and made it slightly worse on some\ncameras; its stated uncertainty was no closer to the real scatter.\n\nSupported by the `chessboard` and `charuco` targets only: the\nPuzzleBoard detector runs on an upscaled image, for which no\ncovariance is reported, and ring grids have none. A manifest that\nsets it for another target is an error."
+        },
+        "min_corner_strength": {
+          "description": "Minimum corner strength for a detected corner to enter the grid\nbuilder. `None` keeps the detector default (`33.0`). The floor is on\nthe strategy's response scale; under Radon the default never binds.\n\nThe default drops weakly-firing corners, which is the right trade\nwhenever corners are plentiful. Set `0.0` to disable it on small or\nsoft image tiles, where the floor can remove a third of the board and\nthe resulting sparse view conditions worse than the weak corners did.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CornerStrategySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Corner detector. `None` keeps ChESS."
+        },
+        "threshold_value": {
+          "description": "Acceptance threshold on the corner response. `None` keeps the\nstrategy's default.\n\nUnder ChESS it is an absolute floor on the raw response: a corner is\nkept when its response exceeds it. Under Radon it is a fraction in\n`(0, 1]` of the frame's maximum response.\n\nA sibling `threshold_mode` key is rejected by `deny_unknown_fields`:\nthe corner detector has no threshold mode.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ConfigPatch": {
+      "additionalProperties": true,
+      "description": "Changes to a workflow's default configuration: what the patch names\nreplaces the default, what it leaves out keeps it.\n\nA patch is keyed like the problem's own config, a table of its fields\n(`{\"solver\": {\"max_iters\": 20}}`, or in TOML `solver.max_iters = 20`),\nnot the tagged `{\"topology\": …, \"config\": …}` form of\n[`CalibrationConfig`]. It applies by one rule: two tables merge key by\nkey, and any other value (a number, a string, a list, `null`) replaces\nwhat it lands on. [`CalibrationConfig::patched`] applies a patch to the\ndefaults of a topology and checks the result; a field the workflow does\nnot have is an error there, so a misspelt name never passes silently.\n\nTOML has no `null`, so a patch read from TOML cannot set an optional\nfield back to none; JSON can.\n\nThe patch serializes as its table, with the keys of every table sorted.\n\n```\nuse vision_calibration_dataset::ProblemKind;\nuse vision_calibration_pipeline::dataset_runner::{CalibrationConfig, ConfigPatch};\n\nlet patch = ConfigPatch::from_toml_str(\"solver.max_iters = 20\")?;\nlet config = CalibrationConfig::patched(ProblemKind::PlanarIntrinsics, &patch)?;\nlet CalibrationConfig::PlanarIntrinsics(planar) = &config else {\n    unreachable!(\"the patch applies to the topology's own config\");\n};\nassert_eq!(planar.solver.max_iters, 20);\n// The smallest patch that makes the configuration from the defaults.\nassert_eq!(ConfigPatch::from_config(&config), patch);\n# Ok::<(), vision_calibration_pipeline::Error>(())\n```",
+      "type": "object"
+    },
+    "CornerCovarianceSpec": {
+      "additionalProperties": false,
+      "description": "Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].\nThe manifest's copy of the detector's covariance options (see\n[`DetectorSpec`]).",
+      "properties": {
+        "image_noise": {
+          "$ref": "#/$defs/ImageNoiseSpec",
+          "default": "estimate",
+          "description": "The image noise that the propagated covariance is expressed in.\nDefaults to `estimate`: the noise is estimated from each image, which\nis unreliable on JPEG or demosaiced images; give `stated` for those."
+        }
+      },
+      "type": "object"
+    },
+    "CornerStrategySpec": {
+      "description": "The corner detector a chessboard-like detector runs. The manifest's copy\nof the detector's corner strategy (see [`DetectorSpec`]).",
+      "oneOf": [
+        {
+          "const": "chess",
+          "description": "The ChESS response. Fast; the default.",
+          "type": "string"
+        },
+        {
+          "const": "radon",
+          "description": "The whole-image Radon response. Several times slower than ChESS, and\nless biased at a corner's sub-pixel position on sharp, finely sampled\nboards (e.g. rendered ones).",
+          "type": "string"
+        }
+      ]
+    },
+    "DatasetSpec": {
+      "additionalProperties": false,
+      "description": "Top-level dataset manifest. Authoritative description of where\nthe user's calibration data lives and how to interpret it.",
+      "properties": {
+        "_unresolved": {
+          "description": "Field paths the manifest generator could not determine.\nValidated to be empty before the runner accepts the manifest.\nPopulated as e.g. `[\"pose_convention.transform\"]`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cameras": {
+          "description": "Per-camera image sources. Length must match the topology's\nexpected camera count (a single-camera topology requires exactly\none entry, a rig topology at least two, `rig_handeye_laserline` at\nleast one).",
+          "items": {
+            "$ref": "#/$defs/CameraSource"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "Free-form human-readable description.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DetectorSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Detector-stage overrides shared by target families. Defaults\npreserve the detector's built-in behavior."
+        },
+        "laser": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LaserExtractionSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Laser-line extraction parameters for the laser topologies.\n`None` means defaults — extraction tuning has safe\ndefaults and is not a fail-fast ambiguity. Rejected on\nnon-laser topologies."
+        },
+        "pose_convention": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoseConvention"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Frame conventions for robot poses. **No defaults** — every\ncomponent is required when `robot_poses` is set."
+        },
+        "pose_pairing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PosePairing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How per-camera images are paired across views (and optionally\nwith robot poses). `None` is permitted only where pairing is\nirrelevant: a single camera without robot poses."
+        },
+        "robot_poses": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RobotPoseSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Robot-pose source for hand-eye topologies. `None` for\npure-intrinsics calibrations."
+        },
+        "target": {
+          "$ref": "#/$defs/TargetSpec",
+          "description": "Calibration-target specification. Tagged enum on `kind`."
+        },
+        "topology": {
+          "$ref": "#/$defs/ProblemKind",
+          "description": "Calibration topology — selects which problem type the runner\nwill dispatch to."
+        },
+        "upstream_calibration": {
+          "description": "Path to a frozen upstream `RigHandeyeExport` JSON, relative to\nthe manifest directory unless absolute. Required for\n`ProblemKind::RigLaserlineDevice`, rejected elsewhere. Joint hand-eye\nlaserline calibration computes its own hand-eye warm start and does not\nuse this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "Manifest format version; must be [`DATASET_SPEC_VERSION`] (`1`).\nRequired: a manifest without it, or with another value, is rejected.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "cameras",
+        "target",
+        "topology"
+      ],
+      "type": "object"
+    },
+    "DetectorSpec": {
+      "additionalProperties": false,
+      "description": "Target-detector overrides. These options affect feature detection\nonly; they are hashed into the detection-cache key by the runner.\n\nThe manifest declares its own detector types (this one,\n[`ChessCornersDetectorSpec`], [`CornerStrategySpec`],\n[`CornerCovarianceSpec`], [`ImageNoiseSpec`]) instead of reusing the\ndetector crate's: the manifest crate and the detector crate do not depend\non each other, so a manifest is read and validated without the detectors.\nThe runner maps each to its detector counterpart, which has the same JSON\nspelling.",
+      "properties": {
+        "chess_corners": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChessCornersDetectorSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ChESS corner extractor options shared by chessboard-like\ndetectors (plain chessboard and ChArUco)."
+        },
+        "min_features_per_view": {
+          "description": "Minimum detected features for a view (or a camera's slot in a rig\nview) to be kept, in every topology. `None` keeps the runner default\n(4, the homography minimum). Raise it for detectors whose sparse\ndetections are unreliable — e.g. ring-grid decodes with < 8 markers\nare noisy enough to poison a solve. A plain chessboard needs no\nfloor to stay consistent: where views share one target frame the\nrunner already keeps only views that span the whole board.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "DeviceOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "Bundle-adjustment options for laserline device calibration.",
+      "properties": {
+        "fix_plane": {
+          "description": "Fix laser plane parameters during optimization.",
+          "type": "boolean"
+        },
+        "fix_poses": {
+          "description": "Indices of target poses to hold fixed. None by default: each view's\npose is measured by its own corners, so there is no gauge to fix. A\nheld pose keeps its initial value, and the linear init is not robust\nto outlying corners: holding one keeps the solve off the minimum when\nsome corners are outliers.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "laser_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the laser residuals. Its scale is in the residual's\nunit: pixels for the line distance (the default residual), meters for\npoint-to-plane."
+        },
+        "laser_residual_type": {
+          "$ref": "#/$defs/LaserlineResidualType",
+          "description": "Laser residual type."
+        },
+        "laser_weight": {
+          "description": "Weight of the laser residuals.",
+          "format": "double",
+          "type": "number"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels."
+        },
+        "reprojection_weight": {
+          "description": "Weight of the reprojection residuals.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "reprojection_loss",
+        "laser_loss",
+        "reprojection_weight",
+        "laser_weight",
+        "fix_poses",
+        "fix_plane",
+        "laser_residual_type"
+      ],
+      "type": "object"
+    },
+    "DistortionKind": {
+      "description": "Which distortion model a camera carries.\n\n`dim() == 0` means the camera has no distortion parameter block.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "No distortion; no parameter block.",
+          "type": "string"
+        },
+        {
+          "const": "brown_conrady5",
+          "description": "Brown-Conrady `[k1, k2, k3, p1, p2]`.",
+          "type": "string"
+        },
+        {
+          "const": "rational8",
+          "description": "Rational polynomial `[k1, k2, k3, k4, k5, k6, p1, p2]`.",
+          "type": "string"
+        },
+        {
+          "const": "thin_prism9",
+          "description": "Brown-Conrady + thin-prism `[k1, k2, k3, p1, p2, s1, s2, s3, s4]`.",
+          "type": "string"
+        },
+        {
+          "const": "division1",
+          "description": "Fitzgibbon division model `[lambda]`.",
+          "type": "string"
+        },
+        {
+          "const": "kannala_brandt4",
+          "description": "Kannala-Brandt radial polynomial `[k1, k2, k3, k4]`; with\n[`ProjectionKind::Equidistant`] the Kannala-Brandt fisheye model.",
+          "type": "string"
+        }
+      ]
+    },
+    "DistortionParams": {
+      "description": "Serializable distortion model parameters.",
+      "oneOf": [
+        {
+          "description": "No distortion.",
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady 5-parameter radial-tangential model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "brown_conrady5",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "OpenCV rational polynomial 8-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Numerator radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Numerator radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Numerator radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "k4": {
+              "description": "Denominator radial coefficient k4.",
+              "format": "double",
+              "type": "number"
+            },
+            "k5": {
+              "description": "Denominator radial coefficient k5.",
+              "format": "double",
+              "type": "number"
+            },
+            "k6": {
+              "description": "Denominator radial coefficient k6.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "rational",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "k4",
+            "k5",
+            "k6",
+            "p1",
+            "p2",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Brown-Conrady + thin-prism 9-parameter model.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Radial coefficient k1.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Radial coefficient k2.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Radial coefficient k3.",
+              "format": "double",
+              "type": "number"
+            },
+            "p1": {
+              "description": "Tangential coefficient p1.",
+              "format": "double",
+              "type": "number"
+            },
+            "p2": {
+              "description": "Tangential coefficient p2.",
+              "format": "double",
+              "type": "number"
+            },
+            "s1": {
+              "description": "Thin-prism coefficient s1 (x correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s2": {
+              "description": "Thin-prism coefficient s2 (x correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "s3": {
+              "description": "Thin-prism coefficient s3 (y correction, r²).",
+              "format": "double",
+              "type": "number"
+            },
+            "s4": {
+              "description": "Thin-prism coefficient s4 (y correction, r⁴).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "thin_prism",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "p1",
+            "p2",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "iters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fitzgibbon single-parameter division model.",
+          "properties": {
+            "lambda": {
+              "description": "Division distortion coefficient.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "division",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "lambda"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Kannala-Brandt 4-parameter radial polynomial.",
+          "properties": {
+            "iters": {
+              "description": "Maximum Newton iterations of [`DistortionModel::undistort`] (0 → 20).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "k1": {
+              "description": "Coefficient of `r²`.",
+              "format": "double",
+              "type": "number"
+            },
+            "k2": {
+              "description": "Coefficient of `r⁴`.",
+              "format": "double",
+              "type": "number"
+            },
+            "k3": {
+              "description": "Coefficient of `r⁶`.",
+              "format": "double",
+              "type": "number"
+            },
+            "k4": {
+              "description": "Coefficient of `r⁸`.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "kannala_brandt4",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "k1",
+            "k2",
+            "k3",
+            "k4",
+            "iters"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Exclusions": {
+      "additionalProperties": false,
+      "description": "What a project leaves out of its dataset.\n\nImage paths are relative to the dataset's folder unless absolute, and\n`/`-separated; they match the images the manifest lists after both are\nmade absolute and their `.` and `..` folded.\n\nIn TOML:\n\n```toml\n[exclude]\nviews  = [{ view = { token = \"0012\" }, note = \"robot pose glitch\" }]\nimages = [{ camera = \"cam1\", image = \"cam1/0003.png\" }]\n[[exclude.features]]\ncamera = \"cam0\"\nimage  = \"cam0/0005.png\"\npoints = [[0.03, 0.06, 0.0]]\n```",
+      "properties": {
+        "features": {
+          "description": "Single features of one camera's detection in one image.",
+          "items": {
+            "$ref": "#/$defs/FeatureExclusion"
+          },
+          "type": "array"
+        },
+        "images": {
+          "description": "One camera's image of a view; the view keeps its other cameras.",
+          "items": {
+            "$ref": "#/$defs/ImageExclusion"
+          },
+          "type": "array"
+        },
+        "views": {
+          "description": "Whole views: every camera's image of the view, its robot pose and\nits laser frames.",
+          "items": {
+            "$ref": "#/$defs/ViewExclusion"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "FeatureExclusion": {
+      "additionalProperties": false,
+      "description": "Features of one camera's detection in one image, left out.\n\nA feature is named by its target point as the detector labelled it,\nbefore a rig turns a plain chessboard's labels to agree with its other\ncameras: the detection a review shows. A point matches a feature within\na micrometre in each coordinate. A point that matches no feature of the\ndetection leaves nothing out and is not an error, since what the\ndetector finds is known only once it has run.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "image": {
+          "description": "The image, one of the camera's.",
+          "type": "string"
+        },
+        "note": {
+          "description": "Why, for the reader; the calibration does not read it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "points": {
+          "description": "The target points of the features to leave out, metres.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "camera",
+        "image",
+        "points"
+      ],
+      "type": "object"
+    },
+    "FxFyCxCy": {
+      "description": "Standard pinhole intrinsics: focal lengths and principal point in pixels.\n\nThe pixel grid is assumed orthogonal, so `K` carries no skew term.",
+      "properties": {
+        "cx": {
+          "description": "Principal point X coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "cy": {
+          "description": "Principal point Y coordinate in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "fx": {
+          "description": "Focal length in pixels along X.",
+          "format": "double",
+          "type": "number"
+        },
+        "fy": {
+          "description": "Focal length in pixels along Y.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "fx",
+        "fy",
+        "cx",
+        "cy"
+      ],
+      "type": "object"
+    },
+    "HandeyeInitConfig": {
+      "additionalProperties": false,
+      "description": "Hand-eye linear-initialization stage options.\n\nShared by every hand-eye problem's `handeye_init` config group.",
+      "properties": {
+        "handeye_mode": {
+          "$ref": "#/$defs/HandeyeMode",
+          "description": "Hand-eye mode: `eye_in_hand` or `eye_to_hand`."
+        },
+        "method": {
+          "$ref": "#/$defs/HandeyeMethod",
+          "default": "tsai_lenz",
+          "description": "The closed-form solver of the initialization: `tsai_lenz` (default),\n`park_martin`, `daniilidis` or `shah`. They differ in the accuracy of\nthe starting point, not in where the bundle adjustment ends: on\nsynthetic captures with robot rotations down to ±2° it converged from\neach. `daniilidis` is the most accurate rotation when the robot\nrotates by only a few degrees; `shah` estimates the fixed target\n(eye-in-hand) or camera (eye-to-hand) pose over all views, where the\nothers close it through the first view."
+        },
+        "min_motion_angle_deg": {
+          "description": "Minimum rotation (degrees) between two views, in the robot and in the\ncamera, for the pair to enter the linear solve; the pairs that clear\nit must rotate the robot about two non-parallel axes. Positive.\nDefault 5°: smaller rotations amplify noise into the translation.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "handeye_mode",
+        "min_motion_angle_deg"
+      ],
+      "type": "object"
+    },
+    "HandeyeMethod": {
+      "description": "The closed-form solver of a hand-eye initialization.\n\nAll four need robot rotations about at least two non-parallel axes; they\ndiffer in how they weigh the views and in what they estimate jointly.",
+      "oneOf": [
+        {
+          "const": "tsai_lenz",
+          "description": "Tsai and Lenz (1989): over every pair of views, the rotation from the\nquaternion form of `R_A R_X = R_X R_B`, then the translation by least\nsquares. The default.",
+          "type": "string"
+        },
+        {
+          "const": "park_martin",
+          "description": "Park and Martin (1994): the rotation that best aligns the rotation\nvectors (axis · angle) of the camera motions with the robot's, then\nthe translation by least squares. Weights a pair by its angle.",
+          "type": "string"
+        },
+        {
+          "const": "daniilidis",
+          "description": "Daniilidis (1999): rotation and translation together, from the dual\nquaternions of the motion pairs.",
+          "type": "string"
+        },
+        {
+          "const": "shah",
+          "description": "Shah (2013): the hand-eye transform and the fixed transform at the\nother end of the chain together, from the absolute poses (`AX = ZB`)\ninstead of motion pairs, rotation first (Kronecker form) and then\ntranslation.",
+          "type": "string"
+        }
+      ]
+    },
+    "HandeyeMode": {
+      "description": "Hand-eye calibration mode.\n\nSpecifies the transform chain used for hand-eye calibration.",
+      "oneOf": [
+        {
+          "const": "eye_in_hand",
+          "description": "Camera mounted on robot end-effector (gripper).\n\nTransform chain: P_camera = extr^-1 * handeye^-1 * robot^-1 * target * P_world",
+          "type": "string"
+        },
+        {
+          "const": "eye_to_hand",
+          "description": "Camera fixed in workspace, observes robot end-effector.\n\nTransform chain: P_camera = extr^-1 * handeye * robot * target * P_world",
+          "type": "string"
+        }
+      ]
+    },
+    "HandeyeOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The final hand-eye bundle adjustment of a rig hand-eye calibration\n(`step_handeye_optimize`): its loss, robot-pose refinement and scope.",
+      "properties": {
+        "refine_cam_se3_rig": {
+          "description": "Refine cam_se3_rig in hand-eye BA (default: false).\nWhen true, rig extrinsics are further refined during hand-eye optimization.",
+          "type": "boolean"
+        },
+        "refine_intrinsics": {
+          "description": "Refine each camera's intrinsics and distortion in the hand-eye BA,\nholding the camera's `fix` lists. Default: `true`, for the reason\ngiven on `rig.refine_intrinsics`: the final solve's covariance then\nincludes the intrinsics.",
+          "type": "boolean"
+        },
+        "refine_sensor": {
+          "default": true,
+          "description": "Refine the sensor tilt of each Scheimpflug camera in the hand-eye\nBA, holding its `fix.sensor` list. Default: `true`, for the reason\ngiven on `rig.refine_sensor`: the final solve's covariance then\nincludes the tilts. Cameras with an untilted sensor have no tilt.",
+          "type": "boolean"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels. Default `none`."
+        },
+        "robot_poses": {
+          "$ref": "#/$defs/RobotPoseConfig",
+          "description": "Robot-pose refinement settings for the final hand-eye BA."
+        }
+      },
+      "required": [
+        "reprojection_loss",
+        "robot_poses",
+        "refine_intrinsics",
+        "refine_cam_se3_rig"
+      ],
+      "type": "object"
+    },
+    "ImageExclusion": {
+      "additionalProperties": false,
+      "description": "One camera's image of a view, left out.\n\nThe camera is named with the image because a tiled image holds several\ncameras' views.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "image": {
+          "description": "The image, one of the camera's.",
+          "type": "string"
+        },
+        "note": {
+          "description": "Why, for the reader; the calibration does not read it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "camera",
+        "image"
+      ],
+      "type": "object"
+    },
+    "ImageNoiseSpec": {
+      "description": "The pixel-noise level behind a corner covariance: estimated from the\nimage, or stated by the user. The manifest's copy of the detector's\nimage-noise option (see [`DetectorSpec`]).\n\nIn JSON / TOML: `\"estimate\"` or `{ stated = 2.0 }`.",
+      "oneOf": [
+        {
+          "const": "estimate",
+          "description": "Estimate the noise from each image. Unreliable on JPEG or demosaiced\nimages, where a corner then reports no covariance and the run fails.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The standard deviation of the image's pixel noise, in gray levels of\nthe 8-bit image (finite and `>= 0`), e.g. the standard deviation of\nthe difference of two frames of a static scene divided by `√2`.",
+          "properties": {
+            "stated": {
+              "format": "float",
+              "type": "number"
+            }
+          },
+          "required": [
+            "stated"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ImagePattern": {
+      "description": "How image paths for a camera are listed.",
+      "oneOf": [
+        {
+          "description": "Single shell-glob pattern, evaluated relative to the manifest\ndirectory. Example: `\"cam0/*.png\"`.",
+          "properties": {
+            "kind": {
+              "const": "glob",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "The glob pattern.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pattern"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Explicit ordered list of paths.",
+          "properties": {
+            "kind": {
+              "const": "list",
+              "type": "string"
+            },
+            "paths": {
+              "description": "Paths relative to the manifest directory unless absolute.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "InputDigest": {
+      "description": "The digest of a calibrated run's inputs: each `sha256:<hex>` of the\ncanonical JSON (keys sorted) of what it covers.\n\nTwo runs with equal `inputs` digests, by the same library version, have\nbyte-identical `export.json` and `quality.json`. The data root's\nlocation is not part of any digest: a dataset moved whole keeps them.",
+      "properties": {
+        "config": {
+          "description": "The resolved configuration.",
+          "type": "string"
+        },
+        "dataset": {
+          "description": "The manifest, and the content of the files it names other than\nimages (the robot pose file, the upstream calibration).",
+          "type": "string"
+        },
+        "detections": {
+          "description": "The sorted set of detection cache keys the run read or wrote: each\nimage's content, its detector and detector configuration and the\ndetector's version.",
+          "type": "string"
+        },
+        "exclusions": {
+          "description": "The exclusions, notes left out, each list sorted and without\nrepeats.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Over the other five, in their order here.",
+          "type": "string"
+        },
+        "quality": {
+          "description": "The quality thresholds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "inputs",
+        "dataset",
+        "exclusions",
+        "config",
+        "quality",
+        "detections"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsInitConfig": {
+      "additionalProperties": false,
+      "description": "Per-camera linear-initialization stage (Zhang's method + iterative\nBrown-Conrady distortion fit).\n\nShared by every intrinsics-bearing problem's `intrinsics_init` config\ngroup.",
+      "properties": {
+        "fix_k3": {
+          "description": "Hold `k3` at zero in the linear stage even where the camera's\nnon-linear solves estimate it (default `true`: a sixth-order term\nfitted linearly overfits typical data, and the solve that frees it\nstarts it from zero).\n\nWhich terms the linear stage fits otherwise follows the camera: a\nterm the camera holds fixed, or its\nmodel lacks, stays at zero, and so do the tangential terms of a\ncamera whose tilt is estimated.",
+          "type": "boolean"
+        },
+        "iterations": {
+          "description": "Number of iterations for iterative intrinsics estimation.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "iterations",
+        "fix_k3"
+      ],
+      "type": "object"
+    },
+    "IntrinsicsOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The per-camera intrinsics refinement stage (`intrinsics_optimize`): each\ncamera solved on its own views, before the joint stages.\n\nShared by the single-camera hand-eye and the two rig problems. The\nstage's iteration budget and backend come from `solver`.",
+      "properties": {
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals of this\nstage; its scale is in pixels. Default `none`: plain least squares,\nthe maximum-likelihood estimate under Gaussian corner noise. The\nlater stages have their own: a redescending loss (`cauchy`,\n`arctan`) needs a good start, so a convex `huber` here and the\nredescending one in the final stage is a sound pairing."
+        }
+      },
+      "required": [
+        "reprojection_loss"
+      ],
+      "type": "object"
+    },
+    "JointOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "Final joint BA options.\n\nThe joint stage always pins the upstream rig's reference camera\n(`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Each\ncamera's fixed parameters are named lists in that camera's model\n(`fix`).",
+      "properties": {
+        "fix": {
+          "default": [],
+          "description": "Camera parameters held fixed in the joint stage, one entry per camera\nin camera order, each named per slot in that camera's model\n(`{\"distortion\": [\"k3\", \"p1\", \"p2\"], \"sensor\": [\"tilt_x\"]}`); a slot\nleft out of an entry keeps the model's default. Empty (the default)\ngives every camera the stage default: intrinsics, the low-order\nradial terms (`k1`, `k2`; the division model's `lambda`) and the\nsensor tilt refined, the higher-order distortion terms held at their\nwarm-start values — they trade off against the extrinsics and the\nlaser planes in the joint solve. The tilt is refined like the\nintrinsics: held, the covariance would be conditional on it and\nunderstate the intrinsics' standard deviations. A name the camera's\nmodel does not have is a configuration error.",
+          "items": {
+            "$ref": "#/$defs/CameraFix"
+          },
+          "type": "array"
+        },
+        "fix_handeye": {
+          "description": "Fix the hand-eye transform during the joint stage.",
+          "type": "boolean"
+        },
+        "fix_target_ref": {
+          "description": "Fix the target reference pose during the joint stage.",
+          "type": "boolean"
+        },
+        "laser_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the laser residuals, its scale in the residual's unit\n(meters for point-to-plane, pixels for the line distance)."
+        },
+        "laser_residual_type": {
+          "$ref": "#/$defs/LaserlineResidualType",
+          "description": "Which laser residual drives the joint solve."
+        },
+        "laser_weight": {
+          "description": "Weight of the laser residuals.",
+          "format": "double",
+          "type": "number"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels."
+        },
+        "reprojection_weight": {
+          "description": "Weight of the reprojection residuals.",
+          "format": "double",
+          "type": "number"
+        },
+        "robot_poses": {
+          "$ref": "#/$defs/RobotPoseConfig",
+          "description": "Robot-pose refinement settings for the joint stage."
+        }
+      },
+      "required": [
+        "laser_residual_type",
+        "reprojection_loss",
+        "laser_loss",
+        "reprojection_weight",
+        "laser_weight",
+        "fix_handeye",
+        "fix_target_ref",
+        "robot_poses"
+      ],
+      "type": "object"
+    },
+    "LaserExtractionSpec": {
+      "additionalProperties": false,
+      "description": "Laser-line extraction parameters. Consumed by the\nrunner's injected `LaserPixelExtractor`; hashed (canonical JSON)\ninto the detection-cache key so edits re-extract.",
+      "properties": {
+        "min_points": {
+          "default": 20,
+          "description": "Minimum extracted points for a usable laser view. Views below\nthe bar are dropped (single camera) or become gap slots (rig).\nMust be at least 2 (a line needs two points); 0/1 would let an\nempty extraction pass as usable and leave the plane\nunconstrained.",
+          "format": "uint32",
+          "minimum": 2,
+          "type": "integer"
+        },
+        "neg_thresh": {
+          "default": 4.0,
+          "description": "Negative-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "pos_thresh": {
+          "default": 4.0,
+          "description": "Positive-edge response threshold.",
+          "format": "double",
+          "type": "number"
+        },
+        "scan_axis": {
+          "$ref": "#/$defs/LaserScanAxis",
+          "default": "cols",
+          "description": "Scan direction. `cols` walks image columns (one point per\ncolumn; for laser lines running mostly left-to-right), `rows`\nwalks image rows."
+        },
+        "sigma": {
+          "default": 1.2,
+          "description": "Gaussian derivative sigma in pixels for the edge detector.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "LaserScanAxis": {
+      "description": "Laser scan direction.",
+      "oneOf": [
+        {
+          "const": "cols",
+          "description": "One detection per image column.",
+          "type": "string"
+        },
+        {
+          "const": "rows",
+          "description": "One detection per image row.",
+          "type": "string"
+        }
+      ]
+    },
+    "LaserlineDeviceConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for laserline device calibration.\n\nSettings are grouped by stage; the camera model and its fixed parameters\nlive in [`CameraConfig`].",
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/CameraConfig",
+          "default": {
+            "fix": {},
+            "model": {
+              "distortion": "brown_conrady5",
+              "projection": "pinhole",
+              "sensor": "identity"
+            }
+          },
+          "description": "The camera model and the parameters the bundle adjustment holds\nfixed. Any distortion kind, and an identity or Scheimpflug sensor;\nthe line-distance laser residual needs a projection that keeps lines\nstraight. A Scheimpflug sensor's tilt is held by default at the\nmanual-init `sensor` seed (zero when unseeded): a device's mount tilt\nis measured separately. An explicit `fix.sensor` list estimates it\ninstead (`[]` refines both angles; unseeded, the tilt then comes from\nthe linear tilt sweep and a staged multi-start)."
+        },
+        "intrinsics_init": {
+          "$ref": "#/$defs/IntrinsicsInitConfig",
+          "description": "Linear-initialization stage settings (`step_init`). The linear stage\nfits only the distortion terms the bundle adjustment estimates\n([`Self::effective_fix`]). A Scheimpflug camera whose tilt is\nestimated and not seeded is solved alone by the staged tilt\nmulti-start before the plane fit, in plain least squares."
+        },
+        "optimize": {
+          "$ref": "#/$defs/DeviceOptimizeConfig",
+          "description": "Bundle-adjustment stage settings (`step_optimize`)."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Solver engine settings."
+        }
+      },
+      "required": [
+        "intrinsics_init",
+        "optimize",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "LaserlineResidualType": {
+      "description": "Type of laser plane residual to use.",
+      "oneOf": [
+        {
+          "const": "point_to_plane",
+          "description": "Point-to-plane distance (original approach).\n\nUndistorts pixel, back-projects to 3D ray, intersects with target plane,\ncomputes 3D point in camera frame, measures signed distance to laser plane.\nResidual: 1D distance in meters.",
+          "type": "string"
+        },
+        {
+          "const": "line_dist_normalized",
+          "description": "Line-distance in normalized plane (alternative approach).\n\nComputes 3D intersection line of laser plane and target plane, projects\nline onto z=1 normalized camera plane, undistorts laser pixels to normalized\ncoordinates, measures perpendicular distance from pixel to projected line,\nscales by sqrt(fx*fy) for pixel-comparable residual.\nResidual: 1D distance in pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "LeftOutImage": {
+      "description": "An image a run left out, with the reason.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "image": {
+          "description": "The image, relative to the data root (absolute when outside it),\n`/`-separated.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/RejectReason",
+          "description": "Why it was left out."
+        }
+      },
+      "required": [
+        "camera",
+        "image",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "PlanarIntrinsicsConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for planar intrinsics calibration.\n\nGrouped by stage: the camera model with its fix lists in\n[`CameraConfig`], the linear initialization in [`IntrinsicsInitConfig`],\nthe non-linear refinement in [`PlanarOptimizeConfig`], and the solver\nengine in [`SolverConfig`].",
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/CameraConfig",
+          "default": {
+            "fix": {},
+            "model": {
+              "distortion": "brown_conrady5",
+              "projection": "pinhole",
+              "sensor": "identity"
+            }
+          },
+          "description": "The camera model and its fixed parameters.\n\nAny distortion kind with an identity sensor; a Scheimpflug sensor\nneeds a distortion model. A tilted sensor's solve without a tilt seed\nruns a multi-start tilt sweep (see `step_optimize`)."
+        },
+        "intrinsics_init": {
+          "$ref": "#/$defs/IntrinsicsInitConfig",
+          "description": "Linear-initialization stage settings (`step_init`). The linear stage\nfits only the distortion terms the camera's solves estimate."
+        },
+        "optimize": {
+          "$ref": "#/$defs/PlanarOptimizeConfig",
+          "description": "Non-linear refinement stage settings (`step_optimize`)."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Solver engine settings. `solver.max_iters` defaults to 120, sized for\na tilted sensor's tilt valley; the solver stops at convergence, so\nthe cap only bounds runs that do not converge."
+        }
+      },
+      "required": [
+        "intrinsics_init",
+        "optimize",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "PlanarOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The non-linear refinement stage of a planar intrinsics calibration\n(`step_optimize`).",
+      "properties": {
+        "fix_poses": {
+          "description": "Indices of poses to fix during optimization (e.g., \\[0\\] to fix first\npose). Default: none — the board fixes the target frame, and a fixed\npose makes the reported uncertainty conditional on it.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels. Default `none`: plain least squares, the\nmaximum-likelihood estimate under Gaussian corner noise. A tilted\nsensor's tilt sweep runs plain least squares and applies this loss\nin its final solve."
+        }
+      },
+      "required": [
+        "reprojection_loss",
+        "fix_poses"
+      ],
+      "type": "object"
+    },
+    "PlaneOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The laser-plane refinement of a rig laserline calibration\n(`step_optimize`): each camera's plane fitted to its laser pixels, the\ncameras and the target poses held at the upstream calibration. The\ntarget corners only place the target; with everything they constrain\nheld, they have no loss or weight here.",
+      "properties": {
+        "laser_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the laser residuals, its scale in the residual's unit:\npixels for the line distance, meters for point-to-plane. Default\nHuber at 1, a pixel for the line distance; for point-to-plane a\nscale of 1 m is plain least squares in effect, so state one in\nmeters to robustify it."
+        },
+        "laser_residual_type": {
+          "$ref": "#/$defs/LaserlineResidualType",
+          "description": "The laser residual: the line distance in pixels (the default) or the\npoint-to-plane distance in meters."
+        }
+      },
+      "required": [
+        "laser_residual_type",
+        "laser_loss"
+      ],
+      "type": "object"
+    },
+    "PoseColumnMap": {
+      "additionalProperties": false,
+      "description": "Mapping from user-defined column / field names to the canonical\npose fields. All seven of `tx, ty, tz, qx, qy, qz, qw` are required\nwhen `rotation_format` is a quaternion; the runner rejects partial\nmappings as a fail-fast event.",
+      "properties": {
+        "pose_id": {
+          "description": "Optional view-id column (string or integer). When absent, the\npose row index is used as the implicit pose id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rotation": {
+          "description": "Rotation columns. Length and meaning depend on the\n`pose_convention.rotation_format`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tx": {
+          "description": "Translation x column.",
+          "type": "string"
+        },
+        "ty": {
+          "description": "Translation y column.",
+          "type": "string"
+        },
+        "tz": {
+          "description": "Translation z column.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx",
+        "ty",
+        "tz",
+        "rotation"
+      ],
+      "type": "object"
+    },
+    "PoseConvention": {
+      "additionalProperties": false,
+      "description": "Frame conventions for the robot pose stream.\n\nAll three components are required (no defaults). Each is a closed\nenum so the runtime supports a finite, validated set of conventions.",
+      "properties": {
+        "rotation_format": {
+          "$ref": "#/$defs/RotationFormat",
+          "description": "How rotation is parameterised in the file."
+        },
+        "transform": {
+          "$ref": "#/$defs/TransformConvention",
+          "description": "Which transform the pose row encodes."
+        },
+        "translation_units": {
+          "$ref": "#/$defs/TranslationUnits",
+          "description": "Translation units in the file."
+        }
+      },
+      "required": [
+        "transform",
+        "rotation_format",
+        "translation_units"
+      ],
+      "type": "object"
+    },
+    "PosePairing": {
+      "description": "How per-camera image lists align across views and (optionally)\nalign with robot poses.",
+      "oneOf": [
+        {
+          "description": "All cameras have the same number of images, paired by index\n(`image[i]` from cam0 ↔ `image[i]` from cam1 ↔ `pose[i]`).",
+          "properties": {
+            "kind": {
+              "const": "by_index",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A regex applied to filenames extracts a shared \"view token\"\n(e.g. timestamp or pose id). All cameras and the pose file\nmust produce the same set of tokens.",
+          "properties": {
+            "group": {
+              "description": "Name of the capture group whose value identifies the view.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "shared_filename_token",
+              "type": "string"
+            },
+            "regex": {
+              "description": "Regex with at least one named capture group.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "regex",
+            "group"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProblemKind": {
+      "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
+      "oneOf": [
+        {
+          "const": "planar_intrinsics",
+          "description": "Single camera, planar target — `PlanarIntrinsicsProblem` (any camera\nmodel, including a tilted sensor).",
+          "type": "string"
+        },
+        {
+          "const": "single_cam_handeye",
+          "description": "Single camera mounted on a robot — `SingleCamHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "laserline_device",
+          "description": "Camera + laser plane — `LaserlineDeviceProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_extrinsics",
+          "description": "Multi-camera rig, target only — `RigExtrinsicsProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye",
+          "description": "Multi-camera rig + robot — `RigHandeyeProblem`.",
+          "type": "string"
+        },
+        {
+          "const": "rig_handeye_laserline",
+          "description": "Multi-camera rig + robot + laser planes — joint hand-eye/laser BA.",
+          "type": "string"
+        },
+        {
+          "const": "rig_laserline_device",
+          "description": "Multi-camera rig + laser planes — `RigLaserlineDeviceProblem`.",
+          "type": "string"
+        }
+      ]
+    },
+    "ProjectionKind": {
+      "description": "Which projection model a camera uses.",
+      "oneOf": [
+        {
+          "const": "pinhole",
+          "description": "Pinhole (perspective) projection; no parameters of its own.",
+          "type": "string"
+        },
+        {
+          "const": "equidistant",
+          "description": "Equidistant (fisheye) projection: radius = incidence angle, in\nradians; no parameters of its own. With\n[`DistortionKind::KannalaBrandt4`] it is the Kannala-Brandt fisheye\nmodel.",
+          "type": "string"
+        }
+      ]
+    },
+    "QualityThresholds": {
+      "additionalProperties": false,
+      "description": "Thresholds of the quality checks.\n\nEvery default is a limit a well-planned calibration of a perspective\ncamera clears, and that a calibration with a known planning flaw (views\nbunched in one part of the image, near-identical board poses) does not.\nThe expected feature noise has no default: it depends on the detector,\nthe target and the optics.",
+      "properties": {
+        "coverage_fail_below": {
+          "default": 0.3,
+          "description": "Share of the image's coverage cells, in `[0, 1]` and at most\n`coverage_warn_below`, below which the coverage check fails. Default\n`0.3`: the views reached little more than one quadrant of the image,\nso the rest of it, corners included, is extrapolated.",
+          "format": "double",
+          "type": "number"
+        },
+        "coverage_warn_below": {
+          "default": 0.5,
+          "description": "Share of the image's coverage cells, in `[0, 1]`, below which the\ncoverage check warns. Default `0.5`: features in fewer than half of\nthe cells leave the distortion to be extrapolated over the rest.",
+          "format": "double",
+          "type": "number"
+        },
+        "expected_feature_noise_px": {
+          "default": null,
+          "description": "Expected noise of one feature coordinate, σ₀, in pixels per axis\n(> 0). `None` (the default) leaves the variance-factor check not\napplicable: there is no universal value, since it depends on the\ndetector, the target and the image quality. State it to test whether\nthe residuals are consistent with it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_parameter_correlation": {
+          "default": 0.99,
+          "description": "Largest acceptable absolute correlation of two parameters of one\ncamera, in `(0, 1]`; a pair above it is named and the check warns.\nDefault `0.99`: at that level the data determines the pair's sum or\ndifference, not the two parameters, so each one's value is mostly the\ntrade-off's choice. The two focal lengths `fx` and `fy` are left out:\nthe board's distance scales both, so they correlate almost fully in\nevery planar calibration, while their ratio is well determined.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_projection_sigma_px": {
+          "default": 1.0,
+          "description": "Largest acceptable projection σ anywhere in the image, in pixels\n(> 0); above it the check warns. Default `1.0`: where the views\ncovered the image, σ stays a fraction of a pixel; it exceeds a pixel\nwhere the distortion is extrapolated, typically in corners the board\nnever reached. The map is conservative for uses that re-estimate the\ncamera's pose, so the check warns rather than fails.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_second_order_scatter": {
+          "default": 1.2,
+          "description": "Largest acceptable predicted scatter of the worst combination of the\nshared parameters over its stated σ, once the error's second-order\nterm is counted (≥ 1); above it the covariance-linearity check warns,\nnaming the combination. Default `1.2`: on synthetic stereo rigs and\nsingle cameras whose error the covariance describes the prediction\nstayed at or below 1.06, and every stereo capture predicted above 1.3\nscattered 1.4–3 times its σ along that combination.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_sigma_inflation": {
+          "default": 7.0,
+          "description": "Largest acceptable σ inflation `1/√(1 − R²)` of one camera parameter,\nR its multiple correlation with the camera's other parameters (≥ 1);\nabove it the conditioning check warns, naming the parameter and the\npartners it trades off against. The other focal length is left out\nof a focal length's regressors, and the other radial coefficients out\nof a radial coefficient's. Default `7.0`: a pair at the correlation\nlimit 0.99 inflates both by 7.09; well-determined sensor tilts\nmeasured 1.2–5, tilts the data cannot separate from the principal\npoint or the tangential terms 14–2900.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_view_residual": {
+          "default": 3.0,
+          "description": "Largest acceptable mean normalized residual of one view, in units of\nthe noise level σ̂ (> 0); a view above it is named and the check warns.\nDefault `3.0`: the mean of `|r| / σ̂` over Gaussian inliers is about\n1.25, so a view at 3 has residuals well over twice the typical ones,\nas from a misdetection, motion blur or a wrong robot pose.",
+          "format": "double",
+          "type": "number"
+        },
+        "variance_test_alpha": {
+          "default": 0.01,
+          "description": "Significance level α of the two-sided χ² variance-factor test, in\n`(0, 1)`. Default `0.01`: a result consistent with σ₀ fails the test\nonce in a hundred calibrations.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "RejectReason": {
+      "description": "Why the runner left a target detection out of the calibration input.\n\nSerialized in `snake_case` (`\"too_few_features\"`, `\"excluded\"`, ...).",
+      "oneOf": [
+        {
+          "const": "too_few_features",
+          "description": "Fewer features than the per-view floor: 4 (the homography minimum),\nor the manifest's `detector.min_features_per_view`.",
+          "type": "string"
+        },
+        {
+          "const": "partial_chessboard",
+          "description": "A plain chessboard whose detected corners do not reach every edge of\nthe board, or reach an edge with fewer than half of its corners. The detector labels a view from its own top-left corner,\nso a partial board would move the shared target frame.",
+          "type": "string"
+        },
+        {
+          "const": "turned_chessboard",
+          "description": "A plain chessboard seen turned by 90° where the target frame is fixed\nthrough the views (hand-eye, and the laser rigs). Its corners span\n`rows` across and `cols` down instead of the declared `cols` across\nand `rows` down, as camera 0 sees the board, so its labels are a\nrotation of the fixed frame's.",
+          "type": "string"
+        },
+        {
+          "const": "ambiguous_chessboard_turn",
+          "description": "A plain chessboard in a rig view whose turn relative to the view's\nother cameras cannot be told: the board's direction in this image\nis not within the tolerance of any of its candidate labellings, or\nthe camera's turn relative to the other cameras is not consistent\nacross the views they share.",
+          "type": "string"
+        },
+        {
+          "const": "excluded",
+          "description": "The run was told to leave the image out (an exclusion of the image\nor of its whole view); it was not read.",
+          "type": "string"
+        }
+      ]
+    },
+    "RigConfig": {
+      "additionalProperties": false,
+      "description": "The rig stage: the reference-camera gauge, and the scope and loss of the\nrig bundle adjustment.\n\nThe `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.",
+      "properties": {
+        "reference_camera_idx": {
+          "description": "Reference camera index for the rig frame (identity extrinsics).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "refine_intrinsics": {
+          "description": "Refine per-camera intrinsics and distortion jointly with the rig in\nits bundle adjustment, holding the camera's `fix` lists. Default:\n`true`. Each camera's solve fits them from its own views only; the\njoint solve is the estimate that uses every view, and its covariance\ncarries the intrinsics and their correlation with the extrinsics.\nHeld fixed, the extrinsics' standard deviations are conditional on\nthe intrinsics and understate the uncertainty (several-fold on real\nstereo rigs).",
+          "type": "boolean"
+        },
+        "refine_sensor": {
+          "default": true,
+          "description": "Refine the sensor tilt of each Scheimpflug camera in the rig bundle\nadjustment, holding its `fix.sensor` list. Default: `true`, for the\nreason given on `refine_intrinsics`: a camera's own views pin its\ntilt poorly (it trades with the principal point), the views of the\nwhole rig pin it several times better, and a tilt held at the\nper-camera estimate leaves its error in the focal length and the\nprincipal point while the covariance, conditional on the held tilt,\nunderstates their standard deviations several-fold. `false` holds\nthe tilt at the per-camera estimate; the covariance then lists it as\nfixed. Cameras with an untilted sensor have no tilt.",
+          "type": "boolean"
+        },
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals of the rig\nbundle adjustment; its scale is in pixels. Default `none`."
+        }
+      },
+      "required": [
+        "reference_camera_idx",
+        "refine_intrinsics",
+        "reprojection_loss"
+      ],
+      "type": "object"
+    },
+    "RigExtrinsicsConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for multi-camera rig extrinsics calibration.\n\nGrouped by stage. Every camera has the model of `camera` unless\n`camera_overrides` names it, so one rig can mix lenses and sensors.\n\nTwo stages solve the target corners, each with its own\n`reprojection_loss`: `intrinsics_optimize` (each camera alone) and `rig`\n(the rig bundle adjustment). A robust calibration sets both; the final\nstage's loss is the estimator.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing. View-0's rig-from-target pose is always free in the rig BA.",
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/CameraConfig",
+          "default": {
+            "fix": {},
+            "model": {
+              "distortion": "brown_conrady5",
+              "projection": "pinhole",
+              "sensor": "identity"
+            }
+          },
+          "description": "The camera model of every rig camera and the parameters its solves\nhold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a\nmulti-start tilt sweep."
+        },
+        "camera_overrides": {
+          "default": [],
+          "description": "Cameras whose model differs from `camera`, at most one entry per\ncamera index.",
+          "items": {
+            "$ref": "#/$defs/CameraOverride"
+          },
+          "type": "array"
+        },
+        "intrinsics_init": {
+          "$ref": "#/$defs/IntrinsicsInitConfig",
+          "description": "Per-camera linear-initialization stage settings\n(`step_intrinsics_init_all`). The linear stage fits only the\ndistortion terms each camera's solves estimate."
+        },
+        "intrinsics_optimize": {
+          "$ref": "#/$defs/IntrinsicsOptimizeConfig",
+          "description": "Per-camera refinement stage settings (`step_intrinsics_optimize_all`)."
+        },
+        "rig": {
+          "$ref": "#/$defs/RigConfig",
+          "description": "Rig stage settings (`step_rig_init`, `step_rig_optimize`): the\nreference camera, and the scope and loss of the rig bundle\nadjustment."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Solver engine settings, for every non-linear stage."
+        }
+      },
+      "required": [
+        "intrinsics_init",
+        "intrinsics_optimize",
+        "rig",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for multi-camera rig hand-eye calibration.\n\nGrouped by stage. Every camera has the model of `camera` unless\n`camera_overrides` names it, so one rig can mix lenses and sensors.\n\nThree stages solve the target corners, each with its own\n`reprojection_loss`: `intrinsics_optimize` (each camera alone), `rig`\n(the rig bundle adjustment) and `handeye_optimize`. A robust calibration\nsets all three; the final stage's loss is the estimator.\n\nThe reference-camera gauge fix (`rig.reference_camera_idx`) alone removes\nthe full 6-DOF rig gauge; an extra per-view pose constraint would be\nredundant and mildly pessimizing (as for `RigExtrinsicsConfig`).\nView-0's rig-from-target pose is always free in the rig BA.",
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/CameraConfig",
+          "default": {
+            "fix": {},
+            "model": {
+              "distortion": "brown_conrady5",
+              "projection": "pinhole",
+              "sensor": "identity"
+            }
+          },
+          "description": "The camera model of every rig camera and the parameters its solves\nhold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a\nmulti-start tilt sweep; seed its tilt through `manual_init`."
+        },
+        "camera_overrides": {
+          "default": [],
+          "description": "Cameras whose model differs from `camera`, at most one entry per\ncamera index.",
+          "items": {
+            "$ref": "#/$defs/CameraOverride"
+          },
+          "type": "array"
+        },
+        "handeye_init": {
+          "$ref": "#/$defs/HandeyeInitConfig",
+          "description": "Hand-eye linear-initialization stage settings (`step_handeye_init`)."
+        },
+        "handeye_optimize": {
+          "$ref": "#/$defs/HandeyeOptimizeConfig",
+          "description": "Final hand-eye bundle-adjustment stage settings\n(`step_handeye_optimize`)."
+        },
+        "intrinsics_init": {
+          "$ref": "#/$defs/IntrinsicsInitConfig",
+          "description": "Per-camera linear-initialization stage settings\n(`step_intrinsics_init_all`). The linear stage fits only the\ndistortion terms each camera's solves estimate."
+        },
+        "intrinsics_optimize": {
+          "$ref": "#/$defs/IntrinsicsOptimizeConfig",
+          "description": "Per-camera refinement stage settings (`step_intrinsics_optimize_all`)."
+        },
+        "manual_init": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RigIntrinsicsManualInit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional manual seeds for the per-camera intrinsics stage. They seed\n`step_intrinsics_init_all` and `run_calibration` alike;\n`step_intrinsics_init_all_with_seed` takes an explicit seed that\noverrides this one."
+        },
+        "rig": {
+          "$ref": "#/$defs/RigConfig",
+          "description": "Rig stage settings (`step_rig_init`, `step_rig_optimize`): the\nreference camera, and the scope and loss of the rig bundle\nadjustment."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Solver engine settings, for every non-linear stage."
+        }
+      },
+      "required": [
+        "intrinsics_init",
+        "intrinsics_optimize",
+        "rig",
+        "handeye_init",
+        "handeye_optimize",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "RigHandeyeLaserlineConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for joint rig hand-eye laserline calibration.\n\nThe calibration runs two warm-start problems and then its own joint\nsolve. Each warm start is configured by its problem's whole config —\n`handeye` a rig hand-eye calibration, `laserline_init` a rig laserline\ncalibration of the planes against that frozen geometry — and every one\nof their fields applies to that stage. The joint bundle adjustment is\nconfigured by `joint_optimize` and `solver`, the same shape as a\nsingle-camera laserline device's `optimize` and `solver`.",
+      "properties": {
+        "handeye": {
+          "$ref": "#/$defs/RigHandeyeConfig",
+          "description": "The warm-start rig hand-eye calibration: cameras, extrinsics,\nhand-eye transform and target reference pose. Its `rig`\nreference camera also fixes the rig gauge of the joint solve."
+        },
+        "joint_optimize": {
+          "$ref": "#/$defs/JointOptimizeConfig",
+          "description": "The joint bundle-adjustment stage."
+        },
+        "laserline_init": {
+          "$ref": "#/$defs/RigLaserlineDeviceConfig",
+          "description": "The warm-start laser-plane fit against the frozen hand-eye geometry."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Solver engine settings of the joint stage. `max_iters` defaults to\n30: the stage starts from both warm starts and needs few iterations."
+        }
+      },
+      "required": [
+        "handeye",
+        "laserline_init",
+        "joint_optimize",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "RigIntrinsicsManualInit": {
+      "description": "Manual seeds for the **per-camera intrinsics stage** of a rig\ncalibration.\n\nAll fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, Zhang's\nauto-fit is skipped for *every* camera; per-camera target poses are then\nrecovered from per-camera homographies using the seeded intrinsics. When\n`None`, each camera is auto-initialized.\n\nWhen intrinsics are seeded but distortion is not, distortion starts at\nzero; when intrinsics are auto-initialized, the fitted distortion is used\nunless distortion is seeded. Each distortion seed is a value in its\ncamera's own distortion model: its kind must equal that camera's\nconfigured distortion kind (a typed error otherwise) and it is used as\ngiven.\n\n`per_cam_sensors` seeds the tilt of each camera with a Scheimpflug\nsensor (a seeded tilt skips the tilt sweep of the linear stage); a camera\nwith an untilted sensor takes only a zero tilt.\n\nPer-camera vectors must have one entry per camera.",
+      "properties": {
+        "per_cam_distortion": {
+          "description": "Per-camera distortion seeds, each of the kind its camera's model names.",
+          "items": {
+            "$ref": "#/$defs/DistortionParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per_cam_intrinsics": {
+          "description": "Per-camera intrinsics seeds. `None` runs Zhang's method per camera.",
+          "items": {
+            "$ref": "#/$defs/FxFyCxCy"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "per_cam_sensors": {
+          "default": null,
+          "description": "Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the\nothers).",
+          "items": {
+            "$ref": "#/$defs/ScheimpflugParams"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RigLaserlineDeviceConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for rig laserline calibration.\n\nGrouped by stage. `solver.max_iters` defaults to 200: this stage\nrefines only per-camera laser-plane parameters against an already-frozen\nrig geometry (three parameters per camera), so iterations are nearly\nfree.",
+      "properties": {
+        "optimize": {
+          "$ref": "#/$defs/PlaneOptimizeConfig",
+          "description": "Laser-plane refinement stage settings (`step_optimize`)."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Solver engine settings."
+        }
+      },
+      "required": [
+        "optimize",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "RinggridCenterSpec": {
+      "description": "The ring-grid centre estimator: the manifest's own copy of the detector's\ncentre method, which has the same JSON spelling.",
+      "oneOf": [
+        {
+          "const": "ellipse",
+          "description": "The projective centre recovered from the fitted inner and outer\nellipses. Fast and accurate on sharp images; the default.",
+          "type": "string"
+        },
+        {
+          "const": "photometric",
+          "description": "A per-marker photometric fit of the blurred marker pattern. Use it\non blurred or low-contrast images; it costs about 2.5x the detection\ntime, and markers it cannot refine are dropped.",
+          "type": "string"
+        }
+      ]
+    },
+    "RinggridCodingSpec": {
+      "description": "How ring-grid markers are told apart: the manifest's own copy of the\ndetector's coding, which has the same JSON spelling.\n\nIn JSON: `\"coded\"`, or `{\"plain\": {\"origin_dots\": true}}`; in TOML,\n`coding = { plain = { origin_dots = true } }`.",
+      "oneOf": [
+        {
+          "const": "coded",
+          "description": "Every marker carries a 16-sector code between its two rings and\nidentifies its own board position, so any partial view is labelled.\nThe default.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Plain rings without a code; the board frame comes from the origin\ndots.",
+          "properties": {
+            "plain": {
+              "properties": {
+                "origin_dots": {
+                  "default": true,
+                  "description": "The board carries the triad of filled origin dots that the\ntarget generator places near its centre. Defaults to `true`.\n\nA view is labelled in the board frame whenever all three dots are\nin it among detected markers, however small a part of the board\nit shows; a view without them, or with only one or two, yields no\nfeatures. `false`, a plain board without dots, is not supported:\nits views have no board coordinates, and a manifest that sets it\nis rejected before detection.",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "plain"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RinggridLatticeSpec": {
+      "description": "The ring-grid marker lattice: the manifest's own copy of the detector's\nlattice, which has the same JSON spelling.",
+      "oneOf": [
+        {
+          "const": "hex",
+          "description": "A hexagonal lattice: rows alternate between `long_row_cols` markers\nand one fewer, offset by half a step. The default.",
+          "type": "string"
+        },
+        {
+          "const": "rect",
+          "description": "A rectangular lattice of `rows × long_row_cols` markers, `pitch_m`\napart along both axes.",
+          "type": "string"
+        }
+      ]
+    },
+    "RobotPoseConfig": {
+      "description": "Robot-pose refinement options for hand-eye bundle adjustment.\n\nShared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint\nrig+hand-eye+laser BA config (`JointOptimizeConfig`).\n\n[`Refine`](Self::Refine) gives every view's measured robot pose an se(3)\ncorrection in the gripper frame, `base_se3_gripper · exp(δ)`, under a\nzero-mean prior (see [`RobotPosePrior`]). [`Exact`](Self::Exact) takes the\nrobot poses as exact. Serialized as `{\"kind\": \"exact\"}` or\n`{\"kind\": \"refine\", \"rot_sigma\": …, \"trans_sigma\": …, \"estimate_sigma\": …}`.\nThe default is `Refine` with the default prior: robot pose errors are\nrarely below the corner noise, and taking them as exact pushes them into\nthe camera parameters.",
+      "oneOf": [
+        {
+          "description": "The robot poses are taken as exact.",
+          "properties": {
+            "kind": {
+              "const": "exact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Per-view se(3) corrections under the prior.",
+          "properties": {
+            "discount_view_scatter": {
+              "default": false,
+              "description": "With `estimate_sigma`, leave corner noise correlated within views out\nof the estimated robot error. Each correction carries the pose-like\npart of its view's corner noise; when the residuals are correlated\nwithin views (a significant view scatter), that part is larger than\nthe independent-noise model says, and the plain estimate counts the\nexcess as the robot's. With this option the excess is taken out at\nthe view scatter's scale, measured on the shared parameters.\n\nIt helps where the correlation shifts a view's corners in patches,\nas a detector bias over a tile of the board does: there the plain\nestimate can be several times the robot's error and the hand-eye\nleans on the corners more than it should. Where the corrections do\nnot resolve the remaining robot error (by two standard errors over\nthe views), the estimate stays at the largest robot error they\ncannot tell from none; where the noise would explain more than the\ncorrections hold, nothing is taken out and the estimate is the plain\none. `robot_refinement.unresolved` names the parts of the estimate\nthat are such upper bounds.\n\nOff by default: the scale comes from the shared parameters, and how\nfar it holds for the poses has been measured only on synthetic\nsingle-camera scenes. Requires `estimate_sigma`.",
+              "type": "boolean"
+            },
+            "estimate_sigma": {
+              "description": "Estimate the robot's error from the corrections, starting from\n`rot_sigma` and `trans_sigma`: each prior's variance factor is\nestimated from the corrections and their redundancy, and the solve\nrepeats until it settles. The export reports the estimate\n(`robot_refinement.sigma`). On by default: the stated accuracy of an\narm is rarely its error in one calibration, and a prior that is too\nloose or too tight misstates the hand-eye and target standard\ndeviations. Off, `rot_sigma` and `trans_sigma` are taken as the\nrobot's true accuracy.",
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "refine",
+              "type": "string"
+            },
+            "rot_sigma": {
+              "description": "Standard deviation of the tool's orientation error about each gripper\naxis (radians, > 0). Default 0.5°, a loose bound for an industrial\narm.",
+              "format": "double",
+              "type": "number"
+            },
+            "trans_sigma": {
+              "description": "Standard deviation of the tool's position error along each gripper\naxis (metres, > 0). Default 1 mm, a loose bound for an industrial\narm.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rot_sigma",
+            "trans_sigma",
+            "estimate_sigma"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RobotPoseFormat": {
+      "description": "Robot-pose file format.",
+      "oneOf": [
+        {
+          "const": "csv",
+          "description": "Comma-separated values with a header row.",
+          "type": "string"
+        },
+        {
+          "const": "json",
+          "description": "JSON array of objects.",
+          "type": "string"
+        },
+        {
+          "const": "jsonl",
+          "description": "JSONL (one JSON object per line).",
+          "type": "string"
+        },
+        {
+          "const": "rowmajor4x4",
+          "description": "Headerless text: each non-empty line is 16 whitespace-separated\nfloats forming a row-major 4×4 homogeneous transform (KUKA-style\nexports). Requires `pose_convention.rotation_format =\n\"matrix4x4_row_major\"` and no `columns` mapping.",
+          "type": "string"
+        },
+        {
+          "const": "counted4x4",
+          "description": "Headerless text: the matrix count, then that many row-major 4×4\nhomogeneous transforms as whitespace-separated floats on any number\nof lines (the layout of the robot-world hand-eye datasets of Tabb\nand Ahmad Yousef). Same requirements as `rowmajor4x4`.",
+          "type": "string"
+        }
+      ]
+    },
+    "RobotPoseSource": {
+      "additionalProperties": false,
+      "description": "Where and how robot poses are stored on disk.",
+      "properties": {
+        "columns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoseColumnMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Column / field mapping from the user's file to the canonical\nfields the converter consumes. Required for the tabular formats\n(`csv` / `json` / `jsonl`) unless `matrix_field` is set; must be\nabsent for `rowmajor4x4` and `counted4x4`, whose matrix layout is\nfixed."
+        },
+        "format": {
+          "$ref": "#/$defs/RobotPoseFormat",
+          "description": "File-format selector."
+        },
+        "matrix_field": {
+          "description": "For `json` / `jsonl` files whose rows store the whole pose as a\nsingle nested 4×4 (or flat-16) array field, names that field\n(e.g. `\"tcp2base\"`). Mutually exclusive with `columns`; requires\n`pose_convention.rotation_format = matrix4x4_row_major`.\nTranslation comes from the matrix's fourth column, scaled by\n`translation_units`. No `pose_id` ⇒ `by_index` pairing only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Path to the pose file, relative to the manifest directory\nunless absolute.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "format"
+      ],
+      "type": "object"
+    },
+    "RobustLoss": {
+      "description": "Robust loss applied to a residual block.\n\nEach residual block has its own loss; per-point robustification is achieved\nby using one residual block per observation.",
+      "oneOf": [
+        {
+          "description": "No robustification (plain squared residual).",
+          "properties": {
+            "kind": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Huber loss: quadratic up to `‖r‖ = scale`, linear beyond.",
+          "properties": {
+            "kind": {
+              "const": "huber",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Transition residual norm, in residual units (pixels for\nreprojection).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "scale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cauchy loss: logarithmic growth, influence decreasing beyond\n`‖r‖ ≈ scale`.",
+          "properties": {
+            "kind": {
+              "const": "cauchy",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Residual norm where down-weighting sets in, in residual units.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "scale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Arctangent loss: bounded, influence vanishing for large residuals.",
+          "properties": {
+            "kind": {
+              "const": "arctan",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Transition in squared-residual units: down-weighting sets in near\n`‖r‖ ≈ √scale`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "scale"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RotationFormat": {
+      "description": "Rotation parameterisation in the file.",
+      "oneOf": [
+        {
+          "const": "quat_xyzw",
+          "description": "Hamilton quaternion as `[qx, qy, qz, qw]`.",
+          "type": "string"
+        },
+        {
+          "const": "quat_wxyz",
+          "description": "Hamilton quaternion as `[qw, qx, qy, qz]`.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_deg",
+          "description": "Intrinsic XYZ Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_xyz_rad",
+          "description": "Intrinsic XYZ Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_deg",
+          "description": "Intrinsic ZYX Euler angles in degrees.",
+          "type": "string"
+        },
+        {
+          "const": "euler_zyx_rad",
+          "description": "Intrinsic ZYX Euler angles in radians.",
+          "type": "string"
+        },
+        {
+          "const": "axis_angle_rad",
+          "description": "Axis-angle vector (length encodes magnitude, radians).",
+          "type": "string"
+        },
+        {
+          "const": "matrix4x4_row_major",
+          "description": "Row-major 4×4 homogeneous matrix flattened across 16 columns.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunInputs": {
+      "description": "What a calibrated run was given, resolved.",
+      "properties": {
+        "config": {
+          "$ref": "#/$defs/CalibrationConfig",
+          "description": "The configuration they made."
+        },
+        "config_patch": {
+          "$ref": "#/$defs/ConfigPatch",
+          "description": "The configuration changes: the project's, then the run's own."
+        },
+        "data_root": {
+          "description": "The data root as the project stated it: the inline manifest's\n`root`, or the manifest file's path. For the reader only.",
+          "type": "string"
+        },
+        "dataset": {
+          "$ref": "#/$defs/DatasetSpec",
+          "description": "The manifest as the run used it."
+        },
+        "exclusions": {
+          "$ref": "#/$defs/Exclusions",
+          "description": "The project's exclusions."
+        },
+        "quality": {
+          "$ref": "#/$defs/QualityThresholds",
+          "description": "The thresholds the quality report was judged by."
+        }
+      },
+      "required": [
+        "dataset",
+        "data_root",
+        "exclusions",
+        "config_patch",
+        "config",
+        "quality"
+      ],
+      "type": "object"
+    },
+    "RunNotes": {
+      "description": "What a person notes on a run, `notes.json`: the only file of a run that\nchanges after it is written.",
+      "properties": {
+        "label": {
+          "description": "A short name for the run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "description": "Free text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "starred": {
+          "description": "Whether the run is marked as one to keep.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "RunRecord": {
+      "description": "The record of one run, `run.json`: what went in, a digest of it, and a\nsummary of what came out. Written once with the run and never changed.\n\n`timestamp` and `CalibratedRun::duration_ms` are the only clock\nreadings in a run's files; neither enters a digest, the export or the\nquality report.",
+      "properties": {
+        "library_version": {
+          "description": "The version of this library that wrote the run.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/RunSource",
+          "description": "Where the run's export came from."
+        },
+        "summary": {
+          "$ref": "#/$defs/RunSummary",
+          "description": "What came out, for listing without reading the export."
+        },
+        "timestamp": {
+          "description": "When the run was written, seconds since the Unix epoch; for display\nand ordering only.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tool": {
+          "description": "The program that made the run, as it named itself (`vcal 1.1.0`).",
+          "type": "string"
+        },
+        "version": {
+          "description": "The record's format version, [`RUN_RECORD_VERSION`](super::RUN_RECORD_VERSION).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "timestamp",
+        "tool",
+        "library_version",
+        "source",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "RunSource": {
+      "description": "Where a run's export came from.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CalibratedRun",
+          "description": "The project calibrated it.",
+          "properties": {
+            "kind": {
+              "const": "calibrated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was imported from an export calibrated elsewhere.",
+          "properties": {
+            "file_name": {
+              "description": "The imported file's name (not its path).",
+              "type": "string"
+            },
+            "kind": {
+              "const": "imported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "file_name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RunState": {
+      "description": "What a run's files say.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RunRecord",
+          "description": "A run with its record.",
+          "properties": {
+            "kind": {
+              "const": "recorded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/UnrecordedRun",
+          "description": "A run of the desktop app's earlier format: an export with no\nrecord. It is listed, never rewritten.",
+          "properties": {
+            "kind": {
+              "const": "unrecorded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A run whose record this version cannot read.",
+          "properties": {
+            "kind": {
+              "const": "unreadable",
+              "type": "string"
+            },
+            "message": {
+              "description": "Why.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RunSummary": {
+      "description": "What a run produced, in brief: enough to list runs without reading\ntheir exports, and recomputable from the export.",
+      "properties": {
+        "cameras": {
+          "description": "Each camera, in camera order.",
+          "items": {
+            "$ref": "#/$defs/CameraSummary"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProblemKind",
+          "description": "The workflow that produced the export."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The quality report's verdict; `None` when the quality could not be\nassessed."
+        }
+      },
+      "required": [
+        "kind",
+        "cameras"
+      ],
+      "type": "object"
+    },
+    "ScheimpflugParams": {
+      "description": "Scheimpflug tilt parameters (OpenCV-compatible).",
+      "properties": {
+        "tilt_x": {
+          "description": "Tilt around X axis in radians (alias: tau_x).",
+          "format": "double",
+          "type": "number"
+        },
+        "tilt_y": {
+          "description": "Tilt around Y axis in radians (alias: tau_y).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "tilt_x",
+        "tilt_y"
+      ],
+      "type": "object"
+    },
+    "SensorKind": {
+      "description": "Which sensor model a camera uses.",
+      "oneOf": [
+        {
+          "const": "identity",
+          "description": "Sensor plane perpendicular to the optical axis; no parameters.",
+          "type": "string"
+        },
+        {
+          "const": "scheimpflug",
+          "description": "Scheimpflug tilted sensor `[tilt_x, tilt_y]` (radians).",
+          "type": "string"
+        }
+      ]
+    },
+    "SingleCamHandeyeConfig": {
+      "additionalProperties": false,
+      "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped by stage, in the order the steps run: the camera model, the\nintrinsics linear init and refinement, the hand-eye linear init and\nbundle adjustment, and the solver engine. Every group's own `Default` is\nthe plain workspace default (no per-problem override is needed here,\nunlike `PlanarIntrinsicsConfig`'s iteration cap).\n\nTwo stages solve the target corners, each with its own\n`reprojection_loss`: `intrinsics_optimize` and `handeye_optimize`. A\nrobust calibration sets both; the final stage's loss is the estimator.",
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/CameraConfig",
+          "default": {
+            "fix": {},
+            "model": {
+              "distortion": "brown_conrady5",
+              "projection": "pinhole",
+              "sensor": "identity"
+            }
+          },
+          "description": "The camera model and the parameters its solves (the intrinsics stage\nand the hand-eye bundle adjustment) hold fixed. Any distortion kind\nwith an identity sensor; a Scheimpflug sensor needs a distortion\nmodel. A tilted sensor's intrinsics stage runs a multi-start tilt\nsweep; seed its tilt through the intrinsics manual init."
+        },
+        "handeye_init": {
+          "$ref": "#/$defs/HandeyeInitConfig",
+          "description": "Hand-eye linear-initialization stage settings (`step_handeye_init`)."
+        },
+        "handeye_optimize": {
+          "$ref": "#/$defs/SingleCamHandeyeOptimizeConfig",
+          "description": "Hand-eye bundle-adjustment stage settings (`step_handeye_optimize`)."
+        },
+        "intrinsics_init": {
+          "$ref": "#/$defs/IntrinsicsInitConfig",
+          "description": "Linear-initialization stage settings (`step_intrinsics_init`). The\nlinear stage fits only the distortion terms the camera's solves\nestimate."
+        },
+        "intrinsics_optimize": {
+          "$ref": "#/$defs/IntrinsicsOptimizeConfig",
+          "description": "Intrinsics refinement stage settings (`step_intrinsics_optimize`)."
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverConfig",
+          "description": "Solver engine settings, for both non-linear stages."
+        }
+      },
+      "required": [
+        "intrinsics_init",
+        "intrinsics_optimize",
+        "handeye_init",
+        "handeye_optimize",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "SingleCamHandeyeOptimizeConfig": {
+      "additionalProperties": false,
+      "description": "The hand-eye bundle adjustment of a single-camera hand-eye calibration\n(`step_handeye_optimize`): the camera, the hand-eye transform, the\ntarget pose and, by default, the robot poses refined together, the\ncamera's `fix` lists held.",
+      "properties": {
+        "reprojection_loss": {
+          "$ref": "#/$defs/RobustLoss",
+          "description": "Robust loss on the target-corner reprojection residuals; its scale is\nin pixels. Default `none`."
+        },
+        "robot_poses": {
+          "$ref": "#/$defs/RobotPoseConfig",
+          "description": "Robot-pose refinement."
+        }
+      },
+      "required": [
+        "reprojection_loss",
+        "robot_poses"
+      ],
+      "type": "object"
+    },
+    "SolverBackend": {
+      "description": "Which engine linearizes the problem.\n\nBoth run the same Levenberg–Marquardt loop over the same residual\nkernels and reach the same minimizer; they differ in how they build the\nJacobian and how they fold in a robust loss.",
+      "oneOf": [
+        {
+          "const": "tiny_solver",
+          "description": "`tiny-solver`: forward-mode dual numbers on the stack, each residual\nblock differentiated in passes of four directions; a robust loss\nenters through the Triggs correction (second-order exact).",
+          "type": "string"
+        },
+        {
+          "const": "factrs",
+          "description": "`factrs`: static-size forward-mode dual numbers; a robust loss enters\nthrough iterative reweighting (each block scaled by `√ρ′`).",
+          "type": "string"
+        }
+      ]
+    },
+    "SolverConfig": {
+      "additionalProperties": false,
+      "description": "The solver engine: iteration budget, verbosity and backend, shared by\nevery problem's non-linear stages.\n\nIt holds engine settings only. What a stage minimizes — its robust losses\nand weights — belongs to the stage's own group (`optimize`,\n`intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named\nby the residual family it applies to (`reprojection_loss`,\n`laser_loss`).\n\n`max_iters` has no single workspace-wide default — problems override it\nper solve-stage cost. Documented per-problem defaults: 50 standard; 120\nfor planar intrinsics (sized for a tilted sensor's tilt valley; the\nsolver stops at convergence, so the cap only bounds runs that do not\nconverge); 30 for a warm-started joint\nrig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry\nstage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is\n50 — the plain value used by problems with no reason to deviate.",
+      "properties": {
+        "backend": {
+          "$ref": "#/$defs/SolverBackend",
+          "default": "tiny_solver",
+          "description": "Engine that linearizes the problem for the Levenberg–Marquardt loop.\nBoth reach the same minimizer; see [`SolverBackend`]."
+        },
+        "max_iters": {
+          "description": "Maximum iterations for the non-linear optimizer.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "verbosity": {
+          "description": "Verbosity level (0 = silent, 1 = summary, 2+ = detailed).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_iters",
+        "verbosity"
+      ],
+      "type": "object"
+    },
+    "TargetSpec": {
+      "description": "Calibration-target metadata. Tagged on `kind`.",
+      "oneOf": [
+        {
+          "description": "Standard checkerboard. Counts are interior corners\n(i.e. `9x6` ⇒ a 10×7 black-and-white square grid).\n\nA plain chessboard has no markers: each view is labelled from the\ndetection's own top-left corner. Where views share one target frame\n(single-camera hand-eye and every rig topology) the runner therefore\nkeeps a view only when its corners reach every edge of the board.\nIn a rig, each camera's labels are turned to agree with the other\ncameras of the view, so a board seen turned is kept. Where the target\nis fixed through the views (hand-eye), the board must appear the same\nway up in every image of camera 0 (`cols` across and `rows` down);\na board seen turned by 90° is dropped, and one seen upside down, or a\nsquare board seen turned by 90°, cannot be told apart. Use a ChArUco\nor PuzzleBoard target to calibrate a shared frame from partial views.",
+          "properties": {
+            "cols": {
+              "description": "Number of interior corners across the board (the image's\ncolumns axis when the board is seen as declared).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "chessboard",
+              "type": "string"
+            },
+            "measure_blur": {
+              "description": "Measure the blur at each corner: the covariance `Σ` (px², image\naxes, including the pixel aperture) of the Gaussian kernel that\nbest blurs the printed pattern around the corner into the image,\nwith the covariance of that estimate, carried into each\nobservation. A corner the estimate declines has none. It costs a\nfew milliseconds per corner, single-threaded (a 476-corner board\nadds about 1–2 s per image), hence the default `false`. Corner\npositions are the same with or without it.",
+              "type": "boolean"
+            },
+            "rows": {
+              "description": "Number of interior corners down the board (the image's rows\naxis when the board is seen as declared).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "ChArUco board. Marker IDs and dictionary live here so detection\nis fully deterministic from the manifest.",
+          "properties": {
+            "cols": {
+              "description": "Number of squares along the cols axis.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "dictionary": {
+              "description": "ArUco dictionary identifier (e.g. `\"DICT_4X4_50\"`). The\ndetector validates this against the supported set.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "charuco",
+              "type": "string"
+            },
+            "marker_size_m": {
+              "description": "Edge length of an embedded marker in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of squares along the rows axis (full grid, not\ninterior corners).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "square_size_m": {
+              "description": "Edge length of one square in metres.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols",
+            "square_size_m",
+            "marker_size_m",
+            "dictionary"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Puzzleboard target: a self-identifying chessboard. The layout name\ncarries the board's dimensions, so the manifest fully determines\ndetection.",
+          "properties": {
+            "cell_size_m": {
+              "description": "Edge length of one cell in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "puzzleboard",
+              "type": "string"
+            },
+            "layout": {
+              "description": "Board dimensions as `puzzle_<rows>x<cols>` (e.g.\n`\"puzzle_12x12\"`; the `puzzle_` prefix is optional).",
+              "type": "string"
+            },
+            "measure_blur": {
+              "description": "Measure the blur at each corner: the covariance `Σ` (px², image\naxes, including the pixel aperture) of the Gaussian kernel that\nbest blurs the printed pattern around the corner into the image,\nwith the covariance of that estimate, carried into each\nobservation. A corner the estimate declines has none. It costs a\nfew milliseconds per corner, single-threaded (a 476-corner board\nadds about 1–2 s per image), hence the default `false`. Corner\npositions are the same with or without it.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "layout",
+            "cell_size_m"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Ring-grid target (the `ringgrid` crate): ring markers on a hexagonal\nor rectangular lattice, either coded (self-identifying) or plain with\na triad of origin dots. Its geometry mirrors the `ringgrid` target\nlayout, so the manifest fully determines detection.",
+          "properties": {
+            "center_method": {
+              "$ref": "#/$defs/RinggridCenterSpec",
+              "description": "How each marker's centre is estimated. Omitted keeps the\nellipse-based centre; `\"photometric\"` fits the blurred marker\npattern instead, for blurred or low-contrast images."
+            },
+            "coding": {
+              "$ref": "#/$defs/RinggridCodingSpec",
+              "description": "How the markers are told apart. Omitted keeps `\"coded\"`."
+            },
+            "kind": {
+              "const": "ringgrid",
+              "type": "string"
+            },
+            "lattice": {
+              "$ref": "#/$defs/RinggridLatticeSpec",
+              "description": "The marker lattice. Omitted keeps `\"hex\"`."
+            },
+            "long_row_cols": {
+              "description": "Number of columns: on a hexagonal lattice, of the longest\n(even-indexed) rows, the shorter rows being derived by the\nlayout; on a rectangular lattice, of every row.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "marker_inner_radius_m": {
+              "description": "Inner ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "marker_outer_radius_m": {
+              "description": "Outer ring radius in metres.",
+              "format": "double",
+              "type": "number"
+            },
+            "marker_ring_width_m": {
+              "default": 0.0,
+              "description": "Width of each ring band in metres. Coded markers need it, greater\nthan zero; plain markers ignore it, so it may be left out for\nthem.",
+              "format": "double",
+              "type": "number"
+            },
+            "min_confidence": {
+              "description": "Floor on the detector's per-marker confidence, in `[0, 1]`.\nOmitted keeps the detector's floor of 0.03. The confidence is a\nproduct of factors in `[0, 1]`, one of them the edge sharpness\n`1 / (1 + (w / 3 px)²)`, so a floor `c` keeps only markers whose\nouter edge width `w` is at most `3 · √(1/c − 1)` px (0.17: 6.6 px).",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "pitch_m": {
+              "description": "Center-to-center spacing between adjacent markers in metres. On a\nrectangular lattice it is both the row and the column step.",
+              "format": "double",
+              "type": "number"
+            },
+            "rows": {
+              "description": "Number of marker rows.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "pitch_m",
+            "rows",
+            "long_row_cols",
+            "marker_outer_radius_m",
+            "marker_inner_radius_m"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TransformConvention": {
+      "description": "Which transform a pose row encodes.",
+      "oneOf": [
+        {
+          "const": "t_base_tcp",
+          "description": "`T_base_tcp` — gripper pose in the robot base frame (KUKA, UR\ndefault).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_base",
+          "description": "`T_tcp_base` — base pose in the gripper frame (some ABB exports).",
+          "type": "string"
+        },
+        {
+          "const": "t_world_tcp",
+          "description": "`T_world_tcp` — gripper pose in a fixed world frame (less\ncommon; some lab-frame setups).",
+          "type": "string"
+        },
+        {
+          "const": "t_tcp_world",
+          "description": "`T_tcp_world` — world pose in the gripper frame.",
+          "type": "string"
+        }
+      ]
+    },
+    "TranslationUnits": {
+      "description": "Translation units in the file.",
+      "oneOf": [
+        {
+          "const": "m",
+          "description": "Metres (SI, preferred).",
+          "type": "string"
+        },
+        {
+          "const": "mm",
+          "description": "Millimetres (some ABB / Fanuc exports).",
+          "type": "string"
+        }
+      ]
+    },
+    "UnrecordedRun": {
+      "description": "A run of the desktop app's earlier format.",
+      "properties": {
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The summary of its export, when the export reads."
+        },
+        "total_views": {
+          "description": "Views attempted, from its `diagnostics.json`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "usable_views": {
+          "description": "Views that entered the calibration, from its `diagnostics.json`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Verdict": {
+      "description": "The judgment of a result, or of one check.\n\nOrdered by severity: `Pass < Warn < Fail`.",
+      "oneOf": [
+        {
+          "const": "pass",
+          "description": "Nothing found that limits the result.",
+          "type": "string"
+        },
+        {
+          "const": "warn",
+          "description": "Usable, with a weakness worth knowing; the message says which.",
+          "type": "string"
+        },
+        {
+          "const": "fail",
+          "description": "The data does not support the result.",
+          "type": "string"
+        }
+      ]
+    },
+    "ViewExclusion": {
+      "additionalProperties": false,
+      "description": "A view left out, with every camera's image of it.",
+      "properties": {
+        "note": {
+          "description": "Why, for the reader; the calibration does not read it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "view": {
+          "$ref": "#/$defs/ViewRef",
+          "description": "Which view."
+        }
+      },
+      "required": [
+        "view"
+      ],
+      "type": "object"
+    },
+    "ViewRef": {
+      "description": "How an exclusion names a view.\n\nA view has no index that survives an image added to the dataset; its\npairing token and its images do. Serialized as `{ token = \"0012\" }` or\n`{ image = \"cam0/0012.png\" }`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The view's pairing token, under `shared_filename_token` pairing.",
+          "properties": {
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "token"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Any one of the view's images.",
+          "properties": {
+            "image": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "image"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One run of a project, as a listing shows it.",
+  "properties": {
+    "dir": {
+      "description": "The run's folder, absolute.",
+      "type": "string"
+    },
+    "id": {
+      "description": "The run's id: its folder's name under `runs/`.",
+      "type": "string"
+    },
+    "notes": {
+      "$ref": "#/$defs/RunNotes",
+      "description": "Its notes."
+    },
+    "state": {
+      "$ref": "#/$defs/RunState",
+      "description": "What its files say."
+    }
+  },
+  "required": [
+    "id",
+    "dir",
+    "state",
+    "notes"
+  ],
+  "title": "RunInfo",
+  "type": "object"
+}

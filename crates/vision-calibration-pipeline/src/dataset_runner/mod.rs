@@ -7,7 +7,7 @@
 //! and the problem type by the manifest's topology and returns the export as
 //! a [`CalibrationExport`].
 //! [`camera_image_sizes`] reads each camera's image size, which the
-//! image-wide analyses take.
+//! image-wide analyses take; [`input_files`] lists every file a run reads.
 //!
 //! Converters, for a run driven step by step:
 //! - [`build_planar_input`] — `PlanarIntrinsics` (any camera model)
@@ -83,6 +83,7 @@ mod poses;
 mod rig;
 mod view_filter;
 
+pub(crate) use calibrate::calibrate_dataset_with;
 pub use calibrate::{
     CalibrateDatasetError, CalibrationConfig, CalibrationExport, DatasetCalibration,
     calibrate_dataset,
@@ -839,6 +840,37 @@ pub fn camera_image_sizes(spec: &DatasetSpec, base_dir: &Path) -> Result<Vec<[u3
             }
         })
         .collect()
+}
+
+/// Every file a run of the manifest reads, each once and sorted: each
+/// camera's target images and laser images, the robot pose file and the
+/// upstream calibration. Relative paths resolve against `base_dir`.
+///
+/// Lists the image folders and reads no file, so a caller can check that a
+/// run stays inside the folders it may read before it starts one. A
+/// camera's pattern that matches nothing lists nothing; the run itself
+/// fails on it.
+///
+/// # Errors
+///
+/// [`RunError::BadGlob`] for an image pattern that is not a valid glob,
+/// [`RunError::UnsupportedOption`] for a pattern kind this version does not
+/// read.
+pub fn input_files(spec: &DatasetSpec, base_dir: &Path) -> Result<Vec<PathBuf>, RunError> {
+    let mut files = std::collections::BTreeSet::new();
+    for camera in &spec.cameras {
+        files.extend(expand_camera_images(camera, base_dir)?);
+        if let Some(laser) = &camera.laser_images {
+            files.extend(expand_image_pattern(laser, &camera.id, base_dir)?);
+        }
+    }
+    if let Some(poses) = &spec.robot_poses {
+        files.insert(base_dir.join(&poses.path));
+    }
+    if let Some(upstream) = &spec.upstream_calibration {
+        files.insert(base_dir.join(upstream));
+    }
+    Ok(files.into_iter().collect())
 }
 
 fn expand_camera_images(
@@ -1620,6 +1652,44 @@ mod tests {
             camera_image_sizes(&spec, tmp.path()).unwrap(),
             vec![[32, 24]]
         );
+    }
+
+    /// Every file a run reads, sorted and listed once, without reading any:
+    /// the images are files that are not images.
+    #[test]
+    fn input_files_lists_images_laser_frames_and_side_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for name in ["t/b.png", "t/a.png", "l/a.png"] {
+            std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+            std::fs::write(dir.join(name), b"-").unwrap();
+        }
+        let mut spec = sized_spec(vec![], None);
+        spec.cameras[0].images = ImagePattern::Glob {
+            pattern: "t/*.png".into(),
+        };
+        spec.cameras[0].laser_images = Some(ImagePattern::List {
+            paths: vec!["l/a.png".into(), "t/a.png".into()],
+        });
+        spec.robot_poses = Some(vision_calibration_dataset::RobotPoseSource::new(
+            "poses.csv",
+            vision_calibration_dataset::RobotPoseFormat::Rowmajor4x4,
+        ));
+        // An absolute path on every platform: a second folder's file.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let upstream = elsewhere.path().join("export.json");
+        spec.upstream_calibration = Some(upstream.clone());
+        let files = input_files(&spec, dir).unwrap();
+        let expected: Vec<PathBuf> = vec![
+            upstream,
+            dir.join("l/a.png"),
+            dir.join("poses.csv"),
+            dir.join("t/a.png"),
+            dir.join("t/b.png"),
+        ];
+        let mut sorted = expected.clone();
+        sorted.sort();
+        assert_eq!(files, sorted);
     }
 
     #[test]

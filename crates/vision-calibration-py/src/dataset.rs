@@ -53,13 +53,13 @@ fn resolve_manifest(
 /// runner's laser-line extractor. `extract` receives the (ROI-cropped)
 /// grayscale image as a `(H, W)` `uint8` array and the manifest's `laser`
 /// section, and returns `(N, 2)` `float64` pixels.
-struct PyLaserExtractor {
+pub(crate) struct PyLaserExtractor {
     name: String,
     object: Py<PyAny>,
 }
 
 impl PyLaserExtractor {
-    fn new(object: &Bound<'_, PyAny>) -> PyResult<Self> {
+    pub(crate) fn new(object: &Bound<'_, PyAny>) -> PyResult<Self> {
         let name: String = object.getattr("name")?.extract()?;
         Ok(Self {
             name,
@@ -202,6 +202,20 @@ pub(crate) fn camera_image_sizes(
 ) -> PyResult<Vec<[u32; 2]>> {
     let (spec, base) = resolve_manifest(manifest, base_dir)?;
     py.detach(|| runner::camera_image_sizes(&spec, &base))
+        .map_err(|err| run_err(py, err))
+}
+
+/// Every file a run of the manifest reads, sorted: images, laser frames, the
+/// robot pose file and the upstream calibration. No file is read.
+#[pyfunction]
+#[pyo3(signature = (manifest, base_dir=None))]
+pub(crate) fn input_files(
+    py: Python<'_>,
+    manifest: &Bound<'_, PyAny>,
+    base_dir: Option<PathBuf>,
+) -> PyResult<Vec<PathBuf>> {
+    let (spec, base) = resolve_manifest(manifest, base_dir)?;
+    py.detach(|| runner::input_files(&spec, &base))
         .map_err(|err| run_err(py, err))
 }
 
@@ -479,6 +493,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sniff_folder, m)?)?;
     m.add_function(wrap_pyfunction!(load_manifest, m)?)?;
     m.add_function(wrap_pyfunction!(camera_image_sizes, m)?)?;
+    m.add_function(wrap_pyfunction!(input_files, m)?)?;
     m.add_function(wrap_pyfunction!(vcal_main, m)?)?;
     m.add_function(wrap_pyfunction!(sample_catalogue, m)?)?;
     m.add_function(wrap_pyfunction!(fetch_sample, m)?)?;

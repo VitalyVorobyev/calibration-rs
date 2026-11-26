@@ -1,0 +1,10 @@
+# Calibration project of the stereo dataset's two cameras together (rig
+# extrinsics). One project per manifest of the folder: the projects sit in
+# sub-folders and reference the manifests beside them.
+
+version = 2
+name = "Stereo rig"
+description = "Rig extrinsics of the Kaggle stereo chessboard set"
+
+[dataset]
+manifest = "../dataset_rig.toml"

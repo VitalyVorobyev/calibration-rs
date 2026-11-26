@@ -4,6 +4,8 @@ A calibration dataset is a folder of images, usually a robot-pose file, and some
 
 The same manifest drives three front ends: the Rust [dataset runner](#running-a-manifest), the desktop app's Run workspace (which edits it in a schema-driven form) and the folder sniffer that writes a first draft.
 
+A [project](projects.md) adds a history to a manifest: the configuration changes it is calibrated with, what to leave out and every run. Its project file references a manifest file like this one, or holds the manifest itself.
+
 ## An Example
 
 `data/kuka_1/dataset.toml` in the repository describes a single-camera hand-eye dataset: 30 chessboard images and a file with one robot pose per line.
@@ -184,7 +186,7 @@ run_calibration(&mut session)?;
 
 Each converter checks the topology and target, validates the manifest and resolves the pairing *before* it reads a single image, so a wrong manifest fails in milliseconds with a message that names the field. A view whose detection yields fewer features than `detector.min_features_per_view` (default 4) is dropped. With a plain chessboard, the topologies whose views share one target frame (`single_cam_handeye` and every rig topology) also drop a view unless its corners span the whole board: a partial chessboard is labelled from its own top-left corner and would move that frame. A rig turns each camera's labels to agree with the other cameras of the view, so a board seen turned is kept; where the target is fixed through the views (hand-eye), a board camera 0 sees turned by 90° is dropped. [Calibration Targets and Detection](detection.md#chessboard) explains the rules, and recommends ChArUco or PuzzleBoard targets when you need partial views. `planar_intrinsics` and `laserline_device` estimate one target pose per view and keep partial boards.
 
-Each result lists the detections it dropped in `rejected`, each with its camera, image and `RejectReason` (`TooFewFeatures`, `PartialChessboard`, `TurnedChessboard`, `AmbiguousChessboardTurn`, or `Excluded` for an image the run was told to leave out, which it does not read). A camera left with no usable view is an error rather than a poor calibration: `NoWholeChessboardViews` when the whole-board rule dropped any of its views, `InsufficientUsableViews` otherwise. Each result also carries the source image path of every accepted view, which is how the app shows the right image under each residual.
+Each result lists the detections it dropped in `rejected`, each with its camera, image and `RejectReason` (`TooFewFeatures`, `PartialChessboard`, `TurnedChessboard`, `AmbiguousChessboardTurn`, or `Excluded` for an image the run was told to leave out, which it does not read; a [project](projects.md#leaving-data-out) says what to leave out). A camera left with no usable view is an error rather than a poor calibration: `NoWholeChessboardViews` when the whole-board rule dropped any of its views, `InsufficientUsableViews` otherwise. Each result also carries the source image path of every accepted view, which is how the app shows the right image under each residual.
 
 ## In Python
 
