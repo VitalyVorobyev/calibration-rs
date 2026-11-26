@@ -18,9 +18,11 @@ export interface Commands {
     reply: T.SaveProjectManifestReply;
   };
   save_project_run: { args: T.SaveProjectRunArgs; reply: T.RunSummary };
+  config_form: { args: T.ConfigFormArgs; reply: T.FormSchema };
+  dataset_form: { args: T.DatasetFormArgs; reply: T.FormSchema };
+  resolve_config: { args: T.ResolveConfigArgs; reply: T.ResolveConfigReply };
   read_manifest: { args: T.ReadManifestArgs; reply: T.DatasetSpec };
   sniff_folder: { args: T.SniffFolderArgs; reply: T.DatasetSpec };
-  default_config: { args: T.DefaultConfigArgs; reply: T.DefaultConfigReply };
   load_export: { args: T.LoadExportArgs; reply: T.LoadExportResult };
   set_active_export: { args: T.SetActiveExportArgs; reply: T.SetActiveExportReply };
   undistort_points: { args: T.UndistortPointsArgs; reply: T.UndistortPointsReply };
@@ -94,6 +96,27 @@ export function createClient(t: Transport, hub: JobHub) {
     saveProjectRun: (args: T.SaveProjectRunArgs): Promise<T.RunSummary> =>
       t.invoke("save_project_run", args) as Promise<T.RunSummary>,
     /**
+     * The config form of the workflow `topology`: the schema of its config
+     * (`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's
+     * default configuration.
+     */
+    configForm: (args: T.ConfigFormArgs): Promise<T.FormSchema> =>
+      t.invoke("config_form", args) as Promise<T.FormSchema>,
+    /**
+     * The dataset manifest form: the schema of `DatasetSpec` and the manifest
+     * a new setup starts from (one chessboard camera, planar intrinsics).
+     */
+    datasetForm: (args: T.DatasetFormArgs = {}): Promise<T.FormSchema> =>
+      t.invoke("dataset_form", args) as Promise<T.FormSchema>,
+    /**
+     * The configuration of the workflow `topology` that `patch` makes from its
+     * defaults: tables merge key by key, anything else replaces (the library's
+     * rule, as `vcal run --config` applies it), then checked. A field the
+     * workflow does not have, or an invalid value, is a `config` error.
+     */
+    resolveConfig: (args: T.ResolveConfigArgs): Promise<T.ResolveConfigReply> =>
+      t.invoke("resolve_config", args) as Promise<T.ResolveConfigReply>,
+    /**
      * Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
      * otherwise. Its folder becomes one the app may read.
      */
@@ -107,12 +130,6 @@ export function createClient(t: Transport, hub: JobHub) {
      */
     sniffFolder: (args: T.SniffFolderArgs): Promise<T.DatasetSpec> =>
       t.invoke("sniff_folder", args) as Promise<T.DatasetSpec>,
-    /**
-     * The default `*Config` of a manifest topology (`planar_intrinsics`,
-     * `rig_handeye`, …): the library's `Config::default()`.
-     */
-    defaultConfig: (args: T.DefaultConfigArgs): Promise<T.DefaultConfigReply> =>
-      t.invoke("default_config", args) as Promise<T.DefaultConfigReply>,
     /**
      * Read and parse the calibration export at `path` and check its schema
      * version. It does not become active: the frontend validates it first and

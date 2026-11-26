@@ -5,9 +5,10 @@
  *
  * The back end is a mock transport — no real back end, no disk I/O:
  * the `fetch_sample` job answers a fake manifest path, `read_manifest` a
- * canned manifest in place of the preset's on-disk file, `default_config`
- * a minimal `PlanarIntrinsicsConfig`, and the `run_calibration` job a
- * synthetic success payload.
+ * canned manifest in place of the preset's on-disk file, `config_form`
+ * the published `PlanarIntrinsicsConfig` schema with a minimal default,
+ * `dataset_form` the manifest's, and the `run_calibration` job a synthetic
+ * success payload.
  */
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { TooltipProvider } from "@vitavision/ui";
@@ -25,6 +26,8 @@ import { RunWorkspace } from "./index";
 import { useStore } from "../../store";
 import { resetRunSetup } from "../../store/runSetup";
 import { useProject } from "../../project/projectStore";
+import datasetSchema from "../../../../../schemas/dataset_spec.json";
+import planarSchema from "../../../../../schemas/planar_intrinsics_config.json";
 
 // The manifest as the back end reads it from the preset's TOML.
 const MANIFEST = {
@@ -69,7 +72,8 @@ function backend(commands: CommandHandlers = {}, jobs: JobHandlers = {}): MockTr
   const mock = createMockTransport({
     commands: {
       read_manifest: () => MANIFEST,
-      default_config: () => DEFAULT_CONFIG,
+      config_form: () => ({ schema: planarSchema, default: DEFAULT_CONFIG }),
+      dataset_form: () => ({ schema: datasetSchema, default: MANIFEST }),
       ...commands,
     },
     jobs: {
@@ -113,7 +117,7 @@ describe("RunWorkspace happy path", () => {
     fireEvent.click(presetUseButton());
 
     // Preset load resolves asynchronously (fetch_sample + read_manifest +
-    // default_config); the quick-start grid collapses to the active-
+    // config_form); the quick-start grid collapses to the active-
     // preset bar once state settles.
     await screen.findByText("KUKA handeye", {}, { timeout: 2000 });
     const runButton = await screen.findByRole("button", { name: "Run" });
@@ -130,6 +134,28 @@ describe("RunWorkspace happy path", () => {
     // the /diagnose handoff.
     expect(useStore.getState().data).toEqual(
       RUN_SUCCESS_RESPONSE.kind === "ok" ? RUN_SUCCESS_RESPONSE.export : null,
+    );
+  });
+});
+
+describe("RunWorkspace forms", () => {
+  it("renders the forms the back end serves, filled with its defaults", async () => {
+    const mock = backend();
+    render(
+      <MemoryRouter>
+        <TooltipProvider>
+          <RunWorkspace />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText("Calibration config"));
+    const solver = await screen.findByRole("group", { name: "Solver" });
+    const maxIters = within(solver).getByRole<HTMLInputElement>("spinbutton", {
+      name: "Max iters",
+    });
+    expect(maxIters.value).toBe("50");
+    expect(mock.calls.map((c) => c.command)).toEqual(
+      expect.arrayContaining(["dataset_form", "config_form"]),
     );
   });
 });

@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 
 // Pure-logic `*.test.ts` files run in a Node environment — no jsdom, no
 // Tauri, no Vite plugins. The functions under test (inferExportKind,
-// exportKindLabel, mergeConfig) are dependency-free, so this keeps
+// exportKindLabel, runStages) are dependency-free, so this keeps
 // `bun run test` fast and isolated from the app shell.
 //
 // `*.test.tsx` component tests render through

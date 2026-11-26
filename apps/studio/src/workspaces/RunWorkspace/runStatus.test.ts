@@ -81,10 +81,18 @@ describe("setup summaries", () => {
   });
 
   it("says why Run is blocked, most fundamental reason first", () => {
-    const base = { supported: true, unresolved: 0, manifestDir: "/d" };
+    const base = {
+      supported: true,
+      unresolved: 0,
+      manifestDir: "/d",
+      configLoaded: true,
+    };
     expect(runBlockReason(base)).toBeUndefined();
     expect(runBlockReason({ ...base, manifestDir: null })).toBe(
       "Set a dataset folder first",
+    );
+    expect(runBlockReason({ ...base, configLoaded: false })).toBe(
+      "The calibration config has not loaded",
     );
     expect(runBlockReason({ ...base, unresolved: 2, manifestDir: null })).toBe(
       "Resolve 2 unresolved manifest fields first",

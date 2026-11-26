@@ -58,6 +58,6 @@ The app reads images only from folders you opened (a project's dataset, an expor
 
 ## Relation to the Library
 
-The app's forms are generated from the same JSON Schemas as the Rust configuration and manifest types (`cargo xtask emit-schemas`), so every field the pipeline accepts is editable without hand-writing JSON. The manifest it edits is the [dataset manifest](manifest.md); the results it displays are the [exports](per_feature_residuals.md) and [uncertainty](uncertainty.md) described in this book.
+The app's forms are generated from the JSON Schemas of the Rust configuration and manifest types, which the app's back end serves with their defaults, so every field the linked library accepts is editable without hand-writing JSON. The manifest it edits is the [dataset manifest](manifest.md); the results it displays are the [exports](per_feature_residuals.md) and [uncertainty](uncertainty.md) described in this book.
 
 To work on the app itself, see `apps/studio/DEVELOPING.md` in the repository.

@@ -47,6 +47,37 @@
     },
     {
       "args": {
+        "$ref": "#/definitions/ConfigFormArgs"
+      },
+      "doc": "The config form of the workflow `topology`: the schema of its config\n(`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's\ndefault configuration.",
+      "kind": "plain",
+      "name": "config_form",
+      "reply": {
+        "$ref": "#/definitions/FormSchema"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DatasetFormArgs"
+      },
+      "doc": "The dataset manifest form: the schema of `DatasetSpec` and the manifest\na new setup starts from (one chessboard camera, planar intrinsics).",
+      "kind": "plain",
+      "name": "dataset_form",
+      "reply": {
+        "$ref": "#/definitions/FormSchema"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ResolveConfigArgs"
+      },
+      "doc": "The configuration of the workflow `topology` that `patch` makes from its\ndefaults: tables merge key by key, anything else replaces (the library's\nrule, as `vcal run --config` applies it), then checked. A field the\nworkflow does not have, or an invalid value, is a `config` error.",
+      "kind": "plain",
+      "name": "resolve_config",
+      "reply": true
+    },
+    {
+      "args": {
         "$ref": "#/definitions/ReadManifestArgs"
       },
       "doc": "Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON\notherwise. Its folder becomes one the app may read.",
@@ -66,15 +97,6 @@
       "reply": {
         "$ref": "#/definitions/DatasetSpec"
       }
-    },
-    {
-      "args": {
-        "$ref": "#/definitions/DefaultConfigArgs"
-      },
-      "doc": "The default `*Config` of a manifest topology (`planar_intrinsics`,\n`rig_handeye`, …): the library's `Config::default()`.",
-      "kind": "plain",
-      "name": "default_config",
-      "reply": true
     },
     {
       "args": {
@@ -444,6 +466,24 @@
       ],
       "type": "object"
     },
+    "ConfigFormArgs": {
+      "additionalProperties": false,
+      "description": "The config form of the workflow `topology`: the schema of its config\n(`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's\ndefault configuration.",
+      "properties": {
+        "topology": {
+          "$ref": "#/definitions/ProblemKind"
+        }
+      },
+      "required": [
+        "topology"
+      ],
+      "type": "object"
+    },
+    "ConfigPatch": {
+      "additionalProperties": true,
+      "description": "Changes to a workflow's default configuration: what the patch names\nreplaces the default, what it leaves out keeps it.\n\nA patch is keyed like the problem's own config, a table of its fields\n(`{\"solver\": {\"max_iters\": 20}}`, or in TOML `solver.max_iters = 20`),\nnot the tagged `{\"topology\": …, \"config\": …}` form of\n[`CalibrationConfig`]. It applies by one rule: two tables merge key by\nkey, and any other value (a number, a string, a list, `null`) replaces\nwhat it lands on. [`CalibrationConfig::patched`] applies a patch to the\ndefaults of a topology and checks the result; a field the workflow does\nnot have is an error there, so a misspelt name never passes silently.\n\nTOML has no `null`, so a patch read from TOML cannot set an optional\nfield back to none; JSON can.\n\nThe patch serializes as its table, with the keys of every table sorted.\n\n```\nuse vision_calibration_dataset::ProblemKind;\nuse vision_calibration_pipeline::dataset_runner::{CalibrationConfig, ConfigPatch};\n\nlet patch = ConfigPatch::from_toml_str(\"solver.max_iters = 20\")?;\nlet config = CalibrationConfig::patched(ProblemKind::PlanarIntrinsics, &patch)?;\nlet CalibrationConfig::PlanarIntrinsics(planar) = &config else {\n    unreachable!(\"the patch applies to the topology's own config\");\n};\nassert_eq!(planar.solver.max_iters, 20);\n// The smallest patch that makes the configuration from the defaults.\nassert_eq!(ConfigPatch::from_config(&config), patch);\n# Ok::<(), vision_calibration_pipeline::Error>(())\n```",
+      "type": "object"
+    },
     "CornerCovarianceSpec": {
       "additionalProperties": false,
       "description": "Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].\nThe manifest's copy of the detector's covariance options (see\n[`DetectorSpec`]).",
@@ -494,6 +534,11 @@
         "dataset_dir",
         "manifest"
       ],
+      "type": "object"
+    },
+    "DatasetFormArgs": {
+      "additionalProperties": false,
+      "description": "The dataset manifest form: the schema of `DatasetSpec` and the manifest\na new setup starts from (one chessboard camera, planar intrinsics).",
       "type": "object"
     },
     "DatasetSpec": {
@@ -610,19 +655,6 @@
         "version",
         "cameras",
         "target",
-        "topology"
-      ],
-      "type": "object"
-    },
-    "DefaultConfigArgs": {
-      "additionalProperties": false,
-      "description": "The default `*Config` of a manifest topology (`planar_intrinsics`,\n`rig_handeye`, …): the library's `Config::default()`.",
-      "properties": {
-        "topology": {
-          "type": "string"
-        }
-      },
-      "required": [
         "topology"
       ],
       "type": "object"
@@ -1277,6 +1309,11 @@
           "type": "string"
         },
         {
+          "const": "config",
+          "description": "A calibration config that is not valid for its workflow: a field it\ndoes not have, a value of the wrong type or out of range.",
+          "type": "string"
+        },
+        {
           "const": "invalid",
           "description": "The request cannot be served as asked: no export is active, a camera\nindex is out of range, the export lacks what the command needs.",
           "type": "string"
@@ -1397,6 +1434,22 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "FormSchema": {
+      "description": "A form: the JSON Schema it renders and the value it starts from.",
+      "properties": {
+        "default": {
+          "description": "The value a new form starts from: the type's default."
+        },
+        "schema": {
+          "description": "A JSON Schema (draft 2020-12, as the library emits it)."
+        }
+      },
+      "required": [
+        "schema",
+        "default"
       ],
       "type": "object"
     },
@@ -2983,6 +3036,27 @@
       "required": [
         "kind",
         "count"
+      ],
+      "type": "object"
+    },
+    "ResolveConfigArgs": {
+      "additionalProperties": false,
+      "description": "The configuration of the workflow `topology` that `patch` makes from its\ndefaults: tables merge key by key, anything else replaces (the library's\nrule, as `vcal run --config` applies it), then checked. A field the\nworkflow does not have, or an invalid value, is a `config` error.",
+      "properties": {
+        "patch": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ConfigPatch"
+            }
+          ],
+          "default": {}
+        },
+        "topology": {
+          "$ref": "#/definitions/ProblemKind"
+        }
+      },
+      "required": [
+        "topology"
       ],
       "type": "object"
     },

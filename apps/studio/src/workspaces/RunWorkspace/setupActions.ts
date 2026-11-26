@@ -5,7 +5,7 @@ import { api, capabilities } from "../../api";
 import { dirnamePath } from "../../lib/paths";
 import { useRunSetup } from "../../store/runSetup";
 import { pickFolder, pickManifestFile } from "../../shell/dialogs";
-import { mergeConfig, type EnabledPreset } from "./presets";
+import type { EnabledPreset } from "./presets";
 import type { RunStatus } from "./runStatus";
 
 type Report = (status: RunStatus) => void;
@@ -53,9 +53,7 @@ export function setupActions(report: Report): SetupActions {
         const parsed = await api.readManifest({ path });
         if (seq !== activeLoadSeq) return false;
         await loadSetup({
-          manifest: preset.manifestOverrides
-            ? mergeConfig(parsed, preset.manifestOverrides)
-            : parsed,
+          manifest: parsed,
           manifestDir: dirnamePath(path),
           manifestPath: path,
           presetId: preset.id,

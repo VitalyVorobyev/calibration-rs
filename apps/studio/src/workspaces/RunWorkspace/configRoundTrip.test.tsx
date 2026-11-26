@@ -4,10 +4,11 @@
  * reported; each control can then be edited away from its value and back, and
  * the value the form hands out is the default again, key for key.
  *
- * The schemas are `src/schemas/<name>.json` and the values
+ * The schemas are the repository's `schemas/<name>.json` and the values
  * `<name>.default.json`, both emitted by `cargo xtask emit-schemas` (the
  * latter is `Config::default()` serialised, so a Rust default the form cannot
- * hold shows up here). `dataset_spec` has no `Default`; a real manifest
+ * hold shows up here). The back end's `config_form` and `dataset_form`
+ * answer exactly these (a studio-core test compares them). `dataset_spec` has no `Default`; a real manifest
  * (`data/kuka_1/dataset.toml`) stands in.
  */
 import { SchemaValueForm, type JsonSchema } from "@vitavision/forms";
@@ -17,11 +18,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import datasetKuka1 from "./__fixtures__/dataset_kuka_1.json";
 
 const schemaModules = import.meta.glob<{ default: unknown }>(
-  "../../schemas/!(*.default).json",
+  ["../../../../../schemas/*_config.json", "../../../../../schemas/dataset_spec.json"],
   { eager: true },
 );
 const defaultModules = import.meta.glob<{ default: unknown }>(
-  "../../schemas/*.default.json",
+  "../../../../../schemas/*_config.default.json",
   { eager: true },
 );
 
@@ -103,7 +104,7 @@ function dropMembers(value: unknown, unset: (member: unknown) => boolean): unkno
   );
 }
 
-it("covers every schema in src/schemas", () => {
+it("covers every form schema the library publishes", () => {
   expect(CASES.map((c) => c.name)).toEqual([
     "dataset_spec",
     "laserline_device_config",

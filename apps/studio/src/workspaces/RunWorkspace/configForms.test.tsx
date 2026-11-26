@@ -17,8 +17,8 @@ import { SchemaValueForm, type JsonSchema } from "@vitavision/forms";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import planarDefault from "../../schemas/planar_intrinsics_config.default.json";
-import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json";
+import planarDefault from "../../../../../schemas/planar_intrinsics_config.default.json";
+import planarConfigSchemaJson from "../../../../../schemas/planar_intrinsics_config.json";
 
 const planarConfigSchema = planarConfigSchemaJson as unknown as JsonSchema;
 

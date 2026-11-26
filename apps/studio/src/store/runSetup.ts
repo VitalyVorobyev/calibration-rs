@@ -1,35 +1,14 @@
 /** The Run workspace's setup — the dataset manifest, the calibration config
  * and where the dataset lives — as an app-wide store. It outlives the Run
  * workspace's mount, so opening a project from the shell fills it while
- * another workspace is showing, and a saved run records exactly what ran. */
+ * another workspace is showing, and a saved run records exactly what ran.
+ *
+ * Every default comes from the back end (`dataset_form`, `config_form`,
+ * `resolve_config`: the library's own defaults and merge rule); the store
+ * starts empty (`null`) until `ensureDefaults` or a loaded setup fills it. */
 import { create } from "zustand";
-import { api, capabilities } from "../api";
-import planarDefaultConfig from "../schemas/planar_intrinsics_config.default.json";
-import { mergeConfig } from "../workspaces/RunWorkspace/presets";
-
-/** A fresh session's manifest: one chessboard camera, planar intrinsics. */
-export const DEFAULT_DATASET: unknown = {
-  version: 1,
-  cameras: [
-    {
-      id: "cam0",
-      images: { kind: "glob", pattern: "*.png" },
-    },
-  ],
-  target: {
-    kind: "chessboard",
-    rows: 9,
-    cols: 6,
-    square_size_m: 0.025,
-  },
-  topology: "planar_intrinsics",
-};
-
-// Fallback outside the desktop app only — there the defaults come from
-// `default_config` (Rust `Config::default()`), the single source of
-// truth. This is the same value, emitted by `cargo xtask emit-schemas` (and
-// drift-checked in CI), so it cannot fall behind the Rust default.
-const DEFAULT_PLANAR_CONFIG: unknown = planarDefaultConfig;
+import { api } from "../api";
+import type { ProblemKind } from "../api/generated/types";
 
 /** Topology of a manifest value, defaulting to planar. */
 export function topologyOf(manifest: unknown): string {
@@ -37,17 +16,22 @@ export function topologyOf(manifest: unknown): string {
   return typeof m?.topology === "string" ? m.topology : "planar_intrinsics";
 }
 
-/** Default config for a topology: Rust-side defaults in the desktop app,
- * a static fallback elsewhere. */
-export async function fetchDefaultConfig(topology: string): Promise<unknown> {
-  if (capabilities().desktop) {
-    try {
-      return await api.defaultConfig({ topology });
-    } catch {
-      // Fall through to the static fallback (e.g. unknown topology).
+/** The config of `topology` that the library makes from its defaults and
+ * `overrides` (none: the defaults); `null` when the back end cannot say
+ * (an unknown topology, no back end). */
+export async function fetchDefaultConfig(
+  topology: string,
+  overrides?: Record<string, unknown>,
+): Promise<unknown> {
+  const kind = topology as ProblemKind;
+  try {
+    if (overrides !== undefined) {
+      return await api.resolveConfig({ topology: kind, patch: overrides });
     }
+    return (await api.configForm({ topology: kind })).default;
+  } catch {
+    return null;
   }
-  return topology === "planar_intrinsics" ? DEFAULT_PLANAR_CONFIG : {};
 }
 
 /** A whole new setup, as a preset, a sniffed folder or a project gives it. */
@@ -59,12 +43,16 @@ export interface SetupSource {
   manifestPath: string | null;
   /** The Quick Start preset it came from, if any. */
   presetId: string | null;
-  /** Merged over the topology's default config (a preset's tuning). */
+  /** Applied over the topology's default config by the library's rule (a
+   * preset's tuning). */
   configOverrides?: Record<string, unknown> | undefined;
 }
 
 export interface RunSetupState {
+  /** The manifest; `null` until the defaults have loaded. */
   manifest: unknown;
+  /** The topology's config; `null` until it has loaded (or when it could
+   * not be). */
   config: unknown;
   manifestDir: string | null;
   manifestPath: string | null;
@@ -79,11 +67,14 @@ export interface RunSetupState {
   setPaths: (paths: { manifestDir: string; manifestPath?: string | null }) => void;
   /** Start over from `source`, with that topology's default config. */
   loadSetup: (source: SetupSource) => Promise<void>;
+  /** Fill an empty setup with the back end's default manifest and its
+   * topology's default config; a setup already there is kept. */
+  ensureDefaults: () => Promise<void>;
 }
 
 const INITIAL = {
-  manifest: DEFAULT_DATASET,
-  config: DEFAULT_PLANAR_CONFIG,
+  manifest: null,
+  config: null,
   manifestDir: null,
   manifestPath: null,
   presetId: null,
@@ -96,8 +87,7 @@ let configRequest = 0;
 export const useRunSetup = create<RunSetupState>()((set, get) => {
   const resetConfig = async (manifest: unknown, overrides?: Record<string, unknown>) => {
     const request = ++configRequest;
-    let config = await fetchDefaultConfig(topologyOf(manifest));
-    if (overrides !== undefined) config = mergeConfig(config, overrides);
+    const config = await fetchDefaultConfig(topologyOf(manifest), overrides);
     if (request === configRequest) set({ config });
   };
 
@@ -107,7 +97,9 @@ export const useRunSetup = create<RunSetupState>()((set, get) => {
     setManifest: (manifest) => {
       const prev = get().manifest;
       set({ manifest });
-      if (topologyOf(manifest) !== topologyOf(prev)) void resetConfig(manifest);
+      if (topologyOf(manifest) !== topologyOf(prev) || get().config === null) {
+        void resetConfig(manifest);
+      }
     },
 
     updateManifest: (update) => get().setManifest(update(get().manifest)),
@@ -132,6 +124,23 @@ export const useRunSetup = create<RunSetupState>()((set, get) => {
         presetId: source.presetId,
       });
       await resetConfig(source.manifest, source.configOverrides);
+    },
+
+    ensureDefaults: async () => {
+      if (get().manifest !== null) {
+        if (get().config === null) await resetConfig(get().manifest);
+        return;
+      }
+      let manifest: unknown;
+      try {
+        manifest = (await api.datasetForm()).default;
+      } catch {
+        return;
+      }
+      // A setup loaded meanwhile wins.
+      if (get().manifest !== null) return;
+      set({ manifest });
+      await resetConfig(manifest);
     },
   };
 });
