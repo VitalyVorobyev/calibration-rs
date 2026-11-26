@@ -513,17 +513,53 @@ fn residual_map_options_round_trip_through_json() {
     );
 }
 
+// ─── The significance's reference distribution ──────────────────────────────
+
+/// The `χ` of `hotelling_chi` has `exp(−χ²/2)` equal to the upper tail of
+/// `F(2, ν − 1)` at `T²·(ν − 1)/(2ν)`, here integrated numerically from the
+/// density `(1 + 2x/m)^(−(m+2)/2)` (an independent path to the closed form);
+/// it tends to `√T²` with many views and is undefined at `ν ≤ 1`.
+#[test]
+fn significance_has_the_hotelling_tail() {
+    for nu in [2.5, 4.0, 5.0, 19.0, 99.0] {
+        let m = nu - 1.0;
+        let density = |x: f64| (1.0 + 2.0 * x / m).powf(-(m + 2.0) / 2.0);
+        for t2 in [0.5, 4.0, 9.18, 25.0] {
+            let f0 = t2 * (nu - 1.0) / (2.0 * nu);
+            // ∫_{f0}^{∞} density, by x = f0 + u/(1 − u) on u ∈ [0, 1).
+            let n = 200_000;
+            let tail: f64 = (0..n)
+                .map(|i| {
+                    let u = (i as f64 + 0.5) / n as f64;
+                    let x = f0 + u / (1.0 - u);
+                    density(x) / (1.0 - u).powi(2) / n as f64
+                })
+                .sum();
+            let chi = hotelling_chi(t2, nu);
+            let p = (-0.5 * chi * chi).exp();
+            assert!(
+                (p - tail).abs() <= 1e-4 * tail.max(1e-3),
+                "ν = {nu}, T² = {t2}: closed form {p}, integral {tail}"
+            );
+            assert!(
+                chi <= t2.sqrt() + 1e-12,
+                "the small-sample χ is never larger"
+            );
+        }
+    }
+    assert!((hotelling_chi(9.0, 1e9) - 3.0).abs() < 1e-6);
+    assert!(hotelling_chi(9.0, 1.0).is_nan());
+}
+
 // ─── B-T3: no gain from no field ────────────────────────────────────────────
 
 /// The share of nodes with a significance above `3.03` (pointwise
-/// `p < 0.01`), and whether cross-validation chose one of the two largest
+/// `p < 0.01`) and whether cross-validation chose one of the two largest
 /// scored bandwidths, for a zero field.
-fn null_run(capture: &Capture, seed: u64, columns: u32) -> (usize, usize, bool) {
+fn null_run(capture: &Capture, seed: u64, columns: u32) -> (f64, bool) {
     let records = capture.records(seed, zero);
     let grid = ImageGrid::with_columns(capture.size, columns).unwrap();
     let map = residual_map(&records, 0, &grid, &ResidualMapOptions::default()).unwrap();
-    let valid = map.significance.iter().filter(|v| v.is_finite()).count();
-    let high = map.significance.iter().filter(|&&v| v > 3.03).count();
     let smooth = match &map.bandwidth_selection {
         BandwidthSelection::CrossValidated { ladder_px, .. } => {
             let n = ladder_px.len();
@@ -531,11 +567,58 @@ fn null_run(capture: &Capture, seed: u64, columns: u32) -> (usize, usize, bool) 
         }
         _ => false,
     };
-    (high, valid, smooth)
+    (share_above(&map.significance), smooth)
 }
 
-/// With no field, few nodes are significant (averaged over 50
-/// seeds) and cross-validation picks one of the two smoothest bandwidths.
+/// The share of the nodes with a significance that exceed `3.03`.
+fn share_above(significance: &[f64]) -> f64 {
+    let valid = significance.iter().filter(|v| v.is_finite()).count();
+    let high = significance.iter().filter(|&&v| v > 3.03).count();
+    if valid == 0 {
+        f64::NAN
+    } else {
+        high as f64 / valid as f64
+    }
+}
+
+/// The mean of `values` and its Monte-Carlo standard error, ignoring NaN.
+fn mean_and_error(values: &[f64]) -> (f64, f64) {
+    let v: Vec<f64> = values.iter().copied().filter(|x| x.is_finite()).collect();
+    let n = v.len() as f64;
+    let mean = v.iter().sum::<f64>() / n;
+    let var = v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    (mean, (var / n).sqrt())
+}
+
+/// `f` over `seeds` on scoped threads, in seed order.
+fn par_seeds<T: Send>(seeds: std::ops::Range<u64>, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let seeds: Vec<u64> = seeds.collect();
+    let chunk = seeds.len().div_ceil(threads).max(1);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = seeds
+            .chunks(chunk)
+            .map(|c| {
+                let f = &f;
+                scope.spawn(move || c.iter().map(|&s| f(s)).collect::<Vec<T>>())
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("seed thread"))
+            .collect()
+    })
+}
+
+/// The pointwise rate the significance promises, and how many Monte-Carlo
+/// standard errors of the measured share it may exceed it by.
+const NOMINAL_RATE: f64 = 0.01;
+const MC_SIGMAS: f64 = 3.0;
+
+/// With no field, the share of nodes with `χ > 3.03` is the nominal
+/// 1 % within three Monte-Carlo standard errors (400 seeds; the nodes of one
+/// map are correlated, so the error comes from the per-seed shares), and
+/// cross-validation picks one of the two smoothest bandwidths.
 #[test]
 #[ignore = "release-mode Monte-Carlo; run by scripts/uncertainty_gates.py"]
 fn residual_map_finds_no_field_where_there_is_none() {
@@ -543,21 +626,21 @@ fn residual_map_finds_no_field_where_there_is_none() {
         view_sigma: 0.05,
         ..Capture::new([1280, 960], 20, 300)
     };
-    let (mut high, mut valid, mut smooth) = (0, 0, 0);
-    let seeds = 50;
-    for seed in 0..seeds {
-        let (h, v, s) = null_run(&capture, 1000 + seed, 64);
-        high += h;
-        valid += v;
-        smooth += usize::from(s);
-    }
-    let share = high as f64 / valid as f64;
+    let seeds = 400;
+    let runs = par_seeds(0..seeds, |seed| null_run(&capture, 1000 + seed, 64));
+    let shares: Vec<f64> = runs.iter().map(|r| r.0).collect();
+    let smooth = runs.iter().filter(|r| r.1).count();
+    let (share, error) = mean_and_error(&shares);
     eprintln!(
-        "B-T3: {:.2} % of valid nodes with χ > 3.03; CV chose one of the two smoothest in \
-         {smooth} of {seeds} runs",
-        100.0 * share
+        "no field, 20 views × 300, cross-validated: χ > 3.03 at {:.2} ± {:.2} % of nodes \
+         ({seeds} seeds); CV chose one of the two smoothest in {smooth} of {seeds} runs",
+        100.0 * share,
+        100.0 * error
     );
-    assert!(share <= 0.02, "{share}");
+    assert!(
+        share <= NOMINAL_RATE + MC_SIGMAS * error,
+        "{share} ± {error}"
+    );
     assert!(smooth as u64 * 10 >= seeds * 9, "{smooth} of {seeds}");
 }
 
@@ -566,7 +649,7 @@ fn residual_map_finds_no_field_where_there_is_none() {
 /// Monte-Carlo of the map at fixed nodes under a zero field: the scatter of
 /// `μ̂` across seeds against the stated standard error (RMS over seeds), for
 /// the view-clustered error and the per-record one; and, when asked, the
-/// mean `χ²` over the valid nodes of the whole map.
+/// whole map's mean `χ²` and per-seed share of nodes with `χ > 3.03`.
 struct MonteCarlo {
     /// Per node: scatter / RMS stated SE, view-clustered; NaN without support.
     clustered: Vec<f64>,
@@ -576,7 +659,14 @@ struct MonteCarlo {
     effective_views: Vec<f64>,
     /// The mean `χ²` over valid nodes and seeds; NaN when not asked.
     mean_chi2: f64,
+    /// Per seed: the share of the map's nodes with `χ > 3.03`.
+    shares: Vec<f64>,
 }
+
+/// One seed of [`monte_carlo`]: per node `(mean, clustered SE², per-record
+/// SE², effective views)` where supported, the map's `Σχ²` and node count,
+/// and its share above 3.03.
+type SeedRun = (Vec<Option<([f64; 2], f64, f64, f64)>>, f64, usize, f64);
 
 fn monte_carlo(
     capture: &Capture,
@@ -587,21 +677,18 @@ fn monte_carlo(
 ) -> MonteCarlo {
     let grid = ImageGrid::with_columns(capture.size, 32).unwrap();
     let opts = options(Bandwidth::Pixels(h));
-    let n = nodes.len();
-    let mut means = vec![Vec::new(); n];
-    let mut se2 = vec![(0.0, 0.0); n];
-    let mut g_sum = vec![0.0; n];
-    let (mut chi2, mut chi_count) = (0.0, 0usize);
-    for seed in 0..seeds {
+    let runs: Vec<SeedRun> = par_seeds(0..seeds, |seed| {
         let records = capture.records(5000 + seed, zero);
+        let (mut chi2, mut count, mut share) = (0.0, 0, f64::NAN);
         if whole_map {
             let map = residual_map(&records, 0, &grid, &opts).unwrap();
             for &s in &map.significance {
                 if s.is_finite() {
                     chi2 += s * s;
-                    chi_count += 1;
+                    count += 1;
                 }
             }
+            share = share_above(&map.significance);
         }
         // The fixed nodes, with both clusterings.
         let selected = select(&records, 0, None).unwrap();
@@ -610,55 +697,65 @@ fn monte_carlo(
         let views = renumber_views(&mut samples).len();
         let smoother = Smoother::new(&samples, h);
         let mut scratch = Scratch::new(views);
-        for (j, &x0) in nodes.iter().enumerate() {
-            let by_view = smoother.fit(x0, &mut scratch, Clusters::Views);
-            let by_record = smoother.fit(x0, &mut scratch, Clusters::Records);
-            let usable =
-                by_view.supported(opts.min_effective_samples) && by_view.std_error.is_finite();
-            if !usable {
-                continue;
-            }
-            means[j].push(by_view.mean);
-            se2[j].0 += by_view.std_error.powi(2);
-            se2[j].1 += by_record.std_error.powi(2);
-            g_sum[j] += by_view.effective_views;
-        }
-    }
+        let fits = nodes
+            .iter()
+            .map(|&x0| {
+                let by_view = smoother.fit(x0, &mut scratch, Clusters::Views);
+                let by_record = smoother.fit(x0, &mut scratch, Clusters::Records);
+                let usable =
+                    by_view.supported(opts.min_effective_samples) && by_view.std_error.is_finite();
+                usable.then(|| {
+                    (
+                        by_view.mean,
+                        by_view.std_error.powi(2),
+                        by_record.std_error.powi(2),
+                        by_view.effective_views,
+                    )
+                })
+            })
+            .collect();
+        (fits, chi2, count, share)
+    });
     let mut clustered = Vec::new();
     let mut per_record = Vec::new();
     let mut effective_views = Vec::new();
-    for j in 0..n {
-        let m = &means[j];
-        let k = m.len() as f64;
-        if m.len() < seeds as usize / 2 {
+    for j in 0..nodes.len() {
+        let fits: Vec<_> = runs.iter().filter_map(|r| r.0[j]).collect();
+        let k = fits.len() as f64;
+        if fits.len() < seeds as usize / 2 {
             clustered.push(f64::NAN);
             per_record.push(f64::NAN);
             effective_views.push(f64::NAN);
             continue;
         }
-        let mx = m.iter().map(|v| v[0]).sum::<f64>() / k;
-        let my = m.iter().map(|v| v[1]).sum::<f64>() / k;
+        let mx = fits.iter().map(|f| f.0[0]).sum::<f64>() / k;
+        let my = fits.iter().map(|f| f.0[1]).sum::<f64>() / k;
         let (mut cxx, mut cxy, mut cyy) = (0.0, 0.0, 0.0);
-        for v in m {
-            cxx += (v[0] - mx).powi(2);
-            cxy += (v[0] - mx) * (v[1] - my);
-            cyy += (v[1] - my).powi(2);
+        for f in &fits {
+            cxx += (f.0[0] - mx).powi(2);
+            cxy += (f.0[0] - mx) * (f.0[1] - my);
+            cyy += (f.0[1] - my).powi(2);
         }
         let (cxx, cxy, cyy) = (cxx / (k - 1.0), cxy / (k - 1.0), cyy / (k - 1.0));
         let major = (0.5 * (cxx + cyy) + (0.5 * (cxx - cyy)).hypot(cxy)).sqrt();
-        clustered.push(major / (se2[j].0 / k).sqrt());
-        per_record.push(major / (se2[j].1 / k).sqrt());
-        effective_views.push(g_sum[j] / k);
+        let se_view = (fits.iter().map(|f| f.1).sum::<f64>() / k).sqrt();
+        let se_record = (fits.iter().map(|f| f.2).sum::<f64>() / k).sqrt();
+        clustered.push(major / se_view);
+        per_record.push(major / se_record);
+        effective_views.push(fits.iter().map(|f| f.3).sum::<f64>() / k);
     }
+    let chi2: f64 = runs.iter().map(|r| r.1).sum();
+    let count: usize = runs.iter().map(|r| r.2).sum();
     MonteCarlo {
         clustered,
         per_record,
         effective_views,
         mean_chi2: if whole_map {
-            chi2 / chi_count as f64
+            chi2 / count as f64
         } else {
             f64::NAN
         },
+        shares: runs.iter().map(|r| r.3).collect(),
     }
 }
 
@@ -666,8 +763,9 @@ fn monte_carlo(
 /// of the mean (ratio in [0.8, 1.25]) at the centre, an edge and a corner,
 /// with per-view common offsets (σ 0.05 px) standing in for pose error and
 /// iid noise (σ 0.1 px), at 20 views and at about 5 effective views; the
-/// mean `χ²` is near its 2 degrees of freedom at 20 views; treating the
-/// records as independent understates the scatter by 1.3× or more.
+/// mean `χ²` is near its 2 degrees of freedom at 20 views; at the centre,
+/// where many records of every view support the node, treating the records
+/// as independent understates the scatter by more than 1.5×.
 #[test]
 #[ignore = "release-mode Monte-Carlo; run by scripts/uncertainty_gates.py"]
 fn residual_map_standard_error_matches_monte_carlo() {
@@ -690,10 +788,11 @@ fn residual_map_standard_error_matches_monte_carlo() {
                 failures.push(format!("{views} views, node {j}: clustered ratio {r:.3}"));
             }
         }
-        for (j, r) in mc.per_record.iter().enumerate() {
-            if r.is_nan() || *r < 1.3 {
-                failures.push(format!("{views} views, node {j}: per-record ratio {r:.3}"));
-            }
+        if mc.per_record[0].is_nan() || mc.per_record[0] < 1.5 {
+            failures.push(format!(
+                "{views} views: per-record ratio at the centre {:.3}",
+                mc.per_record[0]
+            ));
         }
         if views == 20 && !(1.6..=2.5).contains(&mc.mean_chi2) {
             failures.push(format!("{views} views: mean χ² {:.3}", mc.mean_chi2));
@@ -702,13 +801,14 @@ fn residual_map_standard_error_matches_monte_carlo() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// One capture of the sweep: its report line and its failures.
+/// One capture of the sweep: its report line, its no-field share and that
+/// share's Monte-Carlo error, and its failures.
 fn sweep_capture(
     size: [u32; 2],
     coverage: f64,
     views: usize,
     per_view: usize,
-) -> (String, Vec<String>) {
+) -> (String, f64, f64, Vec<String>) {
     let capture = Capture {
         view_sigma: 0.05,
         coverage,
@@ -721,23 +821,20 @@ fn sweep_capture(
         [w / 2.0 - 0.5, y0 + 15.0],
         [x0 + 15.0, y0 + 15.0],
     ];
-    let mc = monte_carlo(&capture, 0.1 * w.hypot(hgt), 200, &nodes, false);
-    let (mut high, mut valid, mut smooth) = (0, 0, 0);
+    let mc = monte_carlo(&capture, 0.1 * w.hypot(hgt), 200, &nodes, true);
+    let (share, error) = mean_and_error(&mc.shares);
     let seeds = 10;
-    for seed in 0..seeds {
-        let (hi, v, s) = null_run(&capture, 2000 + seed, 64);
-        high += hi;
-        valid += v;
-        smooth += usize::from(s);
-    }
-    let share = high as f64 / valid.max(1) as f64;
+    let smooth = (0..seeds)
+        .filter(|&seed| null_run(&capture, 2000 + seed, 32).1)
+        .count();
     let label = format!("{size:?} coverage {coverage}, {views} views × {per_view}");
     let line = format!(
-        "sweep {label}: clustered {:.3?} (effective views {:.1?}); χ > 3.03 at {:.2} % of \
-         {valid} nodes; CV smoothest {smooth}/{seeds}",
+        "sweep {label}: clustered {:.3?} (effective views {:.1?}); χ > 3.03 at \
+         {:.2} ± {:.2} % of nodes (200 seeds); CV smoothest {smooth}/{seeds}",
         mc.clustered,
         mc.effective_views,
-        100.0 * share
+        100.0 * share,
+        100.0 * error
     );
     let mut failures = Vec::new();
     for (j, r) in mc.clustered.iter().enumerate() {
@@ -745,22 +842,28 @@ fn sweep_capture(
             failures.push(format!("{label}: node {j} clustered ratio {r:.3}"));
         }
     }
-    if valid > 0 && share > 0.02 {
-        failures.push(format!("{label}: χ > 3.03 at {:.2} %", 100.0 * share));
+    if share > NOMINAL_RATE + MC_SIGMAS * error {
+        failures.push(format!(
+            "{label}: χ > 3.03 at {:.2} ± {:.2} %",
+            100.0 * share,
+            100.0 * error
+        ));
     }
     if smooth * 10 < seeds as usize * 9 {
         failures.push(format!("{label}: CV smoothest {smooth}/{seeds}"));
     }
-    (line, failures)
+    (line, share, error, failures)
 }
 
-/// The standard-error and no-field tests swept over captures: features per view
-/// {50, 300, 1000} × views {6, 20, 100} × coverage {full, central 60 %} ×
-/// aspect {4:3, 3:1}. The standard error at `h = 0.1·diagonal`, 200 seeds, at the
-/// coverage's centre, top edge and top-left corner (each 15 px inside it),
-/// where at least 5 effective views support a standard error; the no-field test with
-/// cross-validation, 10 seeds. The captures run on their own threads; each
-/// is deterministic, and the lines print in sweep order.
+/// The standard-error and no-field tests swept over captures: features per
+/// view {50, 300, 1000} × views {6, 20, 100} × coverage {full, central 60 %}
+/// × aspect {4:3, 3:1}. At `h = 0.1·diagonal` and 200 seeds: the
+/// standard error at the coverage's centre, top edge and top-left corner
+/// (each 15 px inside it, where at least 5 effective views support one), and
+/// the share of the map's nodes with `χ > 3.03` against the nominal 1 %
+/// within three Monte-Carlo standard errors. Cross-validation's choice over
+/// 10 seeds. The captures run on their own threads; the lines print in sweep
+/// order, then the share per number of views.
 #[test]
 #[ignore = "release-mode Monte-Carlo; run by scripts/uncertainty_gates.py"]
 fn residual_map_sweep_over_captures() {
@@ -774,7 +877,7 @@ fn residual_map_sweep_over_captures() {
             }
         }
     }
-    let results: Vec<(String, Vec<String>)> = std::thread::scope(|scope| {
+    let results: Vec<(String, f64, f64, Vec<String>)> = std::thread::scope(|scope| {
         let handles: Vec<_> = captures
             .iter()
             .map(|&(size, coverage, views, per_view)| {
@@ -787,9 +890,26 @@ fn residual_map_sweep_over_captures() {
             .collect()
     });
     let mut failures = Vec::new();
-    for (line, f) in results {
+    for (line, _, _, f) in &results {
         eprintln!("{line}");
-        failures.extend(f);
+        failures.extend(f.iter().cloned());
+    }
+    for views in [6, 20, 100] {
+        let class: Vec<(f64, f64)> = captures
+            .iter()
+            .zip(&results)
+            .filter(|(c, _)| c.2 == views)
+            .map(|(_, r)| (r.1, r.2))
+            .collect();
+        let n = class.len() as f64;
+        let share = class.iter().map(|c| c.0).sum::<f64>() / n;
+        let error = class.iter().map(|c| c.1 * c.1).sum::<f64>().sqrt() / n;
+        eprintln!(
+            "sweep {views} views: χ > 3.03 at {:.2} ± {:.2} % of nodes over {} captures",
+            100.0 * share,
+            100.0 * error,
+            class.len()
+        );
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }

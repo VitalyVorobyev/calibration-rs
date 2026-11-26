@@ -177,10 +177,14 @@ pub struct ResidualMap {
     /// The kernel-weighted RMS of `|observed − projected|`, pixels.
     pub rms: Vec<f64>,
     /// The major-axis standard error of the mean, view-clustered, pixels;
-    /// `NaN` with fewer effective views than the options ask.
+    /// `NaN` with fewer effective views than the options ask. Conditional on
+    /// the fitted camera and poses (see [`residual_map`]).
     pub std_error: Vec<f64>,
-    /// `χ = √(μ̂ᵀ V̂⁻¹ μ̂)`, pointwise; `NaN` as `std_error`, and where the
-    /// scatter is zero.
+    /// The pointwise significance of the mean as the χ of a two-degree-of-
+    /// freedom test: `χ > 3.03` is `p < 0.01` whatever the number of views
+    /// (see [`residual_map`]). `NaN` as `std_error`, with fewer than three
+    /// effective views, and where the scatter is zero. Conditional on the
+    /// fitted parameters, as `std_error`.
     pub significance: Vec<f64>,
     /// The effective number of samples `1/Σ l_k²`; 0 where the node has no
     /// weight or a collinear support. Always filled, for a support contour.
@@ -248,9 +252,27 @@ pub struct ResidualMap {
 /// the effective number of views `(Σ_v a_v)²/Σ_v a_v²`, `a_v = Σ_{k∈v}|l_k|`.
 /// It measures the scatter, so it needs no noise model and is not affected
 /// by a stated feature covariance that is too small. `std_error` is the
-/// major-axis σ, `significance` is `χ = √(μ̂ᵀ V̂⁻¹ μ̂)`, pointwise
-/// `p = exp(−χ²/2)` under a zero field (`χ > 3.03` is `p < 0.01`). Both need
+/// major-axis σ of `V̂`. Both need
 /// `G ≥` [`min_effective_views`](ResidualMapOptions::min_effective_views).
+///
+/// `V̂` is itself estimated from about `G` views, so `T² = μ̂ᵀ V̂⁻¹ μ̂` under a
+/// zero field is not χ²₂ but Hotelling's `T²` with `ν = G − 1` degrees of
+/// freedom: `T²·(ν − 1)/(2ν) ~ F(2, ν − 1)`, whose tail is
+/// `p = (1 + T²/ν)^(−(ν−1)/2)`. `significance` reports that `p` as the
+/// equivalent two-degree-of-freedom `χ = √(−2 ln p) = √((ν − 1)·ln(1 + T²/ν))`,
+/// so `χ > 3.03` means `p < 0.01` with 6 views as with 100; it tends to
+/// `√T²` with many views. `G` is the effective number of views, a
+/// Satterthwaite-style stand-in for the number of equal, independent
+/// clusters (exact for equally weighted views). With `ν ≤ 1` (fewer than
+/// three effective views) there is no significance.
+///
+/// Both are **conditional on the fitted camera and poses**: they describe
+/// how much the mean scatters over the views of this fit. Over repeated
+/// captures, each refitted, the map scatters less than that (the camera
+/// parameters absorb part of each capture's image-fixed noise), so the
+/// error is conservative there. It does not cover a systematic shift of the
+/// fit itself with the noise, which can move a weak field by a few standard
+/// errors.
 ///
 /// # Bandwidth
 ///
@@ -967,10 +989,10 @@ impl<'a> Smoother<'a> {
             let major = half_trace + (0.5 * (vxx - vyy)).hypot(vxy);
             let det = vxx * vyy - vxy * vxy;
             let chi = if det > 0.0 {
-                let q = (vyy * mean[0] * mean[0] - 2.0 * vxy * mean[0] * mean[1]
+                let t2 = (vyy * mean[0] * mean[0] - 2.0 * vxy * mean[0] * mean[1]
                     + vxx * mean[1] * mean[1])
                     / det;
-                q.max(0.0).sqrt()
+                hotelling_chi(t2.max(0.0), effective_views - 1.0)
             } else {
                 f64::NAN
             };
@@ -991,6 +1013,18 @@ impl<'a> Smoother<'a> {
             },
             conditioned: true,
         }
+    }
+}
+
+/// The two-degree-of-freedom `χ` with the tail probability of Hotelling's
+/// `T²` (dimension 2, `nu` degrees of freedom): `T²·(ν − 1)/(2ν)` is
+/// `F(2, ν − 1)`, whose survival function is `(1 + T²/ν)^(−(ν−1)/2)`, and
+/// `χ = √(−2 ln p) = √((ν − 1)·ln(1 + T²/ν))`. `NaN` for `ν ≤ 1`.
+pub(super) fn hotelling_chi(t2: f64, nu: f64) -> f64 {
+    if nu > 1.0 {
+        ((nu - 1.0) * (t2 / nu).ln_1p()).sqrt()
+    } else {
+        f64::NAN
     }
 }
 

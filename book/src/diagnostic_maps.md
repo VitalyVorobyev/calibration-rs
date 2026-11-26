@@ -128,17 +128,31 @@ error is clustered by view
 ([Cameron & Miller (2015)](references.md#cameron-miller-2015)) and measures
 the scatter itself, so it does not depend on a stated feature noise. It needs
 5 effective views (`min_effective_views`); a map of one view has a mean but
-no significance. `significance` is `χ = √(μᵀ V⁻¹ μ)`; under no field,
-`χ > 3.03` would be a pointwise `p < 0.01`. That reading assumes many views:
-the covariance itself is estimated from the views, so with about 20 of them
-roughly 3 % of the nodes of a map with no field pass 3.03, and with about 6
-views more than 10 %. Nodes within about two kernel widths are strongly
-correlated: count significant regions, not nodes.
+no significance. Clustering matters most where many records of every view
+support a node, and least where few samples do: in a synthetic capture of
+20 views with a pose error per view, a per-feature standard error
+understates the scatter 2.6× at the image centre but only 1.1× at a corner.
 
-The standard error describes the scatter of the mean over the views of this
-fit. It does not include the uncertainty of the fitted camera parameters
-themselves, which moves the whole field smoothly; with a wide kernel and many
-features that can be the larger error.
+`significance` is a pointwise test of a zero mean, reported as the `χ` of a
+two-degree-of-freedom test, so `χ > 3.03` means `p < 0.01` whatever the
+number of views. The covariance is itself estimated from the views, so
+`T² = μᵀ V⁻¹ μ` follows Hotelling's distribution with `ν = G − 1` degrees of
+freedom (`G` the effective number of views):
+`p = (1 + T²/ν)^(−(ν−1)/2)` and `χ = √(−2 ln p)`, which tends to `√T²` with
+many views. A raw `√T²` would pass 3.03 at about 3 % of the nodes of a
+no-field map with 20 views and over 10 % with 6. Nodes within about two
+kernel widths are strongly correlated: count significant regions, not nodes.
+
+Both the standard error and the significance are **conditional on the
+fitted camera and poses**: they describe how the mean scatters over the
+views of this fit. Over repeated captures, each calibrated anew, the map
+scatters less than that, about a quarter of the stated error in a synthetic
+test, because the camera parameters absorb part of each capture's
+image-fixed noise; the error is conservative there. What it does not cover
+is a systematic shift of the fit with the noise: in the same test the
+average map of noisy captures sat up to about five standard errors from the
+map of a noise-free calibration where the field was weak. A weak field that
+is only just significant deserves that caution.
 
 **Bandwidth.** `Bandwidth::Auto` (the default) chooses the kernel's σ by
 cross-validation over views on a ladder of 3, 4.5, 7, 10, 15 and 22 % of the

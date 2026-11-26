@@ -152,8 +152,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a standard error clustered by view and a pointwise significance, with the
   kernel's bandwidth cross-validated over views (`ResidualMapOptions`,
   `Bandwidth`, `BandwidthSelection`). Gross errors are left out and listed.
-  The significance runs high with few views (about 3 % of nodes pass
-  `χ > 3.03` under no field with 20 views, more with fewer). Python:
+  The significance is calibrated for the number of views (Hotelling's `T²`
+  reported as a two-degree-of-freedom `χ`, so `χ > 3.03` is `p < 0.01` with
+  few views as with many); it and the standard error are conditional on the
+  fitted camera and poses. Python:
   `vision_calibration.residual_map`.
 - `TargetFeatureResidual::residual_px` returns a record's residual vector,
   `observed_px − projected_px`, the sign the solver minimizes.

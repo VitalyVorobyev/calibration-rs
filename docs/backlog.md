@@ -425,22 +425,21 @@ Each model follows AGENTS.md §10 (a camera model).
   moves verdicts, so it is opt-in until measured: the false-alarm rate on
   the suite's correct-model runs and the detection rate on synthetic
   missing-term runs, both backends. Needs: RESID-MAP-SIGNIFICANCE.
-- [ ] RESID-MAP-SIGNIFICANCE - The residual map's `significance` uses a χ²₂
-  reference, but `V̂` is estimated from the views: under no field `χ > 3.03`
-  occurs at ~3 % of nodes with ~20 effective views and 4–19 % with ~6
-  (the release-mode gates `residual_map_finds_no_field_where_there_is_none`
-  and `residual_map_sweep_over_captures` fail on it). Its standard error
-  also omits the fit's own parameter noise: 88 % (not 95 %) of nodes lie
-  within 3 SE of a noise-free refit's map at a 352 px kernel
-  (`residual_map_recovers_the_field_a_missing_term_leaves`, ignored).
-  `residual_map_standard_error_matches_monte_carlo` also fails one of its
-  criteria: a per-record SE understates the scatter only 1.09× at the
-  image corner (the design expected ≥ 1.3×; 2.6× at the centre).
-  Candidates: a Hotelling/F reference with `G_eff − 1` degrees of freedom
-  (it changes what `significance` means: decide before the field ships in
-  a release), a parameter-noise term from the export's covariance. Gate:
-  those tests pass unchanged, or their criteria are revised with the
-  reason.
+- [ ] RESID-MAP-SIGNIFICANCE - The residual map's standard error and
+  significance are conditional on the fitted camera and poses. A
+  parameter-noise term was the candidate fix for a noisy map lying more
+  than 3 SE from a noise-free refit's map at 12 % of nodes, but the refit
+  Monte-Carlo (`residual_map_standard_error_over_refits`, thin prism fitted
+  with Brown-Conrady, 40 draws) shows the opposite of what that term
+  would correct: over refits the map scatters only 0.12–0.59× its stated
+  SE (the camera parameters absorb each draw's image-fixed noise), while
+  the draws' *mean* sits a median 1.7 and up to 5.8 SE from the noise-free
+  refit's map at a 352 px kernel (0.3 / 2.5 at 160 px), with the default
+  `RobustLoss::None`. Open: root-cause that shift (a second-order noise
+  bias of the misspecified fit is the first hypothesis) and decide whether
+  the map should state it; a parameter-noise term in `V̂` would make the
+  already conservative error more so. Gate: the cause pinned by a test,
+  and the no-field gates unchanged.
 
 ## Multiple-view geometry (Phase 2)
 

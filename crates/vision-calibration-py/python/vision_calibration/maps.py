@@ -171,9 +171,18 @@ class ResidualMap:
     """The kernel-weighted RMS of ``|observed − projected|``, pixels."""
     std_error: NDArray[np.float64]
     """The major-axis standard error of the mean (clustered by view),
-    pixels; NaN with too few effective views."""
+    pixels; NaN with too few effective views. Conditional on the fitted
+    camera and poses: over repeated, refitted captures the map scatters
+    less than this, but a systematic shift of the fit with the noise is not
+    covered."""
     significance: NDArray[np.float64]
-    """``χ = sqrt(μᵀ V⁻¹ μ)``; ``χ > 3.03`` is pointwise ``p < 0.01``."""
+    """The pointwise test of a zero mean as the ``χ`` of a two-degree-of-
+    freedom test: ``χ > 3.03`` is ``p < 0.01`` at any number of views. The
+    covariance is estimated from ``G`` effective views, so ``T² = μᵀ V⁻¹ μ``
+    is referred to Hotelling's distribution with ``ν = G − 1``:
+    ``p = (1 + T²/ν)^(−(ν−1)/2)``, ``χ = sqrt(−2 ln p)``. NaN with fewer than
+    three effective views. Conditional on the fitted parameters, as
+    ``std_error``."""
     effective_samples: NDArray[np.float64]
     """The effective number of samples behind each node (0 where none)."""
     effective_views: NDArray[np.float64]

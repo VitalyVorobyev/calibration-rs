@@ -37,27 +37,18 @@ ROOT = Path(__file__).resolve().parent.parent
 GATES: list[tuple[str, str, tuple[str, ...]]] = [
     ("vision-calibration", "rig_extrinsics_scheimpflug", ()),  # 340 s
     ("vision-calibration", "second_order_error", ()),  # 250 s
+    # 36 captures on their own threads: 230 s on 12 cores.
+    (
+        "vision-calibration-pipeline",
+        "lib",
+        ("analysis::residual_map::tests::residual_map_sweep_over_captures",),
+    ),  # 230 s
     ("vision-calibration-optim", "uncertainty", ()),  # 200 s
     ("vision-calibration", "handeye_frame_uncertainty", ()),  # 190 s
     ("vision-calibration", "bundle_adjust_uncertainty", ()),  # 175 s
     ("vision-calibration-optim", "feature_covariance", ()),  # 175 s
     ("vision-calibration", "rig_laser_uncertainty", ()),  # 170 s
     ("vision-calibration-optim", "rig_laser_problem", ()),  # 160 s
-    # 36 captures on their own threads: 125 s on 12 cores, 570 s on one.
-    (
-        "vision-calibration-pipeline",
-        "lib",
-        ("analysis::residual_map::tests::residual_map_sweep_over_captures",),
-    ),  # 125 s
-    ("vision-calibration", "metrology_uncertainty", ()),  # 105 s
-    ("vision-calibration", "pose_uncertainty", ()),  # 95 s
-    ("vision-calibration", "dense_cloud_uncertainty", ()),  # 65 s
-    ("vision-calibration", "triangulation_uncertainty", ()),  # 60 s
-    ("vision-calibration", "stereo_uncertainty", ()),  # 55 s
-    ("vision-calibration-optim", "robot_pose_priors", ("estimated_robot_sigma",)),  # 50 s
-    ("vision-calibration-bench", "split_half_honesty", ()),  # 50 s
-    ("vision-calibration", "compose_pipeline", ()),  # 40 s
-    ("vision-calibration-pipeline", "lib", ("analysis::next_view",)),  # 40 s
     (
         "vision-calibration-pipeline",
         "lib",
@@ -65,7 +56,17 @@ GATES: list[tuple[str, str, tuple[str, ...]]] = [
             "analysis::residual_map::tests::residual_map_standard_error",
             "analysis::residual_map::tests::residual_map_finds_no_field",
         ),
-    ),  # 40 s
+    ),  # 145 s
+    ("vision-calibration", "metrology_uncertainty", ()),  # 105 s
+    ("vision-calibration", "pose_uncertainty", ()),  # 95 s
+    ("vision-calibration", "dense_cloud_uncertainty", ()),  # 65 s
+    ("vision-calibration-pipeline", "residual_map_end_to_end", ()),  # 55 s
+    ("vision-calibration", "triangulation_uncertainty", ()),  # 60 s
+    ("vision-calibration", "stereo_uncertainty", ()),  # 55 s
+    ("vision-calibration-optim", "robot_pose_priors", ("estimated_robot_sigma",)),  # 50 s
+    ("vision-calibration-bench", "split_half_honesty", ()),  # 50 s
+    ("vision-calibration", "compose_pipeline", ()),  # 40 s
+    ("vision-calibration-pipeline", "lib", ("analysis::next_view",)),  # 40 s
     ("vision-calibration", "quality_tilt_conditioning", ()),  # 20 s
     ("vision-mvg", "triangulation_cov", ()),  # 20 s
     ("vision-calibration", "custom_residual", ()),  # 15 s

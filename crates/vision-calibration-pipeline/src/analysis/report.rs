@@ -478,7 +478,8 @@ fn residual_figures(
     let mean_caption = format!(
         "Systematic reprojection error: the local mean of observed − projected over the {} \
          views, its length in pixels, kernel σ {} px ({selection}){extent}. Grey: not \
-         significant (χ < 3.03); empty: too few features. {finding} A pattern toward the \
+         significant (pointwise p ≥ 0.01, calibrated for the number of views); empty: too \
+         few features. {finding} A pattern toward the \
          edges points at the camera model, but it averages this capture's depths and poses.",
         map.views,
         sig(map.bandwidth_px, 2),

@@ -41,9 +41,20 @@ where the data do not reach; and they must cost no wire format.
 - **Residual field estimator: Gaussian local-linear**, bandwidth by K-fold
   cross-validation over *views* (ladder 3–22 % of the diagonal, one-SE rule
   toward the smoother map), standard error clustered by view (CR1 with the
-  effective number of views), significance `χ = √(μ̂ᵀV̂⁻¹μ̂)`; support by
-  effective samples (≥ 8) and the local design's conditioning; outliers
-  beyond 8 robust σ left out and listed. Defaults are options.
+  effective number of views); support by effective samples (≥ 8) and the
+  local design's conditioning; outliers beyond 8 robust σ left out and
+  listed. Defaults are options.
+- **Significance is calibrated for the number of views.** `T² = μ̂ᵀV̂⁻¹μ̂`
+  with `V̂` estimated from `G` views is Hotelling's `T²` with `ν = G − 1`:
+  `T²(ν−1)/(2ν) ~ F(2, ν−1)`, tail `p = (1 + T²/ν)^(−(ν−1)/2)`. The plane
+  holds the equivalent two-dof `χ = √(−2 ln p) = √((ν−1)·ln(1 + T²/ν))`, so
+  `χ > 3.03` is `p < 0.01` at any number of views; `G` is the effective
+  number of views (a Satterthwaite-style approximation); `NaN` for
+  `ν ≤ 1`. The raw `√T²` is not kept: it would be a second, miscalibrated
+  reading of the same test.
+- **The standard error and significance are conditional on the fitted
+  camera and poses.** They describe the scatter over this fit's views, not
+  the fit's own parameter noise.
 - **One grid**: `ImageGrid`, the centres of `stride × stride` pixel blocks,
   row-major, which is the app's dense-plane layout. Planes are row-major
   `Vec<f64>` with `NaN` for no value.
@@ -63,13 +74,17 @@ where the data do not reach; and they must cost no wire format.
   field at `h` = 100 px; clustered SE / Monte-Carlo scatter 0.81–1.07 over
   36 captures (6–100 views); CV picks one of the two smoothest bandwidths
   under no field in every run.
-- Known limits, measured: `χ > 3.03` under no field occurs at ~3 % of nodes
-  with ~20 effective views and 4–19 % with ~6 (a Hotelling-type tail: V̂ is
-  itself estimated from the views), against the nominal 1 %; and the SE
-  holds no fit-parameter noise, so on a calibration with a wide kernel
-  88 % (not 95 %) of nodes lie within 3 SE of the noise-free refit's map.
-  A small-sample (F) reference for `significance` and a parameter-noise term
-  in the SE are the candidate fixes; until then the docs say so.
+- Significance, measured under no field (200 seeds per capture, rate ±
+  Monte-Carlo error): with the raw `√T²` reference, ~3 % of nodes passed
+  3.03 at 20 views and 4–19 % at 6; with the Hotelling reference,
+  0.95 ± 0.10 % at 20 views and 0.96 ± 0.09 % at 100 (nominal 1 %), and
+  1.49 ± 0.15 % at 6 views, a residual excess with few views.
+- Conditional on the fit, measured over refits (thin prism fitted with
+  Brown-Conrady, 40 draws): the map scatters 0.12–0.59× its stated SE,
+  because the camera parameters absorb each draw's image-fixed noise, so
+  the SE is conservative over refits; but the draws' mean sits up to 5.8 SE
+  (median 1.7) from the noise-free fit's map at a 352 px kernel, a shift
+  of the fit with the noise that no SE of the map holds.
 - A significant field is not a model-term decision (ADR 0032 decides those
   on held-out views), and chain-level residuals (hand-eye, rig) include pose
   chain error; free-pose residuals for those exports are a follow-up.
