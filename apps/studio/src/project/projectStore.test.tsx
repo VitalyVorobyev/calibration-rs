@@ -33,7 +33,9 @@ function rejection(error: ProjectError): Promise<never> {
 }
 
 function backend(commands: CommandHandlers) {
-  mock = createMockTransport({ commands: { default_config: () => CONFIG, ...commands } });
+  mock = createMockTransport({
+    commands: { config_form: () => ({ schema: {}, default: CONFIG }), ...commands },
+  });
   setTransport(mock);
 }
 

@@ -20,10 +20,9 @@
  * anywhere; this component only lays it out.
  */
 import { Badge, Button, Disclosure } from "@vitavision/ui";
-import { SchemaValueForm, type JsonSchema } from "@vitavision/forms";
-import { useMemo, useState } from "react";
+import { SchemaValueForm } from "@vitavision/forms";
+import { useEffect, useMemo, useState } from "react";
 
-import datasetSchemaJson from "../../schemas/dataset_spec.json";
 import { topologyOf, useRunSetup } from "../../store/runSetup";
 import { AskUserDialog } from "./AskUserDialog";
 import { applyAskUserChoice, clearUnresolved, unresolvedPaths } from "./manifestFields";
@@ -45,11 +44,8 @@ import {
   UnresolvedNotice,
 } from "./SetupStrips";
 import { topologyInfo } from "./topologies";
+import { useForms } from "./useForms";
 import { useRunController } from "./useRunController";
-
-// schemars-emitted JSON Schema; cast through unknown since both shapes
-// are JSON-compatible (forms' JsonSchema interface is intentionally loose).
-const datasetSchema = datasetSchemaJson as unknown as JsonSchema;
 
 export function RunWorkspace() {
   const manifest = useRunSetup((s) => s.manifest);
@@ -60,6 +56,12 @@ export function RunWorkspace() {
   const setManifest = useRunSetup((s) => s.setManifest);
   const setConfig = useRunSetup((s) => s.setConfig);
   const updateManifest = useRunSetup((s) => s.updateManifest);
+  const ensureDefaults = useRunSetup((s) => s.ensureDefaults);
+
+  // A fresh session starts from the back end's default manifest and config.
+  useEffect(() => {
+    void ensureDefaults();
+  }, [ensureDefaults]);
 
   const { status, setStatus, run, cancel } = useRunController();
   const actions = setupActions(setStatus);
@@ -70,6 +72,7 @@ export function RunWorkspace() {
   const isRunning = status.kind === "running";
   const topology = topologyOf(manifest);
   const info = topologyInfo(topology);
+  const forms = useForms(topology);
 
   // Fields the sniffer/runner could not determine. A non-empty list blocks
   // Run until the user fills them in and clears them.
@@ -80,8 +83,9 @@ export function RunWorkspace() {
     unsupportedReason: info.unsupportedReason,
     unresolved: unresolved.length,
     manifestDir,
+    configLoaded: config !== null,
   });
-  const runBlocked = isRunning || !manifestDir || !info.supported || hasUnresolved;
+  const runBlocked = isRunning || blockReason !== undefined;
 
   const collapseOnLoad = (loaded: boolean) => {
     if (loaded) setGridExpanded(false);
@@ -184,12 +188,16 @@ export function RunWorkspace() {
           />
         }
       >
-        <SchemaValueForm
-          schema={datasetSchema}
-          value={manifest}
-          onValueChange={setManifest}
-          columns={1}
-        />
+        {forms.dataset && manifest !== null ? (
+          <SchemaValueForm
+            schema={forms.dataset}
+            value={manifest}
+            onValueChange={setManifest}
+            columns={1}
+          />
+        ) : (
+          <p className="text-[12px] text-fg-muted">Loading the manifest form…</p>
+        )}
       </Disclosure>
 
       <Disclosure
@@ -198,17 +206,19 @@ export function RunWorkspace() {
           <SectionSummary title="Calibration config" summary={configSummary(config)} />
         }
       >
-        {info.schema ? (
+        {forms.config && config !== null ? (
           <SchemaValueForm
             key={topology}
-            schema={info.schema}
+            schema={forms.config}
             value={config}
             onValueChange={setConfig}
             columns={1}
           />
         ) : (
           <p className="text-[12px] text-fg-muted">
-            {info.unsupportedReason ?? `No config form for topology "${topology}" yet.`}
+            {info.unsupportedReason ??
+              forms.configError ??
+              `Loading the config form for "${topology}"…`}
           </p>
         )}
       </Disclosure>

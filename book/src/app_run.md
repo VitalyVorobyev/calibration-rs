@@ -11,7 +11,7 @@ A card grid of public datasets. Two are built in:
 - `kuka_1`: single-camera hand-eye, a KUKA arm with a 17×28 chessboard;
 - `ds8`: a three-camera rig hand-eye dataset, published as open data ([doi:10.15482/USDA.ADC/1340592](https://doi.org/10.15482/USDA.ADC/1340592)).
 
-The app carries no dataset. The first click on a card downloads the sample from its publisher into the platform cache (`VISION_CALIBRATION_DATA` overrides the location), checks every file against its SHA-256 and reuses it afterwards, so the cards work in an installed app as well as in a checkout; the first click needs a network connection, and a failed download is reported in the status banner. Clicking a card loads its manifest and applies the configuration overrides the preset carries. Some datasets need non-default settings that the topology's schema defaults do not give, for example Scheimpflug sensors or an eye-to-hand rig; the preset states them. The registry lives in `apps/studio/src/workspaces/RunWorkspace/presets.ts`.
+The app carries no dataset. The first click on a card downloads the sample from its publisher into the platform cache (`VISION_CALIBRATION_DATA` overrides the location), checks every file against its SHA-256 and reuses it afterwards, so the cards work in an installed app as well as in a checkout; the first click needs a network connection, and a failed download is reported in the status banner. Clicking a card loads its manifest and applies the configuration overrides the preset carries, by the same rule as `vcal run --config`: tables merge key by key, anything else replaces. Some datasets need non-default settings that the topology's schema defaults do not give, for example Scheimpflug sensors or an eye-to-hand rig; the preset states them. The registry lives in `apps/studio/src/workspaces/RunWorkspace/presets.ts`.
 
 ### Sniff Folder
 
@@ -19,7 +19,7 @@ Pick an arbitrary dataset folder and the app infers a draft manifest with the [f
 
 ## Reviewing the Setup
 
-The **Manifest** and **Calibration config** sections are collapsible, schema-driven forms generated from the same JSON Schema the Rust types derive. Every field shows its default and description. An **Advanced JSON editor** is available for anything the forms do not expose.
+The **Manifest** and **Calibration config** sections are collapsible, schema-driven forms generated from the JSON Schema the Rust types derive, served by the app's back end together with the library's defaults. Every field shows its default and description. An **Advanced JSON editor** is available for anything the forms do not expose.
 
 Editing the form clears the preset selection, so nothing silently reverts your edits. To re-run with different settings, edit the config and click **Run** again.
 

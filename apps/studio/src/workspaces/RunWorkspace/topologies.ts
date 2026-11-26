@@ -1,93 +1,34 @@
-/** Topology registry for the Run workspace.
- *
- * Maps every `DatasetSpec.topology` wire name to its display label,
- * schemars-emitted config schema, and whether the in-process runner
- * supports it today. The Run button is disabled (with a reason) for
- * unsupported topologies, mirroring the dispatch in
- * `src-tauri/src/run.rs`.
- */
-import type { JsonSchema } from "@vitavision/forms";
-
-import laserlineDeviceConfigSchemaJson from "../../schemas/laserline_device_config.json";
-import planarConfigSchemaJson from "../../schemas/planar_intrinsics_config.json";
-import rigExtrinsicsConfigSchemaJson from "../../schemas/rig_extrinsics_config.json";
-import rigHandeyeConfigSchemaJson from "../../schemas/rig_handeye_config.json";
-import rigHandeyeLaserlineConfigSchemaJson from "../../schemas/rig_handeye_laserline_config.json";
-import rigLaserlineDeviceConfigSchemaJson from "../../schemas/rig_laserline_device_config.json";
-import singleCamHandeyeConfigSchemaJson from "../../schemas/single_cam_handeye_config.json";
-
-// schemars-emitted JSON Schemas; cast through unknown since both shapes
-// are JSON-compatible (forms' JsonSchema interface is intentionally loose).
-const planarConfigSchema = planarConfigSchemaJson as unknown as JsonSchema;
-const singleCamHandeyeConfigSchema =
-  singleCamHandeyeConfigSchemaJson as unknown as JsonSchema;
-const laserlineDeviceConfigSchema =
-  laserlineDeviceConfigSchemaJson as unknown as JsonSchema;
-const rigExtrinsicsConfigSchema = rigExtrinsicsConfigSchemaJson as unknown as JsonSchema;
-const rigHandeyeConfigSchema = rigHandeyeConfigSchemaJson as unknown as JsonSchema;
-const rigHandeyeLaserlineConfigSchema =
-  rigHandeyeLaserlineConfigSchemaJson as unknown as JsonSchema;
-const rigLaserlineDeviceConfigSchema =
-  rigLaserlineDeviceConfigSchemaJson as unknown as JsonSchema;
+/** Topology registry for the Run workspace: the display label of every
+ * `DatasetSpec.topology` wire name. The forms' schemas come from the back
+ * end (`config_form`), so an unknown topology is one it has no form for. */
 
 export interface TopologyInfo {
   /** Human-readable label for headers and summaries. */
   label: string;
-  /** Config schema driving the config form; null when unsupported. */
-  schema: JsonSchema | null;
-  /** Whether the Tauri runner can execute this topology today. */
+  /** Whether the runner can execute this topology. */
   supported: boolean;
   /** Shown as the Run-button tooltip when unsupported. */
   unsupportedReason?: string;
 }
 
-/** All seven `Topology` wire names (serde snake_case). */
-export const TOPOLOGY_INFO: Record<string, TopologyInfo> = {
-  planar_intrinsics: {
-    label: "PlanarIntrinsics",
-    schema: planarConfigSchema,
-    supported: true,
-  },
-  single_cam_handeye: {
-    label: "SingleCamHandeye",
-    schema: singleCamHandeyeConfigSchema,
-    supported: true,
-  },
-  laserline_device: {
-    label: "LaserlineDevice",
-    schema: laserlineDeviceConfigSchema,
-    supported: true,
-  },
-  rig_extrinsics: {
-    label: "RigExtrinsics",
-    schema: rigExtrinsicsConfigSchema,
-    supported: true,
-  },
-  rig_handeye: {
-    label: "RigHandeye",
-    schema: rigHandeyeConfigSchema,
-    supported: true,
-  },
-  rig_handeye_laserline: {
-    label: "RigHandeyeLaserline",
-    schema: rigHandeyeLaserlineConfigSchema,
-    supported: true,
-  },
-  rig_laserline_device: {
-    label: "RigLaserlineDevice",
-    schema: rigLaserlineDeviceConfigSchema,
-    supported: true,
-  },
+/** All seven `Topology` wire names (serde snake_case) and their labels. */
+const LABELS: Record<string, string> = {
+  planar_intrinsics: "PlanarIntrinsics",
+  single_cam_handeye: "SingleCamHandeye",
+  laserline_device: "LaserlineDevice",
+  rig_extrinsics: "RigExtrinsics",
+  rig_handeye: "RigHandeye",
+  rig_handeye_laserline: "RigHandeyeLaserline",
+  rig_laserline_device: "RigLaserlineDevice",
 };
 
 /** Lookup with a graceful fallback for unknown / misspelled topologies. */
 export function topologyInfo(topology: string): TopologyInfo {
-  return (
-    TOPOLOGY_INFO[topology] ?? {
-      label: topology || "unknown",
-      schema: null,
-      supported: false,
-      unsupportedReason: `Unknown topology "${topology}" — check the manifest.`,
-    }
-  );
+  const label = LABELS[topology];
+  if (label !== undefined) return { label, supported: true };
+  return {
+    label: topology || "unknown",
+    supported: false,
+    unsupportedReason: `Unknown topology "${topology}" — check the manifest.`,
+  };
 }

@@ -57,8 +57,12 @@ const WORKSPACES: { rail: string; hash: string; marker: RegExp; desktop?: boolea
 for (const ws of WORKSPACES) {
   test(`mounts the "${ws.rail}" workspace without console errors`, async ({ page }) => {
     const errors = trackConsoleErrors(page);
-    // The Run workspace needs the desktop back end: an empty IPC mock.
-    if (ws.desktop) await installTauriMock(page, {});
+    // The Run workspace needs the desktop back end: an IPC mock that serves
+    // its two forms (empty ones).
+    const form = { schema: {}, default: {} };
+    if (ws.desktop) {
+      await installTauriMock(page, { dataset_form: form, config_form: form });
+    }
 
     await page.goto("/");
     await page.getByRole("link", { name: ws.rail }).click();

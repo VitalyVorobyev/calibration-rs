@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Ctx;
-use super::commands::{jobs, project, setup, viewer};
+use super::commands::{forms, jobs, project, setup, viewer};
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
 
@@ -161,10 +161,13 @@ pub fn table() -> Vec<CommandSpec> {
         plain("open_project", project::open_project),
         plain("save_project_manifest", project::save_project_manifest),
         plain("save_project_run", project::save_project_run),
+        // The forms, from the library's schemas and defaults.
+        plain("config_form", forms::config_form),
+        plain("dataset_form", forms::dataset_form),
+        plain("resolve_config", forms::resolve_config),
         // The Run workspace's setup and the runner.
         plain("read_manifest", setup::read_manifest),
         plain("sniff_folder", setup::sniff_folder),
-        plain("default_config", setup::default_config),
         job("fetch_sample", Lane::Light, setup::fetch_sample),
         job("run_calibration", Lane::Heavy, setup::run_calibration),
         // The viewers, over the active export.

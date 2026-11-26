@@ -46,10 +46,10 @@ Use `bun run tauri dev`, **not** `bun run dev`: the latter only starts Vite at
   project model: typed commands, store, run names and recent projects),
   `workspaces/` (one folder per workspace), `components/`, `hooks/`, `lib/`,
   `store/` (the loaded export and selection, `index.ts`; the Run setup,
-  `runSetup.ts`), `schemas/` (JSON Schemas for the Run config forms, plus
-  each config's `<name>.default.json`; both emitted by `cargo xtask
-  emit-schemas`), `api/` (the back end: see "The back end and its
-  client").
+  `runSetup.ts`), `api/` (the back end: see "The back end and its
+  client"). The Run workspace's forms carry no schema: `config_form`,
+  `dataset_form` and `resolve_config` serve the library's schemas, its
+  defaults and its merge rule (see "Forms" below).
 - Back end (`apps/studio/crates/studio-core/src/`): `api/` (the command
   table, `Ctx`, the error envelope, jobs, events and the API schema; its
   `commands/` hold the command functions), `project.rs` (project folders),
@@ -269,6 +269,23 @@ library `CancelToken` of the job) stops the library at its next image or
 solver iteration, and the job ends `cancelled`. The UI shows the latest
 report beside the active stage and a distinct "Run cancelled" state; the
 checklist logic is `src/workspaces/RunWorkspace/runStages.ts`.
+
+## Forms
+
+The Run workspace's manifest and config forms (`SchemaValueForm` from
+`@vitavision/forms`) render the schemas the back end serves:
+`dataset_form` (the `DatasetSpec` schema and the manifest a fresh session
+starts from) and `config_form { topology }` (the workflow's `*Config` schema
+and the library's default), fetched by `RunWorkspace/useForms.ts`. A preset's
+`configOverrides` become a config through `resolve_config { topology, patch
+}`, the library's `ConfigPatch` rule (tables merge key by key, anything else
+replaces; a field the workflow lacks is a `config` error). The Run setup
+store (`store/runSetup.ts`) starts empty and fills from these, so the
+frontend holds no copy of a Rust default and cannot lag the back end. A
+studio-core test compares the served schemas and defaults with the ones
+`cargo xtask emit-schemas` publishes in the repository's `schemas/`, which
+the form round-trip tests (`configRoundTrip.test.tsx`,
+`configForms.test.tsx`) render.
 
 ## Built-in presets
 

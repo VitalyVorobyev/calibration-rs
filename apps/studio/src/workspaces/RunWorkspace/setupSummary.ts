@@ -53,6 +53,7 @@ export function runBlockReason(opts: {
   unsupportedReason?: string | undefined;
   unresolved: number;
   manifestDir: string | null;
+  configLoaded: boolean;
 }): string | undefined {
   if (!opts.supported) return opts.unsupportedReason;
   if (opts.unresolved > 0) {
@@ -60,5 +61,6 @@ export function runBlockReason(opts: {
     return `Resolve ${n} unresolved manifest field${n !== 1 ? "s" : ""} first`;
   }
   if (!opts.manifestDir) return "Set a dataset folder first";
+  if (!opts.configLoaded) return "The calibration config has not loaded";
   return undefined;
 }

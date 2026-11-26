@@ -36,30 +36,26 @@ use vision_calibration::detect::{
     CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache,
 };
 use vision_calibration::laserline_device::{
-    LaserlineDeviceConfig, LaserlineDeviceProblem,
-    run_calibration as run_laserline_device_calibration,
+    LaserlineDeviceProblem, run_calibration as run_laserline_device_calibration,
 };
 use vision_calibration::planar_intrinsics::{
-    PlanarIntrinsicsConfig, PlanarIntrinsicsProblem, run_calibration as run_planar_calibration,
+    PlanarIntrinsicsProblem, run_calibration as run_planar_calibration,
 };
 use vision_calibration::rig_extrinsics::{
-    RigExtrinsicsConfig, RigExtrinsicsProblem, run_calibration as run_rig_extrinsics_calibration,
+    RigExtrinsicsProblem, run_calibration as run_rig_extrinsics_calibration,
 };
 use vision_calibration::rig_handeye::{
-    RigHandeyeConfig, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
+    RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
 };
 use vision_calibration::rig_handeye_laserline::{
-    RigHandeyeLaserlineConfig, RigHandeyeLaserlineProblem,
-    run_calibration as run_rig_handeye_laserline_calibration,
+    RigHandeyeLaserlineProblem, run_calibration as run_rig_handeye_laserline_calibration,
 };
 use vision_calibration::rig_laserline_device::{
-    RigLaserlineDeviceConfig, RigLaserlineDeviceProblem,
-    run_calibration as run_rig_laserline_device_calibration,
+    RigLaserlineDeviceProblem, run_calibration as run_rig_laserline_device_calibration,
 };
 use vision_calibration::session::{CalibrationSession, ProblemType};
 use vision_calibration::single_cam_handeye::{
-    SingleCamHandeyeConfig, SingleCamHandeyeProblem,
-    run_calibration as run_single_cam_handeye_calibration,
+    SingleCamHandeyeProblem, run_calibration as run_single_cam_handeye_calibration,
 };
 
 /// Successful calibration run.
@@ -292,22 +288,20 @@ pub fn run_calibration(
     run_blocking(manifest_json, config_json, manifest_dir, &ctx)
 }
 
-/// Default `*Config` JSON for a topology.
-///
-/// Single source of truth for the Run workspace's config defaults —
-/// the TS side never hand-copies Rust default values.
+/// The default `*Config` JSON of `topology`, the tests' starting point (the
+/// app gets its defaults from the `config_form` command).
+#[cfg(test)]
 pub fn default_config(topology: &str) -> Result<serde_json::Value, String> {
-    let value = match topology {
-        "planar_intrinsics" => serde_json::to_value(PlanarIntrinsicsConfig::default()),
-        "single_cam_handeye" => serde_json::to_value(SingleCamHandeyeConfig::default()),
-        "laserline_device" => serde_json::to_value(LaserlineDeviceConfig::default()),
-        "rig_extrinsics" => serde_json::to_value(RigExtrinsicsConfig::default()),
-        "rig_handeye" => serde_json::to_value(RigHandeyeConfig::default()),
-        "rig_handeye_laserline" => serde_json::to_value(RigHandeyeLaserlineConfig::default()),
-        "rig_laserline_device" => serde_json::to_value(RigLaserlineDeviceConfig::default()),
-        other => return Err(format!("unknown topology {other:?}")),
-    };
-    value.map_err(|e| format!("default config serialization failed: {e}"))
+    let kind: ProblemKind = serde_json::from_value(serde_json::Value::from(topology))
+        .map_err(|_| format!("unknown topology {topology:?}"))?;
+    let tagged = serde_json::to_value(
+        vision_calibration::dataset_runner::CalibrationConfig::default_for(kind),
+    )
+    .map_err(|e| format!("default config serialization failed: {e}"))?;
+    tagged
+        .get("config")
+        .cloned()
+        .ok_or_else(|| "a config serializes with its fields".to_string())
 }
 
 struct CountingCache<C> {

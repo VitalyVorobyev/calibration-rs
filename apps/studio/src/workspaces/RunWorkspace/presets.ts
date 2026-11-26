@@ -26,42 +26,13 @@ export interface EnabledPreset {
   /** Where the manifest comes from. */
   source: PresetSource;
   /**
-   * Optional config patch deep-merged over the topology's
-   * `default_config_cmd` defaults when the preset is applied — for
-   * datasets whose defaults are wrong (e.g. a rig of tilted-sensor
-   * cameras observed eye_to_hand). Keys mirror the Rust `*Config` JSON.
+   * Optional config patch applied over the topology's defaults by the
+   * library's rule (the back end's `resolve_config`: tables merge key by
+   * key, anything else replaces) when the preset is applied — for datasets
+   * whose defaults are wrong (e.g. a rig of tilted-sensor cameras observed
+   * eye_to_hand). Keys mirror the Rust `*Config` JSON.
    */
   configOverrides?: Record<string, unknown>;
-  /**
-   * Optional manifest patch deep-merged over the loaded TOML manifest
-   * before the run. Used for detector options that belong to
-   * `DatasetSpec`, not the calibration config.
-   */
-  manifestOverrides?: Record<string, unknown>;
-}
-
-/** Recursively merge `patch` over `base` (objects only; arrays and
- *  scalars are replaced). Used to apply preset config overrides. */
-export function mergeConfig(base: unknown, patch: Record<string, unknown>): unknown {
-  if (typeof base !== "object" || base === null || Array.isArray(base)) {
-    return patch;
-  }
-  const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
-  for (const [key, value] of Object.entries(patch)) {
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      !Array.isArray(value) &&
-      typeof out[key] === "object" &&
-      out[key] !== null &&
-      !Array.isArray(out[key])
-    ) {
-      out[key] = mergeConfig(out[key], value as Record<string, unknown>);
-    } else {
-      out[key] = value;
-    }
-  }
-  return out;
 }
 
 export interface DisabledPreset {

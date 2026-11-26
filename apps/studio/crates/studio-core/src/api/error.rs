@@ -52,6 +52,9 @@ pub enum ErrorKind {
     Parse,
     /// A dataset manifest that is not one.
     Manifest,
+    /// A calibration config that is not valid for its workflow: a field it
+    /// does not have, a value of the wrong type or out of range.
+    Config,
     /// The request cannot be served as asked: no export is active, a camera
     /// index is out of range, the export lacks what the command needs.
     Invalid,

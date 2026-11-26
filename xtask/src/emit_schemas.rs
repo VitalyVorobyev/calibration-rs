@@ -1,12 +1,11 @@
 //! Emit JSON Schemas for the workspace's serialized types, and the files
 //! generated from them.
 //!
-//! - Config schemas and the dataset manifest's go to both
-//!   `apps/studio/src/schemas/<name>.json` and `schemas/<name>.json`, plus
-//!   `<name>.default.json` (the type's `Default` value) for every config that
-//!   has one. The Tauri app reads its copy at build time to drive
-//!   schema-driven forms in the Run workspace; the defaults feed the app's
-//!   form round-trip tests.
+//! - Config schemas and the dataset manifest's go to `schemas/<name>.json`,
+//!   plus `<name>.default.json` (the type's `Default` value) for every config
+//!   that has one. Calibration Studio serves the same schemas and defaults
+//!   from its back end (its `config_form` and `dataset_form` commands, tested
+//!   against these files) and keeps no copy.
 //! - The input, export and quality schemas — what a workflow reads and what
 //!   it returns — the progress report a long call streams, the reason a
 //!   solve stopped and the device specification's go to
@@ -114,7 +113,6 @@ struct Python {
 }
 
 pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
-    let app_dir = workspace_root.join("apps/studio/src/schemas");
     let api_dir = workspace_root.join("schemas");
     let suite_dir = workspace_root.join("regression/schema");
 
@@ -232,12 +230,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
     )?;
     files += 1;
 
-    for (dir, emitted) in [
-        (&app_dir, &app),
-        (&api_dir, &app),
-        (&api_dir, &api),
-        (&suite_dir, &suite),
-    ] {
+    for (dir, emitted) in [(&api_dir, &app), (&api_dir, &api), (&suite_dir, &suite)] {
         if !check {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
@@ -255,7 +248,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         }
     }
     if check {
-        for dir in [&app_dir, &api_dir, &suite_dir] {
+        for dir in [&api_dir, &suite_dir] {
             if !dir.is_dir() {
                 continue;
             }
@@ -316,8 +309,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         }
     } else {
         println!(
-            "emitted {files} files to {}, {}, {} and {PYTHON_TYPES}",
-            app_dir.display(),
+            "emitted {files} files to {}, {} and {PYTHON_TYPES}",
             api_dir.display(),
             suite_dir.display()
         );
@@ -325,8 +317,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
     }
 }
 
-/// A config type's schema and its `Default` value — the app's form tests
-/// round-trip the latter through the former.
+/// A config type's schema and its `Default` value.
 fn config<T: JsonSchema + Default + Serialize>(name: &'static str, root: &'static str) -> Emitted {
     let default = serde_json::to_value(T::default()).expect("a config serialises to JSON");
     Emitted {

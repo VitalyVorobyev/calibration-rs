@@ -47,18 +47,6 @@ pub fn sniff_folder(ctx: &Ctx, args: SniffFolderArgs) -> Result<DatasetSpec, Stu
         .map_err(|e| StudioError::new(ErrorKind::Io, e.to_string()).at(args.folder.as_str()))
 }
 
-/// The default `*Config` of a manifest topology (`planar_intrinsics`,
-/// `rig_handeye`, …): the library's `Config::default()`.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DefaultConfigArgs {
-    pub topology: String,
-}
-
-pub fn default_config(_: &Ctx, args: DefaultConfigArgs) -> Result<serde_json::Value, StudioError> {
-    run::default_config(&args.topology).map_err(StudioError::invalid)
-}
-
 /// Make the sample dataset `id` (one of the library's sample catalogue)
 /// available locally and answer the absolute path of its manifest. The
 /// files are downloaded into the platform cache (`VISION_CALIBRATION_DATA`

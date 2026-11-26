@@ -64,6 +64,14 @@ export function useRunController(): RunController {
       });
       return;
     }
+    if (config === null) {
+      setStatus({
+        kind: "error",
+        category: "no_config",
+        message: "The calibration config has not loaded from the back end.",
+      });
+      return;
+    }
     if (handoffTimerRef.current !== null) {
       clearTimeout(handoffTimerRef.current);
       handoffTimerRef.current = null;

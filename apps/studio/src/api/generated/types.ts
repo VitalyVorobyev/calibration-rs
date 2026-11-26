@@ -226,6 +226,27 @@ export type ImageNoiseSpec =
  */
 export type CornerStrategySpec = "chess" | "radon";
 /**
+ * The calibration problem a dataset is for, and the kind of an export.
+ *
+ * One value per problem type, serialized as its snake_case name
+ * (`"planar_intrinsics"`, …). A manifest names it in its `topology` field,
+ * which selects the problem a run dispatches to; every export carries it in
+ * its `kind` field, so a consumer narrows on one value instead of probing
+ * which fields are present. The tag is required on deserialize.
+ *
+ * A problem kind describes the data (how many cameras, robot poses, laser
+ * images), not the camera model: a tilted (Scheimpflug) single camera is a
+ * `planar_intrinsics` dataset whose calibration config names the sensor.
+ */
+export type ProblemKind =
+  | "planar_intrinsics"
+  | "single_cam_handeye"
+  | "laserline_device"
+  | "rig_extrinsics"
+  | "rig_handeye"
+  | "rig_handeye_laserline"
+  | "rig_laserline_device";
+/**
  * An absolute path on the back end's machine. The back end refuses one outside the folders the user opened.
  */
 export type UserPath = string;
@@ -447,28 +468,6 @@ export type RinggridCodingSpec =
  */
 export type RinggridLatticeSpec = "hex" | "rect";
 /**
- * The calibration problem a dataset is for, and the kind of an export.
- *
- * One value per problem type, serialized as its snake_case name
- * (`"planar_intrinsics"`, …). A manifest names it in its `topology` field,
- * which selects the problem a run dispatches to; every export carries it in
- * its `kind` field, so a consumer narrows on one value instead of probing
- * which fields are present. The tag is required on deserialize.
- *
- * A problem kind describes the data (how many cameras, robot poses, laser
- * images), not the camera model: a tilted (Scheimpflug) single camera is a
- * `planar_intrinsics` dataset whose calibration config names the sensor.
- */
-export type ProblemKind =
-  | "planar_intrinsics"
-  | "single_cam_handeye"
-  | "laserline_device"
-  | "rig_extrinsics"
-  | "rig_handeye"
-  | "rig_handeye_laserline"
-  | "rig_laserline_device";
-export type DefaultConfigReply = unknown;
-/**
  * The kinds of [`StudioError`].
  */
 export type ErrorKind =
@@ -486,6 +485,7 @@ export type ErrorKind =
   | "io"
   | "parse"
   | "manifest"
+  | "config"
   | "invalid"
   | "cancelled";
 /**
@@ -699,6 +699,7 @@ export type Progress =
        */
       max_iters: number;
     };
+export type ResolveConfigReply = unknown;
 /**
  * Parts of a [`RobotPoseSigma`]: its rotation, its translation or both.
  */
@@ -806,12 +807,13 @@ export interface StudioApiTypes {
   CancelJobArgs?: CancelJobArgs;
   ChessCornersDetectorSpec?: ChessCornersDetectorSpec;
   CombinationTerm?: CombinationTerm;
+  ConfigFormArgs?: ConfigFormArgs;
+  ConfigPatch?: ConfigPatch;
   CornerCovarianceSpec?: CornerCovarianceSpec;
   CornerStrategySpec?: CornerStrategySpec;
   CreateProjectArgs?: CreateProjectArgs;
+  DatasetFormArgs?: DatasetFormArgs;
   DatasetSpec?: DatasetSpec;
-  DefaultConfigArgs?: DefaultConfigArgs;
-  DefaultConfigReply?: DefaultConfigReply;
   DetectorSpec?: DetectorSpec;
   DisparityArgs?: DisparityArgs;
   DisparityParams?: DisparityParams;
@@ -827,6 +829,7 @@ export interface StudioApiTypes {
   FetchSampleArgs?: FetchSampleArgs;
   FetchSampleEvent?: FetchSampleEvent;
   FetchSampleOutput?: FetchSampleOutput;
+  FormSchema?: FormSchema;
   FrameKind?: FrameKind;
   FrameRef?: FrameRef;
   FxFyCxCy?: FxFyCxCy;
@@ -868,6 +871,8 @@ export interface StudioApiTypes {
   ReadManifestArgs?: ReadManifestArgs;
   ResidualKind?: ResidualKind;
   ResidualNoise?: ResidualNoise;
+  ResolveConfigArgs?: ResolveConfigArgs;
+  ResolveConfigReply?: ResolveConfigReply;
   RigExtrinsicsExport?: RigExtrinsicsExport;
   RigHandeyeExport?: RigHandeyeExport;
   RigHandeyeLaserlineExport?: RigHandeyeLaserlineExport;
@@ -1089,6 +1094,50 @@ export interface CombinationTerm {
   weight: number;
 }
 /**
+ * The config form of the workflow `topology`: the schema of its config
+ * (`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's
+ * default configuration.
+ */
+export interface ConfigFormArgs {
+  topology: ProblemKind;
+}
+/**
+ * Changes to a workflow's default configuration: what the patch names
+ * replaces the default, what it leaves out keeps it.
+ *
+ * A patch is keyed like the problem's own config, a table of its fields
+ * (`{"solver": {"max_iters": 20}}`, or in TOML `solver.max_iters = 20`),
+ * not the tagged `{"topology": …, "config": …}` form of
+ * [`CalibrationConfig`]. It applies by one rule: two tables merge key by
+ * key, and any other value (a number, a string, a list, `null`) replaces
+ * what it lands on. [`CalibrationConfig::patched`] applies a patch to the
+ * defaults of a topology and checks the result; a field the workflow does
+ * not have is an error there, so a misspelt name never passes silently.
+ *
+ * TOML has no `null`, so a patch read from TOML cannot set an optional
+ * field back to none; JSON can.
+ *
+ * The patch serializes as its table, with the keys of every table sorted.
+ *
+ * ```
+ * use vision_calibration_dataset::ProblemKind;
+ * use vision_calibration_pipeline::dataset_runner::{CalibrationConfig, ConfigPatch};
+ *
+ * let patch = ConfigPatch::from_toml_str("solver.max_iters = 20")?;
+ * let config = CalibrationConfig::patched(ProblemKind::PlanarIntrinsics, &patch)?;
+ * let CalibrationConfig::PlanarIntrinsics(planar) = &config else {
+ *     unreachable!("the patch applies to the topology's own config");
+ * };
+ * assert_eq!(planar.solver.max_iters, 20);
+ * // The smallest patch that makes the configuration from the defaults.
+ * assert_eq!(ConfigPatch::from_config(&config), patch);
+ * # Ok::<(), vision_calibration_pipeline::Error>(())
+ * ```
+ */
+export interface ConfigPatch {
+  [k: string]: unknown;
+}
+/**
  * Make the folder `dir` a project for the dataset in `dataset_dir`,
  * described by `manifest`. Fails with `project_exists` when `dir` already
  * holds one.
@@ -1101,6 +1150,11 @@ export interface CreateProjectArgs {
    */
   manifest: unknown;
 }
+/**
+ * The dataset manifest form: the schema of `DatasetSpec` and the manifest
+ * a new setup starts from (one chessboard camera, planar intrinsics).
+ */
+export interface DatasetFormArgs {}
 /**
  * Top-level dataset manifest. Authoritative description of where
  * the user's calibration data lives and how to interpret it.
@@ -1316,13 +1370,6 @@ export interface PoseColumnMap {
    * Translation z column.
    */
   tz: string;
-}
-/**
- * The default `*Config` of a manifest topology (`planar_intrinsics`,
- * `rig_handeye`, …): the library's `Config::default()`.
- */
-export interface DefaultConfigArgs {
-  topology: string;
 }
 /**
  * A disparity map of the stereo pair `path_a` (camera `cam_a`) and
@@ -1814,6 +1861,19 @@ export interface FetchSampleArgs {
   id: string;
 }
 /**
+ * A form: the JSON Schema it renders and the value it starts from.
+ */
+export interface FormSchema {
+  /**
+   * The value a new form starts from: the type's default.
+   */
+  default: unknown;
+  /**
+   * A JSON Schema (draft 2020-12, as the library emits it).
+   */
+  schema: unknown;
+}
+/**
  * JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).
  *
  * `nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and
@@ -2266,6 +2326,16 @@ export interface ProjectionUncertaintyArgs {
  */
 export interface ReadManifestArgs {
   path: UserPath;
+}
+/**
+ * The configuration of the workflow `topology` that `patch` makes from its
+ * defaults: tables merge key by key, anything else replaces (the library's
+ * rule, as `vcal run --config` applies it), then checked. A field the
+ * workflow does not have, or an invalid value, is a `config` error.
+ */
+export interface ResolveConfigArgs {
+  patch?: ConfigPatch;
+  topology: ProblemKind;
 }
 /**
  * Export format for rig extrinsics calibration.

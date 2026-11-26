@@ -146,6 +146,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manifest is refused when it is loaded, with the reason, rather than when
   the run starts. The desktop app only reads and writes inside the folders
   you opened (a project, its dataset, an export, a manifest's folder).
+- Calibration Studio's manifest and config forms, and the defaults they
+  start from, come from the calibration library the app runs on, so they
+  always match it; a preset's config changes apply by the library's rule,
+  as `vcal run --config` applies a file.
 - **Desktop app IPC types (breaking):** `DisparityResult::plane_rms` (`planeRms`
   in TypeScript) is now `Option<f64>` (`null` when fewer than three finite
   disparities exist or the plane fit is singular/non-finite; it was an
