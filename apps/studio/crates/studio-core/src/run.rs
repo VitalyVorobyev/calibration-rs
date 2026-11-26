@@ -3,7 +3,7 @@
 //! Takes a JSON-encoded [`DatasetSpec`] manifest plus a JSON-encoded
 //! per-problem `*Config`, dispatches on the manifest's topology to the
 //! right `CalibrationSession`, runs detection (cached) + calibration on
-//! a `tauri::async_runtime::spawn_blocking` task, and returns the
+//! the caller's blocking thread, and returns the
 //! export plus run metrics. All seven topologies are supported; the
 //! laser topologies (ADR 0016) extract laser-line pixels through
 //! [`crate::laser::VmLaserExtractor`].
@@ -21,8 +21,6 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
-use tauri::ipc::Channel;
 
 use vision_calibration::control::{CancelToken, Progress, RunControl};
 use vision_calibration::core::{
@@ -63,8 +61,6 @@ use vision_calibration::single_cam_handeye::{
     SingleCamHandeyeConfig, SingleCamHandeyeProblem,
     run_calibration as run_single_cam_handeye_calibration,
 };
-
-use crate::export_cache::ExportCache;
 
 /// Successful calibration run.
 #[derive(Debug, Serialize, Deserialize)]
@@ -161,10 +157,9 @@ fn run_control(
         })
 }
 
-/// Per-run cancellation registry. Each in-flight `run_calibration_cmd`
-/// registers its run id against a [`CancelToken`]; `cancel_run_cmd`
-/// cancels it, and the library stops at its next image or solver
-/// iteration.
+/// Per-run cancellation registry. Each in-flight run registers its run id
+/// against a [`CancelToken`]; [`RunRegistry::cancel`] cancels it, and the
+/// library stops at its next image or solver iteration.
 ///
 /// The map is only ever keyed by run id (insert / get / remove) — never
 /// iterated to produce a result — so its ordering is irrelevant to
@@ -181,7 +176,7 @@ impl RunRegistry {
 
     /// Register `run_id` and return its fresh token, or an error if `run_id`
     /// is already in flight.
-    fn register(&self, run_id: &str) -> Result<CancelToken, String> {
+    pub fn register(&self, run_id: &str) -> Result<CancelToken, String> {
         let mut guard = self.inner.lock().expect("run registry mutex poisoned");
         if guard.contains_key(run_id) {
             return Err(format!("run {run_id:?} is already in flight"));
@@ -192,7 +187,7 @@ impl RunRegistry {
     }
 
     /// Drop `run_id` from the registry once its run has finished.
-    fn unregister(&self, run_id: &str) {
+    pub fn unregister(&self, run_id: &str) {
         self.inner
             .lock()
             .expect("run registry mutex poisoned")
@@ -201,7 +196,7 @@ impl RunRegistry {
 
     /// Request cancellation of `run_id`. Returns `true` if a matching
     /// in-flight run was found and flagged.
-    fn cancel(&self, run_id: &str) -> bool {
+    pub fn cancel(&self, run_id: &str) -> bool {
         match self
             .inner
             .lock()
@@ -276,79 +271,36 @@ pub enum RunResponse {
     },
 }
 
-/// Tauri command: run a calibration end-to-end.
+/// Run a calibration end-to-end: the body of the desktop app's
+/// `run_calibration_cmd`, on the caller's (blocking) thread.
 ///
-/// `run_id` is a caller-generated correlation id (used to route
-/// cancellation via [`cancel_run_cmd`]). `manifest_json` is the raw JSON
-/// of a [`DatasetSpec`] (typically emitted by the schema-driven form in
-/// the Run workspace). `config_json` is the matching per-problem
-/// `*Config` JSON. `manifest_dir` is the directory whose globs are
-/// resolved against — usually the parent of the `dataset.toml` file the
-/// user picked. `on_progress` streams a [`RunProgress`] per stage.
-#[tauri::command]
-#[allow(clippy::too_many_arguments)] // Tauri injects state and the app handle as arguments.
-pub async fn run_calibration_cmd<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-    run_id: String,
+/// `manifest_json` is the raw JSON of a [`DatasetSpec`] (typically emitted
+/// by the schema-driven form in the Run workspace). `config_json` is the
+/// matching per-problem `*Config` JSON. `manifest_dir` is the directory
+/// whose globs are resolved against — usually the parent of the
+/// `dataset.toml` file the user picked. `token` stops the run; `emit`
+/// receives a [`RunProgress`] per stage and per library report.
+pub fn run_calibration(
     manifest_json: serde_json::Value,
     config_json: serde_json::Value,
-    manifest_dir: String,
-    on_progress: Channel<RunProgress>,
-    cache: State<'_, ExportCache>,
-    registry: State<'_, RunRegistry>,
-) -> Result<RunResponse, String> {
-    let token = registry.register(&run_id)?;
-    let images_dir = PathBuf::from(&manifest_dir);
-
-    // Long-running solve: keep IPC responsive by running on a blocking
-    // task. The State can't cross the spawn_blocking boundary directly,
-    // so we do detection + calibration on the worker thread and pop
-    // the produced export into the cache here, in the async caller.
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        let reports = on_progress.clone();
-        let control = run_control(token, move |progress| {
-            let _ = reports.send(progress);
-        });
-        let emit = move |progress: RunProgress| {
-            let _ = on_progress.send(progress);
-        };
-        let ctx = RunCtx {
-            progress: &emit,
-            control,
-        };
-        run_blocking(manifest_json, config_json, &manifest_dir, &ctx)
-    })
-    .await;
-
-    registry.unregister(&run_id);
-
-    let response = result.map_err(|e| format!("runner task panicked: {e}"))?;
-    if let RunResponse::Ok(success) = &response {
-        cache.set(success.export.clone());
-        // The export's image manifest is relative to the dataset folder,
-        // whose images the webview now shows.
-        crate::assets::allow_dir(&app, &images_dir)?;
-    }
-    Ok(response)
+    manifest_dir: &str,
+    token: CancelToken,
+    emit: impl Fn(RunProgress) + Send + Sync + Clone + 'static,
+) -> RunResponse {
+    let control = run_control(token, emit.clone());
+    let ctx = RunCtx {
+        progress: &emit,
+        control,
+    };
+    run_blocking(manifest_json, config_json, manifest_dir, &ctx)
 }
 
-/// Tauri command: request cancellation of an in-flight run.
-///
-/// Cancellation is cooperative: the library stops at its next image or
-/// solver iteration, and the runner at its next stage boundary. Returns `true` when a matching in-flight run was flagged,
-/// `false` if the run already finished (a benign race).
-#[tauri::command]
-pub fn cancel_run_cmd(run_id: String, registry: State<'_, RunRegistry>) -> bool {
-    registry.cancel(&run_id)
-}
-
-/// Tauri command: default `*Config` JSON for a topology.
+/// Default `*Config` JSON for a topology.
 ///
 /// Single source of truth for the Run workspace's config defaults —
 /// the TS side never hand-copies Rust default values.
-#[tauri::command]
-pub fn default_config_cmd(topology: String) -> Result<serde_json::Value, String> {
-    let value = match topology.as_str() {
+pub fn default_config(topology: &str) -> Result<serde_json::Value, String> {
+    let value = match topology {
         "planar_intrinsics" => serde_json::to_value(PlanarIntrinsicsConfig::default()),
         "single_cam_handeye" => serde_json::to_value(SingleCamHandeyeConfig::default()),
         "laserline_device" => serde_json::to_value(LaserlineDeviceConfig::default()),
@@ -1454,11 +1406,11 @@ mod tests {
             "rig_handeye",
             "rig_laserline_device",
         ] {
-            let value = default_config_cmd(topology.to_string())
+            let value = default_config(topology)
                 .unwrap_or_else(|e| panic!("default config for {topology}: {e}"));
             assert!(value.is_object(), "{topology} default must be an object");
         }
-        assert!(default_config_cmd("not_a_topology".into()).is_err());
+        assert!(default_config("not_a_topology").is_err());
     }
 
     #[test]
@@ -1547,7 +1499,7 @@ mod tests {
     fn load_local_preset(
         rel_manifest: &str,
     ) -> Option<(serde_json::Value, serde_json::Value, String)> {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
         let manifest_path = repo_root.join(rel_manifest);
         if !manifest_path.exists() {
             eprintln!("skipping: {} not present", manifest_path.display());
@@ -1557,7 +1509,7 @@ mod tests {
         let manifest: serde_json::Value =
             serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
         let topology = manifest["topology"].as_str().unwrap().to_string();
-        let config = default_config_cmd(topology).unwrap();
+        let config = default_config(&topology).unwrap();
         let dir = manifest_path
             .parent()
             .unwrap()
@@ -1676,7 +1628,7 @@ mod tests {
     #[test]
     #[ignore = "needs the local privatedata/scheimpflug_rig dataset; 6-cam detection + two solves"]
     fn scheimpflug_rig_laser_end_to_end() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
         let data_dir = repo_root.join("privatedata/scheimpflug_rig");
         if !data_dir.exists() {
             eprintln!("skipping: {} not present", data_dir.display());
@@ -1694,7 +1646,7 @@ mod tests {
         // ── Stage 1: rig hand-eye (Scheimpflug, EyeToHand) ────────────────
         // Same overrides the scheimpflug_rig_calibrate example settled on; every one is
         // plain config JSON, i.e. reachable from the app's config form.
-        let mut handeye_config = default_config_cmd("rig_handeye".into()).unwrap();
+        let mut handeye_config = default_config("rig_handeye").unwrap();
         handeye_config["manual_init"] = scheimpflug_rig_manual_intrinsics_init();
         handeye_config["camera"] = json!({
             "model": {
@@ -1742,7 +1694,7 @@ mod tests {
         // ── Stage 2: rig laserline over the frozen upstream diagnostic ────
         // PointToPlane keeps the residual in metres (the example's
         // stage-3 choice), so the σ gate below is unit-meaningful.
-        let mut laser_config = default_config_cmd("rig_laserline_device".into()).unwrap();
+        let mut laser_config = default_config("rig_laserline_device").unwrap();
         laser_config["solver"]["max_iters"] = json!(200);
         laser_config["optimize"]["laser_residual_type"] = json!("point_to_plane");
         let laser = match run_blocking_test(read_manifest("dataset_laser.toml"), laser_config, &dir)
@@ -1819,7 +1771,7 @@ mod tests {
         let mut joint_manifest = read_manifest("dataset_laser.toml");
         joint_manifest["topology"] = json!("rig_handeye_laserline");
         joint_manifest["upstream_calibration"] = serde_json::Value::Null;
-        let mut joint_config = default_config_cmd("rig_handeye_laserline".into()).unwrap();
+        let mut joint_config = default_config("rig_handeye_laserline").unwrap();
         joint_config["handeye"] = handeye_config;
         joint_config["laserline_init"]["solver"]["max_iters"] = json!(200);
         joint_config["laserline_init"]["optimize"]["laser_residual_type"] = json!("point_to_plane");
@@ -1906,7 +1858,7 @@ mod tests {
     #[test]
     #[ignore = "a dev helper: detects and solves two datasets, writes apps/studio/.tmp-runs"]
     fn write_viewer_sample_runs() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
         let out = std::env::var_os("CALIB_VIEWER_SAMPLES")
             .map(PathBuf::from)
             .unwrap_or_else(|| repo_root.join("apps/studio/.tmp-runs"));
@@ -1926,7 +1878,7 @@ mod tests {
             let manifest: serde_json::Value =
                 serde_json::to_value(toml::from_str::<toml::Value>(&raw).unwrap()).unwrap();
             let topology = manifest["topology"].as_str().unwrap().to_string();
-            let config = default_config_cmd(topology.clone()).unwrap();
+            let config = default_config(&topology).unwrap();
             let dataset_dir = manifest_path.parent().unwrap();
             let response = run_blocking_test(
                 manifest.clone(),

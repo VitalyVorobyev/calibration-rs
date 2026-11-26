@@ -451,9 +451,9 @@ jobs:
           bun run generate:types:ts
           git diff --exit-code src/types/generated
 
-  # `apps/studio/src-tauri` is excluded from the root Cargo workspace (see its
-  # Cargo.toml) so it doesn't pull Tauri's build-time dep tree into
-  # `cargo build --workspace`. It gets its own job, gated with
+  # `apps/studio` is its own cargo workspace (`studio-core` + `src-tauri`),
+  # excluded from the root one so `cargo build --workspace` does not pull in
+  # Tauri's build-time dep tree. It gets its own job, gated with
   # `--manifest-path` the same way the release docs already tell
   # contributors to build it locally.
   app-src-tauri:
@@ -482,25 +482,25 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/studio/src-tauri -> target
+          workspaces: apps/studio -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Cargo fmt (src-tauri)
-        run: cargo fmt --manifest-path apps/studio/src-tauri/Cargo.toml --check
+      - name: Cargo fmt (apps/studio)
+        run: cargo fmt --manifest-path apps/studio/Cargo.toml --all --check
 
       # `schema-export` is additive (only gates the extra `emit_schemas` bin +
-      # its `schemars` derives behind `required-features`/`#[cfg]`, never
-      # removes code), so one clippy pass with the feature enabled covers
-      # both the default build and the schema emitter.
-      - name: Cargo clippy (src-tauri)
-        run: cargo clippy --manifest-path apps/studio/src-tauri/Cargo.toml --all-targets --features schema-export -- -D warnings
+      # its `schemars` derives behind `#[cfg]`, never removes code), so one
+      # clippy pass with every feature enabled covers both the default build
+      # and the schema emitter.
+      - name: Cargo clippy (apps/studio)
+        run: cargo clippy --manifest-path apps/studio/Cargo.toml --workspace --all-targets --all-features -- -D warnings
 
-      - name: Cargo test (src-tauri)
-        run: cargo test --manifest-path apps/studio/src-tauri/Cargo.toml
+      - name: Cargo test (apps/studio)
+        run: cargo test --manifest-path apps/studio/Cargo.toml --workspace
 
       # Drift stage 1 (Rust wire types → JSON schema, cargo-only). Fails if a
       # `*Export` / command-type change wasn't regenerated. Stage 2 (schema →
       # TypeScript) runs in the bun-only `app-frontend` job (`bun run generate:types`
       # regenerates both stages locally).
       - name: Check generated schema is up to date
-        run: cargo run --manifest-path apps/studio/src-tauri/Cargo.toml --features schema-export --bin emit_schemas -- --check
+        run: cargo run --manifest-path apps/studio/Cargo.toml -p calibration-studio --features schema-export --bin emit_schemas -- --check

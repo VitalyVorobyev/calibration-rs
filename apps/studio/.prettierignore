@@ -1,7 +1,7 @@
 # Keep in sync with .gitignore / .oxlintrc.json ignorePatterns.
 dist
 node_modules
-src-tauri/target
+target
 src-tauri/gen
 tsconfig.tsbuildinfo
 bun.lock

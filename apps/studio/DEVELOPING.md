@@ -1,8 +1,9 @@
 # Developing Calibration Studio
 
-Tauri 2 + React 19 + TypeScript. The Rust backend (`apps/studio/src-tauri`) depends on
-the workspace facade (`vision-calibration`) by path, so its Tauri commands
-call the same solvers as `cargo run --example`. Design rationale:
+Tauri 2 + React 19 + TypeScript. The Rust back end (`apps/studio/crates/studio-core`,
+wrapped by the Tauri shell in `apps/studio/src-tauri`) depends on the workspace
+facade (`vision-calibration`) by path, so its commands call the same solvers
+as `cargo run --example`. Design rationale:
 `docs/adrs/0014-desktop-app.md`.
 
 ## Commands
@@ -32,10 +33,14 @@ Use `bun run tauri dev`, **not** `bun run dev`: the latter only starts Vite at
 
 ## Layout
 
-- `apps/studio/src-tauri` is a **separate cargo project**, excluded from the root
-  workspace (`exclude = ["apps"]` in `/Cargo.toml`) because Tauri's build-time
-  dependency tree is heavy. It pins its own `Cargo.lock` and is built from
-  inside `apps/studio/`; `cargo test --workspace` at the repo root does not cover it.
+- `apps/studio/` is a **separate cargo workspace** (`apps/studio/Cargo.toml`),
+  excluded from the root workspace (`exclude = ["apps"]` in `/Cargo.toml`)
+  because Tauri's build-time dependency tree is heavy. Its members are
+  `crates/studio-core` (the back end: no Tauri, no HTTP) and `src-tauri`
+  (the Tauri shell and the `calib-viewer` binary). It pins its own
+  `apps/studio/Cargo.lock`, builds into `apps/studio/target/` and is built from
+  inside `apps/studio/`; `cargo test --workspace` at the repo root does not
+  cover it.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: header, project
   menu, workspace rail, project navigator, status line), `project/` (the
   project model: typed commands, store, run names and recent projects),
@@ -44,12 +49,14 @@ Use `bun run tauri dev`, **not** `bun run dev`: the latter only starts Vite at
   `runSetup.ts`), `schemas/` (JSON Schemas for the Run config forms, plus
   each config's `<name>.default.json`; both emitted by `cargo xtask
   emit-schemas`), `types/generated/` (generated wire types).
-- Backend (`apps/studio/src-tauri/src/`): `project.rs` (project folders),
-  `assets.rs` (the asset-protocol scope), `ops.rs` (the viewer commands'
-  bodies: export loading, undistortion, epipolar overlay, uncertainty,
-  disparity), `commands.rs` (their Tauri commands), `run.rs` (calibration
-  runner), `disparity.rs` (dense stereo), `viewer/` (the `calib-viewer`
-  HTTP back end, see "Browser mode").
+- Back end (`apps/studio/crates/studio-core/src/`): `project.rs` (project
+  folders), `ops.rs` (the viewer commands' bodies: export loading,
+  undistortion, epipolar overlay, uncertainty, disparity), `run.rs`
+  (calibration runner), `disparity.rs` (dense stereo), `epipolar.rs`,
+  `uncertainty.rs`, `laser.rs`, `export_cache.rs`, `scope.rs` (the file
+  scope). Shell (`apps/studio/src-tauri/src/`): `commands.rs` (the Tauri
+  commands over studio-core), `assets.rs` (the asset-protocol scope),
+  `viewer/` (the `calib-viewer` HTTP back end, see "Browser mode").
 - Module size: no `apps/studio/src` module over ~400 lines (generated files
   excepted). Split by responsibility: pure logic in a `.ts` module with its
   own unit test, views in `.tsx`, effects in a `use…` hook.
@@ -80,7 +87,7 @@ through Open Export…. Recent projects are a per-viewer list in
 `localStorage`; a folder that no longer opens drops off it. The dataset path
 in `calibration-project.json` is relative to the project when the dataset
 is inside it (`"."` beside the project file), absolute otherwise. Rust tests for the project
-rules are in `project.rs` (temporary folders); the store is tested against
+rules are in studio-core's `project.rs` (temporary folders); the store is tested against
 `mockIPC` in `project/projectStore.test.tsx`.
 
 ## Images and the asset protocol
@@ -140,17 +147,17 @@ Open Export…, the Run workspace) show only when `capabilities().desktop`;
 there are no disabled stand-ins.
 
 **Adding a command to both back ends.** Write its body once in
-`src-tauri/src/ops.rs` as a plain function of its arguments and the
-`ExportCache`; wrap it in a `#[tauri::command]` (in `commands.rs`,
+studio-core's `ops.rs` as a plain function of its arguments and the
+`ExportCache`; wrap it in a `#[tauri::command]` (in `src-tauri/src/commands.rs`,
 registered in `lib.rs`) and add its route to `command()` in
-`src/viewer/http.rs` with a camelCase argument struct. A path argument goes
-through the file scope (`scoped(...)`) there, as the asset scope guards it
-in the app. A desktop-only command (dialogs, projects, runs) gets no route:
+`src-tauri/src/viewer/http.rs` with a camelCase argument struct. A path
+argument goes through the file scope (`scoped(...)`) there, as the asset
+scope guards it in the app. A desktop-only command (dialogs, projects, runs) gets no route:
 it answers 404, and the UI hides it by capability.
 
 **File scope.** The server serves files only under the run folder and the
 export's image root (resolved against the export's folder), judged after
-canonicalising (`viewer/scope.rs`): `..`, other absolute paths and symbolic
+canonicalising (studio-core's `scope.rs`): `..`, other absolute paths and symbolic
 links out of them are 403. It answers only `Host: 127.0.0.1:<port>` or
 `localhost:<port>` and refuses a `POST` with a foreign `Origin`.
 
@@ -159,12 +166,12 @@ the HTTP back end; Vite proxies `/api` to it (`vite.config.ts`,
 `CALIB_VIEWER_URL` overrides the target):
 
 ```bash
-cargo run --manifest-path src-tauri/Cargo.toml --bin calib-viewer -- <run> --port 8765 --no-open
+cargo run -p calibration-studio --bin calib-viewer -- <run> --port 8765 --no-open
 VITE_CALIB_BACKEND=http bun run dev
 ```
 
-**Sample runs.** `cargo test --manifest-path src-tauri/Cargo.toml
-write_viewer_sample_runs -- --ignored --nocapture` calibrates `data/kuka_1`
+**Sample runs.** `cargo test -p studio-core write_viewer_sample_runs --
+--ignored --nocapture` calibrates `data/kuka_1`
 and, when present locally, `data/stereo_charuco` (`CALIB_VIEWER_DATA`
 points elsewhere) and saves each as an app project under `apps/studio/.tmp-runs/`
 (git-ignored), ready for `bun run viewer -- .tmp-runs/kuka_1/runs/run-001`.
@@ -252,7 +259,7 @@ cluster that drives it from outside the stage.
 ## Run progress and cancellation
 
 `run_calibration_cmd` takes a per-run `runId` and a `tauri::ipc::Channel<RunProgress>`
-(`src/lib/runCalibration.ts`). `run.rs` announces three stages,
+(`src/lib/runCalibration.ts`). studio-core's `run.rs` announces three stages,
 `detect` -> `solve` -> `export` (`RunStage`), and forwards the library's
 reports within them as `RunProgress.report` (a `Progress`: each image
 detected, each calibration step, each solver iteration; iterations are
@@ -297,7 +304,7 @@ file exists.
   exercised manually: `bun run tauri dev` loads the Vite server directly, so
   the CSP and the bundled `tauri://` origin are only in effect in a built app
   (`bun run tauri build --debug --no-bundle`, then run
-  `src-tauri/target/debug/calibration-studio`). Install the browser once with
+  `target/debug/calibration-studio`). Install the browser once with
   `bunx playwright install chromium --with-deps`.
 - **Browser viewer (`bun run test:e2e:viewer`)** — `e2e/viewer.spec.ts`
   (`playwright.viewer.config.ts`) builds the frontend and runs the real

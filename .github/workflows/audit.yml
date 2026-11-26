@@ -27,12 +27,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `apps/studio/src-tauri` is outside the cargo workspace (ADR 0014) and keeps
-        # its own lockfile, so the root scan never saw it — yet it is what
+        # `apps/studio` is its own cargo workspace, outside the root one
+        # (ADR 0014), and keeps its own lockfile, so the root scan never saw it — yet it is what
         # ships as the desktop bundle. Audit both.
         lockfile:
           - Cargo.lock
-          - apps/studio/src-tauri/Cargo.lock
+          - apps/studio/Cargo.lock
     steps:
       - uses: actions/checkout@v7
       # Ignores live in `.cargo/audit.toml` (read from the repo root, so one

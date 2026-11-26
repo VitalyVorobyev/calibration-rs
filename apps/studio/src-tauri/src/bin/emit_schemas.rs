@@ -47,7 +47,7 @@ mod schema_export {
     use schemars::generate::SchemaSettings;
     use serde_json::{Value, json};
 
-    use calibration_studio_lib::schema_types::{
+    use studio_core::schema_types::{
         DisparityResult, EpipolarOverlay, ProjectError, ProjectInfo, ProjectionUncertainty,
         RunProgress,
     };

@@ -3,7 +3,7 @@
 //! `compute_epipolar_overlay` is invoked once per click in the epipolar
 //! workspace; re-reading and re-parsing the export JSON on every call
 //! would be wasteful. We hold the most recent export JSON in a
-//! `tauri::State<ExportCache>` singleton (the desktop app) or in the
+//! Tauri-managed `ExportCache` singleton (the desktop app) or in the
 //! calib-viewer's server state, populated by `set_active_export` and
 //! replaced when a new export is made active.
 
