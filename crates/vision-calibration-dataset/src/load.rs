@@ -27,6 +27,18 @@ pub enum ManifestError {
     },
 }
 
+impl ManifestError {
+    /// The manifest field the error is about, as a dotted path; `None` for
+    /// every variant of this version, which are about the manifest file as a
+    /// whole: a read failure, or text that does not parse (the parser's
+    /// message gives the position).
+    pub fn field(&self) -> Option<String> {
+        match self {
+            Self::Io { .. } | Self::Parse { .. } => None,
+        }
+    }
+}
+
 impl DatasetSpec {
     /// Read a manifest file: TOML for a `.toml` extension, JSON otherwise.
     ///
@@ -109,5 +121,24 @@ square_size_m = 0.03
         let err = DatasetSpec::from_path(&bad).unwrap_err();
         assert!(matches!(err, ManifestError::Parse { .. }));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Every variant and the field it names; `field` matches exhaustively,
+    /// so a new variant does not build until it has its decision there.
+    #[test]
+    fn every_variant_names_its_field_or_none() {
+        let table = [
+            ManifestError::Io {
+                path: "d.toml".into(),
+                source: std::io::Error::from(std::io::ErrorKind::NotFound),
+            },
+            ManifestError::Parse {
+                path: "d.toml".into(),
+                message: "expected `=`".into(),
+            },
+        ];
+        for error in table {
+            assert_eq!(error.field(), None, "{error}");
+        }
     }
 }

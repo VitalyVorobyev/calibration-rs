@@ -128,6 +128,37 @@ pub enum ProjectError {
 }
 
 impl ProjectError {
+    /// The field the error is about, as a dotted path; `None` when it is
+    /// about no one field (a folder, a file as a whole, a run).
+    ///
+    /// The project's own errors name a field of the project file:
+    /// `version`, the [`Invalid`](Self::Invalid) field (`device.id`),
+    /// `config` for the configuration changes, the
+    /// [`Exclusion`](Self::Exclusion) entry (`exclude.images[0]`). The
+    /// dataset's errors name a field of its manifest, as
+    /// [`RunError::field`](crate::dataset_runner::RunError::field) does
+    /// (`target`, `cameras[cam0].images`); for a manifest written in the
+    /// project file, it lies under `dataset.manifest`.
+    pub fn field(&self) -> Option<String> {
+        match self {
+            Self::UnsupportedVersion { .. } => Some("version".into()),
+            Self::Invalid { field, .. } => Some(field.clone()),
+            Self::Config(_) => Some("config".into()),
+            Self::Exclusion { entry, .. } => Some(entry.clone()),
+            Self::Manifest(e) => e.field(),
+            Self::Calibrate(e) => e.field(),
+            Self::NotAProject { .. }
+            | Self::AmbiguousProject { .. }
+            | Self::ProjectExists { .. }
+            | Self::ChangedOnDisk { .. }
+            | Self::Io { .. }
+            | Self::Parse { .. }
+            | Self::RunNotFound { .. }
+            | Self::ImportMismatch { .. }
+            | Self::Cancelled => None,
+        }
+    }
+
     pub(crate) fn io(path: &Path, source: std::io::Error) -> Self {
         Self::Io {
             path: path.to_path_buf(),
@@ -171,6 +202,83 @@ impl From<ResolveError> for ProjectError {
         match err {
             ResolveError::Run(err) => err.into(),
             ResolveError::Exclusion { entry, fault } => Self::Exclusion { entry, fault },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vision_calibration_dataset::ValidationError;
+
+    /// Every variant and the field it names; `field` matches exhaustively,
+    /// so a new variant does not build until it has its decision there.
+    #[test]
+    fn every_variant_names_its_field_or_none() {
+        let path = || PathBuf::from("/p/calibration-project.toml");
+        let table: Vec<(ProjectError, Option<&str>)> = vec![
+            (ProjectError::NotAProject { dir: path() }, None),
+            (ProjectError::AmbiguousProject { dir: path() }, None),
+            (ProjectError::ProjectExists { dir: path() }, None),
+            (
+                ProjectError::UnsupportedVersion {
+                    path: path(),
+                    version: 3,
+                },
+                Some("version"),
+            ),
+            (ProjectError::ChangedOnDisk { path: path() }, None),
+            (
+                ProjectError::io(&path(), std::io::ErrorKind::NotFound.into()),
+                None,
+            ),
+            (ProjectError::parse(&path(), "expected `=`"), None),
+            (
+                ProjectError::invalid(&path(), "device.id", "is empty"),
+                Some("device.id"),
+            ),
+            (
+                ProjectError::Manifest(ManifestError::Parse {
+                    path: path(),
+                    message: "x".into(),
+                }),
+                None,
+            ),
+            (
+                ProjectError::Config(crate::Error::Serde("x".into())),
+                Some("config"),
+            ),
+            (
+                ProjectError::Exclusion {
+                    entry: "exclude.images[1]".into(),
+                    fault: ExclusionFault::ImageNotFound,
+                },
+                Some("exclude.images[1]"),
+            ),
+            (ProjectError::RunNotFound { id: "run-9".into() }, None),
+            (
+                ProjectError::ImportMismatch {
+                    message: "x".into(),
+                },
+                None,
+            ),
+            // The dataset's errors name their manifest field.
+            (
+                RunError::Validation(ValidationError::BadTarget("x".into())).into(),
+                Some("target"),
+            ),
+            (
+                RunError::Decode {
+                    path: path(),
+                    message: "x".into(),
+                }
+                .into(),
+                None,
+            ),
+            (ProjectError::Cancelled, None),
+        ];
+        for (error, expected) in table {
+            assert_eq!(error.field().as_deref(), expected, "{error:?}");
         }
     }
 }

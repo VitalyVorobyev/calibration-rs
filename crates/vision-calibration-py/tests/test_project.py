@@ -85,6 +85,19 @@ class ProjectFileTest(unittest.TestCase):
                 Project.open(root)
             self.assertEqual(caught.exception.kind, "ambiguous_project")
 
+    def test_errors_name_their_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(ProjectError) as caught:
+                Project.create(
+                    root,
+                    {"version": 2, "dataset": {"manifest": "d.toml"}, "device": {"id": " x"}},
+                )
+            self.assertEqual(caught.exception.field, "device.id")
+            with self.assertRaises(ProjectError) as caught:
+                Project.open(root)
+            self.assertIsNone(caught.exception.field)
+
     def test_views_list_robot_poses_and_what_pairs_with_no_view(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

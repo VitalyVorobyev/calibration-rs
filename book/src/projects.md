@@ -116,7 +116,7 @@ manifest's `pose_pairing`. What pairs with nothing is listed too: a view
 without a pose or a laser frame, a pose row or a laser frame that pairs
 with no view. A run refuses such a dataset; the listing shows which rows
 and frames are at fault. Python's `Project.views()` returns all three, with
-an `{"error"}` entry in place of a pose or laser listing that
+an `{"error", "field"}` entry in place of a pose or laser listing that
 cannot be made.
 
 ```rust,no_run

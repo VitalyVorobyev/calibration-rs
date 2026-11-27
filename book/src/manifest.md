@@ -146,6 +146,24 @@ The same philosophy applies at run time. When the runner meets an ambiguity it c
 
 `vision_calibration_dataset::validate(&spec)` checks the structural rules without touching the filesystem (it does not expand globs), and every runner converter calls it first. It returns a typed `ValidationError`: unresolved fields; a topology that needs robot poses and has none, or a camera count outside the topology's range; a missing `pose_convention`; duplicate camera ids; empty image sources; a rotation-column count that does not match the rotation format; tabular pose formats without `columns`; matrix formats with a `columns` mapping; degenerate ROIs; laser fields on a non-laser topology and missing laser sources on a laser one; out-of-range laser or detector parameters.
 
+Each of these errors names the manifest field it is about: `field()` returns it as a dotted path (`target`, `robot_poses.columns.rotation`, `cameras[cam0].images`, a camera named by its id), so an editor can mark the field without reading the message. `RunError::field` does the same for the runner's errors (`pose_pairing.regex`, the `field` of an `AskUser` question) and returns `None` for an error about the images, the detections or the run itself; `ProjectError::field` names a field of the project file (`device.id`, `exclude.images[0]`) or of the manifest. In Python the exceptions carry it as `field`.
+
+```rust
+use vision_calibration::dataset::{DatasetSpec, validate};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let spec: DatasetSpec = serde_json::from_value(serde_json::json!({
+    "version": 1,
+    "topology": "planar_intrinsics",
+    "cameras": [{ "id": "cam0", "images": { "kind": "glob", "pattern": "*.png" } }],
+    "target": { "kind": "chessboard", "rows": 1, "cols": 8, "square_size_m": 0.03 },
+}))?;
+let err = validate(&spec).unwrap_err();
+assert_eq!(err.field().as_deref(), Some("target"));
+# Ok(())
+# }
+```
+
 ## Running a Manifest
 
 The converters in `vision_calibration::dataset_runner` turn a `DatasetSpec` into the input of a problem type, running detection through a [detection cache](detection.md#the-detection-cache):

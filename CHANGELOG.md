@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The errors of checking a manifest or project name the field they are
+  about: `field()` on `dataset::ValidationError`, `dataset::ManifestError`,
+  `dataset_runner::RunError`, `dataset_runner::CalibrateDatasetError` and
+  `project::ProjectError` returns it as a dotted path (`target`,
+  `robot_poses.columns.rotation`, `pose_pairing.regex`,
+  `cameras[cam0].images` with the camera named by its id, `device.id`,
+  `exclude.images[0]`), or `None` for an error about the images, the
+  detections, a file as a whole or the run. Messages are unchanged. Python:
+  `RunError.field` and `ProjectError.field`, and the `field` of a pose or
+  laser listing's error in `Project.views()`.
+
 - `project::Project::view_poses` and `Project::view_laser_frames` pair the
   views `Project::views` lists with the manifest's robot poses and each
   camera's laser frames: a pose is named by its position in the pose file

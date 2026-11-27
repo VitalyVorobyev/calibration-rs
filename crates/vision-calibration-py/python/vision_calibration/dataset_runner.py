@@ -105,7 +105,10 @@ RunError = _native.RunError
 ``"empty_image_match"``, ``"image_size_mismatch"``, ``"roi_out_of_bounds"``,
 ``"pose_count_mismatch"``, ``"detection"``, ``"insufficient_usable_views"``,
 ``"no_whole_chessboard_views"``, ``"upstream_view_match"`` (a rig laser view
-that is not exactly one view of its upstream calibration), ...."""
+that is not exactly one view of its upstream calibration), .... ``field`` is
+the manifest field the failure is about, as a dotted path (``"target"``,
+``"pose_pairing.regex"``, ``"cameras[cam0].images"``, a camera named by its
+id), or ``None`` when it is about the images, the detections or the run."""
 
 AskUserError = _native.AskUserError
 """The manifest leaves a convention open and the runner will not guess.

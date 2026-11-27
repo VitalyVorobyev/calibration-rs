@@ -167,7 +167,7 @@ impl PyProject {
 
     /// The views the images pair into: `{"paths", "tokens", "robot_poses",
     /// "laser_frames"}`; the last two are `None` when the manifest declares
-    /// no robot poses or laser frames, and `{"error"}` when they
+    /// no robot poses or laser frames, and `{"error", "field"}` when they
     /// cannot be listed.
     fn views(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         #[derive(Serialize)]
@@ -196,7 +196,10 @@ impl PyProject {
         #[serde(untagged)]
         enum Listed<T> {
             Ok(T),
-            Err { error: String },
+            Err {
+                error: String,
+                field: Option<String>,
+            },
         }
         fn listed<A, T>(
             result: Result<Option<A>, ProjectError>,
@@ -206,6 +209,7 @@ impl PyProject {
                 Ok(value) => Listed::Ok(convert(value)),
                 Err(e) => Listed::Err {
                     error: e.to_string(),
+                    field: e.field(),
                 },
             })
         }
