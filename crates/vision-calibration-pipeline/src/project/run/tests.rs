@@ -187,6 +187,41 @@ fn equal_input_digests_give_identical_exports_and_reports() {
     assert_ne!(record(&a).timestamp, 0);
 }
 
+/// The project's own digest is the run's, part by part, before any image is
+/// read; an edit changes the part it touches, and a run's own configuration
+/// changes make its config digest differ from the project's.
+#[test]
+fn the_project_digest_is_the_run_digest_without_the_detections() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut project = planar_project(tmp.path());
+    let run = calibrate(&project);
+    let recorded = &calibrated(&run).digest;
+    let current = project.input_digest().unwrap();
+    assert_eq!(current.dataset, recorded.dataset);
+    assert_eq!(current.exclusions, recorded.exclusions);
+    assert_eq!(current.config, recorded.config);
+    assert_eq!(current.quality, recorded.quality);
+
+    project
+        .spec_mut()
+        .exclude
+        .images
+        .push(ImageExclusion::new("cam0", "img/view00.png"));
+    let edited = project.input_digest().unwrap();
+    assert_ne!(edited.exclusions, current.exclusions);
+    assert_eq!(
+        (&edited.dataset, &edited.config, &edited.quality),
+        (&current.dataset, &current.config, &current.quality)
+    );
+
+    let mut options = options();
+    options.config_patch = ConfigPatch::from_json_str(r#"{"solver": {"max_iters": 7}}"#).unwrap();
+    let patched = project
+        .calibrate(&options, None, &RunControl::default())
+        .unwrap();
+    assert_ne!(calibrated(&patched).digest.config, edited.config);
+}
+
 /// The recording cache holds one key per image the run reads: every image
 /// of the dataset but the excluded one.
 #[test]

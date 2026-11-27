@@ -159,6 +159,13 @@ version, have byte-identical `export.json` and `quality.json`: the time
 stamp and duration in `run.json` are the only clock readings, and no digest
 includes them. Moving the data does not change a digest.
 
+`Project::input_digest` (Python `Project.input_digest()`) computes the
+same digests of the project as it stands, for everything but the
+detections, without reading an image. A run whose `dataset`, `exclusions`,
+`config` or `quality` digest differs from the project's was made from
+other inputs than the project now states; a run's own configuration
+changes count as such a difference.
+
 ## The Library
 
 The projects under a set of folders are a library. `vcal project scan`

@@ -10,7 +10,7 @@ use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_detect::{CacheError, CacheKey, CachedFeatures, DetectionCache};
 
 use super::fs::{canonical_json, digest_of, read, sha256};
-use super::{Exclusions, InputDigest, ProjectError};
+use super::{Exclusions, InputDigest, ProjectDigest, ProjectError};
 use crate::analysis::QualityThresholds;
 use crate::dataset_runner::CalibrationConfig;
 
@@ -74,31 +74,18 @@ impl DigestInputs<'_> {
     /// content of the files the manifest names other than images, keyed by
     /// their paths as the manifest writes them.
     pub(crate) fn digest(&self) -> Result<InputDigest, ProjectError> {
-        #[derive(Serialize)]
-        struct Dataset<'a> {
-            manifest: &'a DatasetSpec,
-            /// Path as written → `sha256:<hex>` of the file's content.
-            files: std::collections::BTreeMap<String, String>,
-        }
-        let mut files = std::collections::BTreeMap::new();
-        let named = self
-            .dataset
-            .robot_poses
-            .as_ref()
-            .map(|p| p.path.as_path())
-            .into_iter()
-            .chain(self.dataset.upstream_calibration.as_deref());
-        for path in named {
-            let bytes = read(&self.data_root.join(path))?;
-            files.insert(path.to_string_lossy().replace('\\', "/"), sha256(&bytes));
-        }
-        let dataset = digest_of(&Dataset {
-            manifest: self.dataset,
-            files,
-        });
-        let exclusions = digest_of(&normalized(self.exclusions));
-        let config = digest_of(self.config);
-        let quality = digest_of(self.quality);
+        let ProjectDigest {
+            dataset,
+            exclusions,
+            config,
+            quality,
+        } = project_digest(
+            self.dataset,
+            self.data_root,
+            self.exclusions,
+            self.config,
+            self.quality,
+        )?;
         let detections = digest_of(self.detections);
         let inputs = digest_of(&[&dataset, &exclusions, &config, &quality, &detections]);
         Ok(InputDigest {
@@ -110,6 +97,44 @@ impl DigestInputs<'_> {
             detections,
         })
     }
+}
+
+/// The digests of the inputs known before any image is read, computed as a
+/// run computes them: every part of an [`InputDigest`] but the detections
+/// (and so `inputs`).
+pub(crate) fn project_digest(
+    dataset: &DatasetSpec,
+    data_root: &Path,
+    exclusions: &Exclusions,
+    config: &CalibrationConfig,
+    quality: &QualityThresholds,
+) -> Result<ProjectDigest, ProjectError> {
+    #[derive(Serialize)]
+    struct Dataset<'a> {
+        manifest: &'a DatasetSpec,
+        /// Path as written → `sha256:<hex>` of the file's content.
+        files: std::collections::BTreeMap<String, String>,
+    }
+    let mut files = std::collections::BTreeMap::new();
+    let named = dataset
+        .robot_poses
+        .as_ref()
+        .map(|p| p.path.as_path())
+        .into_iter()
+        .chain(dataset.upstream_calibration.as_deref());
+    for path in named {
+        let bytes = read(&data_root.join(path))?;
+        files.insert(path.to_string_lossy().replace('\\', "/"), sha256(&bytes));
+    }
+    Ok(ProjectDigest {
+        dataset: digest_of(&Dataset {
+            manifest: dataset,
+            files,
+        }),
+        exclusions: digest_of(&normalized(exclusions)),
+        config: digest_of(config),
+        quality: digest_of(quality),
+    })
 }
 
 /// The exclusions as a set: notes left out, each list's entries as their

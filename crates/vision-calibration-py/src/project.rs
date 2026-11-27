@@ -153,6 +153,16 @@ impl PyProject {
             .map_err(|e| project_err(py, e))
     }
 
+    /// The digests of the inputs as they stand, without reading an image:
+    /// `{"dataset", "exclusions", "config", "quality"}`.
+    fn input_digest(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let project = self.snapshot();
+        let digest = py
+            .detach(|| project.input_digest())
+            .map_err(|e| project_err(py, e))?;
+        to_py(py, &digest)
+    }
+
     /// The views the images pair into: `{"paths": [[path | None, ...]], "tokens": [...]}`.
     fn views(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         #[derive(Serialize)]

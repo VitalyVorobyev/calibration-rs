@@ -279,6 +279,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dataset_runner::input_files` lists every file a run of a manifest reads
   (images, laser frames, the robot pose file, the upstream calibration)
   without reading any. Python: `dataset_runner.input_files`.
+- `Project::input_digest` (`ProjectDigest`; Python
+  `Project.input_digest()`) gives the digests of a project's dataset,
+  exclusions, configuration and quality thresholds as they stand, as a run
+  records them, without reading an image: a run whose digest differs in one
+  of them was made from other inputs than the project now states.
 
 ### Changed
 

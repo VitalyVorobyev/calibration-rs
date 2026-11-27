@@ -225,6 +225,7 @@
 "project::CalibratedRun" = "types.CalibratedRun"
 "project::RunInputs" = "types.RunInputs"
 "project::InputDigest" = "types.InputDigest"
+"project::ProjectDigest" = "project.Project.input_digest"
 "project::LeftOutImage" = "types.LeftOutImage"
 "project::RunSummary" = "types.RunSummary"
 "project::CameraSummary" = "types.CameraSummary"

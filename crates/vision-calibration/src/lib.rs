@@ -616,8 +616,8 @@ pub mod project {
         CalibratedRun, CameraSummary, DETECTIONS_DIR, DatasetSource, DeviceHistory, DeviceIdentity,
         DeviceRun, EXPORT_FILE, ExclusionFault, Exclusions, FeatureExclusion, ImageExclusion,
         InputDigest, LeftOutImage, LibraryScan, LibraryScanOptions, PROJECT_FILE,
-        PROJECT_FILE_JSON, PROJECT_VERSION, Project, ProjectEntry, ProjectError, ProjectRunOptions,
-        ProjectSpec, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
+        PROJECT_FILE_JSON, PROJECT_VERSION, Project, ProjectDigest, ProjectEntry, ProjectError,
+        ProjectRunOptions, ProjectSpec, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
         RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSource, RunState,
         RunSummary, ScanFailure, UnrecordedRun, ViewExclusion, ViewRef, scan_library,
     };

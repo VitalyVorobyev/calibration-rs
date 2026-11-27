@@ -173,6 +173,14 @@ class Project:
         :class:`ProjectError` on the first problem."""
         self._native.check()
 
+    def input_digest(self) -> dict[str, str]:
+        """The digests of the project's inputs as they stand, without reading
+        an image: ``{"dataset", "exclusions", "config", "quality"}``, each as
+        a run records it in its ``InputDigest``. A run whose digest differs
+        in one of them was made from other inputs than the project now
+        states."""
+        return cast("dict[str, str]", self._native.input_digest())
+
     def views(self) -> dict[str, Any]:
         """The views the images pair into, without reading an image:
         ``{"paths": [[path or None per camera] per view], "tokens": [...]}``."""
