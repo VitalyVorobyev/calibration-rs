@@ -221,20 +221,25 @@ pub mod common {
     }
 }
 
-/// Device-spec → manual-init seed derivation.
+/// Seeds: the device quantities a calibration starts from.
 ///
-/// [`DeviceSpec`](device_seed::DeviceSpec) is the sidecar `spec.json` schema
-/// describing the capture hardware (lens focal, pixel pitch, Scheimpflug
-/// mount tilt, nominal rig layout); the functions here derive the
-/// manual-init seeds that make spec-seeded initialization the structured
-/// default.
+/// A [`DeviceSeed`](device_seed::DeviceSeed) holds a device's lenses,
+/// camera mounts, laser planes and hand-eye by camera id, from a datasheet
+/// ([`DeviceSpec`](device_seed::DeviceSpec), the sidecar `spec.json` schema
+/// describing the capture hardware: lens focal, pixel pitch, Scheimpflug
+/// mount tilt, nominal rig layout) or from a previous calibration (any
+/// export). Its derivations, and the free functions for a `DeviceSpec`, give
+/// the manual-init seeds the workflows' seeded steps take.
 pub mod device_seed {
     pub use vision_calibration_pipeline::device_seed::{
         // Schema types (from `vision-calibration-dataset`)
         CameraDeviceSpec,
         CameraMountSpec,
+        DEVICE_SEED_VERSION,
         DEVICE_SPEC_FILENAME,
         DEVICE_SPEC_VERSION,
+        // The seed value
+        DeviceSeed,
         // Derivation
         DeviceSeedError,
         DeviceSpec,
@@ -244,6 +249,9 @@ pub mod device_seed {
         NominalPoseSpec,
         RigLayoutSpec,
         ScheimpflugMountSpec,
+        SeedCamera,
+        SeedHandeye,
+        SeedLens,
         handeye_seed,
         nominal_cam_se3_rig,
         rig_intrinsics_seed,

@@ -55,7 +55,49 @@ convergence-basin evidence are in `docs/notes/scheimpflug-intrinsics.md`.
 Each acceptance entry carries a hard per-camera reprojection gate in the
 bench registry. A gate is never relaxed to make a run pass.
 
-### Seeds come from a device specification
+### Seeds come from a device: its datasheet or a calibration of it
+
+One seed value, `device_seed::DeviceSeed`, holds the device quantities by
+camera id: each camera's lens, its mount in the rig (`cam_se3_rig`), its
+laser plane (camera frame) and the rig's hand-eye. It has two sources, a
+`DeviceSpec` (`DeviceSeed::from_spec`) and any calibration export through
+`CalibratedCameras` (`DeviceSeed::from_calibration`, the camera ids and
+image sizes given, since an export holds neither), and one sink: its
+derivations into the `*ManualInit` seeds above, which stay the only
+mechanism the steps consume.
+
+- **A lens is `Calibrated { camera }` or `Nominal { intrinsics, sensor }`**,
+  not parallel optional fields. A calibrated lens is the camera whole in its
+  model; the model is configuration, so the lens must be of the configured
+  model, and `DeviceSeed::nominal()` is the explicit way to start another
+  model from a calibration (exact embeddings between nested models are not
+  converted). A sensor homography cannot be expressed by any `*ManualInit`
+  and is a typed `UnseedableSensor`.
+- **A seed is an initial value, never a prior.** It carries no σ: a unit's
+  own previous posterior used as a prior would bias a recalibration toward
+  the old value exactly when the device changed. A prior's width, if one is
+  ever added, is the spread across units, measured for that use.
+- **Nothing of a capture is carried**: target poses, robot-pose
+  corrections, residuals, the covariance and the configuration stay behind.
+- **The rig frame is re-gauged at use.** A seed's mounts and hand-eye are in
+  its own rig frame (a drawing's, or another run's reference camera). The
+  derivations that take the config's `reference_camera_idx` re-express them
+  so the reference camera is the identity (`C_i · C_ref⁻¹`, `gripper_se3_rig
+  · C_ref⁻¹`, `C_ref · rig_se3_base`); laser planes are in camera frames.
+  A single camera is a rig of one whose frame is the camera's.
+- **Two workflows treat a seeded value as more than a start**, and both are
+  kept and documented: a seeded Scheimpflug tilt switches planar intrinsics
+  to the trusted warm start, whose `k1` sweep replaces a seeded `k1` with
+  its best fixed start and whose refine is bounded around the seed; and a
+  laserline device holds its tilt at the seed by default (above).
+- Per-field seeds are all-or-none across a rig's cameras: mixed calibrated
+  and nominal lenses are a typed `PartialField` for the rig's distortion,
+  never zeros for the nominal ones.
+
+The `DeviceSpec` free functions (`scheimpflug_seed`, `rig_intrinsics_seed`,
+`nominal_cam_se3_rig`, `rig_layout_seed`, `handeye_seed`) stay and share
+the seed's conversions, so their values equal the `DeviceSeed` path's bit
+for bit (in the drawing's frame).
 
 A `DeviceSpec` sidecar (`spec.json` next to the dataset manifest, in
 `vision-calibration-dataset`) describes the hardware, not the data:
@@ -89,3 +131,5 @@ derives the `*ManualInit` seeds from it.
   tolerates.
 - Wrong seeds can give worse results: beyond cardinality and the coupling
   rule there is no plausibility check.
+- A previous calibration of the unit, or of another unit of its type, can
+  start the next one through the same seeded steps.

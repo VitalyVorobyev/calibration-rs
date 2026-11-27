@@ -1,0 +1,111 @@
+{
+  "cameras": [
+    {
+      "cam_se3_rig": {
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "id": "cam0",
+      "image_size": [
+        1280,
+        960
+      ],
+      "laser_plane": {
+        "distance": -0.3,
+        "normal": [
+          0.0,
+          0.6,
+          0.8
+        ]
+      },
+      "lens": {
+        "camera": {
+          "distortion": {
+            "iters": 0,
+            "k1": -0.3,
+            "k2": 0.0,
+            "k3": 0.0,
+            "p1": 0.0,
+            "p2": 0.0,
+            "type": "brown_conrady5"
+          },
+          "intrinsics": {
+            "cx": 640.0,
+            "cy": 480.0,
+            "fx": 1500.0,
+            "fy": 1500.5
+          },
+          "projection": {
+            "type": "pinhole"
+          },
+          "sensor": {
+            "tilt_x": 0.05,
+            "tilt_y": 0.0,
+            "type": "scheimpflug"
+          }
+        },
+        "kind": "calibrated"
+      }
+    },
+    {
+      "cam_se3_rig": {
+        "rotation": [
+          0.0,
+          0.04997916927067833,
+          0.0,
+          0.9987502603949663
+        ],
+        "translation": [
+          -0.1,
+          0.0,
+          0.0
+        ]
+      },
+      "id": "cam1",
+      "image_size": [
+        1280,
+        960
+      ],
+      "lens": {
+        "intrinsics": {
+          "cx": 640.0,
+          "cy": 480.0,
+          "fx": 1500.0,
+          "fy": 1500.5
+        },
+        "kind": "nominal",
+        "sensor": {
+          "tilt_x": 0.0,
+          "tilt_y": 0.0
+        }
+      }
+    }
+  ],
+  "description": "a synthetic two-camera device",
+  "handeye": {
+    "gripper_se3_rig": {
+      "rotation": [
+        0.0,
+        0.04997916927067833,
+        0.0,
+        0.9987502603949663
+      ],
+      "translation": [
+        0.05,
+        0.0,
+        0.0
+      ]
+    },
+    "mode": "eye_in_hand"
+  },
+  "version": 1
+}

@@ -20,6 +20,7 @@ from . import (
     dataset,
     dataset_runner,
     detect,
+    device_seed,
     laserline_device,
     maps,
     mvg,
@@ -167,6 +168,7 @@ from .common import (
 from .dataset import SniffError, sniff_folder
 from .dataset_runner import AskUserError, RunError, calibrate_dataset, detect_target
 from .detect import CacheKey, DetectionDetail, Features, FsDetectionCache, reject_ambiguous_detection
+from .device_seed import DeviceSeed
 from .laserline_device import DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceSession
 from .planar_intrinsics import IntrinsicsFilterOptions, PlanarIntrinsicsSession
 from .residuals import (
@@ -337,6 +339,8 @@ __all__ = [
     "RigPoses",
     "RigInitResult",
     "HandeyeOptimizeResult",
+    # Seeding from a device spec or a previous calibration
+    "DeviceSeed",
     # Cameras
     "CameraModel",
     # Manifest-driven runs and detection

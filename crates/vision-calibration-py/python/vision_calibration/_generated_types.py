@@ -1012,6 +1012,48 @@ class DeviceOptimizeConfig(TypedDict):
     """Weight of the reprojection residuals."""
 
 
+class _DeviceSeedRequired(TypedDict):
+    """The keys of `DeviceSeed` that every payload has."""
+
+    cameras: list[SeedCamera]
+    """The cameras, ids unique; at least one."""
+
+    version: int
+    """Format version, `DEVICE_SEED_VERSION`."""
+
+
+class DeviceSeed(_DeviceSeedRequired, total=False):
+    """The device quantities a calibration starts from, by camera id: a
+    datasheet's nominal values or a previous calibration's estimates.
+
+    A seed is an initial value; nothing in it is a constraint or a prior,
+    and it carries no uncertainty. It holds what belongs to the hardware:
+    each camera's lens, its mount in the rig, its laser plane and the rig's
+    hand-eye. Nothing of a capture is in it (no target poses, robot-pose
+    corrections or residuals), and no configuration: the camera model is the
+    config's, and a calibrated lens must be of that model.
+
+    Units are the pipeline's: pixels, radians and metres. A seed is made by
+    `from_spec` or
+    `from_calibration`, not transcribed by hand;
+    its JSON form is how it is stored.
+
+    The rig frame of the mounts and the hand-eye is the seed's own (a
+    drawing's frame, or the reference camera of the run it came from). The
+    derivations that take a `reference` camera re-express them so that
+    camera's mount is the identity, as a rig problem's gauge requires; laser
+    planes are in their camera's frame and need no change.
+    """
+
+    description: str | None
+    """Where the seed came from, for its reader."""
+
+    handeye: SeedHandeye | None
+    """The rig on the robot, in the seed's rig frame (see
+    `SeedCamera::cam_se3_rig`).
+    """
+
+
 DistortionKind: TypeAlias = Literal[
     "none",
     "brown_conrady5",
@@ -5308,6 +5350,90 @@ class SecondOrderError(TypedDict):
     """
 
 
+class _SeedCameraRequired(TypedDict):
+    """The keys of `SeedCamera` that every payload has."""
+
+    id: str
+    """The camera's id in the dataset manifest."""
+
+    image_size: tuple[int, int] | list[int]
+    """`[width, height]` in pixels of the images the values are for (the
+    tile, for a camera that is a region of a larger sensor). A seed for
+    another image size (another binning or region) is for another
+    camera.
+    """
+
+    lens: SeedLens
+    """The lens: intrinsics, distortion and sensor tilt."""
+
+
+class SeedCamera(_SeedCameraRequired, total=False):
+    """One camera of a `DeviceSeed`."""
+
+    cam_se3_rig: Iso3 | None
+    """Camera-from-rig (`T_C_R`) in the seed's rig frame. Every camera has
+    one or none does; a seed of one camera without it has the camera's
+    frame as its rig frame.
+    """
+
+    laser_plane: LaserPlane | None
+    """The camera's laser plane, in the camera's own frame."""
+
+
+class SeedHandeye_EyeInHand(TypedDict):
+    """The rig rides on the gripper."""
+
+    gripper_se3_rig: Iso3
+    """The rig's pose on the gripper (`T_G_R`)."""
+
+    mode: Literal["eye_in_hand"]
+
+
+class SeedHandeye_EyeToHand(TypedDict):
+    """The rig stands in the robot's base frame."""
+
+    mode: Literal["eye_to_hand"]
+    rig_se3_base: Iso3
+    """The base's pose in the rig (`T_R_B`)."""
+
+
+SeedHandeye: TypeAlias = SeedHandeye_EyeInHand | SeedHandeye_EyeToHand
+"""Where a seed's rig sits on the robot, in the seed's rig frame."""
+
+
+class SeedLens_Calibrated(TypedDict):
+    """A calibrated camera, whole, in its model: intrinsics, distortion and
+    sensor. Its model must be the one the session is configured with: the
+    seeded steps refuse a distortion of another kind or a tilt for an
+    untilted camera, and the derivations do not compare the projection.
+    `DeviceSeed::nominal` keeps only the intrinsics and the tilt, for a
+    session of another model.
+    """
+
+    camera: CameraParams
+    """The camera's parameters (a sensor homography is not seedable)."""
+
+    kind: Literal["calibrated"]
+
+
+class SeedLens_Nominal(TypedDict):
+    """What a datasheet states: the intrinsics and the mount tilt. The
+    distortion is not known and starts at zero; the tilt is the stated
+    one, zero for a frontal mount.
+    """
+
+    intrinsics: FxFyCxCy
+    """Pinhole intrinsics, pixels."""
+
+    kind: Literal["nominal"]
+    sensor: ScheimpflugParams
+    """Sensor tilt, radians; zero for a frontal mount."""
+
+
+SeedLens: TypeAlias = SeedLens_Calibrated | SeedLens_Nominal
+"""A seed camera's lens: a whole calibrated camera, or a datasheet's values."""
+
+
 SensorKind: TypeAlias = Literal["identity", "scheimpflug"]
 """Which sensor model a camera uses.
 
@@ -6200,6 +6326,7 @@ __all__ = [
     "DetectorSpec",
     "DeviceIdentity",
     "DeviceOptimizeConfig",
+    "DeviceSeed",
     "DistortionKind",
     "DistortionParams",
     "DistortionParams_BrownConrady5",
@@ -6387,6 +6514,13 @@ __all__ = [
     "ScanFailure",
     "ScheimpflugParams",
     "SecondOrderError",
+    "SeedCamera",
+    "SeedHandeye",
+    "SeedHandeye_EyeInHand",
+    "SeedHandeye_EyeToHand",
+    "SeedLens",
+    "SeedLens_Calibrated",
+    "SeedLens_Nominal",
     "SensorKind",
     "SensorParams",
     "SensorParams_Homography",

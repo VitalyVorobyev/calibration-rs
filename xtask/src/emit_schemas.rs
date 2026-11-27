@@ -8,8 +8,9 @@
 //!   against these files) and keeps no copy.
 //! - The input, export and quality schemas — what a workflow reads and what
 //!   it returns — the progress report a long call streams, the reason a
-//!   solve stopped, the device specification's, and the project file's, a
-//!   run's record and notes, a run listing's and a library scan's go to
+//!   solve stopped, the device specification's and the device seed's, and
+//!   the project file's, a run's record and notes, a run listing's and a
+//!   library scan's go to
 //!   `schemas/<name>.json`, for tools that consume the results. Inputs and
 //!   thresholds describe what deserializes, exports and reports what
 //!   serializes.
@@ -43,6 +44,7 @@ use vision_calibration_pipeline::analysis::{
     PredictedRigUncertainty, PredictedUncertainty, QualityReport, QualityThresholds,
     RankedCandidate, RankedRobotPose,
 };
+use vision_calibration_pipeline::device_seed::DeviceSeed;
 use vision_calibration_pipeline::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
 };
@@ -221,6 +223,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         reads::<LibraryScan>("library_scan", "LibraryScan", &[]),
         writes::<DetectionDetail>("detection_detail", "DetectionDetail"),
         plain("device_spec", schema_value::<DeviceSpec>()),
+        reads::<DeviceSeed>("device_seed", "DeviceSeed", &[]),
     ];
     let suite = vec![
         plain("observation_set", schema_value::<ObservationSet>()),

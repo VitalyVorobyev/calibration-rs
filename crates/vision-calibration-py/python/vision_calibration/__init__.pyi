@@ -102,6 +102,7 @@ from . import common as common
 from . import dataset as dataset
 from . import dataset_runner as dataset_runner
 from . import detect as detect
+from . import device_seed as device_seed
 from . import laserline_device as laserline_device
 from . import maps as maps
 from . import mvg as mvg
@@ -144,6 +145,7 @@ from .dataset_runner import (
     calibrate_dataset as calibrate_dataset,
     detect_target as detect_target,
 )
+from .device_seed import DeviceSeed as DeviceSeed
 from .detect import (
     CacheKey as CacheKey,
     DetectionDetail as DetectionDetail,

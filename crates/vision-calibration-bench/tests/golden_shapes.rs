@@ -2,7 +2,7 @@
 //!
 //! `tests/golden/` holds, per problem type, a serialized export, a serialized
 //! session after `run_calibration` and the default config, plus one dataset
-//! manifest. Each test re-serializes the current value and compares its
+//! manifest and one device seed. Each test re-serializes the current value and compares its
 //! *shape* with the fixture's: the set of key paths and the value types, not
 //! the numbers. A difference means a wire format changed: an added optional
 //! field keeps the version, any other change bumps the matching version.
@@ -122,6 +122,7 @@ enum Bump {
     Project,
     RunRecord,
     DetectionDetail,
+    DeviceSeed,
 }
 
 impl Bump {
@@ -141,6 +142,7 @@ impl Bump {
                  is keyed on the release): an added optional field is a minor change, any \
                  other one a major release"
                 .to_string(),
+            Self::DeviceSeed => "bump `DEVICE_SEED_VERSION` (the seed's `version`)".to_string(),
         }
     }
 }
@@ -624,4 +626,63 @@ fn detection_detail() {
     let value = serde_json::to_value(&typed).unwrap();
     let golden = check("detection.detail.json", &value, Bump::DetectionDetail);
     check_reads_back::<Vec<DetectionDetail>>("detection.detail.json", &golden);
+}
+
+/// A device seed with both lens kinds, rig mounts, a laser plane and a
+/// hand-eye.
+#[test]
+fn device_seed() {
+    use vision_calibration::core::{
+        BrownConrady5, FxFyCxCy, Iso3, LaserPlane, ScheimpflugParams, SensorParams,
+        make_pinhole_camera, pinhole_camera_params,
+    };
+    use vision_calibration::device_seed::{DeviceSeed, SeedCamera, SeedHandeye, SeedLens};
+    use vision_calibration::nalgebra::{Translation3, UnitQuaternion, Vector3};
+
+    let k = FxFyCxCy {
+        fx: 1500.0,
+        fy: 1500.5,
+        cx: 640.0,
+        cy: 480.0,
+    };
+    let distortion = BrownConrady5 {
+        k1: -0.3,
+        ..Default::default()
+    };
+    let camera = pinhole_camera_params(&make_pinhole_camera(k, distortion)).with_sensor(
+        SensorParams::Scheimpflug {
+            params: ScheimpflugParams {
+                tilt_x: 0.05,
+                tilt_y: 0.0,
+            },
+        },
+    );
+    let pose = |t: f64| {
+        Iso3::from_parts(
+            Translation3::new(t, 0.0, 0.0),
+            UnitQuaternion::from_euler_angles(0.0, 0.1, 0.0),
+        )
+    };
+    let mut cam0 = SeedCamera::new("cam0", [1280, 960], SeedLens::Calibrated { camera });
+    cam0.cam_se3_rig = Some(Iso3::identity());
+    cam0.laser_plane = Some(LaserPlane::new(Vector3::new(0.0, 0.6, 0.8), -0.3).unwrap());
+    let mut cam1 = SeedCamera::new(
+        "cam1",
+        [1280, 960],
+        SeedLens::Nominal {
+            intrinsics: k,
+            sensor: ScheimpflugParams::default(),
+        },
+    );
+    cam1.cam_se3_rig = Some(pose(-0.1));
+    let mut seed = DeviceSeed::new(vec![cam0, cam1]);
+    seed.handeye = Some(SeedHandeye::EyeInHand {
+        gripper_se3_rig: pose(0.05),
+    });
+    seed.description = Some("a synthetic two-camera device".to_string());
+    seed.validate().unwrap();
+
+    let value = serde_json::to_value(&seed).unwrap();
+    let golden = check("device_seed.json", &value, Bump::DeviceSeed);
+    check_reads_back::<DeviceSeed>("device_seed.json", &golden);
 }

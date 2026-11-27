@@ -80,7 +80,7 @@ options.
 | `planar_intrinsics` | Single-camera intrinsics (Zhang's method), for any camera model including a Scheimpflug sensor |
 | `single_cam_handeye`, `laserline_device` | Hand-eye and camera + laser plane calibration, for any camera model |
 | `rig_extrinsics`, `rig_handeye`, `rig_laserline_device`, `rig_handeye_laserline` | Multi-camera rig workflows |
-| `device_seed`, `dataset_runner` | Device-spec seeding and manifest-driven dataset runs |
+| `device_seed`, `dataset_runner` | Seeding from a device spec or a previous calibration, and manifest-driven dataset runs |
 | `dataset`, `detect` | Dataset manifests and target detection |
 | `analysis` | Quality verdict, reprojection reports and per-feature residuals |
 | `core`, `optim` | Math types and camera models; the optimization vocabulary (robust losses, solver backends, projection uncertainty) and `optim::problem` for a problem of your own |
