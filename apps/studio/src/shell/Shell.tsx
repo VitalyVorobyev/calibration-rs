@@ -70,7 +70,7 @@ export function Shell() {
         }
         left={withRuns ? <RunList project={project} /> : undefined}
         leftLabel="Runs"
-        leftSize={{ defaultSize: 248, minSize: 200, maxSize: "40%", collapsible: true }}
+        leftSize={{ defaultSize: 300, minSize: 200, maxSize: "40%", collapsible: true }}
         main={<MainSurface place={place} connecting={status.kind === "connecting"} />}
         bottom={
           <>

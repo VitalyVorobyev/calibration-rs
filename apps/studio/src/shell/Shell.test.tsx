@@ -4,7 +4,7 @@
  * pills, project errors, the sign-in panel, the desktop's first folder, a
  * back end that does not answer, and the global keys. The back end is a
  * mock transport. */
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { StudioError } from "../api";
 import type { ServerInfo } from "../api/generated/types";
@@ -148,8 +148,10 @@ describe("the context bar", () => {
     });
     renderShell("/inspect/frames?project=%2Fwork%2Fcell-a&run=run-002");
     await waitFor(() => expect(screen.getByText("Recorded")).toBeTruthy());
-    expect(screen.getByText("Pass")).toBeTruthy();
-    expect(screen.getByText("Stale")).toBeTruthy();
+    // The context bar's pills; the run list's cards say the same of each run.
+    const pills = within(screen.getByLabelText("State of the run"));
+    expect(pills.getByText("Pass")).toBeTruthy();
+    expect(pills.getByText("Stale")).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Run" }).textContent).toContain(
       "run-002",
     );
