@@ -5,7 +5,6 @@ use nalgebra::{Point2, Vector3};
 use super::ImageGrid;
 use crate::models::{
     AnySensor, CameraModel, CameraParams, DistortionModel, IntrinsicsModel, ProjectionModel,
-    SensorModel,
 };
 use crate::{Error, Real};
 
@@ -42,7 +41,7 @@ pub struct DisplacementPlane {
 
 impl DisplacementPlane {
     /// A plane of `len` nodes, all `NaN`.
-    fn nan(len: usize) -> Self {
+    pub(super) fn nan(len: usize) -> Self {
         Self {
             dx: vec![f64::NAN; len],
             dy: vec![f64::NAN; len],
@@ -206,6 +205,41 @@ pub fn distortion_map(camera: &CameraParams, grid: &ImageGrid) -> Result<Distort
 /// The `[distortion, sensor]` displacement at the pixel `node`, or `None`
 /// where the node has no value (see [`distortion_map`]).
 fn node_layers(model: &CameraModel, node: [f64; 2]) -> Option<[[f64; 2]; 2]> {
+    let point = backproject_node(model, node)?;
+    // Forward again from the ray: the layers are the forward model's.
+    let forward = project_ray(model, &point)?;
+    let reference = model.k.sensor_to_pixel(&forward.n);
+    let lens = model.k.sensor_to_pixel(&forward.nd);
+    let full = forward.pixel;
+    let layers = [
+        [lens.x - reference.x, lens.y - reference.y],
+        [full.x - lens.x, full.y - lens.y],
+    ];
+    layers
+        .iter()
+        .flatten()
+        .all(|v| v.is_finite())
+        .then_some(layers)
+}
+
+/// A ray's forward projection through a camera's stages: the normalized
+/// point `n = P(ray)`, the distorted point `nd = D(n)` and the pixel
+/// `K(S(nd))`.
+pub(super) struct ForwardProjection {
+    /// `P(ray)`, normalized.
+    pub(super) n: Point2<Real>,
+    /// `D(n)`, normalized.
+    pub(super) nd: Point2<Real>,
+    /// `K(S(D(n)))`, pixels.
+    pub(super) pixel: Point2<Real>,
+}
+
+/// The ray (its point `origin + direction`) the camera backprojects
+/// through the pixel `node`, or `None` where the node has no ray of the
+/// lens: the inverse sensor homography is at infinity there, the ray is
+/// outside the projection's domain, it does not project back to the node
+/// within [`ROUND_TRIP_PX`], or [`project_ray`] refuses it (past the fold).
+pub(super) fn backproject_node(model: &CameraModel, node: [f64; 2]) -> Option<Vector3<Real>> {
     let u = Point2::new(node[0], node[1]);
     let s = model.k.pixel_to_sensor(&u);
     let n_d = match &model.sensor {
@@ -222,34 +256,38 @@ fn node_layers(model: &CameraModel, node: [f64; 2]) -> Option<[[f64; 2]; 2]> {
     };
     let ray = model.proj.unproject(&model.dist.undistort(&n_d));
     let point = ray.origin + ray.direction;
-    if !model.proj.in_domain(&point) {
-        return None;
-    }
-    // Forward again from the ray: the layers are the forward model's.
-    let n = model.proj.project(&point);
-    let nd = model.dist.distort(&n);
-    let full = model
-        .k
-        .sensor_to_pixel(&model.sensor.normalized_to_sensor(&nd));
+    let forward = project_ray(model, &point)?;
     // A NaN round trip compares false and is refused.
-    let round_trips = (full - u).norm() <= ROUND_TRIP_PX;
-    if !round_trips {
+    let round_trips = (forward.pixel - u).norm() <= ROUND_TRIP_PX;
+    round_trips.then_some(point)
+}
+
+/// The camera's projection of the ray through `point`, or `None` where the
+/// lens has none: the point is outside the projection's domain, the
+/// distortion folds on the segment from the axis to `P(point)`
+/// ([`unfolded_to`]), the sensor homography sends the distorted point to
+/// infinity or behind the sensor, or the pixel is not finite.
+pub(super) fn project_ray(model: &CameraModel, point: &Vector3<Real>) -> Option<ForwardProjection> {
+    if !model.proj.in_domain(point) {
         return None;
     }
+    let n = model.proj.project(point);
     if !unfolded_to(&model.dist, &n) {
         return None;
     }
-    let reference = model.k.sensor_to_pixel(&n);
-    let lens = model.k.sensor_to_pixel(&nd);
-    let layers = [
-        [lens.x - reference.x, lens.y - reference.y],
-        [full.x - lens.x, full.y - lens.y],
-    ];
-    layers
-        .iter()
-        .flatten()
-        .all(|v| v.is_finite())
-        .then_some(layers)
+    let nd = model.dist.distort(&n);
+    let s = match &model.sensor {
+        AnySensor::Identity(_) => nd,
+        AnySensor::Homography(h) => {
+            let q = h.h * Vector3::new(nd.x, nd.y, 1.0);
+            if q.z.is_nan() || q.z <= MIN_HOMOGRAPHY_DEPTH {
+                return None;
+            }
+            Point2::new(q.x / q.z, q.y / q.z)
+        }
+    };
+    let pixel = model.k.sensor_to_pixel(&s);
+    (pixel.x.is_finite() && pixel.y.is_finite()).then_some(ForwardProjection { n, nd, pixel })
 }
 
 /// Whether `det ∂D/∂n > MIN_JACOBIAN_DET` at [`FOLD_SAMPLES`] evenly

@@ -355,6 +355,40 @@ fn diagnostic_maps_surface_compiles() {
 }
 
 #[test]
+fn projection_difference_surface_compiles() {
+    use analysis::{
+        Compensation, FitRegion, ImageGrid, ProjectionDifference, ProjectionDifferenceOptions,
+    };
+
+    type Difference = fn(
+        &core::CameraParams,
+        &core::CameraParams,
+        &ImageGrid,
+        &ProjectionDifferenceOptions,
+    ) -> Result<ProjectionDifference, core::Error>;
+    let _difference: Difference = analysis::projection_difference;
+    let defaults = ProjectionDifferenceOptions::default();
+    assert_eq!(defaults.compensation, Compensation::Rotation);
+    assert_eq!(defaults.fit_region, FitRegion::WholeImage);
+    let options = ProjectionDifferenceOptions::new(
+        Compensation::None,
+        FitRegion::Covered(vec![[100.0, 200.0]]),
+    );
+    assert_eq!(options.compensation, Compensation::None);
+    let result: Option<ProjectionDifference> = None;
+    if let Some(diff) = result {
+        let _: (nalgebra::UnitQuaternion<f64>, f64) = (diff.camb_so3_cama, diff.rotation_angle());
+        let _: (usize, usize, &[bool]) = (diff.valid_nodes, diff.fit_nodes, &diff.fitted);
+        let _: [f64; 4] = [
+            diff.rms_fit_px,
+            diff.max_fit_px,
+            diff.rms_valid_px,
+            diff.max_valid_px,
+        ];
+    }
+}
+
+#[test]
 fn focus_surface_compiles() {
     use analysis::{
         DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,

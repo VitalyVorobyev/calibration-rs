@@ -11,13 +11,21 @@
 //! is `observed − projected`
 //! ([`TargetFeatureResidual::residual_px`](crate::TargetFeatureResidual::residual_px)).
 //! A distortion the model lacks then shows in the residuals with the sign
-//! and units it has in a distortion map.
+//! and units it has in a distortion map. A [`projection_difference`] is the
+//! second camera's pixel minus the first's at the same ray.
 
 mod distortion_map;
 mod grid;
+mod projection_difference;
 
 pub use distortion_map::{DisplacementPlane, DistortionMap, distortion_map};
 pub use grid::ImageGrid;
+pub use projection_difference::{
+    Compensation, FitRegion, ProjectionDifference, ProjectionDifferenceOptions,
+    projection_difference,
+};
 
+#[cfg(test)]
+mod projection_difference_tests;
 #[cfg(test)]
 mod tests;

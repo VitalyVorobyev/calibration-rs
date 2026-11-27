@@ -61,6 +61,20 @@ where the data do not reach; and they must cost no wire format.
 - **Derived on demand, not exported**: no export field, no JSON schema. The
   maps are deterministic functions of an export (and an image size).
 - **The report reuses `residual_map`** instead of binning.
+- **Two calibrations compare by projection, rotation-compensated**
+  (`projection_difference`, added with the run-comparison work). On the
+  reference camera `a`'s grid, `Δ(u) = b(R·a⁻¹(u)) − u` (`b − a`, the maps'
+  sign), `R = camb_so3_cama` fitted by Gauss-Newton in `b`'s pixels
+  (Hagemann et al., IJCV 2022, eq. 22), so the reported `rms_fit_px` is
+  the minimum the fit reaches. The rotation is the intrinsics/orientation
+  gauge; central models compare by direction, no translation. The fit
+  region is the grid blocks the observed features cover
+  (`FitRegion::Covered`), the whole image the fallback, each block weighted
+  once. A node is NaN where `a` has no ray (this ADR's node rules) or `b`
+  cannot project the rotated ray (domain, fold on the segment from the
+  axis, sensor depth); such nodes leave the fit. No σ yet: the compensated
+  covariance `(I − P_R) J Σ Jᵀ (I − P_R)ᵀ` is not per-node separable and
+  needs its own Monte-Carlo gate.
 
 ## Consequences
 
@@ -85,6 +99,20 @@ where the data do not reach; and they must cost no wire format.
   the SE is conservative over refits; but the draws' mean sits up to 5.8 SE
   (median 1.7) from the noise-free fit's map at a 352 px kernel, a shift
   of the fit with the noise that no SE of the map holds.
+- Projection difference, measured (`maps/projection_difference_tests.rs`,
+  `pipeline/tests/projection_difference_models.rs`, both backends): a
+  rotated frame is recovered to 1e-16 rad and removed to 5e-13 px
+  (0.1°–15°); focal and `k1` changes leave their analytic radial fields to
+  1e-12 px; a principal-point shift leaves the linear least-squares
+  remainder of the rotational flow, off it by a second-order term that
+  quarters when the shift halves. BC5 vs Rational8 fits of one noisy
+  capture (0.1 px) differ by 0.019 px RMS over the covered blocks, below
+  BC5's compensated error against the truth (0.038 px); uncompensated, that
+  error is 0.26 px, matching the stated projection σ (0.25 px), so the
+  stated σ is not the scale of a compensated difference. A thin-prism lens
+  fitted without the prism terms shows a difference 3.4–3.8× the fit's
+  reprojection RMS: the per-view poses absorb part of a missing term in the
+  residuals, not in the projection difference.
 - A significant field is not a model-term decision (ADR 0032 decides those
   on held-out views), and chain-level residuals (hand-eye, rig) include pose
   chain error; free-pose residuals for those exports are a follow-up.
@@ -104,5 +132,13 @@ where the data do not reach; and they must cost no wire format.
   in the Monte-Carlo test).
 - **Exporting the maps.** A dense float grid is a poor JSON payload, and
   the maps are recomputable exactly.
+- **An angular fit of the compensating rotation** (unit-vector
+  cosines, as mrcal's `projection_diff`). It has a closed form, but it
+  weights the image by the angle per pixel, so a wide-angle camera's edge
+  counts less than its pixels, and the reported pixel RMS is then not the
+  fit's minimum. The pixel fit matches what is reported.
+- **A node-mask input for the fit region.** Every caller would reimplement
+  the feature-to-block rule; the points carry the region and work on any
+  grid. A mask variant can be added to the `#[non_exhaustive]` enum.
 - **A pinhole reference for fisheye distortion.** Undefined at 90° and
   dominated by the projection choice, not the lens.
