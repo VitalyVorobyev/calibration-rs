@@ -1,11 +1,15 @@
 import { Button, Callout, ErrorBox, Toaster } from "@vitavision/ui";
 import { AppShell, StatusBar } from "@vitavision/workbench";
+import { useEffect } from "react";
 import { Outlet } from "react-router";
+import { PathPickerHost } from "../components/PathPicker/PathPicker";
 import type { ErrorKind } from "../api/generated/types";
 import { folderName } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
 import { useStore } from "../store";
 import { ProjectPanel } from "./ProjectPanel";
+import { useSession } from "./session";
+import { SessionNotice } from "./SessionNotice";
 import { ShellHeader } from "./ShellHeader";
 import { WorkspaceRail } from "./WorkspaceRail";
 
@@ -14,6 +18,10 @@ import { WorkspaceRail } from "./WorkspaceRail";
  * workspace, and the status line. */
 export function Shell() {
   const project = useProject((s) => s.project);
+  const start = useSession((s) => s.start);
+  useEffect(() => {
+    void start();
+  }, [start]);
   return (
     <>
       <AppShell
@@ -26,6 +34,7 @@ export function Shell() {
         bottom={<ShellStatusBar />}
         storageKey="calib-shell"
       />
+      <PathPickerHost />
       <Toaster />
     </>
   );
@@ -36,8 +45,10 @@ function MainSurface() {
   const loadError = useStore((s) => s.loadError);
   const projectError = useProject((s) => s.error);
   const clearProjectError = useProject((s) => s.clearError);
+  const login = useSession((s) => s.status.kind === "login");
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden p-3">
+      <SessionNotice />
       {loadError && <ErrorBox className="mb-2">{loadError}</ErrorBox>}
       {projectError && (
         <Callout
@@ -53,9 +64,11 @@ function MainSurface() {
           {projectError.message}
         </Callout>
       )}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <Outlet />
-      </div>
+      {!login && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Outlet />
+        </div>
+      )}
     </div>
   );
 }
@@ -70,6 +83,7 @@ const PROJECT_ERROR_TITLE: Partial<Record<ErrorKind, string>> = {
   run_exists: "A run of that name is already saved",
   io: "Project error",
   parse: "A project file does not parse",
+  forbidden_path: "Outside the folders this back end serves",
 };
 
 /** The status line: the open project and the size of the loaded export

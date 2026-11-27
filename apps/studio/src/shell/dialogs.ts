@@ -1,27 +1,27 @@
-/** Native file dialogs the shell opens (desktop only). Each resolves to the
- * chosen path, or `null` when the user cancels. */
-import { openDialog } from "../api";
+/** The shell's path questions. Each opens the in-app path picker over the
+ * back end's root folders (on the desktop and in the browser alike) and
+ * resolves to the chosen path, or `null` when the user cancels. */
+import { requestPath } from "../components/PathPicker/pickerStore";
 
 /** Choose one folder. */
 export function pickFolder(title: string): Promise<string | null> {
-  return openDialog({ directory: true, title });
+  return requestPath({ title, mode: "folder" });
 }
 
-/** Choose a calibration `export.json`. */
+/** Choose a project folder. */
+export function pickProject(): Promise<string | null> {
+  return requestPath({ title: "Open a project", mode: "project" });
+}
+
+/** Choose a calibration export (`export.json`, `calibration.json`). */
 export function pickExportFile(): Promise<string | null> {
-  return openDialog({
-    title: "Open a calibration export",
-    filters: [{ name: "Calibration export", extensions: ["json"] }],
-  });
+  return requestPath({ title: "Open a calibration export", mode: "export" });
 }
 
 /** Choose a dataset manifest file. */
 export function pickManifestFile(): Promise<string | null> {
-  return openDialog({
+  return requestPath({
     title: "Pick a dataset.toml or dataset.json manifest",
-    filters: [
-      { name: "Manifest", extensions: ["toml", "json"] },
-      { name: "All files", extensions: ["*"] },
-    ],
+    mode: "manifest",
   });
 }

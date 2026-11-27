@@ -115,15 +115,13 @@ mod tests {
 
     use serde_json::json;
 
-    use crate::api::{Api, Body, Conditions, Dirs, ErrorKind};
+    use crate::api::{Api, Body, Conditions, ErrorKind, Setup};
     use crate::scope::RootScope;
 
     fn api(root: &Path, cache: &Path) -> Api {
-        Api::new(
+        Api::with_scope(
             RootScope::fixed([root.to_path_buf()]),
-            Dirs {
-                cache: cache.to_path_buf(),
-            },
+            Setup::for_tests(Some(cache.to_path_buf())),
         )
     }
 

@@ -3,13 +3,8 @@
  * would, and every call is recorded. A handler's argument and reply types
  * are the command table's, so a wrong fixture shape fails `tsc`. */
 import type { Commands, Jobs, Resources } from "../generated/client";
-import type { JobInfo, JobState, ServerEvent, ViewerSession } from "../generated/types";
-import {
-  asStudioError,
-  type BackendKind,
-  type OpenDialog,
-  type Transport,
-} from "../transport";
+import type { JobInfo, JobState, ServerEvent } from "../generated/types";
+import { asStudioError, type Transport } from "../transport";
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -42,12 +37,12 @@ export const PIXEL_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 export interface MockOptions {
-  kind?: BackendKind;
   commands?: CommandHandlers;
   jobs?: JobHandlers;
   resources?: ResourceUrls;
-  dialog?: (options: OpenDialog) => string | null;
-  session?: ViewerSession;
+  /** The native folder dialog's answer (a desktop transport); without
+   * it the transport has no native dialog, as the browser's. */
+  nativeFolder?: () => string | null;
 }
 
 export interface MockTransport extends Transport {
@@ -126,9 +121,8 @@ export function createMockTransport(options: MockOptions = {}): MockTransport {
     return { ...info };
   };
 
-  const { dialog, session } = options;
+  const { nativeFolder } = options;
   const transport: MockTransport = {
-    kind: options.kind ?? "tauri",
     calls: [],
     emit,
 
@@ -164,8 +158,7 @@ export function createMockTransport(options: MockOptions = {}): MockTransport {
       return url ? url(query) : PIXEL_PNG;
     },
 
-    ...(dialog ? { openDialog: (o: OpenDialog) => Promise.resolve(dialog(o)) } : {}),
-    ...(session ? { session: () => Promise.resolve(session) } : {}),
+    ...(nativeFolder ? { pickNativeFolder: () => Promise.resolve(nativeFolder()) } : {}),
   };
   return transport;
 }

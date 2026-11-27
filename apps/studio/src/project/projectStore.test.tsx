@@ -44,7 +44,6 @@ function calls(command: string) {
 }
 
 beforeEach(() => {
-  localStorage.clear();
   useProject.setState({ project: null, recent: [], error: null });
 });
 
@@ -56,16 +55,15 @@ afterEach(() => {
 
 describe("useProject", () => {
   it("opens a project into the Run setup and remembers it", async () => {
-    backend({ open_project: () => PROJECT });
+    // The back end keeps the recent projects; opening one puts it first.
+    backend({ open_project: () => PROJECT, recent_projects: () => ["/p", "/older"] });
     expect(await useProject.getState().open("/p")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     const project = useProject.getState();
     expect(project.project).toEqual(PROJECT);
-    expect(project.recent).toEqual(["/p"]);
+    expect(project.recent).toEqual(["/p", "/older"]);
     expect(project.error).toBeNull();
-    expect(JSON.parse(localStorage.getItem("calib-recent-projects") ?? "[]")).toEqual([
-      "/p",
-    ]);
 
     const setup = useRunSetup.getState();
     expect(setup.manifest).toEqual(MANIFEST);
@@ -82,6 +80,7 @@ describe("useProject", () => {
           kind: "not_a_project",
           message: "/gone is not a calibration project",
         }),
+      forget_recent: ({ dir }) => ["/gone", "/p"].filter((d) => d !== dir),
     });
     expect(await useProject.getState().open("/gone")).toBe(false);
 

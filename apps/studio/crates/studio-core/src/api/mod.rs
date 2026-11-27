@@ -1,8 +1,10 @@
-//! The back end's one API, which both shells (the Tauri app and the
-//! `calib-viewer` HTTP server) call: [`Api::invoke`] a command by name with
+//! The back end's one API, which both shells (the Tauri app and
+//! `calibration-studio-server`) call: [`Api::invoke`] a command by name with
 //! its JSON arguments, [`Api::resource`] for bytes (a file or a blob, with
-//! its HTTP semantics), [`Api::subscribe`] to the event stream. The commands are the [`table`]; their schema, from which
-//! the TypeScript client is generated, is [`Api::schema`].
+//! its HTTP semantics), [`Api::subscribe`] to the event stream. The
+//! commands are the [`table`]; their schema, from which the TypeScript
+//! client is generated, is [`Api::schema`]. A shell sets the API up with a
+//! [`Setup`]: where its files go and which folders it serves.
 
 mod commands;
 mod error;
@@ -26,30 +28,81 @@ use crate::blobs::BlobStore;
 use crate::export_cache::ExportCache;
 use crate::images::ImageCache;
 use crate::scope::RootScope;
+use crate::settings::SettingsStore;
 use table::Handler;
+
+#[cfg(test)]
+impl Setup {
+    /// A server setup over shared temporary folders.
+    pub(crate) fn for_tests(cache: Option<PathBuf>) -> Self {
+        let base = std::env::temp_dir().join("studio-core-tests");
+        Self {
+            dirs: Dirs {
+                cache: cache.unwrap_or_else(|| base.join("cache")),
+                state: base.join("state"),
+                samples: base.join("samples"),
+            },
+            fixed_roots: Some(Vec::new()),
+            shell: "server",
+        }
+    }
+}
 
 /// The folders the back end keeps its own files in, chosen by the shell.
 #[derive(Debug, Clone)]
 pub struct Dirs {
     /// Derived images (transcodes, thumbnails, undistorted views).
     pub cache: PathBuf,
+    /// `settings.json` (the desktop's roots) and `state.json` (recent
+    /// projects).
+    pub state: PathBuf,
+    /// The Quick Start sample datasets, downloaded on first use: always a
+    /// root.
+    pub samples: PathBuf,
 }
 
 impl Dirs {
-    /// The platform's folders for this app: the cache under the user's
-    /// cache folder (the system's temporary folder without one).
-    pub fn platform() -> Self {
-        let base = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
+    /// The desktop app's folders: the cache, config and data folders of the
+    /// platform (`~/Library/…` on macOS, the XDG folders on Linux,
+    /// `AppData` on Windows), each with a `calibration-studio` folder;
+    /// `VISION_CALIBRATION_DATA` overrides the samples' folder.
+    pub fn desktop() -> Self {
+        let app = |base: Option<PathBuf>| {
+            base.unwrap_or_else(std::env::temp_dir)
+                .join("calibration-studio")
+        };
+        let samples = std::env::var_os("VISION_CALIBRATION_DATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| app(dirs::data_dir()).join("samples"));
         Self {
-            cache: base.join("calibration-studio"),
+            cache: app(dirs::cache_dir()),
+            state: app(dirs::config_dir()),
+            samples,
         }
     }
+}
+
+/// How a shell sets the back end up.
+#[derive(Debug, Clone)]
+pub struct Setup {
+    pub dirs: Dirs,
+    /// The server's root folders, fixed while it runs. `None`: the
+    /// desktop's, kept in `settings.json` and changed by `add_root` and
+    /// `remove_root` (empty on the first run).
+    pub fixed_roots: Option<Vec<PathBuf>>,
+    /// The shell, for `server_info` (`"desktop"`, `"server"`).
+    pub shell: &'static str,
 }
 
 /// What every command runs against.
 pub struct Ctx {
     /// The folders commands may read and write under.
     pub scope: RootScope,
+    /// The desktop's roots and everyone's recent projects.
+    pub settings: SettingsStore,
+    pub dirs: Dirs,
+    /// The shell, for `server_info`.
+    pub shell: &'static str,
     /// The export the viewers show.
     pub exports: ExportCache,
     /// Derived images, on disk.
@@ -65,16 +118,28 @@ impl Ctx {
         scope: RootScope,
         jobs: JobManager,
         events: EventBus,
-        dirs: &Dirs,
+        setup: Setup,
     ) -> Self {
+        let settings = SettingsStore::open(&setup.dirs.state, setup.fixed_roots.is_none());
         Self {
             scope,
+            settings,
+            images: ImageCache::new(&setup.dirs.cache),
+            dirs: setup.dirs,
+            shell: setup.shell,
             exports: ExportCache::new(),
-            images: ImageCache::new(&dirs.cache),
             blobs: BlobStore::default(),
             jobs,
             events,
         }
+    }
+
+    /// The roots the scope should hold: the fixed or stored ones, and the
+    /// samples' folder.
+    pub(crate) fn root_folders(&self, stored: &[String]) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = stored.iter().map(PathBuf::from).collect();
+        roots.push(self.dirs.samples.clone());
+        roots
     }
 }
 
@@ -86,15 +151,34 @@ pub struct Api {
 }
 
 impl Api {
-    /// The API over `scope`, keeping its files in `dirs`, with its job
-    /// workers running.
-    pub fn new(scope: RootScope, dirs: Dirs) -> Self {
+    /// The API `setup` describes, with its job workers running. The
+    /// samples' folder is created (it is always a root).
+    pub fn new(setup: Setup) -> Self {
+        let _ = std::fs::create_dir_all(&setup.dirs.samples);
+        let scope = match &setup.fixed_roots {
+            Some(roots) => {
+                let mut roots = roots.clone();
+                roots.push(setup.dirs.samples.clone());
+                RootScope::fixed(roots)
+            }
+            None => {
+                let stored = SettingsStore::open(&setup.dirs.state, true).roots();
+                let mut roots: Vec<PathBuf> = stored.iter().map(PathBuf::from).collect();
+                roots.push(setup.dirs.samples.clone());
+                RootScope::editable(roots)
+            }
+        };
+        Self::with_scope(scope, setup)
+    }
+
+    /// The API over `scope` (tests choose theirs).
+    pub(crate) fn with_scope(scope: RootScope, setup: Setup) -> Self {
         let events = EventBus::new();
         let ctx = Arc::new(Ctx::with_jobs(
             scope,
             JobManager::new(events.clone()),
             events,
-            &dirs,
+            setup,
         ));
         ctx.jobs.start_workers(Arc::downgrade(&ctx));
         let specs = table();
@@ -176,16 +260,11 @@ impl Api {
         self.ctx.events.unsubscribe(id);
     }
 
-    /// An API over `scope` for a test that makes no derived image: its cache
-    /// folder is never written.
+    /// An API over `scope` for a test that makes no derived image: its
+    /// folders are a shared temporary one.
     #[cfg(test)]
     pub(crate) fn for_tests(scope: RootScope) -> Self {
-        Self::new(
-            scope,
-            Dirs {
-                cache: std::env::temp_dir().join("studio-core-tests-unused-cache"),
-            },
-        )
+        Self::with_scope(scope, Setup::for_tests(None))
     }
 
     /// `studio-api.json`: every command with its types, the event and error

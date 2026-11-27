@@ -13,7 +13,21 @@ bun run tauri dev      # launches the desktop app
 bun run tauri build    # bundles the app (installer or binary)
 ```
 
-**Always use `bun run tauri dev`.** Plain `bun run dev` starts only the Vite development server in a browser: the file dialog and every command that reaches the Rust backend (running a calibration, computing dense stereo, sniffing a folder) are absent, and the app shows a banner saying so as soon as you try to open a file. Signed installers are not provided.
+**Use `bun run tauri dev` for the desktop app.** Plain `bun run dev` starts only the Vite development server, which talks to a running Calibration Studio server (below); without one the app says that no back end answers. Signed installers are not provided.
+
+On its first start the desktop app reads no folder at all: it asks you to **Add folder…**, and every dataset and project you open must lie inside a folder you added (**Settings** lists them, and removes one).
+
+## In a Browser
+
+The same app, every workspace included, runs in a browser, served by one program with the app inside it: `calibration-studio-server`. It suits a calibration station or a small device that several people reach over the network.
+
+```bash
+cd apps/studio
+bun run serve -- --root ~/datasets           # from a checkout: builds the page, starts the server
+calibration-studio-server --root /data/calib --bind 0.0.0.0:8757   # an installed binary
+```
+
+It serves only the folders given with `--root` (or a project folder given alone, with its dataset). On the machine itself (the default address `127.0.0.1:8757`) it needs nothing more. On any other address it always needs its token: it prints an address with the token in it once it starts; open that address, or paste the token when the page asks for it (`calibration-studio-server token` prints it again, `--rotate` replaces it). The page then keeps a session cookie, and the token never stays in the address bar. There is no upload: datasets reach the device by copying them into a root folder. For HTTPS, put it behind a reverse proxy and pass `--public-origin` and `--allowed-host`; `--help` lists every option.
 
 ## Mental Model
 
@@ -48,13 +62,13 @@ my-project/
 The **Project** menu in the top bar does four things:
 
 - **New project from this dataset…** makes a chosen folder a project for the dataset the Run workspace has loaded, whether from a preset, a sniffed folder or a manifest file. The images stay where they are: the project records the dataset folder, relative to the project when it is inside it and absolute otherwise. A `dataset.toml` you wrote by hand is read once and never rewritten; the project keeps its own `dataset.json`.
-- **Open project…** loads the project's manifest into the Run workspace and lists its runs in a panel on the left; choosing a run loads its export into the viewers. A folder without `calibration-project.json` is reported as "not a project folder"; the app never guesses one from a folder's contents.
+- **Open project…** opens a folder browser over the folders the app may read (the same one on the desktop and in a browser), then loads the project's manifest into the Run workspace and lists its runs in a panel on the left; choosing a run loads its export into the viewers. A folder without `calibration-project.json` is reported as "not a project folder"; the app never guesses one from a folder's contents.
 - **Save manifest** writes the Run workspace's edited manifest back to `dataset.json`.
-- **Recent** reopens one of the last projects you opened.
+- **Recent** reopens one of the last projects opened (in a browser: the server's list, shared by everyone using it).
 
 While a project is open, every successful run is saved as the next `runs/run-NNN/` folder: the manifest and configuration it ran with, the export, its diagnostics (views used, run time) and `report.html`, the run as one page to read or share ([The Calibration Report](report.md)). A saved run is never overwritten. Its `export.json` points back at the dataset's images, so it also opens on its own with **Open Export…**.
 
-The app reads images only from folders you opened (a project's dataset, an export's images); a frame elsewhere fails to load with an error instead of being read silently.
+The app reads and writes only inside its root folders: a project whose dataset, or a manifest whose images or pose file, lie elsewhere is refused with an error instead of being read silently.
 
 ## Relation to the Library
 

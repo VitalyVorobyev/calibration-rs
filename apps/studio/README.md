@@ -32,19 +32,18 @@ bun run tauri build    # bundle the desktop app (installer/binary)
 Use `bun run tauri dev`, **not** `bun run dev`: the latter only starts Vite at
 <http://localhost:1420>, with no back end; the header says so.
 
-## Reviewing a run in a browser
+## In a browser
 
-The same views (Diagnose, 3D, Epipolar, Depth) open in a plain browser over
-one calibration run, served from your machine only:
+The whole app also runs in a browser, served by `calibration-studio-server`
+with the page inside it:
 
 ```bash
-bun run viewer -- path/to/run      # a `vcal run -o` folder, a saved app run,
-                                   # or an export file; --port N, --no-open
+bun run serve -- --root path/to/datasets     # or a project folder, with --open
 ```
 
-It builds the frontend if needed, serves it on `127.0.0.1` and opens the
-browser. Only files under the run folder and the export's image folder are
-served. Projects and running a calibration stay in the desktop app.
+It reads and writes only under its root folders. On `127.0.0.1` (the
+default) it needs nothing more; on any other address it needs its token,
+printed in the address it shows at start. `--help` lists the options.
 
 Signed installers and in-app detection outside the Run workspace are not
 provided.

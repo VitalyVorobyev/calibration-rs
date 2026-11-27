@@ -4,7 +4,7 @@
  * but in Tauri 2 they're IPC calls (`invoke("plugin:path|join", …)`), which
  * would (a) turn every join/dirname site into an async round-trip, (b)
  * require every `mockIPC` test fixture to stub `plugin:path|*` commands on
- * top of the app's own commands and (c) not exist in the browser viewer.
+ * top of the app's own commands and (c) not exist on the server.
  * Instead we normalize once: the back end can return backslash-separated
  * paths on Windows, while export manifest paths are always POSIX-style
  * relative paths (export JSON) — so converting every input to `/` up front

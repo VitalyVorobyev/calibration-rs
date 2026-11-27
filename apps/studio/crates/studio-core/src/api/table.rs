@@ -1,7 +1,7 @@
 //! The command table: every command the back end offers, declared once as
 //! a typed function and listed once in [`table`]. Its argument, reply, event
 //! and output types come from the function's signature; the transports
-//! (Tauri IPC, the browser viewer's HTTP) dispatch through the table, and
+//! (Tauri IPC, the server's HTTP) dispatch through the table, and
 //! the TypeScript client is generated from the same list.
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Ctx;
-use super::commands::{forms, jobs, project, resources, setup, viewer};
+use super::commands::{files, forms, jobs, project, resources, session, setup, viewer};
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
 use super::resource::Resource;
@@ -150,6 +150,14 @@ where
 /// The one list. Its order is the order of the generated client.
 pub fn table() -> Vec<CommandSpec> {
     vec![
+        // The session: this back end, its roots, the recent projects.
+        plain("server_info", session::server_info),
+        plain("add_root", session::add_root),
+        plain("remove_root", session::remove_root),
+        plain("recent_projects", session::recent_projects),
+        plain("forget_recent", session::forget_recent),
+        // The folder browser.
+        plain("list_dir", files::list_dir),
         // Projects.
         plain("create_project", project::create_project),
         plain("open_project", project::open_project),

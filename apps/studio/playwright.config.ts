@@ -1,33 +1,30 @@
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_PORT, E2E_TOKEN } from "./e2e/server/support";
 
-/** Playwright smoke config. Boots the plain Vite dev server
- * (`bun run dev`, not `bun run tauri dev` — Tauri isn't available
- * headlessly in CI) on the same port the app always uses
- * (`vite.config.ts`'s `server.port: 1420`), then drives it in a real
- * Chromium tab. The app runs outside a Tauri webview here, so
- * `isTauriContext()` is false unless a spec injects
- * `window.__TAURI_INTERNALS__` itself (see `e2e/support/tauriMock.ts`) —
- * that's the Tauri-native-vs-mocked-IPC boundary documented in
- * `apps/studio/README.md`.
- */
+/** Playwright against the real back end: the built frontend served by the
+ * debug `calibration-studio-server` over a fresh copy of the committed
+ * fixture library (`scripts/e2e-server.mjs`), on a loopback port with a
+ * token. Needs the Rust toolchain (the script builds the server and the
+ * frontend when they are missing). The bun-only smoke run is
+ * `playwright.smoke.config.ts`. */
 export default defineConfig({
-  testDir: "./e2e",
-  // The screenshot suite and the browser viewer's end-to-end test have their
-  // own configs (playwright.screens.config.ts, playwright.viewer.config.ts).
-  testIgnore: ["screens.spec.ts", "viewer.spec.ts"],
-  fullyParallel: true,
+  testDir: "./e2e/server",
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],
   use: {
-    baseURL: "http://localhost:1420",
+    baseURL: `http://127.0.0.1:${E2E_PORT}`,
     trace: "on-first-retry",
   },
   webServer: {
-    command: "bun run dev",
-    url: "http://localhost:1420",
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    command: `bun scripts/e2e-server.mjs ${E2E_PORT}`,
+    url: `http://127.0.0.1:${E2E_PORT}/api/health`,
+    env: { STUDIO_E2E_TOKEN: E2E_TOKEN },
+    // The first run may compile the server and build the frontend.
+    timeout: 900_000,
+    reuseExistingServer: false,
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

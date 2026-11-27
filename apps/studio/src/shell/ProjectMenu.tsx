@@ -10,12 +10,11 @@ import { ChevronDown, FolderOpen, FolderPlus, Save, X } from "lucide-react";
 import { useProject } from "../project/projectStore";
 import { folderName } from "../project/projectModel";
 import { useRunSetup } from "../store/runSetup";
-import { pickFolder } from "./dialogs";
+import { pickFolder, pickProject } from "./dialogs";
 
 /** The header's project commands: new, open, save, close, and reopen a
- * recent project (desktop only: the shell shows it when the back end has
- * dialogs and a file system). A failure lands in the project store's
- * `error`, which the shell shows. */
+ * recent project (the back end's list). A failure lands in the project
+ * store's `error`, which the shell shows. */
 export function ProjectMenu() {
   const project = useProject((s) => s.project);
   const recent = useProject((s) => s.recent);
@@ -30,7 +29,7 @@ export function ProjectMenu() {
   };
 
   const handleOpen = async (dir?: string) => {
-    const chosen = dir ?? (await pickFolder("Open a project folder"));
+    const chosen = dir ?? (await pickProject());
     if (chosen === null) return;
     await useProject.getState().open(chosen);
   };

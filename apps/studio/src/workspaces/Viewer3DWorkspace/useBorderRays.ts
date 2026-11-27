@@ -1,4 +1,4 @@
-import { api, capabilities } from "../../api";
+import { api } from "../../api";
 import { imageBorderPixels } from "@vitavision/three";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -30,7 +30,6 @@ export function useBorderRays(
   );
 
   useEffect(() => {
-    if (!capabilities().viewer) return;
     let cancelled = false;
     const px = imageBorderPixels(width, height, BORDER_SAMPLES_PER_EDGE);
     const pointsPx: [number, number][] = [];

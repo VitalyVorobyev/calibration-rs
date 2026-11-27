@@ -785,7 +785,7 @@
       ]
     },
     "image_manifest": {
-      "root": "images",
+      "root": "../../images",
       "frames": [
         {
           "view": 0,

@@ -1,11 +1,12 @@
-/** The browser viewer's transport (`calib-viewer`, over the page's own
- * origin): `POST /api/cmd/<name>` with the argument object as JSON,
+/** The browser's transport (`calibration-studio-server`, over the page's
+ * own origin): `POST /api/cmd/<name>` with the argument object as JSON,
  * `GET /api/r/<name>?q=<query as JSON>` for a resource (a source image, a
  * blob), `GET /api/events` (server-sent events, resumed after the last event
- * seen) for the event stream and `GET /api/session` for the run it serves. A
- * failure is the `StudioError` envelope as the body, with a 4xx/5xx
- * status. */
-import type { ServerEvent, ViewerSession } from "../generated/types";
+ * seen) for the event stream, and `POST /api/login` with the token for the
+ * session cookie that authenticates all of them (`<img>` and `EventSource`
+ * included). A failure is the `StudioError` envelope as the body, with a
+ * 4xx/5xx status. */
+import type { ServerEvent } from "../generated/types";
 import { asStudioError, StudioError, type Transport } from "../transport";
 
 /** A failed response as a `StudioError`: its envelope, or its status. */
@@ -40,8 +41,6 @@ export function resourceUrl(name: string, query: unknown): string {
 }
 
 export const httpTransport: Transport = {
-  kind: "http",
-
   async invoke(name, args) {
     const response = await send(`/api/cmd/${encodeURIComponent(name)}`, {
       method: "POST",
@@ -76,8 +75,19 @@ export const httpTransport: Transport = {
 
   resourceUrl,
 
-  async session(): Promise<ViewerSession> {
-    const response = await send("/api/session");
-    return (await response.json()) as ViewerSession;
+  async login(token) {
+    await send("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async logout() {
+    await send("/api/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
   },
 };

@@ -4,9 +4,6 @@ export interface Workspace {
   /** The route. */
   to: string;
   label: string;
-  /** Needs the desktop app (dialogs, the file system, the calibration
-   * runner): not offered by the browser viewer. */
-  desktopOnly?: boolean;
 }
 
 export const WORKSPACES: readonly Workspace[] = [
@@ -14,13 +11,8 @@ export const WORKSPACES: readonly Workspace[] = [
   { to: "/viewer3d", label: "3D viewer" },
   { to: "/epipolar", label: "Epipolar" },
   { to: "/depth", label: "Depth (dense stereo)" },
-  { to: "/run", label: "Run calibration", desktopOnly: true },
+  { to: "/run", label: "Run calibration" },
 ];
-
-/** The workspaces the back end offers, in rail order. */
-export function availableWorkspaces(desktop: boolean): readonly Workspace[] {
-  return WORKSPACES.filter((w) => desktop || !w.desktopOnly);
-}
 
 /** The workspace route a keystroke selects: `⌘` (or `Ctrl`) with the digit
  * of its position in `workspaces`, no other modifier. `null` for any other

@@ -17,5 +17,5 @@ test-results
 e2e/.screens
 # Run-workspace presets for datasets outside the repository.
 src/workspaces/RunWorkspace/presets.local.ts
-# Sample runs for the browser viewer (run.rs `write_viewer_sample_runs`).
+# Sample projects (run.rs `write_viewer_sample_runs`), for `bun run serve`.
 .tmp-runs

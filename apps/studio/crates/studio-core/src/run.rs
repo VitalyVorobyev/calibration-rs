@@ -1838,7 +1838,7 @@ mod tests {
         assert_eq!(frames.len(), s.usable_views);
     }
 
-    /// Sample runs for the browser viewer (`calib-viewer`), as the app
+    /// Sample projects to open in the app (`bun run serve -- <project>`), as the app
     /// saves them: a project per dataset with one run, `run-001`, whose
     /// export carries its image list. Writes `kuka_1` (single-camera
     /// hand-eye, committed) and `stereo_charuco` (a two-camera rig, when

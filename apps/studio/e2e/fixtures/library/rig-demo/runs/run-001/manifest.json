@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "topology": "rig_extrinsics",
+  "target": {
+    "kind": "chessboard",
+    "rows": 4,
+    "cols": 5,
+    "square_size_m": 0.02
+  },
+  "cameras": [
+    {
+      "id": "cam0",
+      "images": {
+        "kind": "glob",
+        "pattern": "images/cam0_*.png"
+      }
+    },
+    {
+      "id": "cam1",
+      "images": {
+        "kind": "glob",
+        "pattern": "images/cam1_*.png"
+      }
+    }
+  ],
+  "pose_pairing": {
+    "kind": "by_index"
+  }
+}

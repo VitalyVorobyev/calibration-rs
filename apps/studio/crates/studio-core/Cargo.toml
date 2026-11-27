@@ -1,7 +1,7 @@
 [package]
 name = "studio-core"
 version = "0.1.0"
-description = "Calibration Studio's back end: everything the desktop app and the browser viewer compute"
+description = "Calibration Studio's back end: everything the desktop app and the server compute"
 authors = ["Vitaly Vorobyev <vit.vorobiev@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/VitalyVorobyev/calibration-rs"
@@ -21,9 +21,10 @@ serde_json = "1"
 sha2 = "0.10"
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
 image = "0.25"
-# `fetch`: the Quick Start samples download their datasets; `schemars`: the
-# library's wire types are part of the API schema.
-vision-calibration = { path = "../../../../crates/vision-calibration", features = ["fetch", "schemars"] }
+# `schemars`: the library's wire types are part of the API schema. Its
+# `fetch` feature (the Quick Start samples' downloads) is this crate's
+# `samples` feature.
+vision-calibration = { path = "../../../../crates/vision-calibration", features = ["schemars"] }
 # Laser-line extraction (ADR 0016). vision-metrology is not on
 # crates.io, so the published pipeline crates only define the
 # `LaserPixelExtractor` trait; this (unpublished) app provides the
@@ -43,3 +44,10 @@ tempfile = "3"
 # The tests calibrate synthetic views.
 vision-calibration = { path = "../../../../crates/vision-calibration", features = ["synthetic"] }
 toml = "0.8"
+
+[features]
+default = ["samples"]
+# The Quick Start samples: download a catalogue dataset on first use (needs
+# network access; rustls under the hood). A device build without internet
+# leaves it out, and `server_info.samples` says so.
+samples = ["vision-calibration/fetch"]

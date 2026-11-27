@@ -415,12 +415,10 @@ jobs:
         working-directory: apps/studio
         run: bun run test
 
-      # Playwright smoke: boots the plain Vite dev server (no
-      # Tauri build, no Rust toolchain) and drives it in real Chromium.
-      # Tauri IPC is either absent (empty-state assertions) or mocked at
-      # the `window.__TAURI_INTERNALS__` seam per-spec — see
-      # `apps/studio/e2e/support/tauriMock.ts` and `apps/studio/README.md`'s dev notes on
-      # the Tauri-native vs mocked-IPC boundary.
+      # Playwright smoke: boots the plain Vite dev server with no back end
+      # behind its `/api` proxy (no Rust toolchain) and drives it in real
+      # Chromium: every workspace mounts and says no back end answers. The
+      # specs against the real server run in the `studio-e2e` job.
       #
       # Cache the downloaded browser binaries keyed on the lockfile (the
       # Playwright version they match); `--with-deps` still runs on a cache
@@ -438,7 +436,7 @@ jobs:
 
       - name: E2E smoke (Playwright)
         working-directory: apps/studio
-        run: bun run test:e2e
+        run: bun run test:e2e:smoke
 
       # Drift stage 2 (API schema → TypeScript types and client, bun-only).
       # Regenerate them from the committed schema and fail if they differ
@@ -451,11 +449,12 @@ jobs:
           bun run generate:api:ts
           git diff --exit-code src/api/generated
 
-  # `apps/studio` is its own cargo workspace (`studio-core` + `src-tauri`),
-  # excluded from the root one so `cargo build --workspace` does not pull in
-  # Tauri's build-time dep tree. It gets its own job, gated with
-  # `--manifest-path` the same way the release docs already tell
-  # contributors to build it locally.
+  # `apps/studio` is its own cargo workspace (`studio-core`, `studio-server`,
+  # `src-tauri`), excluded from the root one so `cargo build --workspace`
+  # does not pull in Tauri's build-time dep tree. It gets its own job, gated
+  # with `--manifest-path` the same way the release docs already tell
+  # contributors to build it locally. (The job id stays `app-src-tauri` so
+  # branch protection keeps matching it.)
   app-src-tauri:
     name: App src-tauri (fmt/clippy/test)
     runs-on: ubuntu-latest
@@ -500,3 +499,62 @@ jobs:
       # (`bun run generate:api` regenerates both locally).
       - name: Check the API schema is up to date
         run: cargo run --manifest-path apps/studio/Cargo.toml -p studio-core --bin studio-schema -- --check
+
+  # Playwright against the real back end: the debug `calibration-studio-server`
+  # (no Tauri, so no WebKitGTK packages) serving the built frontend over a
+  # copy of the committed fixture library, with a token
+  # (`apps/studio/scripts/e2e-server.mjs`): login, the path picker, a project
+  # and its run, a calibration job over SSE, refused paths.
+  studio-e2e:
+    name: Studio e2e (Playwright on calibration-studio-server)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/studio -> target
+          key: studio-server
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: apps/studio/package.json
+
+      - name: Install dependencies
+        working-directory: apps/studio
+        run: bun install --frozen-lockfile
+
+      - name: Build the server
+        run: cargo build --manifest-path apps/studio/Cargo.toml -p studio-server
+
+      - name: Build the frontend
+        working-directory: apps/studio
+        run: bun run build
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('apps/studio/bun.lock') }}
+
+      - name: Install Playwright browsers
+        working-directory: apps/studio
+        run: bunx playwright install chromium --with-deps
+
+      - name: E2E (Playwright on the real server)
+        working-directory: apps/studio
+        run: bun run test:e2e
+
+      - name: Upload the failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: studio-e2e-results
+          path: apps/studio/test-results
+          retention-days: 7

@@ -1,7 +1,7 @@
 /** The ways a Run setup is loaded: a Quick Start preset, a sniffed folder,
  * a picked folder or a picked manifest file. Each failure becomes a run
  * status the banner shows. */
-import { api, capabilities } from "../../api";
+import { api } from "../../api";
 import { dirnamePath } from "../../lib/paths";
 import { useRunSetup } from "../../store/runSetup";
 import { pickFolder, pickManifestFile } from "../../shell/dialogs";
@@ -9,12 +9,6 @@ import type { EnabledPreset } from "./presets";
 import type { RunStatus } from "./runStatus";
 
 type Report = (status: RunStatus) => void;
-
-const needsTauri = (what: string): RunStatus => ({
-  kind: "error",
-  category: "no_tauri",
-  message: `${what} requires the desktop app (bun run tauri dev).`,
-});
 
 /** Sequence number of the latest setup load. Module-scoped so it outlives a
  * render: a slower load started earlier never overwrites a newer one. */
@@ -30,15 +24,10 @@ export interface SetupActions {
 /** The setup loaders, reporting failures (and the idle state after a
  * successful load) through `report`. */
 export function setupActions(report: Report): SetupActions {
-  const desktop = capabilities().desktop;
   const { loadSetup, setPaths, setManifest } = useRunSetup.getState();
 
   return {
     applyPreset: async (preset) => {
-      if (!desktop) {
-        report(needsTauri("Preset loading"));
-        return false;
-      }
       const seq = ++activeLoadSeq;
       try {
         // A sample is downloaded on first use; its manifest path comes back.
@@ -77,10 +66,6 @@ export function setupActions(report: Report): SetupActions {
     // A foreign dataset folder: the sniffer infers a manifest and leaves
     // what it cannot determine in `_unresolved`, which blocks Run.
     sniffFolder: async () => {
-      if (!desktop) {
-        report(needsTauri("Folder sniffing"));
-        return false;
-      }
       const seq = ++activeLoadSeq;
       try {
         const folder = await pickFolder("Pick a dataset folder to sniff");
@@ -109,10 +94,6 @@ export function setupActions(report: Report): SetupActions {
     },
 
     pickDatasetFolder: async () => {
-      if (!desktop) {
-        report(needsTauri("The folder picker"));
-        return;
-      }
       const seq = ++activeLoadSeq;
       try {
         const folder = await pickFolder("Pick the dataset folder");
@@ -127,10 +108,6 @@ export function setupActions(report: Report): SetupActions {
     },
 
     pickManifest: async () => {
-      if (!desktop) {
-        report(needsTauri("The file picker"));
-        return;
-      }
       const seq = ++activeLoadSeq;
       try {
         const path = await pickManifestFile();

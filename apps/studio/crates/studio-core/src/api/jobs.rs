@@ -502,9 +502,7 @@ mod tests {
             RootScope::fixed([]),
             JobManager::with_limits(events.clone(), limits),
             events,
-            &crate::api::Dirs {
-                cache: std::env::temp_dir().join("studio-core-tests-unused-cache"),
-            },
+            crate::api::Setup::for_tests(None),
         ));
         ctx.jobs.start_workers(Arc::downgrade(&ctx));
         ctx

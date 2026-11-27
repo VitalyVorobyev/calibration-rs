@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import { api, capabilities, NO_BACKEND } from "../api";
+import { api } from "../api";
 import { joinPath } from "../lib/paths";
 import type { FrameKey } from "../types";
 import type { LoadExportResult } from "../api/generated/types";
@@ -194,10 +194,6 @@ export const useStore = create<AppState>()(
     loadError: null,
 
     loadExport: async (path: string) => {
-      if (!capabilities().viewer) {
-        set({ loadError: NO_BACKEND });
-        return;
-      }
       const seq = ++loadRequestSeq;
       let result: LoadExportResult;
       try {

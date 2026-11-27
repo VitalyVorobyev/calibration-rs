@@ -1,9 +1,8 @@
 import { NavRail, NavRailItem } from "@vitavision/workbench";
 import { Box, Columns2, Crosshair, Layers, Play } from "lucide-react";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { capabilities } from "../api";
-import { availableWorkspaces, workspaceForShortcut } from "./workspaces";
+import { WORKSPACES, workspaceForShortcut } from "./workspaces";
 
 const ICONS: Record<string, ReactNode> = {
   "/diagnose": <Crosshair />,
@@ -13,14 +12,13 @@ const ICONS: Record<string, ReactNode> = {
   "/run": <Play />,
 };
 
-/** The workspace rail: one router link per workspace the back end offers,
- * the current route's marked `aria-current="page"`, labels as tooltips.
+/** The workspace rail: one router link per workspace, the current route's
+ * marked `aria-current="page"`, labels as tooltips.
  * `⌘1`…`⌘5` (`Ctrl` off macOS) switch workspaces from anywhere. */
 export function WorkspaceRail() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { desktop } = capabilities();
-  const workspaces = useMemo(() => availableWorkspaces(desktop), [desktop]);
+  const workspaces = WORKSPACES;
   const current = workspaces.find((w) => pathname.startsWith(w.to))?.to ?? null;
 
   useEffect(() => {

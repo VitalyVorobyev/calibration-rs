@@ -1,6 +1,6 @@
 //! The bodies of the viewer commands, shared by both back ends: the desktop
-//! app's Tauri commands wrap them, and the `calib-viewer` HTTP handlers call
-//! them for the browser viewer. Each is a plain function of its arguments and the
+//! app's Tauri shell and `calibration-studio-server` reach them through the
+//! command table. Each is a plain function of its arguments and the
 //! [`ExportCache`]; what differs between the back ends (the asset scope of
 //! the desktop app, the file scope of the viewer) stays in the wrappers.
 
