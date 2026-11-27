@@ -95,8 +95,8 @@ use nalgebra::{Matrix2x6, Matrix6, SVector, Vector2, Vector3, Vector6};
 
 use vision_calibration_core::{
     Camera, CameraParams, CameraProject, DistortionModel, FxFyCxCy, IntrinsicsModel, Iso3,
-    ProjectionModel, Pt2, Pt3, RigDataset, SensorModel, TargetFeatureResidual, View,
-    compute_rig_target_residuals,
+    ProjectionModel, Pt2, Pt3, ReprojectionStats, RigDataset, SensorModel, TargetFeatureResidual,
+    View, compute_rig_target_residuals,
 };
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_bearings;
 use vision_geometry::pnp;
@@ -213,33 +213,18 @@ impl LevelStats {
         let n = count as f64;
         let sum: f64 = errs.iter().sum();
         let sum_sq: f64 = errs.iter().map(|e| e * e).sum();
+        // The percentiles of the public statistics: one definition.
+        let stats = ReprojectionStats::from_errors(errs);
         errs.sort_by(|a, b| a.partial_cmp(b).expect("finite errors are comparable"));
         Self {
             mean: sum / n,
-            median: percentile_linear(errs, 0.5),
+            median: stats.median.unwrap_or_default(),
             rms: (sum_sq / n).sqrt(),
-            p95: percentile_linear(errs, 0.95),
+            p95: stats.p95.unwrap_or_default(),
             max: errs[count - 1],
             count,
         }
     }
-}
-
-/// Linear-interpolation percentile of an ascending-sorted, non-empty slice.
-///
-/// `q` is in `[0, 1]`; the result lies at fractional rank `q * (n - 1)`,
-/// interpolating between adjacent order statistics (numpy/pandas default).
-fn percentile_linear(sorted: &[f64], q: f64) -> f64 {
-    debug_assert!(!sorted.is_empty());
-    let n = sorted.len();
-    if n == 1 {
-        return sorted[0];
-    }
-    let rank = q * (n as f64 - 1.0);
-    let lo = rank.floor() as usize;
-    let hi = rank.ceil() as usize;
-    let frac = rank - lo as f64;
-    sorted[lo] * (1.0 - frac) + sorted[hi] * frac
 }
 
 /// One constraint level of a [`ReprojReport`].

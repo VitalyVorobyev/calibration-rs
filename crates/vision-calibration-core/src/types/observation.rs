@@ -528,6 +528,14 @@ pub fn stated_covariance<'a>(
 }
 
 /// Summary statistics for reprojection errors.
+///
+/// The percentiles (`median`, `p95`) interpolate linearly between order
+/// statistics of the ascending-sorted errors, the default of numpy and
+/// pandas: the `q`-quantile of `n` errors lies at fractional rank
+/// `q * (n - 1)`, so the median of an even count is the mean of the middle
+/// two. They are present when the statistics were computed from the errors
+/// ([`from_errors`](Self::from_errors)), and absent when built from
+/// aggregates ([`from_summary`](Self::from_summary)).
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -540,20 +548,33 @@ pub struct ReprojectionStats {
     pub max: f64,
     /// Number of points evaluated.
     pub count: usize,
+    /// Median reprojection error in pixels (the 50th percentile, linearly
+    /// interpolated); `None` when built from aggregates. `0.0` for no
+    /// errors, as the other statistics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub median: Option<f64>,
+    /// 95th percentile of the reprojection error in pixels, linearly
+    /// interpolated; `None` when built from aggregates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p95: Option<f64>,
 }
 
 impl ReprojectionStats {
-    /// Build statistics from already aggregated values.
+    /// Build statistics from already aggregated values; the percentiles are
+    /// absent.
     pub fn from_summary(mean: f64, rms: f64, max: f64, count: usize) -> Self {
         Self {
             mean,
             rms,
             max,
             count,
+            median: None,
+            p95: None,
         }
     }
 
-    /// Compute statistics from a collection of errors.
+    /// Compute statistics from a collection of errors, the percentiles
+    /// included. No errors give all-zero statistics.
     pub fn from_errors(errors: &[f64]) -> Self {
         if errors.is_empty() {
             return Self {
@@ -561,6 +582,8 @@ impl ReprojectionStats {
                 rms: 0.0,
                 max: 0.0,
                 count: 0,
+                median: Some(0.0),
+                p95: Some(0.0),
             };
         }
 
@@ -568,14 +591,34 @@ impl ReprojectionStats {
         let sum_sq: f64 = errors.iter().map(|e| e * e).sum();
         let max = errors.iter().cloned().fold(0.0_f64, f64::max);
         let n = errors.len() as f64;
+        let mut sorted = errors.to_vec();
+        sorted.sort_by(f64::total_cmp);
 
         Self {
             mean: sum / n,
             rms: (sum_sq / n).sqrt(),
             max,
             count: errors.len(),
+            median: Some(percentile_linear(&sorted, 0.5)),
+            p95: Some(percentile_linear(&sorted, 0.95)),
         }
     }
+}
+
+/// The `q`-quantile (`q` in `[0, 1]`) of an ascending-sorted, non-empty
+/// slice, interpolated linearly between the order statistics around the
+/// fractional rank `q * (n - 1)`.
+fn percentile_linear(sorted: &[f64], q: f64) -> f64 {
+    debug_assert!(!sorted.is_empty());
+    let n = sorted.len();
+    if n == 1 {
+        return sorted[0];
+    }
+    let rank = q * (n as f64 - 1.0);
+    let lo = rank.floor() as usize;
+    let hi = rank.ceil() as usize;
+    let frac = rank - lo as f64;
+    sorted[lo] * (1.0 - frac) + sorted[hi] * frac
 }
 
 #[cfg(test)]
@@ -884,5 +927,33 @@ mod tests {
         }"#;
         let err = serde_json::from_str::<CorrespondenceView>(json).unwrap_err();
         assert!(err.to_string().contains("must match"));
+    }
+
+    #[test]
+    fn percentiles_interpolate_between_order_statistics() {
+        // Sorted: 1, 2, 3, 4, 10. Median at rank 2; p95 at rank 3.8,
+        // 4 + 0.8 * (10 - 4).
+        let stats = ReprojectionStats::from_errors(&[4.0, 1.0, 10.0, 3.0, 2.0]);
+        assert_eq!(stats.median, Some(3.0));
+        assert!((stats.p95.unwrap() - 8.8).abs() < 1e-12);
+        assert_eq!((stats.max, stats.count), (10.0, 5));
+        // An even count: the mean of the middle two.
+        let even = ReprojectionStats::from_errors(&[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(even.median, Some(2.5));
+        assert!((even.p95.unwrap() - 3.85).abs() < 1e-12);
+        assert_eq!(ReprojectionStats::from_errors(&[0.7]).p95, Some(0.7));
+        // From aggregates, no percentiles, and none written.
+        let summary = ReprojectionStats::from_summary(1.0, 1.1, 3.0, 10);
+        assert_eq!(summary.median, None);
+        let json = serde_json::to_value(summary).unwrap();
+        assert!(json.get("median").is_none() && json.get("p95").is_none());
+        let back: ReprojectionStats = serde_json::from_value(
+            serde_json::json!({"mean": 1.0, "rms": 1.1, "max": 3.0, "count": 10}),
+        )
+        .unwrap();
+        assert_eq!(back.p95, None);
+        let round: ReprojectionStats =
+            serde_json::from_value(serde_json::to_value(stats).unwrap()).unwrap();
+        assert_eq!((round.median, round.p95), (stats.median, stats.p95));
     }
 }

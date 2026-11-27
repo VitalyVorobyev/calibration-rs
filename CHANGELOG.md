@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `analysis::ReprojectionStats` carries the `median` and the 95th
+  percentile `p95` of the errors, interpolated linearly between order
+  statistics (the numpy and pandas default). `from_errors` and the rig
+  reprojection statistics compute them; statistics built from aggregates
+  (`from_summary`) have none, and they are optional in JSON, so a
+  statistics value without them reads and writes as before. The
+  model-comparison schema gains the two optional keys.
+
 - `dataset_runner::cached_detection` tells what the detection cache holds
   for one image of a manifest without detecting or decoding it: `None` when
   a run would detect the image, else the cached features' count and the

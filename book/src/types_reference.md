@@ -50,7 +50,7 @@ All based on `nalgebra` with `f64` precision:
 | `RigViewObs` | `cameras: Vec<Option<CorrespondenceView>>` | Per-camera observations of one rig frame |
 | `RigView<Meta>` | `obs: RigViewObs, meta` | Multi-camera view |
 | `RigDataset<Meta>` | `num_cameras, views` | Multi-camera input |
-| `ReprojectionStats` | `mean, rms, max, count` | Error statistics |
+| `ReprojectionStats` | `mean, rms, max, count, median, p95` | Error statistics; the percentiles interpolate linearly between order statistics (absent when built from aggregates) |
 
 ## Shared Config Groups
 

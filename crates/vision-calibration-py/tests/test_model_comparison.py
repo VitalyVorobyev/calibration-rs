@@ -47,6 +47,9 @@ class ModelComparisonTest(unittest.TestCase):
             self.assertEqual(len(outcome["per_view_rms_px"]), 10)
             self.assertEqual(outcome["unprojected_points"], 0)
             self.assertGreater(outcome["held_out"]["rms"], 0.0)
+            held_out = outcome["held_out"]
+            self.assertLessEqual(held_out["median"], held_out["p95"])
+            self.assertLessEqual(held_out["p95"], held_out["max"])
             self.assertGreaterEqual(outcome["delta_vs_best_px"], 0.0)
         self.assertEqual(sorted(self.comparison["ranking"]), [0, 1])
         best: Any = candidates[self.comparison["ranking"][0]]["outcome"]

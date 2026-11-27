@@ -117,10 +117,7 @@ pub fn compute_rig_reprojection_stats<C: CameraProject, Meta>(
         )));
     }
 
-    let mut sum = 0.0_f64;
-    let mut sum_sq = 0.0_f64;
-    let mut max = 0.0_f64;
-    let mut count = 0usize;
+    let mut errors: Vec<f64> = Vec::new();
 
     for (view_idx, view) in dataset.views.iter().enumerate() {
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
@@ -135,28 +132,17 @@ pub fn compute_rig_reprojection_stats<C: CameraProject, Meta>(
                 let Some(proj) = cam.project_camera_point(&p_cam.coords) else {
                     continue;
                 };
-                let err = (proj - *uv).norm();
-                sum += err;
-                sum_sq += err * err;
-                max = max.max(err);
-                count += 1;
+                errors.push((proj - *uv).norm());
             }
         }
     }
 
-    if count == 0 {
+    if errors.is_empty() {
         return Err(Error::invalid_input(
             "no valid projections for error computation",
         ));
     }
-
-    let count_f = count as f64;
-    Ok(ReprojectionStats {
-        mean: sum / count_f,
-        rms: (sum_sq / count_f).sqrt(),
-        max,
-        count,
-    })
+    Ok(ReprojectionStats::from_errors(&errors))
 }
 
 /// Compute per-camera reprojection error statistics for a multi-camera rig dataset.
@@ -196,10 +182,7 @@ pub fn compute_rig_reprojection_stats_per_camera<C: CameraProject, Meta>(
         )));
     }
 
-    let mut sum = vec![0.0_f64; dataset.num_cameras];
-    let mut sum_sq = vec![0.0_f64; dataset.num_cameras];
-    let mut max = vec![0.0_f64; dataset.num_cameras];
-    let mut count = vec![0usize; dataset.num_cameras];
+    let mut errors: Vec<Vec<f64>> = vec![Vec::new(); dataset.num_cameras];
 
     for (view_idx, view) in dataset.views.iter().enumerate() {
         for (cam_idx, cam_obs) in view.obs.cameras.iter().enumerate() {
@@ -214,31 +197,23 @@ pub fn compute_rig_reprojection_stats_per_camera<C: CameraProject, Meta>(
                 let Some(proj) = cam.project_camera_point(&p_cam.coords) else {
                     continue;
                 };
-                let err = (proj - *uv).norm();
-                sum[cam_idx] += err;
-                sum_sq[cam_idx] += err * err;
-                max[cam_idx] = max[cam_idx].max(err);
-                count[cam_idx] += 1;
+                errors[cam_idx].push((proj - *uv).norm());
             }
         }
     }
 
-    let mut stats = Vec::with_capacity(dataset.num_cameras);
-    for cam_idx in 0..dataset.num_cameras {
-        if count[cam_idx] == 0 {
-            return Err(Error::invalid_input(format!(
-                "camera {cam_idx} has no valid projections for error computation"
-            )));
-        }
-        let n = count[cam_idx] as f64;
-        stats.push(ReprojectionStats {
-            mean: sum[cam_idx] / n,
-            rms: (sum_sq[cam_idx] / n).sqrt(),
-            max: max[cam_idx],
-            count: count[cam_idx],
-        });
-    }
-    Ok(stats)
+    errors
+        .iter()
+        .enumerate()
+        .map(|(cam_idx, errors)| {
+            if errors.is_empty() {
+                return Err(Error::invalid_input(format!(
+                    "camera {cam_idx} has no valid projections for error computation"
+                )));
+            }
+            Ok(ReprojectionStats::from_errors(errors))
+        })
+        .collect()
 }
 
 /// Compute per-feature target reprojection residuals for a single calibrated
