@@ -11,7 +11,8 @@ on all three:
 
 - **what they estimate**: the camera models;
 - **the data**: the same observations, some of them, or a new capture;
-- **the estimator**: the configuration (loss, solver, what is held fixed).
+- **the estimator**: the configuration (loss, solver, what is held fixed)
+  and, for a project's runs, the seed they started from.
 
 ## What a comparison holds
 
@@ -123,7 +124,7 @@ both captures, such as the target's own flatness, are in neither σ.
 
 A project's runs carry what the relation needs: each run's record lists the
 images it used with a hash of their content, and the digests of its
-configuration and dataset. `Project::compare_runs` (`vcal project compare`,
+configuration, dataset and seed. `Project::compare_runs` (`vcal project compare`,
 Python `Project.compare_runs`) reads the relations from them instead of
 taking them from the caller; see [Projects](projects.md#comparing-runs) for
 the rules. Each difference then also says what the two runs share

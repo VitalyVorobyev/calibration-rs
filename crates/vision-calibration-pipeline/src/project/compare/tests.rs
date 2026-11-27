@@ -169,3 +169,64 @@ fn disjoint_captures_are_independent_and_imports_unknown() {
         Err(ProjectError::RunNotFound { .. })
     ));
 }
+
+/// A run seeded from another reaches the same optimum on the same data, but
+/// a seed can bound or hold what the solve estimates: the two are the same
+/// data under different estimators, the seed listed among the configuration
+/// changes, and no test between them. A seeded run with an image fewer does
+/// not nest in an unseeded one.
+#[test]
+fn a_seed_is_part_of_the_estimator() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut project = planar_project(tmp.path());
+    let first = calibrate(&project);
+    project.spec_mut().seed = Some(crate::project::SeedSource::Run("runs/run-001".into()));
+    project.save().unwrap();
+    let seeded = calibrate(&project);
+    project
+        .spec_mut()
+        .exclude
+        .images
+        .push(ImageExclusion::new("cam0", "img/view01.png"));
+    let fewer = calibrate(&project);
+
+    let comparison = compare(&project, &[&first.id, &seeded.id, &fewer.id]);
+    let [same, shared] = &comparison.differences[..] else {
+        panic!("two differences");
+    };
+    assert_eq!(same.relation, DataRelation::SameData);
+    let overlap = same.data.expect("overlap");
+    assert_eq!(
+        overlap.reference_only_features + overlap.other_only_features,
+        0
+    );
+    let changes = same.config_changes.as_ref().expect("both configured");
+    let paths: Vec<&str> = changes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, ["seed.source", "seed.values"]);
+    assert_eq!(changes[0].reference, None);
+    assert_eq!(
+        changes[0].other.as_deref(),
+        Some(r#"{"run":"runs/run-001"}"#)
+    );
+    let ParameterComparison::SameModel { parameters, .. } = &same.cameras[0].parameters else {
+        panic!("same model");
+    };
+    let mut largest = 0.0_f64;
+    for p in parameters {
+        assert_eq!(
+            p.test,
+            DifferenceTest::NotAvailable {
+                reason: NoTest::SharedData
+            }
+        );
+        // Fixed parameters have no sigma and no difference.
+        match p.delta_over_reference_sigma {
+            Some(materiality) => largest = largest.max(materiality.abs()),
+            None => assert_eq!(p.delta, 0.0, "{}", p.label),
+        }
+    }
+    // The same optimum (on this noise-free project, the same values to the
+    // bit): the seed moved the start, not the result.
+    assert!(largest < 1e-3, "{largest}");
+    assert_eq!(shared.relation, DataRelation::Overlapping);
+}

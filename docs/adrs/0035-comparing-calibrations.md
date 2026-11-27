@@ -82,11 +82,19 @@ reprojection RMS, because each view's pose absorbs part of the field.
   `(image content, camera id, target point, observed pixel)` with exact
   bits, so a moved or renamed image is the same data and a re-detection with
   another detector is not. No image content in common: `Independent`. Equal
-  `inputs` digests, or equal features under equal `config` and `dataset`
-  digests: `Identical`. Equal features otherwise: `SameData`. One run's
-  features a strict subset of the other's under equal `config` and `dataset`
-  digests (the dataset digest covers the robot poses and the target):
-  `Nested`. Otherwise `Overlapping`. A run without the record (imported,
+  `inputs` digests, or equal features under equal `config`, `dataset` and
+  `seed` digests (one estimator): `Identical`. Equal features otherwise:
+  `SameData`. One run's features a strict subset of the other's under one
+  estimator (the dataset digest covers the robot poses and the target):
+  `Nested`. Otherwise `Overlapping`. **The seed is part of the estimator**
+  (ADR 0033 D8): it is an initial value, but it changes the solver route in
+  two places (a Scheimpflug tilt seed bounds the planar refine around it, a
+  laserline device holds its tilt at the seed), so two runs from different
+  seeds are not one estimator and get no nested test. A seeded and an
+  unseeded run of the same data are `SameData`, and the seed is listed
+  among the configuration changes (`seed.source`, `seed.values` with the
+  seed digest) [measured: `a_seed_is_part_of_the_estimator`, where the two
+  reach the same optimum]. A run without the record (imported,
   earlier) is `Unknown`. The relation is classified conservatively: a
   dataset that grew (another manifest) is `Overlapping`, not `Nested`. Each
   difference carries the `DataOverlap` and the `ExclusionChanges` behind it.

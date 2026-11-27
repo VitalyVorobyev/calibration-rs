@@ -251,11 +251,14 @@ puts runs side by side against the first, as
 [Comparing Calibrations](comparing_calibrations.md) describes. The relation
 of the runs' data, which decides whether a difference has a test, is read
 from the records: two runs that used no image of the same content are
-independent captures; runs of the same features under one configuration and
-dataset (equal `config` and `dataset` digests) are identical, under another
-configuration they share data; a run whose features are a strict subset of
-the other's under one configuration is nested (an exclusion); anything else
-overlaps. A feature is one target point of one camera in one image,
+independent captures; runs of the same features under one estimator (equal
+`config`, `dataset` and `seed` digests) are identical, under another they
+share data; a run whose features are a strict subset of the other's under
+one estimator is nested (an exclusion); anything else overlaps. The seed
+counts as part of the estimator because a seed can bound or hold what the
+solve estimates: a seeded and an unseeded run of the same images share data,
+with the seed listed among the configuration changes (`seed.source`,
+`seed.values`). A feature is one target point of one camera in one image,
 identified by the image's content and the detected pixel, so a moved or
 renamed image is still the same data and a re-detected one with another
 detector is not. An imported run records no image content, so its relation

@@ -9,8 +9,8 @@ use vision_calibration_core::FrameKind;
 use super::{CalibratedRun, Exclusions, Project, ProjectError, RunInfo, RunSource, RunState};
 use crate::Error;
 use crate::analysis::{
-    CompareRunsOptions, ComparedRun, DataOverlap, DataRelation, ExclusionChanges, RunComparison,
-    RunSide, compare_runs,
+    CompareRunsOptions, ComparedRun, ConfigChange, DataOverlap, DataRelation, ExclusionChanges,
+    RunComparison, RunSide, compare_runs,
 };
 use crate::common::{CalibratedCameras, calibrated_cameras};
 
@@ -48,15 +48,20 @@ impl Project {
 /// - otherwise by their features, each one target point (or laser pixel)
 ///   of one camera in one image, identified by the image's content and the
 ///   observed pixel: **Identical** for equal input digests; the same
-///   features under one estimator (equal dataset and configuration
-///   digests) is **Identical**, under another **SameData**; one run's
+///   features under one estimator (equal dataset, configuration and seed
+///   digests: a seed can bound or hold what the solve estimates) is
+///   **Identical**, under another **SameData**; one run's
 ///   features a strict subset of the other's under one estimator,
 ///   **Nested**; anything else **Overlapping**;
 /// - **Unknown** for a run that did not record the content of every image
 ///   it used (an imported or earlier run), which never yields a test.
 ///
 /// Each difference also carries the [`DataOverlap`] behind the relation and,
-/// between two calibrated runs, the [`ExclusionChanges`].
+/// between two calibrated runs, the [`ExclusionChanges`]; two calibrated
+/// runs that started from different seeds list the seed among their
+/// configuration changes: `seed.source`, the source each record names
+/// (JSON, `None` for an unseeded run), and `seed.values`, the digest of the
+/// values each started from.
 ///
 /// # Errors
 ///
@@ -72,6 +77,7 @@ pub fn compare_recorded_runs(
     let reference = &loaded[0];
     let mut overlaps = Vec::new();
     let mut exclusions = Vec::new();
+    let mut seeds = Vec::new();
     let compared: Vec<ComparedRun<'_>> = loaded
         .iter()
         .enumerate()
@@ -89,20 +95,28 @@ pub fn compare_recorded_runs(
                 let (relation, overlap) = relation(reference, run);
                 overlaps.push(overlap);
                 exclusions.push(exclusion_changes(reference, run));
+                seeds.push(seed_changes(reference, run));
                 compared = compared.with_relation(relation);
             }
             compared
         })
         .collect();
     let mut comparison = compare_runs(&compared, options).map_err(ProjectError::Compare)?;
-    for ((difference, overlap), changes) in comparison
+    for (((difference, overlap), changes), seed) in comparison
         .differences
         .iter_mut()
         .zip(overlaps)
         .zip(exclusions)
+        .zip(seeds)
     {
         difference.data = overlap;
         difference.exclusion_changes = changes;
+        if !seed.is_empty() {
+            difference
+                .config_changes
+                .get_or_insert_with(Vec::new)
+                .extend(seed);
+        }
     }
     Ok(comparison)
 }
@@ -234,8 +248,9 @@ fn relation(reference: &Loaded, other: &Loaded) -> (DataRelation, Option<DataOve
         reference_only_features: a.features.len() - shared_features,
         other_only_features: b.features.len() - shared_features,
     };
-    let same_estimator =
-        ca.digest.config == cb.digest.config && ca.digest.dataset == cb.digest.dataset;
+    let same_estimator = ca.digest.config == cb.digest.config
+        && ca.digest.dataset == cb.digest.dataset
+        && ca.digest.seed == cb.digest.seed;
     let relation = if shared_images == 0 {
         DataRelation::Independent
     } else if ca.digest.inputs == cb.digest.inputs {
@@ -258,6 +273,40 @@ fn relation(reference: &Loaded, other: &Loaded) -> (DataRelation, Option<DataOve
         DataRelation::Overlapping
     };
     (relation, Some(overlap))
+}
+
+/// Where the seeds of two calibrated runs differ: `seed.source` when the
+/// sources their records name differ, `seed.values` when the values do.
+fn seed_changes(reference: &Loaded, other: &Loaded) -> Vec<ConfigChange> {
+    let (Some(a), Some(b)) = (&reference.calibrated, &other.calibrated) else {
+        return Vec::new();
+    };
+    let source = |run: &CalibratedRun| {
+        run.inputs
+            .seed
+            .as_ref()
+            .map(|s| serde_json::to_string(&s.source).unwrap_or_default())
+    };
+    let values = |run: &CalibratedRun| {
+        run.digest
+            .seed
+            .as_ref()
+            .map(|d| serde_json::Value::from(d.as_str()).to_string())
+    };
+    let mut out = Vec::new();
+    for (path, x, y) in [
+        ("seed.source", source(a), source(b)),
+        ("seed.values", values(a), values(b)),
+    ] {
+        if x != y {
+            out.push(ConfigChange {
+                path: path.to_string(),
+                reference: x,
+                other: y,
+            });
+        }
+    }
+    out
 }
 
 /// The exclusions only one of two calibrated runs made, notes left out.
