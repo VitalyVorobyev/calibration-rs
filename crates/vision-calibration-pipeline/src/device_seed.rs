@@ -32,8 +32,10 @@
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    CameraParams, FxFyCxCy, Handeye, Iso3, LaserPlane, Real, ScheimpflugParams, SensorParams,
+    CameraModelSpec, CameraParams, FxFyCxCy, Handeye, Iso3, LaserPlane, Real, ScheimpflugParams,
+    SensorParams,
 };
+use vision_calibration_dataset::ProblemKind;
 use vision_calibration_optim::HandeyeMode;
 
 use crate::common::{
@@ -189,6 +191,65 @@ pub enum DeviceSeedError {
         reference: usize,
         /// The number of camera ids given.
         cameras: usize,
+    },
+
+    /// The seed's cameras are not the dataset's: a seed for a subset of a
+    /// device's cameras is made with [`DeviceSeed::select`].
+    #[error(
+        "the seed's cameras are not the dataset's (missing from the seed: {missing:?}; \
+         not in the dataset: {unexpected:?})"
+    )]
+    CameraIdsDiffer {
+        /// The dataset's cameras the seed has no camera for, in the
+        /// dataset's order.
+        missing: Vec<String>,
+        /// The seed's cameras the dataset does not have, in the seed's
+        /// order.
+        unexpected: Vec<String>,
+    },
+
+    /// A calibrated lens of the seed is of another camera model than the
+    /// one configured for its camera. [`DeviceSeed::nominal`] keeps only the
+    /// intrinsics and the tilt, for a calibration of another model.
+    #[error("camera `{camera}`: the seed's model is {seed:?} but the config's is {config:?}")]
+    ModelMismatch {
+        /// The camera id.
+        camera: String,
+        /// The model of the seed's lens.
+        seed: CameraModelSpec,
+        /// The model the config names for the camera.
+        config: CameraModelSpec,
+    },
+
+    /// A nominal lens of the seed states a sensor tilt, and the model
+    /// configured for its camera has no Scheimpflug sensor.
+    #[error("camera `{camera}`: the seed states a sensor tilt but the config's model is untilted")]
+    TiltForUntiltedModel {
+        /// The camera id.
+        camera: String,
+    },
+
+    /// A seed camera's images are of another size than the dataset's: a
+    /// seed for another binning or region of the sensor is for another
+    /// camera.
+    #[error(
+        "camera `{camera}`: the seed is for {seed:?} px images but the dataset's are {dataset:?} px"
+    )]
+    ImageSizeMismatch {
+        /// The camera id.
+        camera: String,
+        /// The seed camera's `[width, height]`.
+        seed: [u32; 2],
+        /// The dataset camera's `[width, height]`.
+        dataset: [u32; 2],
+    },
+
+    /// Nothing in the seed applies to the workflow, so a seeded run would
+    /// be an unseeded one.
+    #[error("nothing in the seed applies to a {topology:?} calibration")]
+    NothingToSeed {
+        /// The workflow's topology.
+        topology: ProblemKind,
     },
 }
 
@@ -1148,7 +1209,7 @@ fn all_or_none<T>(
 
 /// A rig seed of the mounts `cam_se3_rig`, each view anchored on its first
 /// camera with a target pose.
-fn anchor_views(
+pub(crate) fn anchor_views(
     cam_se3_rig: Vec<Iso3>,
     cam_se3_target: &[Vec<Option<Iso3>>],
 ) -> Result<RigManualInit, DeviceSeedError> {

@@ -330,8 +330,17 @@ pub fn step_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
 ) -> Result<(), Error> {
+    run_seeded(session, None)
+}
+
+/// The steps of [`run_calibration`], the initialization from `seed` when
+/// one is given: the one step list of the workflow, seeded or not.
+pub(crate) fn run_seeded(
+    session: &mut CalibrationSession<RigLaserlineDeviceProblem>,
+    seed: Option<PlaneManualInit>,
+) -> Result<(), Error> {
     session.begin_step("init")?;
-    step_init(session, None)?;
+    step_init_with_seed(session, seed.unwrap_or_default(), None)?;
     session.begin_step("optimize")?;
     step_optimize(session, None)?;
     Ok(())

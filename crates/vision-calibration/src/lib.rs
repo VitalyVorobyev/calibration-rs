@@ -582,7 +582,9 @@ pub mod dataset {
 /// detection on the per-camera images.
 ///
 /// [`calibrate_dataset`](dataset_runner::calibrate_dataset) runs a manifest
-/// end to end, whatever its topology.
+/// end to end, whatever its topology;
+/// [`calibrate_dataset_with_seed`](dataset_runner::calibrate_dataset_with_seed)
+/// starts it from a [`DeviceSeed`](device_seed::DeviceSeed).
 ///
 /// Re-exported from the pipeline crate's `dataset_runner` module — see that
 /// module's doc comment for the full list of `build_*_input` converters and
@@ -597,7 +599,8 @@ pub mod dataset_runner {
         build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
         build_rig_handeye_input, build_rig_handeye_laserline_input,
         build_rig_laserline_device_input, build_single_cam_handeye_input, calibrate_dataset,
-        camera_image_sizes, detect_target, detect_target_detail, detection_detail, input_files,
+        calibrate_dataset_with_seed, camera_image_sizes, detect_target, detect_target_detail,
+        detection_detail, input_files,
     };
 }
 

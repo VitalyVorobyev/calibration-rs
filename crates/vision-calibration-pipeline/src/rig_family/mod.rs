@@ -27,8 +27,8 @@ pub use stages::{
     RigInitResult, RigIntrinsicsInitResult, RigIntrinsicsManualInit, RigManualInit, RigPoses,
 };
 pub(crate) use stages::{
-    RigStages, RigStagesState, init_intrinsics, init_rig, optimize_intrinsics, optimize_rig,
-    rig_ba_notes,
+    RigSeed, RigStages, RigStagesState, init_intrinsics, init_rig, optimize_intrinsics,
+    optimize_rig, rig_ba_notes, seeded_rig_init,
 };
 
 use crate::Error;

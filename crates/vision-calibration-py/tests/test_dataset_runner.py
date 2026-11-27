@@ -298,6 +298,30 @@ class ManifestRunTest(unittest.TestCase):
             self.assertEqual(len(images["frames"]), 8)
             self.assertTrue((root / images["frames"][0]["path"]).is_file())
 
+    def test_a_seeded_run_starts_from_a_previous_calibration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spec = _images.write_planar_dataset(root, views=8)
+            cache = vc.FsDetectionCache(root / "cache")
+            unseeded = vc.calibrate_dataset(spec, base_dir=root, cache=cache)
+            camera_id = spec["cameras"][0]["id"]
+            seed = vc.DeviceSeed.from_export(unseeded.export, [camera_id], unseeded.image_sizes)
+            # A seed, or its JSON form, ends where the unseeded run ends.
+            for given in (seed, seed.to_payload()):
+                seeded = vc.calibrate_dataset(spec, base_dir=root, cache=cache, seed=given)
+                result = seeded.export
+                assert isinstance(result, vc.PlanarIntrinsicsExport)
+                k, k0 = result.camera.intrinsics, unseeded.export.camera.intrinsics
+                self.assertAlmostEqual(k.fx, k0.fx, delta=0.01)
+                self.assertAlmostEqual(k.cy, k0.cy, delta=0.01)
+            # A seed for other cameras, or for other images, is refused.
+            other = vc.DeviceSeed.from_export(unseeded.export, ["other"], unseeded.image_sizes)
+            with self.assertRaisesRegex(ValueError, "not the dataset's"):
+                vc.calibrate_dataset(spec, base_dir=root, cache=cache, seed=other)
+            binned = vc.DeviceSeed.from_export(unseeded.export, [camera_id], [(320, 240)])
+            with self.assertRaisesRegex(ValueError, "320, 240"):
+                vc.calibrate_dataset(spec, base_dir=root, cache=cache, seed=binned)
+
     def test_calibrate_dataset_reports_each_image_and_stops_on_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -643,8 +643,17 @@ pub fn step_filter(
 pub fn run_calibration(
     session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
 ) -> Result<(), Error> {
+    run_seeded(session, None)
+}
+
+/// The steps of [`run_calibration`], the initialization from `seed` when
+/// one is given: the one step list of the workflow, seeded or not.
+pub(crate) fn run_seeded(
+    session: &mut CalibrationSession<PlanarIntrinsicsProblem>,
+    seed: Option<IntrinsicsManualInit>,
+) -> Result<(), Error> {
     session.begin_step("init")?;
-    let _ = step_init(session, None)?;
+    let _ = step_init_with_seed(session, seed.unwrap_or_default(), None)?;
     session.begin_step("optimize")?;
     let _ = step_optimize(session, None)?;
     Ok(())

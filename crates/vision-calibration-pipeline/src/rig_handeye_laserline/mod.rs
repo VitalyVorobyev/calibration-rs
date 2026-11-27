@@ -20,6 +20,8 @@ mod problem;
 mod state;
 mod steps;
 
+pub(crate) use steps::run_seeded;
+
 pub use problem::{
     JointOptimizeConfig, RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport,
     RigHandeyeLaserlineInput, RigHandeyeLaserlineProblem,
