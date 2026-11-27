@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `analysis::ReprojectionStats` carries the `median` and the 95th
+  percentile `p95` of the errors, interpolated linearly between order
+  statistics (the numpy and pandas default). `from_errors` and the rig
+  reprojection statistics compute them; statistics built from aggregates
+  (`from_summary`) have none, and they are optional in JSON, so a
+  statistics value without them reads and writes as before. The
+  model-comparison schema gains the two optional keys.
+
+- `dataset_runner::cached_detection` tells what the detection cache holds
+  for one image of a manifest without detecting or decoding it: `None` when
+  a run would detect the image, else the cached features' count and the
+  outcome of a stored detection detail (`CachedDetection`). It reads the
+  image file for the cache key a run uses (its bytes with the detector, its
+  configuration and the camera's region of interest), and the cache.
+  Python: `dataset_runner.cached_detection`.
+
+- The errors of checking a manifest or project name the field they are
+  about: `field()` on `dataset::ValidationError`, `dataset::ManifestError`,
+  `dataset_runner::RunError`, `dataset_runner::CalibrateDatasetError` and
+  `project::ProjectError` returns it as a dotted path (`target`,
+  `robot_poses.columns.rotation`, `pose_pairing.regex`,
+  `cameras[cam0].images` with the camera named by its id, `device.id`,
+  `exclude.images[0]`), or `None` for an error about the images, the
+  detections, a file as a whole or the run. Messages are unchanged. Python:
+  `RunError.field` and `ProjectError.field`, and the `field` of a pose or
+  laser listing's error in `Project.views()`.
+
+- `project::Project::view_poses` and `Project::view_laser_frames` pair the
+  views `Project::views` lists with the manifest's robot poses and each
+  camera's laser frames: a pose is named by its position in the pose file
+  and its `pose_id` (`dataset_runner::PoseRow`, `ViewPoses`,
+  `ViewLaserFrames`). What the pairing leaves unmatched is data rather than
+  a later error: a view without a pose or laser frame, and the pose rows
+  and laser frames that pair with no view (`ViewPoses::unpaired`,
+  `ViewLaserFrames::unpaired`, `UnpairedLaserFrame`). The robot pose file
+  is read and the laser folders listed; no image is read. Python:
+  `Project.views()` returns them as `robot_poses` and `laser_frames`, with
+  the error in place of a listing that cannot be made.
+
 - `analysis::projection_difference` compares two calibrations of one camera,
   of the same model or of different ones, through where they put the same
   ray: at each node of the first camera's `ImageGrid`, the second camera's

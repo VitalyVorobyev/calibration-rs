@@ -20,7 +20,7 @@ create_exception!(
     vision_calibration,
     RunError,
     PyRuntimeError,
-    "A manifest-driven run failed. `kind` names the failure (`\"validation\"`, `\"empty_image_match\"`, `\"detection\"`, ...)."
+    "A manifest-driven run failed. `kind` names the failure (`\"validation\"`, `\"empty_image_match\"`, `\"detection\"`, ...); `field` the manifest field it is about, as a dotted path (`\"target\"`, `\"cameras[cam0].images\"`), or `None`."
 );
 create_exception!(
     vision_calibration,
@@ -46,7 +46,7 @@ create_exception!(
     vision_calibration,
     ProjectError,
     PyRuntimeError,
-    "A project operation failed. `kind` names the failure (`\"not_a_project\"`, `\"changed_on_disk\"`, `\"exclusion\"`, `\"calibrate\"`, ...)."
+    "A project operation failed. `kind` names the failure (`\"not_a_project\"`, `\"changed_on_disk\"`, `\"exclusion\"`, `\"calibrate\"`, ...); `field` the project or manifest field it is about, as a dotted path (`\"device.id\"`, `\"exclude.images[0]\"`, `\"target\"`), or `None`."
 );
 
 /// The `kind` of a `ProjectError`: its Rust variant in snake case.
@@ -78,8 +78,13 @@ pub(crate) fn project_err(py: Python<'_>, err: RustProjectError) -> PyErr {
         return pyo3::exceptions::PyKeyboardInterrupt::new_err("cancelled");
     }
     let kind = project_error_kind(&err);
+    let field = err.field();
     let exc = ProjectError::new_err(err.to_string());
-    match exc.value(py).setattr("kind", kind) {
+    let value = exc.value(py);
+    match value
+        .setattr("kind", kind)
+        .and_then(|()| value.setattr("field", field))
+    {
         Ok(()) => exc,
         Err(err) => err,
     }
@@ -171,9 +176,13 @@ pub(crate) fn run_err(py: Python<'_>, err: RustRunError) -> PyErr {
                 .and_then(|()| value.setattr("suggestions", suggestions))
                 .map(|()| exc)
         }
-        _ => {
+        other => {
             let exc = RunError::new_err(message);
-            exc.value(py).setattr("kind", kind).map(|()| exc)
+            let value = exc.value(py);
+            value
+                .setattr("kind", kind)
+                .and_then(|()| value.setattr("field", other.field()))
+                .map(|()| exc)
         }
     };
     result.unwrap_or_else(|err| err)

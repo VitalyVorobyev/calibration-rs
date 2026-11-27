@@ -3926,8 +3926,8 @@ class RejectedPoint(_RejectedPointRequired, total=False):
     """The target point it would have had, metres, when it had a label."""
 
 
-class ReprojectionStats(TypedDict):
-    """Summary statistics for reprojection errors."""
+class _ReprojectionStatsRequired(TypedDict):
+    """The keys of `ReprojectionStats` that every payload has."""
 
     count: int
     """Number of points evaluated."""
@@ -3940,6 +3940,30 @@ class ReprojectionStats(TypedDict):
 
     rms: float
     """Root mean square error in pixels."""
+
+
+class ReprojectionStats(_ReprojectionStatsRequired, total=False):
+    """Summary statistics for reprojection errors.
+
+    The percentiles (`median`, `p95`) interpolate linearly between order
+    statistics of the ascending-sorted errors, the default of numpy and
+    pandas: the `q`-quantile of `n` errors lies at fractional rank
+    `q * (n - 1)`, so the median of an even count is the mean of the middle
+    two. They are present when the statistics were computed from the errors
+    (`from_errors`), and absent when built from
+    aggregates (`from_summary`).
+    """
+
+    median: float | None
+    """Median reprojection error in pixels (the 50th percentile, linearly
+    interpolated); `None` when built from aggregates. `0.0` for no
+    errors, as the other statistics.
+    """
+
+    p95: float | None
+    """95th percentile of the reprojection error in pixels, linearly
+    interpolated; `None` when built from aggregates.
+    """
 
 
 class ResidualKind_Custom(TypedDict):

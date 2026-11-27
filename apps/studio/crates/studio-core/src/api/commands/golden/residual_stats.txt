@@ -3,6 +3,8 @@ $.cameras[].camera: number
 $.cameras[].stats.count: number
 $.cameras[].stats.max: number
 $.cameras[].stats.mean: number
+$.cameras[].stats.median: number
+$.cameras[].stats.p95: number
 $.cameras[].stats.rms: number
 $.cameras[].stats: object
 $.cameras[].unprojected: number
@@ -13,6 +15,8 @@ $.cells[].camera: number
 $.cells[].stats.count: number
 $.cells[].stats.max: number
 $.cells[].stats.mean: number
+$.cells[].stats.median: number
+$.cells[].stats.p95: number
 $.cells[].stats.rms: number
 $.cells[].stats: object
 $.cells[].unprojected: number
@@ -22,6 +26,8 @@ $.views: array
 $.views[].stats.count: number
 $.views[].stats.max: number
 $.views[].stats.mean: number
+$.views[].stats.median: number
+$.views[].stats.p95: number
 $.views[].stats.rms: number
 $.views[].stats: object
 $.views[].unprojected: number

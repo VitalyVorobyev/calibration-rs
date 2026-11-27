@@ -139,6 +139,44 @@ pub enum ValidationError {
     BadTarget(String),
 }
 
+impl ValidationError {
+    /// The manifest field the error is about, as a dotted path: `target`,
+    /// `robot_poses.columns.rotation`, `cameras[cam0].images`. A camera is
+    /// named by its id, as [`FieldUnusedByTopology`](Self::FieldUnusedByTopology)
+    /// names it; [`DuplicateCameraId`](Self::DuplicateCameraId) names the
+    /// `id` of every camera that has it.
+    ///
+    /// A check of a section's values names the section (`target`,
+    /// `detector`, `laser`, `robot_poses`), and the message says which of
+    /// its values is wrong. [`Unresolved`](Self::Unresolved) names the first
+    /// of its fields; the variant holds them all.
+    pub fn field(&self) -> Option<String> {
+        let camera = |id: &str, field: &str| Some(format!("cameras[{id}].{field}"));
+        match self {
+            Self::UnsupportedVersion { .. } => Some("version".into()),
+            Self::Unresolved(fields) => fields.first().cloned(),
+            Self::MissingRobotPoses { .. } | Self::BadMatrixPoseConfig { .. } => {
+                Some("robot_poses".into())
+            }
+            Self::WrongCameraCount { .. } => Some("cameras".into()),
+            Self::MissingPoseConvention => Some("pose_convention".into()),
+            Self::DuplicateCameraId(id) => camera(id, "id"),
+            Self::EmptyImagePattern(id) => camera(id, "images"),
+            Self::BadRotationColumnCount { .. } => Some("robot_poses.columns.rotation".into()),
+            Self::MissingPoseColumns { .. } => Some("robot_poses.columns".into()),
+            Self::DegenerateRoi { camera_id, .. } => camera(camera_id, "roi_xywh"),
+            Self::FieldUnusedByTopology { field, .. } => Some(field.clone()),
+            Self::MissingLaserImages(id) | Self::EmptyLaserImagePattern(id) => {
+                camera(id, "laser_images")
+            }
+            Self::MissingUpstreamCalibration { .. } => Some("upstream_calibration".into()),
+            Self::BadLaserExtraction(_) => Some("laser".into()),
+            Self::BadDetectorOverride(_) => Some("detector".into()),
+            Self::BadTarget(_) => Some("target".into()),
+        }
+    }
+}
+
 /// Validate the structural invariants of a manifest. Does not touch
 /// the filesystem (e.g. doesn't expand globs). Callers
 /// should reject the manifest as soon as any error fires.
@@ -225,6 +263,24 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
     }
 
     Ok(())
+}
+
+/// The checks of [`validate`] that make a manifest's robot pose file
+/// readable: a `pose_convention` beside `robot_poses`, and a column mapping
+/// that fits the file's format. `Ok` when the manifest declares no robot
+/// poses.
+///
+/// Workspace-internal: the dataset runner lists a manifest's pose rows with
+/// it while other fields of the manifest are still invalid.
+#[doc(hidden)]
+pub fn validate_robot_pose_source(spec: &DatasetSpec) -> Result<(), ValidationError> {
+    let Some(robot) = &spec.robot_poses else {
+        return Ok(());
+    };
+    let Some(convention) = &spec.pose_convention else {
+        return Err(ValidationError::MissingPoseConvention);
+    };
+    validate_pose_columns(robot, Some(convention.rotation_format))
 }
 
 fn validate_target(target: &TargetSpec) -> Result<(), ValidationError> {
@@ -1395,5 +1451,111 @@ mod tests {
             validate(&nan_laser).unwrap_err(),
             ValidationError::BadLaserExtraction(_)
         ));
+    }
+
+    /// Every variant and the field it names; `field` matches exhaustively,
+    /// so a new variant does not build until it has its decision there.
+    #[test]
+    fn every_variant_names_its_field() {
+        use ValidationError as E;
+        let table: Vec<(ValidationError, Option<&str>)> = vec![
+            (
+                E::UnsupportedVersion {
+                    got: 9,
+                    supported: 1,
+                },
+                Some("version"),
+            ),
+            (
+                E::Unresolved(vec!["target".into(), "pose_convention".into()]),
+                Some("target"),
+            ),
+            (E::Unresolved(vec![]), None),
+            (
+                E::MissingRobotPoses {
+                    topology: ProblemKind::RigHandeye,
+                },
+                Some("robot_poses"),
+            ),
+            (
+                E::WrongCameraCount {
+                    topology: ProblemKind::PlanarIntrinsics,
+                    got: 2,
+                    expected_min: 1,
+                    expected_max: 1,
+                },
+                Some("cameras"),
+            ),
+            (E::MissingPoseConvention, Some("pose_convention")),
+            (
+                E::DuplicateCameraId("cam0".into()),
+                Some("cameras[cam0].id"),
+            ),
+            (
+                E::EmptyImagePattern("cam1".into()),
+                Some("cameras[cam1].images"),
+            ),
+            (
+                E::BadRotationColumnCount {
+                    format: RotationFormat::QuatXyzw,
+                    got: 3,
+                    expected: 4,
+                },
+                Some("robot_poses.columns.rotation"),
+            ),
+            (
+                E::MissingPoseColumns {
+                    format: RobotPoseFormat::Csv,
+                },
+                Some("robot_poses.columns"),
+            ),
+            (
+                E::BadMatrixPoseConfig {
+                    problem: "x".into(),
+                },
+                Some("robot_poses"),
+            ),
+            (
+                E::DegenerateRoi {
+                    camera_id: "cam0".into(),
+                    roi: [0, 0, 0, 1],
+                },
+                Some("cameras[cam0].roi_xywh"),
+            ),
+            (
+                E::FieldUnusedByTopology {
+                    topology: ProblemKind::PlanarIntrinsics,
+                    field: "cameras[cam0].laser_images".into(),
+                },
+                Some("cameras[cam0].laser_images"),
+            ),
+            (
+                E::MissingLaserImages("cam0".into()),
+                Some("cameras[cam0].laser_images"),
+            ),
+            (
+                E::EmptyLaserImagePattern("cam0".into()),
+                Some("cameras[cam0].laser_images"),
+            ),
+            (
+                E::MissingUpstreamCalibration {
+                    topology: ProblemKind::RigLaserlineDevice,
+                },
+                Some("upstream_calibration"),
+            ),
+            (E::BadLaserExtraction("x".into()), Some("laser")),
+            (E::BadDetectorOverride("x".into()), Some("detector")),
+            (E::BadTarget("x".into()), Some("target")),
+        ];
+        for (error, expected) in table {
+            assert_eq!(error.field().as_deref(), expected, "{error:?}");
+        }
+        // The validator's own errors name the field they are raised for.
+        let mut spec = planar_chessboard_minimal();
+        spec.cameras[0].roi_xywh = Some([0, 0, 0, 480]);
+        assert_eq!(
+            validate(&spec).unwrap_err().field().as_deref(),
+            Some("cameras[cam0].roi_xywh")
+        );
     }
 }

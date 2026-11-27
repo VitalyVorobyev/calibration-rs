@@ -56,6 +56,8 @@ pub use spec::{
     RinggridCenterSpec, RinggridCodingSpec, RinggridLatticeSpec, RobotPoseFormat, RobotPoseSource,
     RotationFormat, TargetSpec, TransformConvention, TranslationUnits,
 };
+#[doc(hidden)]
+pub use validator::validate_robot_pose_source;
 pub use validator::{ValidationError, validate};
 
 #[cfg(doctest)]

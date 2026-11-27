@@ -105,6 +105,41 @@ Every path in the manifest (images, robot poses, an upstream calibration)
 resolves against this data root, so a laser rig project can point
 `upstream_calibration` at another project's `runs/run-003/export.json`.
 
+## The Views
+
+`Project::views` lists the views the images pair into, without reading an
+image: each view's pairing token and each camera's image in it.
+`Project::view_poses` pairs them with the manifest's robot poses (a pose is
+named by its position in the pose file and its `pose_id`) and
+`Project::view_laser_frames` with each camera's laser frames, by the
+manifest's `pose_pairing`. What pairs with nothing is listed too: a view
+without a pose or a laser frame, a pose row or a laser frame that pairs
+with no view. A run refuses such a dataset; the listing shows which rows
+and frames are at fault. Python's `Project.views()` returns all three, with
+an `{"error", "field"}` entry in place of a pose or laser listing that
+cannot be made.
+
+```rust,no_run
+use vision_calibration::project::Project;
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let project = Project::open("my-camera")?;
+let views = project.views()?;
+if let Some(poses) = project.view_poses(&views)? {
+    for (token, pose) in views.tokens.iter().zip(&poses.views) {
+        match pose {
+            Some(row) => println!("view {token}: pose row {}", row.index),
+            None => println!("view {token}: no robot pose"),
+        }
+    }
+    for row in &poses.unpaired {
+        println!("pose row {} ({:?}) pairs with no view", row.index, row.id);
+    }
+}
+# Ok(())
+# }
+```
+
 ## Leaving Data Out
 
 `[exclude]` leaves out what it names, by what does not change when the

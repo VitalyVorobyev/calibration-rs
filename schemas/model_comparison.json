@@ -306,7 +306,7 @@
       ]
     },
     "ReprojectionStats": {
-      "description": "Summary statistics for reprojection errors.",
+      "description": "Summary statistics for reprojection errors.\n\nThe percentiles (`median`, `p95`) interpolate linearly between order\nstatistics of the ascending-sorted errors, the default of numpy and\npandas: the `q`-quantile of `n` errors lies at fractional rank\n`q * (n - 1)`, so the median of an even count is the mean of the middle\ntwo. They are present when the statistics were computed from the errors\n([`from_errors`](Self::from_errors)), and absent when built from\naggregates ([`from_summary`](Self::from_summary)).",
       "properties": {
         "count": {
           "description": "Number of points evaluated.",
@@ -323,6 +323,22 @@
           "description": "Mean reprojection error in pixels.",
           "format": "double",
           "type": "number"
+        },
+        "median": {
+          "description": "Median reprojection error in pixels (the 50th percentile, linearly\ninterpolated); `None` when built from aggregates. `0.0` for no\nerrors, as the other statistics.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "p95": {
+          "description": "95th percentile of the reprojection error in pixels, linearly\ninterpolated; `None` when built from aggregates.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "rms": {
           "description": "Root mean square error in pixels.",

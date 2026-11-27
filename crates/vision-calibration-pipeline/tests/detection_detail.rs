@@ -14,7 +14,8 @@ use vision_calibration_detect::{
     GrayImageView, TargetDetail,
 };
 use vision_calibration_pipeline::dataset_runner::{
-    Detection, RunError, build_planar_input, detect_target, detect_target_detail, detection_detail,
+    Detection, RunError, build_planar_input, cached_detection, detect_target, detect_target_detail,
+    detection_detail,
 };
 
 /// The rendered page of a frontal chessboard of 6 × 8 inner corners.
@@ -188,6 +189,71 @@ fn cached_features_that_a_fresh_detection_contradicts_are_an_error() {
     .unwrap();
     assert_eq!(cache.get(&key).unwrap().unwrap().features, detail.features);
     assert_eq!(cache.get_detail(&key).unwrap(), Some(detail));
+}
+
+#[test]
+fn cached_detection_reads_the_key_a_run_writes() {
+    let data = tempfile::tempdir().unwrap();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache = FsDetectionCache::new(cache_dir.path());
+    let (w, h) = board_page().dimensions();
+    let spec = dataset(data.path(), Some([PAD / 2, PAD / 2, w, h]));
+    let names = ["a.png", "b.png"];
+    for name in names {
+        assert_eq!(
+            cached_detection(&spec, data.path(), 0, Path::new(name), &cache).unwrap(),
+            None,
+            "nothing cached before a run"
+        );
+    }
+    build_planar_input(
+        &spec,
+        data.path(),
+        Detection::Cached(&cache),
+        &RunControl::default(),
+    )
+    .unwrap();
+    for name in names {
+        let cached = cached_detection(&spec, data.path(), 0, Path::new(name), &cache)
+            .unwrap()
+            .expect("every image the run read is cached");
+        assert_eq!(cached.feature_count, 48, "{name}");
+        assert_eq!(cached.detail_outcome, None, "a run stores no detail");
+    }
+    // Once its detail is stored, the image reports it.
+    detection_detail(
+        &spec,
+        data.path(),
+        0,
+        Path::new("a.png"),
+        Detection::Cached(&cache),
+    )
+    .unwrap();
+    let cached = cached_detection(&spec, data.path(), 0, &data.path().join("a.png"), &cache)
+        .unwrap()
+        .unwrap();
+    assert_eq!(cached.detail_outcome, Some(DetectionOutcome::Detected));
+
+    // Another detector option, or another region of interest, keys another
+    // detection: nothing is cached for it.
+    let mut threshold = spec.clone();
+    threshold.detector = Some(
+        serde_json::from_value(json!({ "chess_corners": { "threshold_value": 0.3 } })).unwrap(),
+    );
+    let mut uncropped = spec.clone();
+    uncropped.cameras[0].roi_xywh = None;
+    for other in [threshold, uncropped] {
+        for name in names {
+            assert_eq!(
+                cached_detection(&other, data.path(), 0, Path::new(name), &cache).unwrap(),
+                None,
+                "{name}"
+            );
+        }
+    }
+    // Outside the manifest is the same error as for the detail.
+    let err = cached_detection(&spec, data.path(), 1, Path::new("a.png"), &cache).unwrap_err();
+    assert!(matches!(err, RunError::ImageNotInDataset { .. }), "{err}");
 }
 
 #[test]

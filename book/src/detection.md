@@ -268,7 +268,9 @@ println!("{} candidates left out", detail.rejected.len());
 
 `dataset_runner::detect_target_detail` does the same from a manifest's `target` section. `dataset_runner::detection_detail(spec, base_dir, camera, image, detection)` returns the detail of the detection a manifest run makes of one of its images: the same detector, region of interest and cache key, so with the run's cache it shows the features the run used. It stores the detail beside the cached features and reuses it while the two agree; when the cached features differ from a fresh detection it returns `RunError::DetailMismatch` rather than show a detection the run did not use. The detail is JSON with a published schema (`schemas/detection_detail.json`).
 
-In Python, `dataset_runner.detect_target_detail(image, target)` and `dataset_runner.detection_detail(manifest, camera, image, cache=...)` return a `DetectionDetail` whose `features` is a `Features` table and whose `outcome`, `target` and `rejected` are the payloads above.
+`dataset_runner::cached_detection(spec, base_dir, camera, image, cache)` says what the cache holds for one image without detecting or decoding it: `None` when a run would detect the image, else the cached features' count and the outcome of a stored detail (`CachedDetection`). It reads the image file, since the cache key is its content with the detector, its configuration and the camera's region of interest, exactly as a run keys it, so a manifest edit that changes the detection (another detector option, another region) reports every image as not cached. An application lists which images of a dataset are detected this way.
+
+In Python, `dataset_runner.cached_detection(manifest, camera, image, cache)` returns `None` or `{"feature_count", "detail_outcome"}`, and `dataset_runner.detect_target_detail(image, target)` and `dataset_runner.detection_detail(manifest, camera, image, cache=...)` return a `DetectionDetail` whose `features` is a `Features` table and whose `outcome`, `target` and `rejected` are the payloads above.
 
 ## The Detection Cache
 

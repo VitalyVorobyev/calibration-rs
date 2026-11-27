@@ -362,12 +362,23 @@ class ManifestRunTest(unittest.TestCase):
             run = dataset_runner.build_planar_input(spec, base_dir=root, cache=cache)
             self.assertEqual(run.usable_views, 3)
             self.assertEqual(list((root / "cache").glob("*.detail.json")), [])
+            cached = dataset_runner.cached_detection(spec, 0, "view_01.png", cache, base_dir=root)
+            assert cached is not None
+            self.assertGreater(cached["feature_count"], 0)
+            self.assertIsNone(cached["detail_outcome"])
+            other = vc.FsDetectionCache(root / "other-cache")
+            self.assertIsNone(
+                dataset_runner.cached_detection(spec, 0, "view_01.png", other, base_dir=root)
+            )
 
             detail = dataset_runner.detection_detail(spec, 0, "view_01.png", base_dir=root, cache=cache)
             r, t = _images.board_poses(3)[1]
             features = vc.detect_target(_images.render_board(r, t), _images.TARGET)
             np.testing.assert_array_equal(detail.features.image_xy, features.image_xy)
             self.assertEqual(len(list((root / "cache").glob("*.detail.json"))), 1)
+            cached = dataset_runner.cached_detection(spec, 0, "view_01.png", cache, base_dir=root)
+            assert cached is not None
+            self.assertEqual(cached["detail_outcome"], {"status": "detected"})
             again = dataset_runner.detection_detail(spec, 0, root / "view_01.png", base_dir=root, cache=cache)
             self.assertEqual(again.target, detail.target)
 

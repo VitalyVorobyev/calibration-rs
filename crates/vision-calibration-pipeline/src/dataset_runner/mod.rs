@@ -12,7 +12,8 @@
 //! image-wide analyses take; [`input_files`] lists every file a run reads.
 //! [`detection_detail`] returns what a run's detection of one image looked
 //! like, for review: the per-feature overlay data, the candidates left out
-//! and the image's outcome.
+//! and the image's outcome; [`cached_detection`] says what the detection
+//! cache holds for one image, without detecting.
 //!
 //! Converters, for a run driven step by step:
 //! - [`build_planar_input`] — `PlanarIntrinsics` (any camera model)
@@ -71,9 +72,9 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
-    CornerCovariance, CornerStrategy, DetectionCache, DetectionDetail, DetectorConfig, Feature,
-    GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod, RinggridCoding,
-    RinggridConfig, RinggridLattice, validate_charuco_layout,
+    CornerCovariance, CornerStrategy, DetectionCache, DetectionDetail, DetectionOutcome,
+    DetectorConfig, Feature, GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod,
+    RinggridCoding, RinggridConfig, RinggridLattice, validate_charuco_layout,
 };
 
 mod board_turn;
@@ -102,8 +103,8 @@ pub use laser::{
     build_laserline_device_input, build_rig_handeye_laserline_input,
     build_rig_laserline_device_input,
 };
-pub use pairing::PairedViews;
-pub(crate) use pairing::pair_dataset_views;
+pub use pairing::{PairedViews, PoseRow, UnpairedLaserFrame, ViewLaserFrames, ViewPoses};
+pub(crate) use pairing::{list_laser_frames, list_view_poses, pair_dataset_views};
 pub use planar::{PlanarRunResult, build_planar_input};
 pub use rig::{RigRunResult, build_rig_extrinsics_input, build_rig_handeye_input};
 pub use view_filter::{RejectReason, RejectedDetection};
@@ -459,6 +460,65 @@ impl From<Cancelled> for RunError {
     }
 }
 
+impl RunError {
+    /// The manifest field the error is about, as a dotted path (`target`,
+    /// `pose_pairing.regex`, `cameras[cam0].images`, a camera named by its
+    /// id as [`ValidationError::field`] names it); `None` when it is about
+    /// the dataset's files, images or detections, or the run, rather than
+    /// a field's value.
+    ///
+    /// A [`Validation`](Self::Validation) error names what
+    /// [`ValidationError::field`] names, an [`AskUser`](Self::AskUser)
+    /// question its `field`. An error raised for a field without naming the
+    /// camera it belongs to ([`RoiOutOfBounds`](Self::RoiOutOfBounds))
+    /// names none; [`BadGlob`](Self::BadGlob) names the camera, since its
+    /// pattern may be the target or the laser images'.
+    pub fn field(&self) -> Option<String> {
+        match self {
+            Self::Validation(e) => e.field(),
+            Self::UnsupportedTopology { .. } => Some("topology".into()),
+            Self::UnsupportedOption { option, .. } => match *option {
+                "pairing" => Some("pose_pairing".into()),
+                // The pattern kind of a camera the error does not name.
+                "images" => None,
+                other => Some(match other.strip_prefix("robot_poses.convention.") {
+                    Some(rest) => format!("pose_convention.{rest}"),
+                    None => other.to_string(),
+                }),
+            },
+            Self::UnsupportedTarget { .. } | Self::InvalidTargetConfig { .. } => {
+                Some("target".into())
+            }
+            Self::EmptyImageMatch { camera_id, .. } => Some(format!("cameras[{camera_id}].images")),
+            Self::BadGlob { camera_id, .. } => Some(format!("cameras[{camera_id}]")),
+            Self::PoseParse { .. } => Some("robot_poses".into()),
+            Self::BadPairingRegex { .. } => Some("pose_pairing.regex".into()),
+            Self::PairingTokenMismatch { .. } => Some("pose_pairing".into()),
+            Self::CovarianceUnsupported { .. } => Some("detector.chess_corners.covariance".into()),
+            Self::AskUser { field, .. } => Some(field.clone()),
+            Self::UpstreamCalibration { .. } => Some("upstream_calibration".into()),
+            Self::ViewCountMismatch { .. }
+            | Self::PoseCountMismatch { .. }
+            | Self::Io(_)
+            | Self::Decode { .. }
+            | Self::ImageSizeMismatch { .. }
+            | Self::RoiOutOfBounds { .. }
+            | Self::Detection { .. }
+            | Self::CornerCovariance { .. }
+            | Self::Cache(_)
+            | Self::InsufficientUsableViews { .. }
+            | Self::NoWholeChessboardViews { .. }
+            | Self::LaserPairing { .. }
+            | Self::LaserExtraction { .. }
+            | Self::InsufficientLaserViews { .. }
+            | Self::UpstreamViewMatch { .. }
+            | Self::Cancelled
+            | Self::ImageNotInDataset { .. }
+            | Self::DetailMismatch { .. } => None,
+        }
+    }
+}
+
 /// Counts the images a converter reads for its run control: checks the
 /// token before each image and reports each image done.
 pub(super) struct ImageProgress<'a> {
@@ -673,6 +733,75 @@ pub fn detection_detail(
     image: &Path,
     detection: Detection<'_>,
 ) -> Result<DetectionDetail, RunError> {
+    let (config, roi, path) = dataset_image(spec, base_dir, camera, image)?;
+    cached_or_detected_detail(&config, roi, &path, detection)
+}
+
+/// What a detection cache holds for one image of a manifest: see
+/// [`cached_detection`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct CachedDetection {
+    /// How many features the cached detection holds; 0 for an image in
+    /// which the detector found no target.
+    pub feature_count: usize,
+    /// The outcome of the detection detail stored beside the features, when
+    /// one is stored and holds the same features: the detail
+    /// [`detection_detail`] returns without detecting. `None` when the
+    /// cache holds no such detail.
+    pub detail_outcome: Option<DetectionOutcome>,
+}
+
+/// What `cache` holds for camera `camera`'s target image `image` of a
+/// manifest run (relative paths resolve against `base_dir`): `None` when a
+/// run of `spec` through `cache` would detect the image, else the cached
+/// features' count and the outcome of a stored detail.
+///
+/// Nothing is detected or decoded and nothing is written. The image file is
+/// read, since the cache key is the hash of its bytes with the detector,
+/// its configuration and the camera's region of interest, exactly as a run
+/// and [`detection_detail`] key it; the cache's features entry and, when
+/// present, its detail entry are read.
+///
+/// # Errors
+///
+/// As [`detection_detail`] before it detects: [`RunError::Validation`] for
+/// an invalid manifest, [`RunError::ImageNotInDataset`] for a camera index
+/// out of range or an image not among that camera's, [`RunError::Io`] when
+/// the image cannot be read, [`RunError::Cache`] when an entry cannot be
+/// read.
+pub fn cached_detection(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    camera: usize,
+    image: &Path,
+    cache: &dyn DetectionCache,
+) -> Result<Option<CachedDetection>, RunError> {
+    let (config, roi, path) = dataset_image(spec, base_dir, camera, image)?;
+    let bytes = std::fs::read(&path)?;
+    let key = CacheKey::for_detection(&bytes, &config, roi);
+    let Some(entry) = cache.get(&key)? else {
+        return Ok(None);
+    };
+    let detail_outcome = cache
+        .get_detail(&key)?
+        .filter(|detail| detail.features == entry.features)
+        .map(|detail| detail.outcome);
+    Ok(Some(CachedDetection {
+        feature_count: entry.features.len(),
+        detail_outcome,
+    }))
+}
+
+/// The detector config, region of interest and resolved path of camera
+/// `camera`'s target image `image` of a validated manifest: what a run
+/// detects that image with.
+fn dataset_image(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    camera: usize,
+    image: &Path,
+) -> Result<(DetectorConfig, Option<[u32; 4]>, PathBuf), RunError> {
     let config = target_to_detector_config(spec)?;
     vision_calibration_dataset::validate(spec)?;
     let not_in_dataset = || RunError::ImageNotInDataset {
@@ -685,7 +814,7 @@ pub fn detection_detail(
         .into_iter()
         .find(|path| lexical_absolute(path) == wanted)
         .ok_or_else(not_in_dataset)?;
-    cached_or_detected_detail(&config, source.roi_xywh, &path, detection)
+    Ok((config, source.roi_xywh, path))
 }
 
 /// [`cached_or_detected`] for the detail: the stored detail when it matches
@@ -2068,5 +2197,249 @@ mod tests {
         assert!(check_feature_blur(&emitted, "chessboard", path).is_ok());
         let kept = [corner.with_blur(Some(blur))];
         assert!(check_feature_blur(&kept, "chessboard", path).is_err());
+    }
+
+    /// Every variant and the field it names; `field` matches exhaustively,
+    /// so a new variant does not build until it has its decision there.
+    #[test]
+    fn every_run_error_names_its_field_or_none() {
+        let p = || PathBuf::from("img/0.png");
+        let detect_error = || vision_calibration_detect::DetectError::Backend {
+            detector: "chessboard",
+            message: "x".into(),
+        };
+        let table: Vec<(RunError, Option<&str>)> = vec![
+            (
+                RunError::Validation(ValidationError::BadTarget("x".into())),
+                Some("target"),
+            ),
+            (
+                RunError::UnsupportedTopology {
+                    topology: ProblemKind::PlanarIntrinsics,
+                },
+                Some("topology"),
+            ),
+            (
+                RunError::UnsupportedOption {
+                    option: "target.lattice",
+                    value: "x".into(),
+                },
+                Some("target.lattice"),
+            ),
+            (
+                RunError::UnsupportedOption {
+                    option: "pairing",
+                    value: "x".into(),
+                },
+                Some("pose_pairing"),
+            ),
+            (
+                RunError::UnsupportedOption {
+                    option: "robot_poses.convention.transform",
+                    value: "x".into(),
+                },
+                Some("pose_convention.transform"),
+            ),
+            (
+                RunError::UnsupportedOption {
+                    option: "images",
+                    value: "x".into(),
+                },
+                None,
+            ),
+            (
+                RunError::UnsupportedTarget { kind: "x".into() },
+                Some("target"),
+            ),
+            (
+                RunError::InvalidTargetConfig {
+                    message: "x".into(),
+                },
+                Some("target"),
+            ),
+            (
+                RunError::EmptyImageMatch {
+                    camera_id: "cam0".into(),
+                    pattern: "*.png".into(),
+                    base: p(),
+                },
+                Some("cameras[cam0].images"),
+            ),
+            (
+                RunError::BadGlob {
+                    camera_id: "cam1".into(),
+                    pattern: "[".into(),
+                    message: "x".into(),
+                },
+                Some("cameras[cam1]"),
+            ),
+            (
+                RunError::ViewCountMismatch {
+                    counts: vec![("cam0".into(), 1)],
+                },
+                None,
+            ),
+            (RunError::PoseCountMismatch { poses: 1, views: 2 }, None),
+            (
+                RunError::PoseParse {
+                    path: p(),
+                    row: 0,
+                    message: "x".into(),
+                },
+                Some("robot_poses"),
+            ),
+            (
+                RunError::BadPairingRegex {
+                    regex: "(".into(),
+                    message: "x".into(),
+                },
+                Some("pose_pairing.regex"),
+            ),
+            (
+                RunError::PairingTokenMismatch {
+                    message: "x".into(),
+                },
+                Some("pose_pairing"),
+            ),
+            (RunError::Io(std::io::ErrorKind::NotFound.into()), None),
+            (
+                RunError::Decode {
+                    path: p(),
+                    message: "x".into(),
+                },
+                None,
+            ),
+            (
+                RunError::ImageSizeMismatch {
+                    camera_id: "cam0".into(),
+                    first: p(),
+                    first_size: [1, 1],
+                    path: p(),
+                    size: [2, 2],
+                },
+                None,
+            ),
+            (
+                RunError::RoiOutOfBounds {
+                    path: p(),
+                    size: [1, 1],
+                    roi: [0, 0, 2, 2],
+                },
+                None,
+            ),
+            (
+                RunError::Detection {
+                    detector: "chessboard".into(),
+                    path: p(),
+                    source: detect_error(),
+                },
+                None,
+            ),
+            (
+                RunError::CornerCovariance {
+                    detector: "chessboard".into(),
+                    path: p(),
+                    fault: CovarianceFault::Missing {
+                        missing: 1,
+                        total: 2,
+                    },
+                },
+                None,
+            ),
+            (
+                RunError::CovarianceUnsupported {
+                    target: "puzzleboard",
+                },
+                Some("detector.chess_corners.covariance"),
+            ),
+            (RunError::Cache(CacheError::Serde("x".into())), None),
+            (
+                RunError::AskUser {
+                    field: "pose_pairing".into(),
+                    prompt: "x".into(),
+                    suggestions: vec![],
+                },
+                Some("pose_pairing"),
+            ),
+            (
+                RunError::InsufficientUsableViews {
+                    camera_id: "cam0".into(),
+                    usable: 0,
+                    total: 3,
+                },
+                None,
+            ),
+            (
+                RunError::NoWholeChessboardViews {
+                    camera_id: "cam0".into(),
+                    partial: 1,
+                    turned: 0,
+                    ambiguous: 0,
+                    total: 1,
+                },
+                None,
+            ),
+            (
+                RunError::LaserPairing {
+                    message: "x".into(),
+                },
+                None,
+            ),
+            (
+                RunError::LaserExtraction {
+                    path: p(),
+                    source: "x".into(),
+                },
+                None,
+            ),
+            (
+                RunError::InsufficientLaserViews {
+                    camera_id: "cam0".into(),
+                    usable: 0,
+                    total: 3,
+                },
+                None,
+            ),
+            (
+                RunError::UpstreamCalibration {
+                    path: p(),
+                    message: "x".into(),
+                },
+                Some("upstream_calibration"),
+            ),
+            (
+                RunError::UpstreamViewMatch {
+                    path: p(),
+                    token: "0".into(),
+                    matches: 0,
+                },
+                None,
+            ),
+            (RunError::Cancelled, None),
+            (
+                RunError::ImageNotInDataset {
+                    camera: 0,
+                    path: p(),
+                },
+                None,
+            ),
+            (RunError::DetailMismatch { path: p() }, None),
+        ];
+        for (error, expected) in table {
+            assert_eq!(error.field().as_deref(), expected, "{error:?}");
+        }
+        // Wrapped in a dataset calibration's error, the same field.
+        let wrapped = CalibrateDatasetError::from(RunError::BadPairingRegex {
+            regex: "(".into(),
+            message: "x".into(),
+        });
+        assert_eq!(wrapped.field().as_deref(), Some("pose_pairing.regex"));
+        assert_eq!(
+            CalibrateDatasetError::LaserExtractorRequired {
+                topology: ProblemKind::LaserlineDevice
+            }
+            .field(),
+            None
+        );
     }
 }

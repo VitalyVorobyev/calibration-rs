@@ -270,6 +270,23 @@ pub enum CalibrateDatasetError {
     Seed(DeviceSeedError),
 }
 
+impl CalibrateDatasetError {
+    /// The manifest field the error is about, as a dotted path:
+    /// [`RunError::field`] of a [`Run`](Self::Run) error, `None` for the
+    /// others, which are about the configuration, the extractor, the seed
+    /// or the solve.
+    pub fn field(&self) -> Option<String> {
+        match self {
+            Self::Run(e) => e.field(),
+            Self::ConfigTopologyMismatch { .. }
+            | Self::LaserExtractorRequired { .. }
+            | Self::Calibration(_)
+            | Self::Seed(_)
+            | Self::Cancelled => None,
+        }
+    }
+}
+
 impl From<RunError> for CalibrateDatasetError {
     fn from(err: RunError) -> Self {
         match err {
