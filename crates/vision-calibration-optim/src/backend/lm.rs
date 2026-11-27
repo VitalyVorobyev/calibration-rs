@@ -16,8 +16,9 @@ const LM_INITIAL_TRUST_REGION_RADIUS: f64 = 1e4;
 const LM_MIN_DAMPING: f64 = 1e-12;
 const LM_MAX_STEP_ATTEMPTS: usize = 32;
 /// Stop once an accepted step is this small relative to the parameters
-/// (`‖dx‖ ≤ ε(‖x‖ + ε)`, Ceres' `parameter_tolerance`): it can no longer
-/// move them appreciably.
+/// (`‖dx‖ ≤ ε(‖x‖ + ε)`, Ceres' `parameter_tolerance`, `‖x‖` over the free
+/// blocks, [`LinearizationEngine::norm`]): it can no longer move them
+/// appreciably.
 const LM_RELATIVE_STEP_TOLERANCE: f64 = 1e-8;
 
 /// Defaults for the [`BackendSolveOptions`] thresholds left as `None`.
@@ -53,7 +54,15 @@ pub(crate) trait LinearizationEngine {
     /// parameter bounds enforced.
     fn retract(&self, x: &Self::State, dx: &DVector<f64>) -> Self::State;
 
-    /// `‖x‖` over all parameters, summed in a fixed order.
+    /// `‖x‖` over the parameter blocks the solve can move (used by a
+    /// residual, with a free coordinate), summed in a fixed order.
+    ///
+    /// A held block is left out, as Ceres leaves constant blocks out of the
+    /// program it minimizes: it is not part of `x`. Counted, a held block of
+    /// large values (a camera's intrinsics in pixels) would set the scale
+    /// the relative-step rule measures the free parameters' steps against,
+    /// and stop a solve of a few small parameters (a laser plane under a
+    /// held camera) before its first step.
     fn norm(&self, x: &Self::State) -> f64;
 }
 

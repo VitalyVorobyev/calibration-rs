@@ -1061,13 +1061,6 @@ fn at_the_unseeded_optimum(d: &Diff, precision: Option<&Diff>) -> bool {
 /// Seeded with its own calibration, and with a sibling unit's, each
 /// topology's run lands on the unseeded run's optimum
 /// ([`at_the_unseeded_optimum`]).
-///
-/// One cell is reported and not held to it: a rig laserline device whose
-/// planes are seeded a degree and 2 mm off. Its plane solve stops a few σ
-/// of a normal coordinate from the linear fit's optimum, at a laser cost
-/// 0.3 % higher, and a restart from there does not move it; the same start
-/// with the point-to-plane residual converges. The self-seeded cell, which
-/// is held to it, lands exactly on the unseeded optimum.
 fn assert_seeded_runs_reach_the_unseeded_optimum(backend: SolverBackend) {
     for kind in TOPOLOGIES {
         let scene = scene(kind, backend);
@@ -1081,9 +1074,6 @@ fn assert_seeded_runs_reach_the_unseeded_optimum(backend: SolverBackend) {
             let seeded = run(&scene, Some(&seed)).unwrap();
             let d = diff(&unseeded, &seeded);
             println!("{backend:?} {kind:?} {name}: {d:?}");
-            if kind == ProblemKind::RigLaserlineDevice && name == "sibling" {
-                continue;
-            }
             assert!(
                 at_the_unseeded_optimum(&d, precision.as_ref()),
                 "{backend:?} {kind:?} {name}: {d:?} (precision {precision:?})"

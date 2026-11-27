@@ -210,5 +210,11 @@ not GT recovery).
   feature); the gate is per-camera reprojection (≤ 2.5 px) — the laser
   residual is recorded, not gated.
 - **Regression suite**: `synth_laserline`, `synth_rig_handeye_laserline`.
+- **Plane solve under a held camera** (the rig laserline workflow):
+  `a_plane_under_a_held_camera_converges_from_a_near_start`
+  (`optim::problems::laserline_rig_bundle`) and the gated `RigLaserlineDevice
+  sibling` cell of the seeded-run tests. The stall these pin was the
+  solver's relative-step scale, not the plane parametrisation or the
+  residual ([lm-stopping.md](lm-stopping.md)).
 - **Related**: ADR 0016 (laser-frame manifest, injected
   `LaserPixelExtractor`), ADR 0012 (per-feature laser residuals on export).

@@ -519,6 +519,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A solve with held parameters no longer stops before its minimum. The
+  solver's relative-step rule measured a step against every parameter of
+  the problem, the held ones too, so a few free parameters under a held
+  camera (its intrinsics in pixels) counted a step of about 1.4e-5 as no
+  step and stopped where they began. It now measures against the free
+  parameters only. Results move where such a solve stopped that way: the
+  laser planes of a rig laserline calibration (`rig_laserline_device`, and
+  the warm start of `rig_handeye_laserline` when it uses the normalized
+  line-distance residual), which often came back as the
+  linear plane fit unchanged, now reach the least-squares minimum (on
+  synthetic rigs the plane normal's RMS error falls by up to 20 %, and a
+  plane seeded a degree and 2 mm off ends where the unseeded run does), and
+  their stated σ is no longer inflated by a fit that had not converged;
+  triangulated points (`mvg::triangulation`) converge a little further
+  (board lengths measured with a stereo calibration move by up to 0.002σ).
+  Calibrations whose cameras are free are unchanged.
 - A rig laser run (`rig_laserline_device`) finds each of its views among
   the upstream rig hand-eye run's views by their images (the same file, or
   the same path within the dataset folder) or their pairing token, as the

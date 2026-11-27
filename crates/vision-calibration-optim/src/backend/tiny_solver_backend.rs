@@ -417,9 +417,10 @@ struct TinySolverEngine<'p> {
     /// `None` when every parameter is fixed.
     symbolic: Option<SymbolicStructure>,
     dim: usize,
-    /// Block names in a fixed order, so float sums over the blocks do not
-    /// depend on hash order.
-    block_names: Vec<String>,
+    /// The names of the blocks the solve can move (used by a residual, with a
+    /// free coordinate), sorted, so float sums over them do not depend on
+    /// hash order.
+    varying: Vec<String>,
 }
 
 impl<'p> TinySolverEngine<'p> {
@@ -431,15 +432,19 @@ impl<'p> TinySolverEngine<'p> {
         let col_idx = problem.get_variable_name_to_col_idx_dict(blocks);
         let dim = total_variable_dimension(blocks, &col_idx);
         let symbolic = (dim > 0).then(|| problem.build_symbolic_structure(blocks, dim, &col_idx));
-        let mut block_names: Vec<String> = blocks.keys().cloned().collect();
-        block_names.sort_unstable();
+        let mut varying: Vec<String> = blocks
+            .iter()
+            .filter(|(name, block)| col_idx.contains_key(*name) && free_dimension(block) > 0)
+            .map(|(name, _)| name.clone())
+            .collect();
+        varying.sort_unstable();
         Self {
             problem,
             non_finite,
             col_idx,
             symbolic,
             dim,
-            block_names,
+            varying,
         }
     }
 }
@@ -484,7 +489,7 @@ impl LinearizationEngine for TinySolverEngine<'_> {
     }
 
     fn norm(&self, x: &Self::State) -> f64 {
-        self.block_names
+        self.varying
             .iter()
             .map(|name| x[name].params.norm_squared())
             .sum::<f64>()
@@ -540,14 +545,18 @@ fn total_variable_dimension(
     parameter_blocks
         .iter()
         .filter(|(name, _)| col_idx.contains_key(*name))
-        .map(|(_, p)| {
-            if p.manifold.is_some() {
-                p.tangent_size()
-            } else {
-                p.tangent_size() - p.fixed_variables.len()
-            }
-        })
+        .map(|(_, p)| free_dimension(p))
         .sum()
+}
+
+/// The free tangent coordinates of `block`: a manifold block is free whole
+/// (a held one has no manifold), a Euclidean one less its fixed components.
+fn free_dimension(block: &ParameterBlock) -> usize {
+    if block.manifold.is_some() {
+        block.tangent_size()
+    } else {
+        block.tangent_size() - block.fixed_variables.len()
+    }
 }
 
 fn params_from_blocks(
