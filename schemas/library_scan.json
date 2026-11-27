@@ -13,6 +13,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "images": {
+          "description": "Each image the calibration used, one per frame of the export's image\nmanifest and in its order, with the hash of its content: what tells\nwhether two runs share observations. Empty in a run written before\nit was recorded.",
+          "items": {
+            "$ref": "#/$defs/UsedImage"
+          },
+          "type": "array"
+        },
         "inputs": {
           "$ref": "#/$defs/RunInputs",
           "description": "What the run was given."
@@ -3598,6 +3605,29 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "UsedImage": {
+      "description": "An image a calibrated run used.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "content": {
+          "description": "The 64-bit FNV-1a hash of the image file's bytes, 16 hex digits: the\nimage part of its detection cache key. It identifies content, not a\nfile; it is no security hash.",
+          "type": "string"
+        },
+        "image": {
+          "description": "The image, relative to the data root (absolute when outside it),\n`/`-separated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "camera",
+        "image",
+        "content"
+      ],
       "type": "object"
     },
     "Verdict": {

@@ -106,6 +106,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pose) and nested observations under one configuration (the Hausman form
   `σ_Δ² = σ_smaller² − σ_larger²`); otherwise `not_available` with the
   reason. Python: `vision_calibration.compare_runs`.
+- `Project::compare_runs` and `project::compare_recorded_runs` compare a
+  project's runs (or runs of several projects) with the data relation read
+  from their records: independent captures when they used no image of the
+  same content; identical, the same data, nested (one run's features a
+  strict subset under one configuration) or overlapping otherwise, at the
+  level of each feature's image content and detected pixel; unknown for an
+  imported or earlier run. Each difference also carries the images and
+  features the runs share (`DataOverlap`) and the exclusions only one of
+  them made (`ExclusionChanges`). `vcal project compare <project> <run>...`
+  prints the comparison as a table (`--json` for the `RunComparison`);
+  Python `Project.compare_runs` and `project.compare_recorded_runs`.
+- A calibrated run's `run.json` records each image it used with the hash of
+  its content (`CalibratedRun::images`, `UsedImage`) and each camera's image
+  size (`CameraSummary::image_size`). Optional fields: the record version and
+  every digest are unchanged.
 - `common::CalibratedCameras::kind`, the workflow that produced an export.
 - `analysis::Compensation` serializes (`"rotation"`, `"none"`); `ReprojectionStats` compares with `==`.
 

@@ -104,9 +104,9 @@ use vision_geometry::pnp;
 mod compare;
 pub use compare::{
     CameraDifference, CameraEvidence, CompareRunsOptions, ComparedRun, ConfigChange,
-    CovarianceStatus, DataRelation, DifferenceTest, NoTest, ParameterComparison,
-    ParameterDifference, PlaneDifference, PoseDifference, PoseTest, ProjectionComparison,
-    RunComparison, RunDifference, RunEvidence, RunSide, compare_runs,
+    CovarianceStatus, DataOverlap, DataRelation, DifferenceTest, ExclusionChanges, NoTest,
+    ParameterComparison, ParameterDifference, PlaneDifference, PoseDifference, PoseTest,
+    ProjectionComparison, RunComparison, RunDifference, RunEvidence, RunSide, compare_runs,
 };
 mod cross_validation;
 pub use cross_validation::{

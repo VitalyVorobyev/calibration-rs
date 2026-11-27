@@ -73,6 +73,13 @@ the library only:
   (latest starred, else latest calibrated `pass` run) is the one stated
   policy for which run stands for a device. An older library refuses a
   project with `[seed]` (`deny_unknown_fields`) rather than run it unseeded.
+- **D10 — the record names the content of what a run used** (ADR 0035).
+  `CalibratedRun::images` lists one `UsedImage` per frame of the export's
+  image manifest, in its order: camera, path and the FNV-1a image hash the
+  detection cache key already holds, recorded by the project's cache as the
+  detection reads each image (no second read). It is an optional field:
+  `RUN_RECORD_VERSION` stays 1, no digest covers it, and a run written
+  before it compares with an unknown data relation.
 - **D9 — the configuration patch is a library type** (`ConfigPatch` in
   `dataset_runner`), not a `serde_json::Value` on a public field.
 

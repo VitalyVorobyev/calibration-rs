@@ -51,6 +51,13 @@ class CalibratedRun(_CalibratedRunRequired, total=False):
     detection kept.
     """
 
+    images: list[UsedImage]
+    """Each image the calibration used, one per frame of the export's image
+    manifest and in its order, with the hash of its content: what tells
+    whether two runs share observations. Empty in a run written before
+    it was recorded.
+    """
+
     unmatched_exclusions: list[FeatureExclusion]
     """Feature exclusions whose points matched no feature of the detection
     they were applied to, with those points only. An image left out
@@ -834,6 +841,32 @@ class CrossValidationOptions(TypedDict, total=False):
     """
 
 
+class DataOverlap(TypedDict):
+    """What two runs' observations share. A feature is one target point (or
+    laser pixel) of one camera in one image, identified by the image's
+    content and its observed pixel: two runs share it only when they read
+    the same image and their detections agree.
+    """
+
+    other_only_features: int
+    """Features only the other run used."""
+
+    other_only_images: int
+    """Images only the other run used."""
+
+    reference_only_features: int
+    """Features only the reference used."""
+
+    reference_only_images: int
+    """Images only the reference used."""
+
+    shared_features: int
+    """Features both runs used."""
+
+    shared_images: int
+    """Images both runs used."""
+
+
 class DataRelation_Identical(TypedDict):
     """The same observations and the same configuration."""
 
@@ -1494,6 +1527,16 @@ class EllipseDetail(TypedDict):
 
     semi_axes_px: tuple[float, float] | list[float]
     """The semi-axes `[a, b]`, `a ≥ b`, px."""
+
+
+class ExclusionChanges(TypedDict):
+    """The exclusions that differ between two project runs, notes left out."""
+
+    other_only: Exclusions
+    """What only the other run left out."""
+
+    reference_only: Exclusions
+    """What only the reference left out."""
 
 
 class Exclusions(TypedDict, total=False):
@@ -5640,8 +5683,8 @@ class RunComparison(TypedDict):
     """
 
 
-class RunDifference(TypedDict):
-    """One run against the reference."""
+class _RunDifferenceRequired(TypedDict):
+    """The keys of `RunDifference` that every payload has."""
 
     cameras: list[CameraDifference]
     """Each camera both runs have, in the reference's camera order."""
@@ -5685,6 +5728,21 @@ class RunDifference(TypedDict):
     unmatched_cameras: list[str]
     """The cameras of the run the reference does not have, and the
     reference's cameras it does not have, by id.
+    """
+
+
+class RunDifference(_RunDifferenceRequired, total=False):
+    """One run against the reference."""
+
+    data: DataOverlap | None
+    """What the two runs' observations share, by image content and
+    feature: the evidence of the relation. `None` unless both runs
+    recorded the content of the images they used (project runs).
+    """
+
+    exclusion_changes: ExclusionChanges | None
+    """The exclusions one run made and the other did not. `None` unless
+    both are runs a project calibrated.
     """
 
 
@@ -5873,6 +5931,13 @@ class _RunSource_CalibratedRequired(TypedDict):
 
 class RunSource_Calibrated(_RunSource_CalibratedRequired, total=False):
     """The project calibrated it."""
+
+    images: list[UsedImage]
+    """Each image the calibration used, one per frame of the export's image
+    manifest and in its order, with the hash of its content: what tells
+    whether two runs share observations. Empty in a run written before
+    it was recorded.
+    """
 
     unmatched_exclusions: list[FeatureExclusion]
     """Feature exclusions whose points matched no feature of the detection
@@ -7020,6 +7085,24 @@ class UnrecordedRun(TypedDict, total=False):
     """Views that entered the calibration, from its `diagnostics.json`."""
 
 
+class UsedImage(TypedDict):
+    """An image a calibrated run used."""
+
+    camera: str
+    """The camera's id in the manifest."""
+
+    content: str
+    """The 64-bit FNV-1a hash of the image file's bytes, 16 hex digits: the
+    image part of its detection cache key. It identifies content, not a
+    file; it is no security hash.
+    """
+
+    image: str
+    """The image, relative to the data root (absolute when outside it),
+    `/`-separated.
+    """
+
+
 Verdict: TypeAlias = Literal["pass", "warn", "fail"]
 """The judgment of a result, or of one check.
 
@@ -7119,6 +7202,7 @@ __all__ = [
     "CovarianceStatus_Available",
     "CovarianceStatus_Unavailable",
     "CrossValidationOptions",
+    "DataOverlap",
     "DataRelation",
     "DataRelation_Identical",
     "DataRelation_Independent",
@@ -7154,6 +7238,7 @@ __all__ = [
     "DistortionParams_ThinPrism",
     "EdgeBitDetail",
     "EllipseDetail",
+    "ExclusionChanges",
     "Exclusions",
     "ExportDiagnostics",
     "Feature",
@@ -7405,6 +7490,7 @@ __all__ = [
     "Uncertainty_Unavailable",
     "Unit",
     "UnrecordedRun",
+    "UsedImage",
     "Verdict",
     "ViewCovariance",
     "ViewExclusion",

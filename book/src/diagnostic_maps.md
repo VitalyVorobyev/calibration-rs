@@ -171,6 +171,9 @@ compared first.
   and in the same test it matched the uncompensated error, about seven times
   the compensated one.
 
+[Comparing Calibrations](comparing_calibrations.md) puts whole runs side by
+side, with this difference for each camera.
+
 In Python the planes are numpy arrays:
 
 ```python

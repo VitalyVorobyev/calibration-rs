@@ -32,11 +32,16 @@
 //! from: a previous run, a device specification or a seed file; each run's
 //! record keeps the seed it used ([`RunSeed`]).
 //!
+//! [`Project::compare_runs`] and [`compare_recorded_runs`] put runs side
+//! by side, each run's data relation read from the content of the images
+//! its record lists ([`UsedImage`]).
+//!
 //! [`scan_library`] finds the projects under a set of folders and
 //! [`LibraryScan::devices`] groups their runs by the device they calibrate;
 //! [`DeviceHistory::representative_run`] picks the run that stands for a
 //! device.
 
+mod compare;
 mod digest;
 mod error;
 mod exclude;
@@ -48,6 +53,7 @@ mod run;
 mod seed;
 mod spec;
 
+pub use compare::compare_recorded_runs;
 pub use error::ProjectError;
 pub use exclude::{
     ExclusionFault, Exclusions, FeatureExclusion, ImageExclusion, ViewExclusion, ViewRef,
@@ -59,7 +65,7 @@ pub use library::{
 };
 pub use record::{
     CalibratedRun, CameraSummary, InputDigest, LeftOutImage, ProjectDigest, RunInfo, RunInputs,
-    RunNotes, RunRecord, RunSource, RunState, RunSummary, UnrecordedRun,
+    RunNotes, RunRecord, RunSource, RunState, RunSummary, UnrecordedRun, UsedImage,
 };
 pub use run::ProjectRunOptions;
 pub use seed::{RunSeed, SeedSource};

@@ -433,6 +433,16 @@ fn compare_runs_surface_compiles() {
         &CompareRunsOptions,
     ) -> Result<RunComparison, vision_calibration::Error>;
     let _compare: Compare = analysis::compare_runs;
+    type Recorded = fn(
+        &[vision_calibration::project::RunInfo],
+        &CompareRunsOptions,
+    ) -> Result<RunComparison, vision_calibration::project::ProjectError>;
+    let _recorded: Recorded = vision_calibration::project::compare_recorded_runs;
+    let _: Option<(
+        analysis::DataOverlap,
+        analysis::ExclusionChanges,
+        vision_calibration::project::UsedImage,
+    )> = None;
     let options = CompareRunsOptions::new().with_relations(vec![
         DataRelation::Independent,
         DataRelation::Nested {

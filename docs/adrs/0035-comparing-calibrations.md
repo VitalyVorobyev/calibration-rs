@@ -52,6 +52,21 @@ reprojection RMS, because each view's pose absorbs part of the field.
     `SingularCovariance`. `Unknown` never yields a test.
   - `fit_comparable` is true only for `Identical` and `SameData`: in-sample
     residuals of different observations do not compare.
+- **The data relation of project runs comes from their records, at
+  feature level** (`project::compare_recorded_runs`, `Project::compare_runs`;
+  a caller-given relation is refused there). Each run records the content
+  hash of every image it used (ADR 0033 D10). A feature is
+  `(image content, camera id, target point, observed pixel)` with exact
+  bits, so a moved or renamed image is the same data and a re-detection with
+  another detector is not. No image content in common: `Independent`. Equal
+  `inputs` digests, or equal features under equal `config` and `dataset`
+  digests: `Identical`. Equal features otherwise: `SameData`. One run's
+  features a strict subset of the other's under equal `config` and `dataset`
+  digests (the dataset digest covers the robot poses and the target):
+  `Nested`. Otherwise `Overlapping`. A run without the record (imported,
+  earlier) is `Unknown`. The relation is classified conservatively: a
+  dataset that grew (another manifest) is `Overlapping`, not `Nested`. Each
+  difference carries the `DataOverlap` and the `ExclusionChanges` behind it.
 - **Parameters only between cameras of one model** (the labels name the same
   quantity); otherwise `DifferentModels`, and the projection difference
   (ADR 0034), fitted on the blocks either run's features cover, is the

@@ -68,6 +68,7 @@ pub(crate) fn project_error_kind(err: &RustProjectError) -> &'static str {
         RustProjectError::Calibrate(_) => "calibrate",
         RustProjectError::Cancelled => "cancelled",
         RustProjectError::SeedUnresolved { .. } => "seed_unresolved",
+        RustProjectError::Compare(_) => "compare",
         _ => "unknown",
     }
 }

@@ -6,12 +6,13 @@ use std::sync::Mutex;
 
 use pyo3::prelude::*;
 use serde::Serialize;
+use vision_calibration::analysis::CompareRunsOptions;
 use vision_calibration::dataset_runner::{
     ConfigPatch, LaserPixelExtractor, PoseRow, UnpairedLaserFrame, ViewLaserFrames, ViewPoses,
 };
 use vision_calibration::project::{
     DeviceHistory, LibraryScan, LibraryScanOptions, Project, ProjectError, ProjectRunOptions,
-    ProjectSpec, RunNotes, SeedSource, scan_library,
+    ProjectSpec, RunInfo, RunNotes, SeedSource, compare_recorded_runs, scan_library,
 };
 
 use crate::control::PyRunControl;
@@ -279,6 +280,25 @@ impl PyProject {
         to_py(py, &run)
     }
 
+    /// The runs `ids` side by side against the first; the relations come
+    /// from the records. Returns a `RunComparison` payload.
+    #[pyo3(signature = (ids, options=None))]
+    fn compare_runs(
+        &self,
+        py: Python<'_>,
+        ids: Vec<String>,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let options: CompareRunsOptions =
+            crate::parse_optional_payload(options, "options")?.unwrap_or_default();
+        let project = self.snapshot();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let comparison = py
+            .detach(|| project.compare_runs(&ids, &options))
+            .map_err(|e| project_err(py, e))?;
+        to_py(py, &comparison)
+    }
+
     /// Calibrate the dataset into the next run; returns its `RunInfo`.
     #[pyo3(signature = (tool, label=None, notes_text=None, starred=false, config_patch=None, redetect=false, report_html=false, laser_extractor=None, progress=None, seed=None))]
     #[allow(clippy::too_many_arguments)] // The Python keyword arguments.
@@ -398,11 +418,31 @@ pub(crate) fn project_representative_run(
     to_py(py, &history.representative_run())
 }
 
+/// Recorded runs (`RunInfo` payloads, of any projects) side by side against
+/// the first, the relations read from their records; a `RunComparison`
+/// payload.
+#[pyfunction]
+#[pyo3(signature = (runs, options=None))]
+pub(crate) fn project_compare_recorded_runs(
+    py: Python<'_>,
+    runs: &Bound<'_, PyAny>,
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    let runs: Vec<RunInfo> = parse_payload(runs, "runs")?;
+    let options: CompareRunsOptions =
+        crate::parse_optional_payload(options, "options")?.unwrap_or_default();
+    let comparison = py
+        .detach(|| compare_recorded_runs(&runs, &options))
+        .map_err(|e| project_err(py, e))?;
+    to_py(py, &comparison)
+}
+
 /// Register the project class and functions.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyProject>()?;
     m.add_function(wrap_pyfunction!(project_scan_library, m)?)?;
     m.add_function(wrap_pyfunction!(project_representative_run, m)?)?;
+    m.add_function(wrap_pyfunction!(project_compare_recorded_runs, m)?)?;
     m.add(
         "ProjectError",
         m.py().get_type::<crate::errors::ProjectError>(),

@@ -11,6 +11,7 @@
 //! vcal project runs <project>     list a project's runs
 //! vcal project import <project> <export>   add an export calibrated elsewhere as a run
 //! vcal project note <project> <run>        label, annotate or star a run
+//! vcal project compare <project> <run>...  runs side by side against the first
 //! vcal project scan <root>...     the projects under folders, grouped by device
 //! vcal seed from-runs <run>...    a seed file from a run, or a device type's from several
 //! vcal seed from-spec <spec>      a seed file from a device spec
@@ -55,11 +56,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use vision_calibration::analysis::{
-    CheckStatus, QualityReport, QualityThresholds, ReportOptions, Verdict, assess, html_report,
+    CheckStatus, CompareRunsOptions, QualityReport, QualityThresholds, ReportOptions, Verdict,
+    assess, html_report,
 };
 use vision_calibration::common::{CalibratedCameras, calibrated_cameras};
 use vision_calibration::control::{Progress, RunControl};
@@ -74,7 +76,7 @@ use vision_calibration::device_seed::{DeviceSeed, DeviceSpec};
 use vision_calibration::project::{
     DatasetSource, DeviceIdentity, LibraryScan, LibraryScanOptions, PROJECT_FILE,
     PROJECT_FILE_JSON, Project, ProjectError, ProjectRunOptions, ProjectSpec, RunInfo, RunNotes,
-    RunSeed, RunSource, RunState, SeedSource, scan_library,
+    RunSeed, RunSource, RunState, SeedSource, compare_recorded_runs, scan_library,
 };
 
 /// Writes a line to standard output. A failed write is ignored: a reader
@@ -84,6 +86,8 @@ macro_rules! say {
         let _ = writeln!(std::io::stdout(), $($arg)*);
     }};
 }
+
+mod compare;
 
 /// Exit status of a `run` whose quality verdict is fail.
 const VERDICT_FAIL: u8 = 3;
@@ -296,6 +300,24 @@ enum ProjectCommand {
         /// Remove the mark.
         #[arg(long)]
         unstar: bool,
+    },
+    /// Runs side by side against the first, the reference: each parameter
+    /// with its σ in both runs, the change and the change in units of the
+    /// reference's σ, a test where the runs' data relation makes one valid,
+    /// the projection difference, the rig, hand-eye and laser planes, and
+    /// what differs in data, exclusions and configuration. The relation is
+    /// read from the runs' records.
+    Compare {
+        /// The project (its folder or its project file).
+        project: PathBuf,
+        /// The runs: ids of the project's runs (`run-003`), or run folders
+        /// of any project (`../other/runs/run-001`). The first is the
+        /// reference.
+        #[arg(required = true, num_args = 2..)]
+        runs: Vec<String>,
+        /// Print the comparison as JSON (a `RunComparison`).
+        #[arg(long)]
+        json: bool,
     },
     /// List the projects under folders, each device's runs together.
     /// Folders and projects that cannot be read are listed on standard
@@ -1021,6 +1043,11 @@ fn project(command: ProjectCommand) -> Result<()> {
             say!("{run}: {}", notes_line(&current));
             Ok(())
         }
+        ProjectCommand::Compare {
+            project,
+            runs,
+            json,
+        } => project_compare(&project, &runs, json),
         ProjectCommand::Scan {
             roots,
             max_depth,
@@ -1105,6 +1132,38 @@ fn project_init(
     let project = Project::create(folder, spec)?;
     say!("wrote {}", project.file().display());
     print_unresolved(&unresolved, &mut std::io::stdout());
+    Ok(())
+}
+
+/// `vcal project compare`.
+fn project_compare(path: &Path, runs: &[String], json: bool) -> Result<()> {
+    let project = Project::open(path)?;
+    let runs = runs
+        .iter()
+        .map(|run| {
+            let folder = Path::new(run);
+            if folder.components().count() > 1 {
+                // A run folder: `<project>/runs/<id>`.
+                let id = folder
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let owner = folder
+                    .parent()
+                    .and_then(Path::parent)
+                    .ok_or_else(|| anyhow!("{run}: not a run folder of a project"))?;
+                Ok(Project::open(owner)?.run(&id)?)
+            } else {
+                Ok(project.run(run)?)
+            }
+        })
+        .collect::<Result<Vec<RunInfo>>>()?;
+    let comparison = compare_recorded_runs(&runs, &CompareRunsOptions::new())?;
+    if json {
+        say!("{}", serde_json::to_string_pretty(&comparison)?);
+    } else {
+        say!("{}", compare::render(&comparison).trim_end());
+    }
     Ok(())
 }
 

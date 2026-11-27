@@ -550,10 +550,31 @@ Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
   `quality.json` (`vcal run -o`; the app computes the same report for its
   own runs). Gate: a fixture with a warn and a fail check renders both,
   each linking to its camera.
-- [ ] VIEW-COMPARE - Two runs side by side in the report viewer: per-camera
-  parameters with their σ and the difference in σ units, residual
-  statistics, and the per-view matrix of differences. `calib-viewer` takes
-  two runs. Gate: two fixture runs whose difference is known.
+- [ ] VIEW-COMPARE - Two runs side by side in the report viewer, from
+  `analysis::compare_runs` / `Project::compare_runs` (the library part,
+  ADR 0035): per-camera parameters with σ, `Δ/σ_ref` labelled as
+  materiality and the test where one is valid, the in-sample residual
+  statistics only where `fit_comparable`, the projection-difference plane
+  (`projection_difference` on the viewer's grid). `calib-viewer` takes two
+  runs. Gate: two fixture runs whose difference is known.
+- [ ] COMPARE-VIEWS - Per-view RMS of the views two runs both used, matched
+  by image content (`CalibratedRun::images`), as a `RunDifference` field;
+  per-view poses stay uncompared (they describe a capture).
+- [ ] COMPARE-COMMON-NOISE - The nested (Hausman) test with both covariances
+  on one estimated noise level. Measured: with 20 % of the features left out
+  the nested z std is about 1.07 (rates up to 7.5 %), from each run's own
+  noise estimate. Needs the variance factor a covariance used in the export
+  (a robust loss's is a moment ratio, not the MAD noise level); gate:
+  `compare_runs_gates` with the feature-exclusion z std within 0.035 of 1.
+- [ ] COMPARE-GAUGE - A pose test between rig runs that held different
+  cameras fixed: propagate the other run's covariance through its rig
+  camera's mount (the cross-covariance is in its export). Today
+  `NoTest::GaugeDiffers`. Gate: the rig χ² Monte-Carlo with the second run's
+  reference camera switched.
+- [ ] COMPARE-PROJECTION-SIGMA - The σ of a rotation-compensated projection
+  difference, `(I − P_R) J Σ Jᵀ (I − P_R)ᵀ` per node, with its own
+  Monte-Carlo gate (independent captures). A run's projection σ is not its
+  scale (ADR 0034).
 - [ ] VIEW-FEEDBACK - Notes attached to a camera, a view or a feature in
   the report viewer, saved as `feedback.json` in the run folder (a typed,
   versioned shape with a JSON Schema) for an agent to read. `calib-viewer`

@@ -291,6 +291,48 @@ pub struct RunDifference {
     /// The cameras of the run the reference does not have, and the
     /// reference's cameras it does not have, by id.
     pub unmatched_cameras: Vec<String>,
+    /// What the two runs' observations share, by image content and
+    /// feature: the evidence of the relation. `None` unless both runs
+    /// recorded the content of the images they used (project runs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<DataOverlap>,
+    /// The exclusions one run made and the other did not. `None` unless
+    /// both are runs a project calibrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclusion_changes: Option<ExclusionChanges>,
+}
+
+/// What two runs' observations share. A feature is one target point (or
+/// laser pixel) of one camera in one image, identified by the image's
+/// content and its observed pixel: two runs share it only when they read
+/// the same image and their detections agree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct DataOverlap {
+    /// Images both runs used.
+    pub shared_images: usize,
+    /// Images only the reference used.
+    pub reference_only_images: usize,
+    /// Images only the other run used.
+    pub other_only_images: usize,
+    /// Features both runs used.
+    pub shared_features: usize,
+    /// Features only the reference used.
+    pub reference_only_features: usize,
+    /// Features only the other run used.
+    pub other_only_features: usize,
+}
+
+/// The exclusions that differ between two project runs, notes left out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct ExclusionChanges {
+    /// What only the reference left out.
+    pub reference_only: crate::project::Exclusions,
+    /// What only the other run left out.
+    pub other_only: crate::project::Exclusions,
 }
 
 /// One setting where two configurations differ.
@@ -884,6 +926,8 @@ fn run_difference(
         handeye,
         laser_planes,
         unmatched_cameras: unmatched,
+        data: None,
+        exclusion_changes: None,
     }
 }
 

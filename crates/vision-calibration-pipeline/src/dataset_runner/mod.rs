@@ -779,8 +779,7 @@ pub fn cached_detection(
     cache: &dyn DetectionCache,
 ) -> Result<Option<CachedDetection>, RunError> {
     let (config, roi, path) = dataset_image(spec, base_dir, camera, image)?;
-    let bytes = std::fs::read(&path)?;
-    let key = CacheKey::for_detection(&bytes, &config, roi);
+    let (_, key) = keyed_image(&config, roi, &path)?;
     let Some(entry) = cache.get(&key)? else {
         return Ok(None);
     };
@@ -792,6 +791,20 @@ pub fn cached_detection(
         feature_count: entry.features.len(),
         detail_outcome,
     }))
+}
+
+/// The bytes of the image file `image_path` and the cache key of its
+/// detection with `config` in the region `roi`: the one place a run, a
+/// detail and a cache query key an image. The key's `image_hash` is the
+/// content a project's run records for the image.
+fn keyed_image(
+    config: &DetectorConfig,
+    roi: Option<[u32; 4]>,
+    image_path: &Path,
+) -> Result<(Vec<u8>, CacheKey), RunError> {
+    let bytes = std::fs::read(image_path)?;
+    let key = CacheKey::for_detection(&bytes, config, roi);
+    Ok((bytes, key))
 }
 
 /// The detector config, region of interest and resolved path of camera
@@ -827,8 +840,7 @@ fn cached_or_detected_detail(
     image_path: &Path,
     detection: Detection<'_>,
 ) -> Result<DetectionDetail, RunError> {
-    let bytes = std::fs::read(image_path)?;
-    let key = CacheKey::for_detection(&bytes, config, roi);
+    let (bytes, key) = keyed_image(config, roi, image_path)?;
     let cached = detection.lookup(&key)?;
     if let Some(entry) = &cached
         && let Some(detail) = detection.lookup_detail(&key)?
@@ -1349,6 +1361,15 @@ pub enum Detection<'a> {
 }
 
 impl Detection<'_> {
+    /// Tell the cache which image file is read under `key`
+    /// ([`DetectionCache::note_image`]).
+    fn note_image(&self, image: &Path, key: &CacheKey) {
+        match self {
+            Detection::Cached(cache) | Detection::Refresh(cache) => cache.note_image(image, key),
+            Detection::Uncached => {}
+        }
+    }
+
     /// The cached features for `key`, when this mode reads the cache.
     fn lookup(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
         match self {
@@ -1399,8 +1420,8 @@ fn cached_or_detected(
     image_path: &Path,
     detection: Detection<'_>,
 ) -> Result<(Vec<Feature>, bool), RunError> {
-    let bytes = std::fs::read(image_path)?;
-    let key = CacheKey::for_detection(&bytes, config, roi);
+    let (bytes, key) = keyed_image(config, roi, image_path)?;
+    detection.note_image(image_path, &key);
 
     let cached: Option<CachedFeatures> = detection.lookup(&key)?;
     if let Some(entry) = cached {

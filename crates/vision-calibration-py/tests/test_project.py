@@ -213,6 +213,28 @@ class ProjectRunTest(unittest.TestCase):
                     (Path(a["dir"]) / name).read_bytes(), (Path(b["dir"]) / name).read_bytes()
                 )
 
+    def test_runs_compare_with_the_relation_their_records_give(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = planar_project(Path(tmp))
+            full = project.calibrate()
+            spec = project.spec
+            spec["exclude"] = {"images": [{"camera": "cam0", "image": "view_02.png"}]}
+            project.spec = spec
+            fewer = project.calibrate()
+            self.assertEqual(len(fewer["state"]["source"]["images"]), len(full["state"]["source"]["images"]) - 1)
+            comparison = project.compare_runs([full["id"], fewer["id"]])
+            difference = comparison["differences"][0]
+            self.assertEqual(difference["relation"], {"kind": "nested", "smaller": "other"})
+            self.assertEqual(difference["data"]["reference_only_images"], 1)
+            self.assertEqual(len(difference["exclusion_changes"]["other_only"]["images"]), 1)
+            from vision_calibration.project import compare_recorded_runs
+
+            again = compare_recorded_runs([full, fewer])
+            self.assertEqual(again["differences"][0]["relation"], difference["relation"])
+            with self.assertRaises(ProjectError) as caught:
+                project.compare_runs([full["id"], "run-404"])
+            self.assertEqual(caught.exception.kind, "run_not_found")
+
     def test_a_stale_exclusion_is_an_error_and_an_exclusion_leaves_the_image_out(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = planar_project(Path(tmp))

@@ -626,7 +626,7 @@ pub(crate) fn calibrate_dataset_with(
 /// kept `(view, camera)` slot, in the input's view order, and one laser
 /// frame per slot with laser pixels. The root is `.`, the dataset folder
 /// `base_dir`; each path is relative to it ([`data_relative_path`]).
-trait RunFrames {
+pub(super) trait RunFrames {
     fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest;
 }
 

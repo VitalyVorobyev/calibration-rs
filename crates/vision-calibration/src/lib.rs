@@ -618,7 +618,11 @@ pub mod dataset_runner {
 /// runs it ([`calibrate`](project::Project::calibrate)) into `runs/run-NNN/`
 /// with an immutable [`RunRecord`](project::RunRecord);
 /// [`scan_library`](project::scan_library) finds the projects under a set of
-/// folders and groups their runs by device. Re-exported from the pipeline
+/// folders and groups their runs by device;
+/// [`Project::compare_runs`](project::Project::compare_runs) and
+/// [`compare_recorded_runs`](project::compare_recorded_runs) compare runs
+/// with the data relation their records establish (each run's
+/// [`UsedImage`](project::UsedImage)s). Re-exported from the pipeline
 /// crate's `project` module.
 pub mod project {
     pub use vision_calibration_pipeline::project::{
@@ -628,8 +632,8 @@ pub mod project {
         PROJECT_FILE_JSON, PROJECT_VERSION, Project, ProjectDigest, ProjectEntry, ProjectError,
         ProjectRunOptions, ProjectSpec, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
         RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSeed, RunSource,
-        RunState, RunSummary, ScanFailure, SeedSource, UnrecordedRun, ViewExclusion, ViewRef,
-        scan_library,
+        RunState, RunSummary, ScanFailure, SeedSource, UnrecordedRun, UsedImage, ViewExclusion,
+        ViewRef, compare_recorded_runs, scan_library,
     };
 }
 
@@ -880,7 +884,9 @@ pub mod synthetic {
 ///   [`ParameterDifference`](analysis::ParameterDifference),
 ///   [`ProjectionComparison`](analysis::ProjectionComparison),
 ///   [`PoseDifference`](analysis::PoseDifference),
-///   [`PlaneDifference`](analysis::PlaneDifference)) with its
+///   [`PlaneDifference`](analysis::PlaneDifference),
+///   [`DataOverlap`](analysis::DataOverlap),
+///   [`ExclusionChanges`](analysis::ExclusionChanges)) with its
 ///   [`DifferenceTest`](analysis::DifferenceTest) or
 ///   [`PoseTest`](analysis::PoseTest), or why there is none
 ///   ([`NoTest`](analysis::NoTest)).
@@ -896,14 +902,14 @@ pub mod analysis {
     pub use vision_calibration_pipeline::analysis::{
         Bandwidth, BandwidthSelection, CameraDifference, CameraEvidence, CandidateGrid, CheckKind,
         CheckStatus, CompareRunsOptions, ComparedRun, ConfigChange, CovarianceStatus,
-        CrossValidationOptions, DataRelation, DepthOfField, DifferenceTest, FocusDiagnostic,
-        FocusFit, FocusImageLine, FocusJackknife, FocusJackknifeCovariance, FocusOptions,
-        FocusViewStats, FoldScore, HeldOutScore, Measurement, ModelComparison, ModelOutcome,
-        ModelScore, NoTest, ParameterComparison, ParameterDifference, PlaneDifference,
-        PoseDifference, PoseTest, PredictedRigUncertainty, PredictedUncertainty,
-        ProjectionComparison, QualityCheck, QualityReport, QualityThresholds, RankedCandidate,
-        RankedRobotPose, ReportOptions, ResidualMap, ResidualMapOptions, RunComparison,
-        RunDifference, RunEvidence, RunSide, Unit, Verdict, assess, candidate_poses,
+        CrossValidationOptions, DataOverlap, DataRelation, DepthOfField, DifferenceTest,
+        ExclusionChanges, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,
+        FocusJackknifeCovariance, FocusOptions, FocusViewStats, FoldScore, HeldOutScore,
+        Measurement, ModelComparison, ModelOutcome, ModelScore, NoTest, ParameterComparison,
+        ParameterDifference, PlaneDifference, PoseDifference, PoseTest, PredictedRigUncertainty,
+        PredictedUncertainty, ProjectionComparison, QualityCheck, QualityReport, QualityThresholds,
+        RankedCandidate, RankedRobotPose, ReportOptions, ResidualMap, ResidualMapOptions,
+        RunComparison, RunDifference, RunEvidence, RunSide, Unit, Verdict, assess, candidate_poses,
         compare_camera_models, compare_runs, fit_focus, html_report, predict_with_robot_poses,
         predict_with_views, rank_candidates, rank_robot_poses, residual_map,
     };

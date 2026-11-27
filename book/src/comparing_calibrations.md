@@ -93,6 +93,17 @@ factor corrects for when it measures it (see
 [Limits and Unavailable Results](uncertainty_limits.md)). Errors shared by
 both captures, such as the target's own flatness, are in neither σ.
 
+## Runs of a project
+
+A project's runs carry what the relation needs: each run's record lists the
+images it used with a hash of their content, and the digests of its
+configuration and dataset. `Project::compare_runs` (`vcal project compare`,
+Python `Project.compare_runs`) reads the relations from them instead of
+taking them from the caller; see [Projects](projects.md#comparing-runs) for
+the rules. Each difference then also says what the two runs share
+(`data`: images and features in common and in one run only) and which
+exclusions only one of them made (`exclusion_changes`).
+
 ## Which run to keep
 
 No function picks one, because each question has its own criterion:

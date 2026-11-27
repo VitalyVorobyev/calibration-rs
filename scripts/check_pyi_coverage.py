@@ -93,6 +93,7 @@ NATIVE_SUBMODULE_SURFACE: dict[str, tuple[str, str]] = {
     "cached_detection": ("dataset_runner.py", "cached_detection"),
     "project_scan_library": ("project.py", "scan_library"),
     "project_representative_run": ("project.py", "representative_run"),
+    "project_compare_recorded_runs": ("project.py", "compare_recorded_runs"),
     "patched_config": ("dataset_runner.py", "patched_config"),
     "build_planar_input": ("dataset_runner.py", "build_planar_input"),
     "build_single_cam_handeye_input": ("dataset_runner.py", "build_single_cam_handeye_input"),

@@ -1,11 +1,12 @@
 //! The digest of a run's inputs ([`InputDigest`]) and the detection cache
 //! that records the keys a run reads ([`RecordingCache`]).
 
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::Serialize;
+use vision_calibration_core::lexical_absolute;
 use vision_calibration_dataset::DatasetSpec;
 use vision_calibration_detect::{CacheError, CacheKey, CachedFeatures, DetectionCache};
 
@@ -21,6 +22,8 @@ use crate::device_seed::DeviceSeed;
 pub(crate) struct RecordingCache<'a> {
     inner: &'a dyn DetectionCache,
     keys: Mutex<BTreeSet<String>>,
+    /// Each image file read (made absolute lexically) and its content hash.
+    images: Mutex<BTreeMap<PathBuf, u64>>,
 }
 
 impl<'a> RecordingCache<'a> {
@@ -28,6 +31,16 @@ impl<'a> RecordingCache<'a> {
         Self {
             inner,
             keys: Mutex::new(BTreeSet::new()),
+            images: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// The content hash of each image file read, by its lexically absolute
+    /// path.
+    pub(crate) fn images(&self) -> BTreeMap<PathBuf, u64> {
+        match self.images.lock() {
+            Ok(images) => images.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
         }
     }
 
@@ -57,6 +70,16 @@ impl DetectionCache for RecordingCache<'_> {
     fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError> {
         self.record(key);
         self.inner.put(key, value)
+    }
+
+    fn note_image(&self, image: &Path, key: &CacheKey) {
+        let mut images = match self.images.lock() {
+            Ok(images) => images,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        images.insert(lexical_absolute(image), key.image_hash);
+        drop(images);
+        self.inner.note_image(image, key);
     }
 }
 

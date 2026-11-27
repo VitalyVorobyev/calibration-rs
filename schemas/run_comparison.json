@@ -222,6 +222,56 @@
         }
       ]
     },
+    "DataOverlap": {
+      "description": "What two runs' observations share. A feature is one target point (or\nlaser pixel) of one camera in one image, identified by the image's\ncontent and its observed pixel: two runs share it only when they read\nthe same image and their detections agree.",
+      "properties": {
+        "other_only_features": {
+          "description": "Features only the other run used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "other_only_images": {
+          "description": "Images only the other run used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reference_only_features": {
+          "description": "Features only the reference used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reference_only_images": {
+          "description": "Images only the reference used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_features": {
+          "description": "Features both runs used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_images": {
+          "description": "Images both runs used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shared_images",
+        "reference_only_images",
+        "other_only_images",
+        "shared_features",
+        "reference_only_features",
+        "other_only_features"
+      ],
+      "type": "object"
+    },
     "DataRelation": {
       "description": "How the observations of a run relate to the reference run's: what\ndecides which test of a difference is valid.",
       "oneOf": [
@@ -429,6 +479,118 @@
           "type": "string"
         }
       ]
+    },
+    "ExclusionChanges": {
+      "description": "The exclusions that differ between two project runs, notes left out.",
+      "properties": {
+        "other_only": {
+          "$ref": "#/$defs/Exclusions",
+          "description": "What only the other run left out."
+        },
+        "reference_only": {
+          "$ref": "#/$defs/Exclusions",
+          "description": "What only the reference left out."
+        }
+      },
+      "required": [
+        "reference_only",
+        "other_only"
+      ],
+      "type": "object"
+    },
+    "Exclusions": {
+      "additionalProperties": false,
+      "description": "What a project leaves out of its dataset.\n\nImage paths are relative to the dataset's folder unless absolute, and\n`/`-separated; they match the images the manifest lists after both are\nmade absolute and their `.` and `..` folded.\n\nIn TOML:\n\n```toml\n[exclude]\nviews  = [{ view = { token = \"0012\" }, note = \"robot pose glitch\" }]\nimages = [{ camera = \"cam1\", image = \"cam1/0003.png\" }]\n[[exclude.features]]\ncamera = \"cam0\"\nimage  = \"cam0/0005.png\"\npoints = [[0.03, 0.06, 0.0]]\n```",
+      "properties": {
+        "features": {
+          "description": "Single features of one camera's detection in one image.",
+          "items": {
+            "$ref": "#/$defs/FeatureExclusion"
+          },
+          "type": "array"
+        },
+        "images": {
+          "description": "One camera's image of a view; the view keeps its other cameras.",
+          "items": {
+            "$ref": "#/$defs/ImageExclusion"
+          },
+          "type": "array"
+        },
+        "views": {
+          "description": "Whole views: every camera's image of the view, its robot pose and\nits laser frames.",
+          "items": {
+            "$ref": "#/$defs/ViewExclusion"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "FeatureExclusion": {
+      "additionalProperties": false,
+      "description": "Features of one camera's detection in one image, left out.\n\nA feature is named by its target point as the detector labelled it,\nbefore a rig turns a plain chessboard's labels to agree with its other\ncameras: the detection a review shows. A point matches a feature within\na micrometre in each coordinate. A point that matches no feature of the\ndetection leaves nothing out and is not an error, since what the\ndetector finds is known only once it has run.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "image": {
+          "description": "The image, one of the camera's.",
+          "type": "string"
+        },
+        "note": {
+          "description": "Why, for the reader; the calibration does not read it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "points": {
+          "description": "The target points of the features to leave out, metres.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "camera",
+        "image",
+        "points"
+      ],
+      "type": "object"
+    },
+    "ImageExclusion": {
+      "additionalProperties": false,
+      "description": "One camera's image of a view, left out.\n\nThe camera is named with the image because a tiled image holds several\ncameras' views.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "image": {
+          "description": "The image, one of the camera's.",
+          "type": "string"
+        },
+        "note": {
+          "description": "Why, for the reader; the calibration does not read it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "camera",
+        "image"
+      ],
+      "type": "object"
     },
     "NoTest": {
       "description": "Why a difference has no test.",
@@ -1003,6 +1165,28 @@
             "null"
           ]
         },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataOverlap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the two runs' observations share, by image content and\nfeature: the evidence of the relation. `None` unless both runs\nrecorded the content of the images they used (project runs)."
+        },
+        "exclusion_changes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExclusionChanges"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The exclusions one run made and the other did not. `None` unless\nboth are runs a project calibrated."
+        },
         "fit_comparable": {
           "description": "Whether the two runs' in-sample residual statistics compare like\nwith like: only for the same observations ([`DataRelation::Identical`],\n[`DataRelation::SameData`]). A run that left out its worst features\nalways has a lower residual, which says nothing of its calibration.",
           "type": "boolean"
@@ -1261,6 +1445,58 @@
           "const": "fail",
           "description": "The data does not support the result.",
           "type": "string"
+        }
+      ]
+    },
+    "ViewExclusion": {
+      "additionalProperties": false,
+      "description": "A view left out, with every camera's image of it.",
+      "properties": {
+        "note": {
+          "description": "Why, for the reader; the calibration does not read it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "view": {
+          "$ref": "#/$defs/ViewRef",
+          "description": "Which view."
+        }
+      },
+      "required": [
+        "view"
+      ],
+      "type": "object"
+    },
+    "ViewRef": {
+      "description": "How an exclusion names a view.\n\nA view has no index that survives an image added to the dataset; its\npairing token and its images do. Serialized as `{ token = \"0012\" }` or\n`{ image = \"cam0/0012.png\" }`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The view's pairing token, under `shared_filename_token` pairing.",
+          "properties": {
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "token"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Any one of the view's images.",
+          "properties": {
+            "image": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "image"
+          ],
+          "type": "object"
         }
       ]
     }

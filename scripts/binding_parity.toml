@@ -94,6 +94,8 @@
 "analysis::PoseTest" = "types.PoseTest"
 "analysis::PlaneDifference" = "types.PlaneDifference"
 "analysis::ProjectionComparison" = "types.ProjectionComparison"
+"analysis::DataOverlap" = "types.DataOverlap"
+"analysis::ExclusionChanges" = "types.ExclusionChanges"
 "analysis::CrossValidationOptions" = "compare_camera_models"
 "analysis::FoldScore" = "types.FoldScore"
 "analysis::HeldOutScore" = "types.HeldOutScore"
@@ -273,6 +275,8 @@
 "project::DeviceRun" = "project.scan_library"
 "project::LibraryScanOptions" = "project.scan_library"
 "project::scan_library" = "project.scan_library"
+"project::compare_recorded_runs" = ["project.compare_recorded_runs", "project.Project.compare_runs"]
+"project::UsedImage" = "types.UsedImage"
 "project::PROJECT_VERSION" = "project.PROJECT_VERSION"
 "project::PROJECT_FILE" = "project.PROJECT_FILE"
 "project::PROJECT_FILE_JSON" = "project.PROJECT_FILE_JSON"

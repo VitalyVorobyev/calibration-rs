@@ -210,9 +210,10 @@ each other.
 `run.json` is the run's record and never changes: the tool and library
 version, the inputs as the run resolved them (the manifest, the exclusions,
 the configuration changes and the configuration they made, the quality
-thresholds, the seed), what detection left out and why, and a summary (the
-verdict, each camera's RMS reprojection error, features, views and image
-size). A run's label,
+thresholds, the seed), what detection left out and why, each image the
+calibration used with a hash of its content, and a summary (the verdict,
+each camera's RMS reprojection error, features, views and image size). A
+run's label,
 notes and star live apart, in `notes.json`, the only file that changes.
 
 `export.json` is the workflow's export. Its image manifest's `root` leads
@@ -242,6 +243,30 @@ detections, without reading an image. A run whose `dataset`, `exclusions`,
 `config`, `quality` or `seed` digest differs from the project's was made
 from other inputs than the project now states; a run's own configuration
 changes or seed count as such a difference.
+
+## Comparing Runs
+
+`vcal project compare my-camera run-001 run-004` (`Project::compare_runs`)
+puts runs side by side against the first, as
+[Comparing Calibrations](comparing_calibrations.md) describes. The relation
+of the runs' data, which decides whether a difference has a test, is read
+from the records: two runs that used no image of the same content are
+independent captures; runs of the same features under one configuration and
+dataset (equal `config` and `dataset` digests) are identical, under another
+configuration they share data; a run whose features are a strict subset of
+the other's under one configuration is nested (an exclusion); anything else
+overlaps. A feature is one target point of one camera in one image,
+identified by the image's content and the detected pixel, so a moved or
+renamed image is still the same data and a re-detected one with another
+detector is not. An imported run records no image content, so its relation
+is unknown and its differences have no test. Each difference also lists the
+images and features the two runs share and the exclusions only one of them
+made.
+
+Runs of other projects (another capture of the same device) are compared
+by their folder: `vcal project compare my-camera run-004
+../my-camera-march/runs/run-002`, or `compare_recorded_runs` on their
+`RunInfo`s.
 
 ## The Library
 
@@ -285,6 +310,7 @@ vcal check my-camera
 vcal run my-camera --label "after refocus" --report
 vcal project runs my-camera
 vcal project note my-camera run-002 --star
+vcal project compare my-camera run-001 run-002
 vcal project scan ~/calibrations
 ```
 
@@ -350,6 +376,8 @@ run = project.calibrate(label="after refocus", report_html=True)
 print(run["id"], run["state"]["summary"]["verdict"])
 for info in project.runs():
     print(info["id"], info["notes"])
+comparison = project.compare_runs(["run-001", run["id"]])
+print(comparison["differences"][0]["relation"])
 
 for device in scan_library(["~/calibrations"])["devices"]:
     print(device["device"]["id"], len(device["runs"]))
