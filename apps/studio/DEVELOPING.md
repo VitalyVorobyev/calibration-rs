@@ -226,7 +226,31 @@ dir, id }`); there is no "active export".
   in `_unresolved` and blocks a run), of a manifest file (referenced, never
   written), or a Quick Start sample (`fetch_sample` downloads it into the
   samples folder and makes that folder a project referencing its manifest).
-  A folder that already holds a project is opened instead.
+  A folder that already holds a project is opened instead. The Run
+  workspace still uses these; the Library and the project menu use the
+  dialogs below.
+
+**The Library and the project dialogs.** `screens/library/` is the Library:
+`libraryModel.ts` (pure: a scan as rows, grouped `product → device →
+project`, the search and filters, what a node's table lists), `libraryUrl.ts`
+(the search, filters and selected node in the address, beside `project` and
+`run`), `LibraryTree`, `ProjectTable`, `LibraryToolbar`. `scan_library` is
+read through `project/useLibraryScan.ts` (any `project_changed` marks it
+stale; the Library also rescans when the window regains focus). The dialogs
+are mounted by the shell (`shell/ProjectDialogs.tsx`) and opened through
+`project/dialogs.ts` from the Library, the project menu and the context bar:
+New project (`screens/library/newProject/`: five steps over the draft
+manifest of `useNewProject`, with the rules of each step in
+`newProjectModel.ts`), Import export (`ImportDialog.tsx`) and Set device
+(`shell/SetDeviceDialog.tsx`). The breadcrumb's device type and device are
+`SiblingPopover`s over the same scan. New project writes nothing until its
+last step: the layout preview asks `project_views` for the draft spec in the
+data folder itself (a folder that is not a project yet; the back end judges
+it as a project in a scratch folder), and what the sniffer left open
+(`_unresolved`) is asked as one question per field, its control taken from the
+dataset form's schema. The camera × view matrix is `components/ViewMatrix/`
+(`SequenceMatrix` with thumbnails from the `image` resource; at most six
+loads at a time, `lib/thumbQueue.ts`), shared with the Dataset screen.
 
 Recent projects are the back end's list (`recent_projects`,
 `forget_recent`; the desktop's, or a server's shared by its clients), put

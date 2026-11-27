@@ -58,3 +58,20 @@ export function dirnamePath(path: string): string {
   const idx = normalized.lastIndexOf("/");
   return idx >= 0 ? normalized.slice(0, idx) : normalized;
 }
+
+/** `to` as a path relative to the folder `from` (both absolute): `../data/set1`,
+ * or `.` for the same folder. A `to` on another drive stays absolute. */
+export function relativePath(from: string, to: string): string {
+  const a = foldDots(normalizeSeparators(from)).split("/").filter(Boolean);
+  const b = foldDots(normalizeSeparators(to)).split("/").filter(Boolean);
+  const drive = (p: string) =>
+    /^[A-Za-z]:\//.test(p) ? p.slice(0, 2).toLowerCase() : "";
+  if (drive(normalizeSeparators(from)) !== drive(normalizeSeparators(to))) {
+    return foldDots(normalizeSeparators(to));
+  }
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  const up = a.slice(i).map(() => "..");
+  const rest = [...up, ...b.slice(i)];
+  return rest.length === 0 ? "." : rest.join("/");
+}

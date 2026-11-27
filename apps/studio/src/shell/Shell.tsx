@@ -14,6 +14,7 @@ import { ContextBar } from "./ContextBar";
 import { JobTray } from "./JobTray";
 import { LoginPanel } from "./LoginPanel";
 import { RunList } from "./RunList";
+import { ProjectDialogs } from "./ProjectDialogs";
 import { parsePlace, placePath, screenById, screenPlace, type Place } from "./screens";
 import { ScreenRail } from "./ScreenRail";
 import { SettingsDialog } from "./SettingsDialog";
@@ -81,6 +82,7 @@ export function Shell() {
         storageKey="calib-shell"
       />
       <PathPickerHost />
+      <ProjectDialogs />
       <SettingsDialog />
       <ShortcutsDialog />
       <CommandPalette />

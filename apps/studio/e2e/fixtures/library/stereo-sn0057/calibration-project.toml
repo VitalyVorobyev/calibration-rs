@@ -1,0 +1,36 @@
+version = 2
+name = "Second unit"
+
+[device]
+product = "Stereo-X1"
+id = "SN-0057"
+
+[dataset]
+root = "."
+
+[dataset.manifest]
+version = 1
+topology = "rig_extrinsics"
+
+[dataset.manifest.target]
+kind = "chessboard"
+rows = 4
+cols = 5
+square_size_m = 0.02
+
+[[dataset.manifest.cameras]]
+id = "cam0"
+
+[dataset.manifest.cameras.images]
+kind = "glob"
+pattern = "images/cam0_*.png"
+
+[[dataset.manifest.cameras]]
+id = "cam1"
+
+[dataset.manifest.cameras.images]
+kind = "glob"
+pattern = "images/cam1_*.png"
+
+[dataset.manifest.pose_pairing]
+kind = "by_index"

@@ -397,6 +397,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes nothing, and a job that detects every image. The frame view's
   residual arrows now point along `observed − projected`, the sign of every
   map and of the library's residuals.
+- Calibration Studio's Library lists every project under its folders by
+  device type and device (a project with no device is listed apart), each with
+  the verdict and RMS of its latest run, a search and filters that a link
+  reopens, and the folders it could not read. A new project is made in five
+  steps (the data, its layout with the images laid out as a camera by view
+  matrix and the fields the library could not decide asked as questions, the
+  target, the device, the name and place), writing nothing until the last; an
+  export calibrated elsewhere is imported as a run of the project it fits; a
+  project's device is set from the context bar, whose device type and device
+  list their siblings. `calibration-studio-server` previews the layout of a
+  draft project in a folder that is not a project yet.
 - Calibration Studio reads and writes only inside its root folders. The
   desktop app starts with none and asks you to add one (Settings lists and
   removes them); a project or manifest that names a path outside them is

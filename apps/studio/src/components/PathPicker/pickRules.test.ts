@@ -50,3 +50,11 @@ describe("pick rules", () => {
     ]);
   });
 });
+
+describe("any file", () => {
+  it("accepts every file and no folder", () => {
+    expect(selectable(file("poses.txt"), "file")).toBe(true);
+    expect(selectable(dir("a"), "file")).toBe(false);
+    expect(showsFiles("file")).toBe(true);
+  });
+});

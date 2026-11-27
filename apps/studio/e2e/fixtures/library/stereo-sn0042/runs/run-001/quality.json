@@ -1,0 +1,115 @@
+{
+  "verdict": "pass",
+  "checks": [
+    {
+      "kind": "observability",
+      "status": "pass",
+      "message": "the data determines every estimated parameter (8 shared), with 134 residual degrees of freedom"
+    },
+    {
+      "kind": "convergence",
+      "status": "pass",
+      "message": "the final solve converged"
+    },
+    {
+      "kind": "variance_factor",
+      "status": "not_applicable",
+      "message": "no expected feature noise was stated (expected_feature_noise_px)"
+    },
+    {
+      "kind": "covariance_linearity",
+      "status": "not_applicable",
+      "message": "the result carries no second-order prediction of its error"
+    },
+    {
+      "kind": "projection_sigma",
+      "camera": 0,
+      "status": "not_applicable",
+      "message": "the image size is unknown: the image manifest does not record it and none was given"
+    },
+    {
+      "kind": "feature_coverage",
+      "camera": 0,
+      "status": "not_applicable",
+      "message": "the image size is unknown: the image manifest does not record it and none was given"
+    },
+    {
+      "kind": "view_outliers",
+      "camera": 0,
+      "status": "pass",
+      "measurement": {
+        "value": 1.3348000000000002,
+        "threshold": 3.0,
+        "unit": "sigma"
+      },
+      "message": "every view's mean residual is within 3 σ̂ (worst 1.33 σ̂, σ̂ = 0.250 px)"
+    },
+    {
+      "kind": "parameter_correlation",
+      "camera": 0,
+      "status": "pass",
+      "measurement": {
+        "value": 0.0,
+        "threshold": 0.99,
+        "unit": "correlation"
+      },
+      "message": "no two parameters correlate above 0.99 (largest |ρ| = 0.000)"
+    },
+    {
+      "kind": "parameter_conditioning",
+      "camera": 0,
+      "status": "pass",
+      "measurement": {
+        "value": 1.0,
+        "threshold": 7.0,
+        "unit": "ratio"
+      },
+      "message": "no parameter's σ is inflated above 7× (largest: cam0.fx ×1.0)"
+    },
+    {
+      "kind": "projection_sigma",
+      "camera": 1,
+      "status": "not_applicable",
+      "message": "the image size is unknown: the image manifest does not record it and none was given"
+    },
+    {
+      "kind": "feature_coverage",
+      "camera": 1,
+      "status": "not_applicable",
+      "message": "the image size is unknown: the image manifest does not record it and none was given"
+    },
+    {
+      "kind": "view_outliers",
+      "camera": 1,
+      "status": "pass",
+      "measurement": {
+        "value": 1.35442,
+        "threshold": 3.0,
+        "unit": "sigma"
+      },
+      "message": "every view's mean residual is within 3 σ̂ (worst 1.35 σ̂, σ̂ = 0.250 px)"
+    },
+    {
+      "kind": "parameter_correlation",
+      "camera": 1,
+      "status": "pass",
+      "measurement": {
+        "value": 0.0,
+        "threshold": 0.99,
+        "unit": "correlation"
+      },
+      "message": "no two parameters correlate above 0.99 (largest |ρ| = 0.000)"
+    },
+    {
+      "kind": "parameter_conditioning",
+      "camera": 1,
+      "status": "pass",
+      "measurement": {
+        "value": 1.0,
+        "threshold": 7.0,
+        "unit": "ratio"
+      },
+      "message": "no parameter's σ is inflated above 7× (largest: cam1.fx ×1.0)"
+    }
+  ]
+}

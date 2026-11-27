@@ -8,6 +8,7 @@ import {
 } from "@vitavision/ui";
 import {
   ChevronDown,
+  CircuitBoard,
   FileInput,
   FolderOpen,
   FolderPlus,
@@ -16,15 +17,13 @@ import {
   X,
 } from "lucide-react";
 import { isDirty, useDraft } from "../project/draftStore";
-import {
-  importExport,
-  newProjectFromFolder,
-  newProjectFromManifest,
-  openProject,
-} from "../project/projectActions";
+import { useProjectDialog } from "../project/dialogs";
+import { openProject } from "../project/projectActions";
 import { folderName } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
+import { useLibraryScan } from "../project/useLibraryScan";
 import { useReadOnly } from "../session/jobs";
+import { pickManifestFile } from "./dialogs";
 
 /** The project commands: open, new (from a dataset folder or a manifest),
  * save the unsaved edits, reload, import an export as a run, close, and
@@ -36,6 +35,17 @@ export function ProjectMenu() {
   const recent = useProject((s) => s.recent);
   const dirty = useDraft(isDirty);
   const readOnly = useReadOnly();
+  const show = useProjectDialog((s) => s.show);
+  const scan = useLibraryScan();
+  // The open project's device's other projects: one click to switch.
+  const device = project?.spec.device ?? null;
+  const siblings = (scan.data?.projects ?? []).filter(
+    (p) =>
+      device !== null &&
+      p.dir !== project?.dir &&
+      p.device?.id === device.id &&
+      (p.device?.product ?? null) === (device.product ?? null),
+  );
 
   const handleSave = async () => {
     if (await useDraft.getState().save()) {
@@ -66,14 +76,18 @@ export function ProjectMenu() {
       <MenuItem
         icon={<FolderPlus />}
         disabled={readOnly}
-        onSelect={() => void newProjectFromFolder()}
+        onSelect={() => show({ kind: "new" })}
       >
-        New project from a dataset folder…
+        New project…
       </MenuItem>
       <MenuItem
         icon={<FolderPlus />}
         disabled={readOnly}
-        onSelect={() => void newProjectFromManifest()}
+        onSelect={() =>
+          void pickManifestFile().then((manifest) => {
+            if (manifest !== null) show({ kind: "new", manifest });
+          })
+        }
       >
         New project from a manifest…
       </MenuItem>
@@ -95,9 +109,16 @@ export function ProjectMenu() {
       <MenuItem
         icon={<FileInput />}
         disabled={!project || readOnly}
-        onSelect={() => void importExport()}
+        onSelect={() => project && show({ kind: "import", dir: project.dir })}
       >
         Import an export as a run…
+      </MenuItem>
+      <MenuItem
+        icon={<CircuitBoard />}
+        disabled={!project || readOnly}
+        onSelect={() => project && show({ kind: "device", dir: project.dir })}
+      >
+        Set device…
       </MenuItem>
       <MenuItem
         icon={<X />}
@@ -106,6 +127,20 @@ export function ProjectMenu() {
       >
         Close project
       </MenuItem>
+      {siblings.length > 0 && (
+        <>
+          <MenuSeparator />
+          <MenuLabel>Same device</MenuLabel>
+          {siblings.map((p) => (
+            <MenuItem key={p.dir} onSelect={() => void openProject(p.dir)}>
+              <span className="flex flex-col">
+                <span>{p.name}</span>
+                <span className="font-mono text-[10px] text-fg-muted">{p.dir}</span>
+              </span>
+            </MenuItem>
+          ))}
+        </>
+      )}
       {recent.length > 0 && (
         <>
           <MenuSeparator />

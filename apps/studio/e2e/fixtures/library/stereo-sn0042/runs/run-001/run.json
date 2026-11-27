@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "timestamp": 1790000000,
+  "tool": "vision-calibration 1.0.0-rc.1",
+  "library_version": "1.0.0-rc.1",
+  "source": {
+    "kind": "imported",
+    "file_name": "calibration.json"
+  },
+  "summary": {
+    "kind": "rig_extrinsics",
+    "verdict": "warn",
+    "cameras": [
+      {
+        "id": "cam0",
+        "rms_px": 0.412,
+        "features": 40,
+        "views": 2
+      },
+      {
+        "id": "cam1",
+        "rms_px": 0.431,
+        "features": 40,
+        "views": 2
+      }
+    ]
+  }
+}

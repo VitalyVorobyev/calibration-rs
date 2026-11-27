@@ -290,6 +290,51 @@ fn project_views_lists_the_views_and_what_a_draft_lacks() {
 }
 
 #[test]
+fn project_views_previews_a_draft_in_a_folder_that_is_no_project_yet() {
+    let lib = library();
+    let data = lib.root.join("captures");
+    let manifest = planar_dataset(&lib.project, &data, 3);
+    let draft = json!({ "version": 2, "dataset": { "root": ".", "manifest": manifest } });
+    let dir = slash(&data);
+    let views = lib
+        .api
+        .invoke("project_views", json!({ "dir": dir, "spec": draft }))
+        .unwrap();
+    assert_eq!(views["cameras"], json!(["cam0"]));
+    assert_eq!(views["views"].as_array().unwrap().len(), 3);
+    assert_eq!(views["views"][1]["images"], json!(["img/view01.png"]));
+    assert_eq!(views["messages"], json!([]));
+    // Nothing was written to the folder, and no scratch project is left.
+    assert!(!data.join("calibration-project.toml").exists());
+    let drafts = lib.outside.parent().unwrap().join("cache/drafts");
+    assert_eq!(std::fs::read_dir(drafts).map_or(0, Iterator::count), 0);
+
+    // The draft's open fields come back as messages with their field.
+    let mut open = draft.clone();
+    open["dataset"]["manifest"]["_unresolved"] = json!(["target"]);
+    let checked = lib
+        .api
+        .invoke("project_views", json!({ "dir": dir, "spec": open }))
+        .unwrap();
+    assert_eq!(checked["messages"][0]["field"], "target");
+
+    // Without a draft the folder is no project; outside the roots it is refused.
+    let err = lib
+        .api
+        .invoke("project_views", json!({ "dir": dir }))
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::NotAProject);
+    let err = lib
+        .api
+        .invoke(
+            "project_views",
+            json!({ "dir": slash(&lib.outside), "spec": draft }),
+        )
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::ForbiddenPath);
+}
+
+#[test]
 fn a_calibration_job_writes_a_run_that_is_listed_noted_read_and_deleted() {
     let lib = library();
     let view = created(&lib, 6);
