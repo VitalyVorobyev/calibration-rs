@@ -1361,6 +1361,7 @@ export interface StudioApiTypes {
   JointOptimizeConfig?: JointOptimizeConfig;
   LaserExtractionSpec?: LaserExtractionSpec;
   LaserFeatureResidual?: LaserFeatureResidual;
+  LaserFramePairing?: LaserFramePairing;
   LaserLineTrace?: LaserLineTrace;
   LaserPlane?: LaserPlane;
   LaserScanAxis?: LaserScanAxis;
@@ -1390,10 +1391,13 @@ export interface StudioApiTypes {
   PlanarOptimizeConfig?: PlanarOptimizeConfig;
   PlaneChannel?: PlaneChannel;
   PlaneOptimizeConfig?: PlaneOptimizeConfig;
+  PlaneParameter?: PlaneParameter;
   PointRejection?: PointRejection;
   PoseColumnMap?: PoseColumnMap;
   PoseConvention?: PoseConvention;
   PosePairing?: PosePairing;
+  PoseParameter?: PoseParameter;
+  PoseRef?: PoseRef;
   ProblemKind?: ProblemKind;
   Progress?: Progress;
   ProjectDigest?: ProjectDigest;
@@ -1452,6 +1456,7 @@ export interface StudioApiTypes {
   RinggridLatticeSpec?: RinggridLatticeSpec;
   RobotPoseConfig?: RobotPoseConfig;
   RobotPoseFormat?: RobotPoseFormat;
+  RobotPosePairing?: RobotPosePairing;
   RobotPoseSigma?: RobotPoseSigma;
   RobotPoseSource?: RobotPoseSource;
   RobotRefinement?: RobotRefinement;
@@ -1506,6 +1511,7 @@ export interface StudioApiTypes {
   UndistortPointsReply?: UndistortPointsReply;
   UndistortedImageQuery?: UndistortedImageQuery;
   Unit?: Unit;
+  UnpairedLaserFrameRef?: UnpairedLaserFrameRef;
   UnrecordedRun?: UnrecordedRun;
   UserPath?: UserPath;
   Verdict?: Verdict;
@@ -3073,7 +3079,11 @@ export interface CameraParameterSet {
  * Every parameter of every camera of the run, whatever its model: its
  * label in the export's uncertainty, name, group, value and unit, its σ
  * or why it has none (no covariance and the library's reason, held fixed,
- * not listed), and whether the solve ended with it on a bound.
+ * not listed), and whether the solve ended with it on a bound. Also the
+ * poses the run estimates (each camera's pose in a rig of several, the
+ * hand-eye: translation in metres, axis-angle rotation in degrees, the σ
+ * of the perturbation the covariance is over) and its laser planes (normal
+ * and distance with their σ).
  */
 export interface CameraParameterValuesArgs {
   run: RunRef;
@@ -3093,10 +3103,87 @@ export interface RunRef {
   id: string;
 }
 /**
- * Every camera's parameters, in camera order.
+ * Every camera's parameters, in camera order, and the poses and laser
+ * planes the run estimates besides them.
  */
 export interface CameraParameters {
   cameras: CameraParameterSet[];
+  /**
+   * Each camera's laser plane; absent for a run without a laser.
+   */
+  planes?: PlaneParameter[];
+  /**
+   * Each camera's pose in a rig of several cameras, then the hand-eye;
+   * absent for one camera without a robot.
+   */
+  poses?: PoseParameter[];
+}
+/**
+ * A camera's laser plane, in the camera's frame.
+ */
+export interface PlaneParameter {
+  camera: number;
+  /**
+   * The signed distance from the camera centre, metres.
+   */
+  distance_m: number;
+  /**
+   * Its name (`plane`, `cam1.plane`): its labels in the export's
+   * uncertainty are `<label>.nx`, `.ny`, `.nz` and `.d`.
+   */
+  label: string;
+  /**
+   * The unit normal.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  normal: [number, number, number];
+  /**
+   * The σ of `nx`, `ny`, `nz` (unitless; the covariance of a unit normal
+   * has rank 2) and of the distance (metres).
+   */
+  sigma: ParameterSigma[];
+}
+/**
+ * A rigid pose the run estimates: a camera's pose in the rig, or the
+ * hand-eye.
+ */
+export interface PoseParameter {
+  /**
+   * The camera whose pose in the rig it is; `null` for the hand-eye.
+   */
+  camera?: number | null;
+  /**
+   * Its name, `<to>_se3_<from>` (`cam1.cam_se3_rig`, `gripper_se3_rig`,
+   * `rig_se3_base`): its labels in the export's uncertainty are
+   * `<label>.rx … <label>.tz`.
+   */
+  label: string;
+  /**
+   * The rotation as an axis-angle vector, degrees: along the axis, as
+   * long as the angle.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  rotation_deg: [number, number, number];
+  /**
+   * The σ of `[rx, ry, rz, tx, ty, tz]`, the right perturbation
+   * `pose·Exp(δ)` the covariance is over: small rotations about the
+   * `from` frame's axes in degrees, then small translations along them
+   * in metres. Not the σ of `rotation_deg`'s or `translation_m`'s
+   * components, which the covariance does not give.
+   */
+  sigma: ParameterSigma[];
+  /**
+   * The translation, metres: the `from` frame's origin in the `to`
+   * frame.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  translation_m: [number, number, number];
 }
 /**
  * Serializable camera parameters for building a runtime model.
@@ -4835,6 +4922,36 @@ export interface JobStatusArgs {
   id: string;
 }
 /**
+ * What the laser frame pairing leaves over.
+ */
+export interface LaserFramePairing {
+  /**
+   * The laser frames that pair with no view, by camera, each camera's in
+   * the order its images sort.
+   */
+  unpaired: UnpairedLaserFrameRef[];
+}
+/**
+ * A laser frame that pairs with no view.
+ */
+export interface UnpairedLaserFrameRef {
+  /**
+   * Index of the camera in the manifest's `cameras`.
+   */
+  camera: number;
+  /**
+   * The laser image, as `images` names images.
+   */
+  image: string;
+  /**
+   * The pairing token it carries: its index among the camera's laser
+   * images under index pairing, the token its file name yields under
+   * token pairing; absent when the file name yields none. A token of a
+   * view belongs to a view another frame of the camera pairs with.
+   */
+  token?: string | null;
+}
+/**
  * Laser plane in camera frame: unit normal + signed distance.
  *
  * The plane equation is: n̂ · p + d = 0
@@ -5184,6 +5301,20 @@ export interface PlanarIntrinsicsExport {
   uncertainty?: Uncertainty;
 }
 /**
+ * One pose of the manifest's robot pose file.
+ */
+export interface PoseRef {
+  /**
+   * Its `pose_id`, when the manifest maps a `pose_id` column.
+   */
+  id?: string | null;
+  /**
+   * Its zero-based position among the file's poses (a CSV's header
+   * excluded), as a pose parse error names it.
+   */
+  index: number;
+}
+/**
  * The digests of a project's inputs as they stand, for what is known
  * before any image is read: each part of an [`InputDigest`] but the
  * detections, computed as a run computes it. A calibrated run whose
@@ -5276,15 +5407,36 @@ export interface ProjectViews {
    */
   cameras: string[];
   /**
+   * How the views pair with the cameras' laser frames (each view's
+   * `laser_frames`); absent when no camera declares laser images, or
+   * when they cannot be listed (a message says why).
+   */
+  laser_frames?: LaserFramePairing | null;
+  /**
    * What a run would refuse, each with the field it is about when there
    * is one; empty when the project would run.
    */
   messages: StudioError[];
   /**
+   * How the views pair with the manifest's robot poses (each view's
+   * `pose`); absent when the manifest declares none, or when the pose
+   * file cannot be listed (a message says why).
+   */
+  poses?: RobotPosePairing | null;
+  /**
    * The views, in pairing order; empty when the images cannot be
    * listed or paired (a message says why).
    */
   views: ViewRow[];
+}
+/**
+ * What the robot pose pairing leaves over.
+ */
+export interface RobotPosePairing {
+  /**
+   * The poses that pair with no view, in file order.
+   */
+  unpaired: PoseRef[];
 }
 /**
  * One view of the dataset.
@@ -5296,6 +5448,17 @@ export interface ViewRow {
    */
   images: (string | null)[];
   /**
+   * Each camera's laser frame in the view, as `images` names images;
+   * `null` where a camera has none. Empty when the reply has no
+   * `laser_frames`.
+   */
+  laser_frames?: (string | null)[];
+  /**
+   * The robot pose the view pairs with; absent when none does, or when
+   * the reply has no `poses`.
+   */
+  pose?: PoseRef | null;
+  /**
    * Its pairing token (the view's index under index pairing).
    */
   token: string;
@@ -5304,7 +5467,10 @@ export interface ViewRow {
  * The views the project's images pair into, without reading an image, and
  * what is wrong with the project as a run would find it before detection:
  * of the saved project, or of the draft `spec` when given (nothing is
- * written). Each problem is a message with the field it is about.
+ * written). Each problem is a message with the field it is about. With
+ * robot poses or laser images in the manifest, each view also names the
+ * pose and the laser frames it pairs with, and what pairs with no view is
+ * listed.
  *
  * With a `spec`, `dir` may also be a folder that is not a project yet (a
  * new project's data folder): the draft is then judged as a project in

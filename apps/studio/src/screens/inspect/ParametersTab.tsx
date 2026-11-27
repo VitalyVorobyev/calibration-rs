@@ -24,13 +24,16 @@ import { useStore } from "../../store";
 import { CameraFrame } from "./CameraFrame";
 import { CorrelationMatrix } from "./CorrelationMatrix";
 import {
+  coveredLabels,
   groupParameters,
   modelSummary,
   otherRows,
   parametersJson,
+  sharedOf,
   viewOf,
   type ParameterView,
 } from "./parameterModel";
+import { PlaneValues, PoseValues } from "./PoseValues";
 
 const COLUMNS: Column<ParameterView>[] = [
   {
@@ -95,13 +98,14 @@ const OTHER_COLUMNS: Column<ParameterRow>[] = [
   },
 ];
 
-/** The pose and plane parameters the covariance is over besides the camera's
- * own: their uncertainty, with no value. */
+/** The pose parameters the covariance is over besides the camera's own and
+ * the poses and planes listed with their values (a target's pose): their
+ * uncertainty, with no value. */
 function OtherParameters({ rows }: { rows: ParameterRow[] }) {
   if (rows.length === 0) return null;
   return (
-    <section aria-label="Pose" className="flex flex-col gap-1">
-      <h3 className="text-[11px] uppercase tracking-wider text-fg-muted">Pose</h3>
+    <section aria-label="Other poses" className="flex flex-col gap-1">
+      <h3 className="text-[11px] uppercase tracking-wider text-fg-muted">Other poses</h3>
       <Table
         caption="Pose and plane parameters"
         columns={OTHER_COLUMNS}
@@ -239,12 +243,9 @@ function Body({ run, camera }: { run: RunRef; camera: number }) {
   const set = q.data.cameras.find((c) => c.camera === camera);
   const other =
     uncertainty?.status === "available"
-      ? otherRows(
-          uncertainty,
-          new Set(q.data.cameras.flatMap((c) => c.parameters.map((p) => p.label))),
-          camera,
-        )
+      ? otherRows(uncertainty, coveredLabels(q.data), camera)
       : [];
+  const shared = sharedOf(q.data, camera);
   if (!set)
     return <Callout tone="info">Camera {camera} has no parameters in this run.</Callout>;
   return (
@@ -256,6 +257,8 @@ function Body({ run, camera }: { run: RunRef; camera: number }) {
         <CopyJson set={set} />
       </div>
       <ParameterGroups set={set} />
+      <PoseValues poses={shared.poses} />
+      <PlaneValues planes={shared.planes} />
       <OtherParameters rows={other} />
       <FitStrip />
     </div>

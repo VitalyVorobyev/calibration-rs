@@ -1,7 +1,7 @@
 //! Projects through the library's `vision_calibration::project`: the
-//! library scan, open, create and save (refused on a stale revision), the
-//! views a dataset pairs into, and the runs' listing, notes, deletion and
-//! imports. A project is named by its folder in every command; the back
+//! library scan, open, create and save (refused on a stale revision), and
+//! the runs' listing, notes, deletion and imports (the views a dataset
+//! pairs into are `views`'s). A project is named by its folder in every command; the back
 //! end keeps nothing open between calls.
 
 use std::path::{Path, PathBuf};
@@ -203,7 +203,11 @@ pub fn create_project(ctx: &Ctx, args: CreateProjectArgs) -> Result<ProjectView,
 /// project file is written: the data folder (the inline manifest's `root`
 /// against the project folder, or the referenced manifest's folder), the
 /// referenced manifest, and every file the manifest names.
-fn check_spec_paths(ctx: &Ctx, dir: &Path, spec: &ProjectSpec) -> Result<(), StudioError> {
+pub(super) fn check_spec_paths(
+    ctx: &Ctx,
+    dir: &Path,
+    spec: &ProjectSpec,
+) -> Result<(), StudioError> {
     let outside = |path: &Path| {
         StudioError::new(
             ErrorKind::ForbiddenPath,
@@ -268,163 +272,6 @@ pub fn save_project(ctx: &Ctx, args: SaveProjectArgs) -> Result<ProjectView, Stu
     project.save()?;
     ctx.events.project_changed(project.dir());
     ProjectView::of(ctx, &project)
-}
-
-/// The views the project's images pair into, without reading an image, and
-/// what is wrong with the project as a run would find it before detection:
-/// of the saved project, or of the draft `spec` when given (nothing is
-/// written). Each problem is a message with the field it is about.
-///
-/// With a `spec`, `dir` may also be a folder that is not a project yet (a
-/// new project's data folder): the draft is then judged as a project in
-/// that folder, its inline manifest's `root` read against it.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ProjectViewsArgs {
-    pub dir: UserPath,
-    #[serde(default)]
-    pub spec: Option<ProjectSpec>,
-}
-
-/// The dataset's views and the project's problems.
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct ProjectViews {
-    /// The cameras' ids, in manifest order.
-    pub cameras: Vec<String>,
-    /// The views, in pairing order; empty when the images cannot be
-    /// listed or paired (a message says why).
-    pub views: Vec<ViewRow>,
-    /// What a run would refuse, each with the field it is about when there
-    /// is one; empty when the project would run.
-    pub messages: Vec<StudioError>,
-}
-
-/// One view of the dataset.
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct ViewRow {
-    /// Its pairing token (the view's index under index pairing).
-    pub token: String,
-    /// Each camera's image, relative to the data folder (absolute outside
-    /// it), `/`-separated; `null` where a camera has none.
-    pub images: Vec<Option<String>>,
-}
-
-pub fn project_views(ctx: &Ctx, args: ProjectViewsArgs) -> Result<ProjectViews, StudioError> {
-    // The scratch project of a draft in a folder that is no project yet;
-    // removed when this call ends.
-    let mut _scratch = None;
-    let project = match (open_checked(ctx, &args.dir), &args.spec) {
-        (Err(e), Some(spec)) if e.kind == ErrorKind::NotAProject => {
-            let (project, guard) = draft_project(ctx, &args.dir, spec)?;
-            _scratch = Some(guard);
-            project
-        }
-        (opened, _) => {
-            let mut project = opened?;
-            if let Some(spec) = args.spec {
-                check_spec_paths(ctx, project.dir(), &spec)?;
-                *project.spec_mut() = spec;
-            }
-            project
-        }
-    };
-    let mut messages: Vec<StudioError> = Vec::new();
-    let push = |error: StudioError, messages: &mut Vec<StudioError>| {
-        if !messages.iter().any(|m| m.message == error.message) {
-            messages.push(error);
-        }
-    };
-    let dataset = match project.dataset() {
-        Ok(dataset) => dataset,
-        Err(e) => {
-            return Ok(ProjectViews {
-                cameras: Vec::new(),
-                views: Vec::new(),
-                messages: vec![e.into()],
-            });
-        }
-    };
-    let data_root = project.data_root()?;
-    ctx.scope.check_dataset(&dataset, &data_root)?;
-    if let Err(e) = project.check() {
-        push(e.into(), &mut messages);
-    }
-    let views = match project.views() {
-        Ok(views) => views
-            .tokens
-            .iter()
-            .zip(&views.paths)
-            .map(|(token, paths)| ViewRow {
-                token: token.clone(),
-                images: paths
-                    .iter()
-                    .map(|p| p.as_deref().map(|p| relative(&data_root, p)))
-                    .collect(),
-            })
-            .collect(),
-        Err(e) => {
-            push(e.into(), &mut messages);
-            Vec::new()
-        }
-    };
-    Ok(ProjectViews {
-        cameras: dataset.cameras.iter().map(|c| c.id.clone()).collect(),
-        views,
-        messages,
-    })
-}
-
-/// A scratch folder for a draft project, removed on drop.
-struct Scratch(PathBuf);
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        // Best effort: a leftover scratch folder holds one small file.
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-/// The draft `spec` as a project whose data folder is `folder` (a folder
-/// that holds no project yet), so a new project's layout can be previewed
-/// before anything is written to it: the project file goes to a scratch
-/// folder under the cache, its manifest's `root` made the absolute data
-/// folder. Only an inline manifest has a data folder of its own.
-fn draft_project(
-    ctx: &Ctx,
-    folder: &UserPath,
-    spec: &ProjectSpec,
-) -> Result<(Project, Scratch), StudioError> {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let folder = ctx.scope.existing_dir(folder)?;
-    let DatasetSource::Inline {
-        root,
-        spec: manifest,
-        ..
-    } = &spec.dataset
-    else {
-        return Err(StudioError::invalid(
-            "a draft in a folder that holds no project needs its manifest written in the spec",
-        ));
-    };
-    // What the draft names must lie inside the roots, as a saved project's
-    // does (judged as if the project were the folder itself).
-    check_spec_paths(ctx, &folder, spec)?;
-    let data_root = folder.join(root);
-    let mut draft = spec.clone();
-    draft.dataset = DatasetSource::inline(data_root, manifest.as_ref().clone());
-    let dir = ctx.dirs.cache.join("drafts").join(format!(
-        "{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let guard = Scratch(dir.clone());
-    let project = Project::create(&dir, draft)?;
-    Ok((project, guard))
-}
-
-/// `path` relative to `root` when it lies under it, `/`-separated.
-fn relative(root: &Path, path: &Path) -> String {
-    slash(path.strip_prefix(root).unwrap_or(path))
 }
 
 /// The project's runs (as `open_project` lists them).

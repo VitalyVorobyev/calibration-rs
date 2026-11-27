@@ -1,8 +1,7 @@
 /** The Dataset screen's pure rules: the library's messages about a draft
- * placed on the form's fields (the library names the field for some and not
- * for others, so the rest are placed by what the message says, until it
- * does), what a camera's pattern matched, which groups of the form a
- * workflow uses, and the draft's problems counted by severity. */
+ * placed on the form's fields (the field each names), what a camera's
+ * pattern matched, which groups of the form a workflow uses, and the
+ * draft's problems counted by severity. */
 import type { FieldMessage, FieldMessages } from "@vitavision/forms";
 import type { UiSchema } from "@vitavision/forms";
 import type {
@@ -25,8 +24,20 @@ export interface DraftMessage {
   suggestions: readonly string[];
 }
 
-/** The library's `cameras[1].images` as the form's `cameras.1.images`. */
-export function toFormPath(field: string): string {
+/** The library's field path as the form's: a camera, which the library
+ * names by its id (`cameras[cam1].images`), by its position
+ * (`cameras.1.images`); any other index as it is (`exclude.images[0]` is
+ * `exclude.images.0`). A camera id the draft does not have is `cameras`. */
+export function toFormPath(field: string, cameras: readonly CameraSource[]): string {
+  const named = /^cameras\[([^\]]*)\](.*)$/.exec(field);
+  if (named) {
+    const [, key, rest] = named;
+    let i = cameras.findIndex((c) => c.id === key);
+    // An index stands for a camera only when no camera has it as its id.
+    if (i < 0 && /^\d+$/.test(key!) && Number(key) < cameras.length) i = Number(key);
+    if (i < 0) return "cameras";
+    return toFormPath(`cameras.${i}${rest}`, cameras);
+  }
   return field.replace(/\[(\d+)\]/g, ".$1");
 }
 
@@ -48,36 +59,13 @@ export function isManifestPath(path: string): boolean {
   ].includes(root);
 }
 
-/** The field a library message is about when it names none: read from the
- * message's own words (the library's phrasings), against the draft's
- * cameras. `null` when it says nothing of a field. */
-export function inferField(
-  message: string,
-  cameras: readonly CameraSource[],
-): string | null {
-  if (/^manifest validation failed: invalid target/.test(message)) return "target";
-  if (/duplicate camera id/.test(message)) return "cameras";
-  if (/expects .* camera\(s\)/.test(message)) return "cameras";
-  if (/requires robot_poses/.test(message)) return "robot_poses";
-  const roi = /camera "([^"]*)" has degenerate ROI/.exec(message);
-  if (roi) {
-    const i = cameras.findIndex((c) => c.id === roi[1]);
-    return i >= 0 ? `cameras.${i}.roi_xywh` : "cameras";
-  }
-  if (/no named capture group/.test(message)) return "pose_pairing.group";
-  if (/pose pairing regex .* failed to compile/.test(message))
-    return "pose_pairing.regex";
-  return null;
-}
-
 /** The library's messages about a draft, each placed on its field. */
 export function placeMessages(
   messages: readonly StudioError[],
   manifest: DatasetSpec | null,
 ): DraftMessage[] {
   return messages.map((m) => {
-    const named = m.field ? toFormPath(m.field) : null;
-    const path = named ?? (manifest ? inferField(m.message, manifest.cameras) : null);
+    const path = m.field ? toFormPath(m.field, manifest?.cameras ?? []) : null;
     return {
       path: path !== null && isManifestPath(path) ? path : null,
       severity: "error" as const,

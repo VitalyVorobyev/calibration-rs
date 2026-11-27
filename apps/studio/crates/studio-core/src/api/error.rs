@@ -5,7 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::Serialize;
-use vision_calibration::dataset::{ManifestError, ValidationError};
+use vision_calibration::dataset::ManifestError;
 use vision_calibration::dataset_runner::{CalibrateDatasetError, RunError};
 use vision_calibration::project::ProjectError;
 
@@ -165,11 +165,22 @@ fn display(path: &std::path::Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-/// Each project error as its own kind, with the path and field it names.
+/// The error with the field the library names (`field()`), when it names
+/// one.
+fn with_field(error: StudioError, field: Option<String>) -> StudioError {
+    match field {
+        Some(field) => error.on_field(field),
+        None => error,
+    }
+}
+
+/// Each project error as its own kind, with the path it names and the field
+/// the library names.
 impl From<ProjectError> for StudioError {
     fn from(e: ProjectError) -> Self {
         let message = e.to_string();
-        let error = |kind| StudioError::new(kind, message.clone());
+        let field = e.field();
+        let error = |kind| with_field(StudioError::new(kind, message.clone()), field.clone());
         match e {
             ProjectError::NotAProject { dir } => error(ErrorKind::NotAProject).at(display(&dir)),
             ProjectError::AmbiguousProject { dir } => {
@@ -186,12 +197,10 @@ impl From<ProjectError> for StudioError {
             }
             ProjectError::Io { path, .. } => error(ErrorKind::Io).at(display(&path)),
             ProjectError::Parse { path, .. } => error(ErrorKind::Parse).at(display(&path)),
-            ProjectError::Invalid { path, field, .. } => {
-                error(ErrorKind::Invalid).at(display(&path)).on_field(field)
-            }
+            ProjectError::Invalid { path, .. } => error(ErrorKind::Invalid).at(display(&path)),
             ProjectError::Manifest(e) => e.into(),
-            ProjectError::Config(_) => error(ErrorKind::Config).on_field("config"),
-            ProjectError::Exclusion { entry, .. } => error(ErrorKind::Exclusion).on_field(entry),
+            ProjectError::Config(_) => error(ErrorKind::Config),
+            ProjectError::Exclusion { .. } => error(ErrorKind::Exclusion),
             ProjectError::RunNotFound { .. } => error(ErrorKind::RunNotFound),
             ProjectError::ImportMismatch { .. } => error(ErrorKind::ImportMismatch),
             ProjectError::Calibrate(e) => e.into(),
@@ -204,15 +213,18 @@ impl From<ProjectError> for StudioError {
 
 impl From<ManifestError> for StudioError {
     fn from(e: ManifestError) -> Self {
-        let message = e.to_string();
+        let error = with_field(
+            StudioError::new(ErrorKind::Manifest, e.to_string()),
+            e.field(),
+        );
         match e {
-            ManifestError::Io { path, .. } => {
-                StudioError::new(ErrorKind::Io, message).at(display(&path))
+            ManifestError::Io { path, .. } => StudioError {
+                kind: ErrorKind::Io,
+                ..error
             }
-            ManifestError::Parse { path, .. } => {
-                StudioError::new(ErrorKind::Manifest, message).at(display(&path))
-            }
-            _ => StudioError::new(ErrorKind::Manifest, message),
+            .at(display(&path)),
+            ManifestError::Parse { path, .. } => error.at(display(&path)),
+            _ => error,
         }
     }
 }
@@ -220,13 +232,13 @@ impl From<ManifestError> for StudioError {
 impl From<CalibrateDatasetError> for StudioError {
     fn from(e: CalibrateDatasetError) -> Self {
         let message = e.to_string();
+        let field = e.field();
+        let error = |kind| with_field(StudioError::new(kind, message.clone()), field.clone());
         match e {
             CalibrateDatasetError::Run(e) => e.into(),
             CalibrateDatasetError::Cancelled => StudioError::cancelled(),
-            CalibrateDatasetError::ConfigTopologyMismatch { .. } => {
-                StudioError::new(ErrorKind::Config, message).on_field("config")
-            }
-            _ => StudioError::new(ErrorKind::Calibration, message),
+            CalibrateDatasetError::ConfigTopologyMismatch { .. } => error(ErrorKind::Config),
+            _ => error(ErrorKind::Calibration),
         }
     }
 }
@@ -234,32 +246,19 @@ impl From<CalibrateDatasetError> for StudioError {
 impl From<RunError> for StudioError {
     fn from(e: RunError) -> Self {
         let message = e.to_string();
-        let kind = |kind| StudioError::new(kind, message.clone());
+        let field = e.field();
+        let kind = |kind| with_field(StudioError::new(kind, message.clone()), field.clone());
         match e {
             RunError::AskUser {
-                field,
                 prompt,
                 suggestions,
+                ..
             } => StudioError {
-                kind: ErrorKind::NeedsInput,
                 message: prompt,
-                path: None,
-                field: Some(field),
                 suggestions,
+                ..kind(ErrorKind::NeedsInput)
             },
-            RunError::Validation(v) => {
-                let field = match &v {
-                    ValidationError::Unresolved(fields) => fields.first().cloned(),
-                    ValidationError::FieldUnusedByTopology { field, .. } => Some(field.clone()),
-                    ValidationError::MissingRobotPoses { .. } => Some("robot_poses".into()),
-                    _ => None,
-                };
-                let error = kind(ErrorKind::Manifest);
-                match field {
-                    Some(field) => error.on_field(field),
-                    None => error,
-                }
-            }
+            RunError::Validation(_) => kind(ErrorKind::Manifest),
             RunError::Cancelled => StudioError::cancelled(),
             RunError::Detection { path, .. } | RunError::CornerCovariance { path, .. } => {
                 kind(ErrorKind::Detection).at(display(&path))
@@ -347,6 +346,27 @@ mod tests {
         assert_eq!(e.field.as_deref(), Some("pose_pairing"));
         assert_eq!(e.suggestions, ["by_index"]);
         assert_eq!(e.message, "How are views paired?");
+    }
+
+    #[test]
+    fn a_dataset_error_names_the_field_the_library_names() {
+        use vision_calibration::dataset::ValidationError;
+
+        let validation = || RunError::Validation(ValidationError::EmptyImagePattern("cam0".into()));
+        let e = StudioError::from(validation());
+        assert_eq!(e.kind, ErrorKind::Manifest);
+        assert_eq!(e.field.as_deref(), Some("cameras[cam0].images"));
+        // The same error through a project's run keeps its field.
+        let e = StudioError::from(ProjectError::Calibrate(CalibrateDatasetError::Run(
+            validation(),
+        )));
+        assert_eq!(e.field.as_deref(), Some("cameras[cam0].images"));
+        // An error about an image names none.
+        let e = StudioError::from(RunError::DetailMismatch {
+            path: PathBuf::from("/d/a.png"),
+        });
+        assert_eq!((e.kind, e.field), (ErrorKind::Detection, None));
+        assert_eq!(e.path.as_deref(), Some("/d/a.png"));
     }
 
     #[test]

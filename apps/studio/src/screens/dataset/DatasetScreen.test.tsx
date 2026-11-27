@@ -15,7 +15,7 @@ import {
 } from "@testing-library/react";
 import { TooltipProvider } from "@vitavision/ui";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ProjectView, ProjectViews } from "../../api/generated/types";
+import type { DatasetSpec, ProjectView, ProjectViews } from "../../api/generated/types";
 import { useProject } from "../../project/projectStore";
 import { projectView } from "../../test/projectFixtures";
 import { backend, resetShellStores } from "../../test/shellKit";
@@ -95,6 +95,48 @@ describe("the Dataset screen", () => {
         screen.getByRole("complementary", { name: "Selected image" }),
       ).findByText("img/b.png"),
     ).toBeTruthy();
+  });
+
+  it("names the robot pose and laser frame the selected view pairs with", async () => {
+    mount({
+      views: () => ({
+        ...REPLY,
+        views: [
+          { token: "0", images: ["img/a.png"], pose: { index: 0 }, laser_frames: [null] },
+          { token: "1", images: ["img/b.png"], laser_frames: ["laser/b.png"] },
+        ],
+        poses: { unpaired: [{ index: 2 }] },
+        laser_frames: { unpaired: [] },
+      }),
+    });
+    const view = projectView("/work/cell");
+    const manifest = {
+      ...(view.spec.dataset.manifest as DatasetSpec),
+      robot_poses: { path: "poses.txt", format: "rowmajor4x4" },
+    } as DatasetSpec;
+    open({
+      ...view,
+      spec: { ...view.spec, dataset: { root: ".", manifest } },
+      dataset: { kind: "ok", spec: manifest },
+    });
+    const matrix = await screen.findByRole("grid", { name: "Camera by view" });
+    const detail = screen.getByRole("complementary", { name: "Selected image" });
+    fireEvent.click(
+      within(matrix).getByRole("gridcell", { name: /view 0, camera cam0/ }),
+    );
+    expect((await within(detail).findByTestId("view-pose")).textContent).toBe(
+      "row 0 of poses.txt",
+    );
+    expect(within(detail).getByTestId("view-laser").textContent).toBe("none for cam0");
+    fireEvent.click(
+      within(matrix).getByRole("gridcell", { name: /view 1, camera cam0/ }),
+    );
+    expect((await within(detail).findByTestId("view-laser")).textContent).toBe(
+      "laser/b.png",
+    );
+    expect(within(detail).getByTestId("view-pose").textContent).toBe(
+      "no pose pairs with this view",
+    );
   });
 
   it("places the library's message under its field, refuses Save, and counts the error", async () => {

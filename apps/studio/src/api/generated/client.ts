@@ -215,7 +215,10 @@ export function createClient(t: Transport, hub: JobHub) {
      * The views the project's images pair into, without reading an image, and
      * what is wrong with the project as a run would find it before detection:
      * of the saved project, or of the draft `spec` when given (nothing is
-     * written). Each problem is a message with the field it is about.
+     * written). Each problem is a message with the field it is about. With
+     * robot poses or laser images in the manifest, each view also names the
+     * pose and the laser frames it pairs with, and what pairs with no view is
+     * listed.
      *
      * With a `spec`, `dir` may also be a folder that is not a project yet (a
      * new project's data folder): the draft is then judged as a project in
@@ -292,7 +295,11 @@ export function createClient(t: Transport, hub: JobHub) {
      * Every parameter of every camera of the run, whatever its model: its
      * label in the export's uncertainty, name, group, value and unit, its σ
      * or why it has none (no covariance and the library's reason, held fixed,
-     * not listed), and whether the solve ended with it on a bound.
+     * not listed), and whether the solve ended with it on a bound. Also the
+     * poses the run estimates (each camera's pose in a rig of several, the
+     * hand-eye: translation in metres, axis-angle rotation in degrees, the σ
+     * of the perturbation the covariance is over) and its laser planes (normal
+     * and distance with their σ).
      */
     cameraParameterValues: (
       args: T.CameraParameterValuesArgs,

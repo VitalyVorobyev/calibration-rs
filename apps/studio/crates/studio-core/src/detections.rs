@@ -1,29 +1,18 @@
 //! What a project's detection cache knows of its images: the overview the
 //! Detect screen's matrix shows (per view and camera, the features found
 //! and the detector's outcome), read through the library's
-//! `dataset_runner::detection_detail` so every image's cache key is the one
-//! a run computes.
-//!
-//! The library keys a detection by the image's bytes and the detector
-//! settings the manifest lowers to; it does not expose that lowering. An
-//! overview therefore asks `detection_detail` for each image through a
-//! [`Probe`] cache that answers what the project's cache holds and then
-//! stops the call: nothing is decoded or detected, and the bigger detail
-//! file is read only for an image whose detection found nothing (for the
-//! detector's reason).
+//! `dataset_runner::cached_detection`, which keys every image as a run
+//! does: nothing is decoded, detected or written.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use schemars::JsonSchema;
 use serde::Serialize;
 use vision_calibration::dataset::{DatasetSpec, RinggridLatticeSpec, TargetSpec};
-use vision_calibration::dataset_runner::{Detection, RejectReason, detection_detail};
-use vision_calibration::detect::{
-    CacheError, CacheKey, CachedFeatures, DetectionCache, DetectionDetail, DetectionOutcome,
-    FsDetectionCache,
-};
+use vision_calibration::dataset_runner::{RejectReason, cached_detection};
+use vision_calibration::detect::{DetectionDetail, DetectionOutcome, FsDetectionCache};
 use vision_calibration::project::{Project, RunSource, RunState};
 
 use crate::api::StudioError;
@@ -115,91 +104,28 @@ pub fn expected_features(target: &TargetSpec) -> Option<usize> {
     }
 }
 
-/// The marker a probe's error carries: it stopped the call on purpose.
-const STOP: &str = "studio probe: stop";
-
-/// A detection cache that answers the project cache's features for one
-/// lookup and then stops the call (see the module docs).
-struct Probe<'a> {
-    cache: &'a FsDetectionCache,
-    stopped: AtomicBool,
-    /// `None`: no detection cached; `Some(n)`: `n` features.
-    features: Mutex<Option<usize>>,
-    outcome: Mutex<Option<DetectionOutcome>>,
-}
-
-impl<'a> Probe<'a> {
-    fn new(cache: &'a FsDetectionCache) -> Self {
-        Self {
-            cache,
-            stopped: AtomicBool::new(false),
-            features: Mutex::new(None),
-            outcome: Mutex::new(None),
-        }
-    }
-
-    fn stop(&self) -> CacheError {
-        self.stopped.store(true, Ordering::SeqCst);
-        CacheError::Serde(STOP.into())
-    }
-}
-
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-impl DetectionCache for Probe<'_> {
-    fn get(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
-        let cached = self.cache.get(key)?;
-        *lock(&self.features) = cached.as_ref().map(|c| c.features.len());
-        match cached {
-            // Nothing found: the stored detail says why.
-            Some(entry) if entry.features.is_empty() => Ok(Some(entry)),
-            _ => Err(self.stop()),
-        }
-    }
-
-    fn put(&self, _: &CacheKey, _: &CachedFeatures) -> Result<(), CacheError> {
-        Err(self.stop())
-    }
-
-    fn get_detail(&self, key: &CacheKey) -> Result<Option<DetectionDetail>, CacheError> {
-        if let Some(detail) = self.cache.get_detail(key)? {
-            *lock(&self.outcome) = Some(detail.outcome);
-        }
-        Err(self.stop())
-    }
-
-    fn put_detail(&self, _: &CacheKey, _: &DetectionDetail) -> Result<(), CacheError> {
-        Err(self.stop())
-    }
-}
-
 /// What the project's cache holds of camera `camera`'s image `path`.
-fn probe(
+fn cache_state(
     cache: &FsDetectionCache,
     dataset: &DatasetSpec,
     data_root: &Path,
     camera: usize,
     path: &Path,
 ) -> ImageDetectionState {
-    let probe = Probe::new(cache);
-    let result = detection_detail(dataset, data_root, camera, path, Detection::Cached(&probe));
-    if probe.stopped.load(Ordering::SeqCst) {
-        return match *lock(&probe.features) {
-            None => ImageDetectionState::NotDetected,
-            Some(features) => ImageDetectionState::Detected {
-                features,
-                outcome: if features > 0 {
-                    Some(DetectionOutcome::Detected)
-                } else {
-                    lock(&probe.outcome).clone()
-                },
+    match cached_detection(dataset, data_root, camera, path, cache) {
+        Ok(None) => ImageDetectionState::NotDetected,
+        Ok(Some(cached)) => ImageDetectionState::Detected {
+            features: cached.feature_count,
+            outcome: if cached.feature_count > 0 {
+                Some(DetectionOutcome::Detected)
+            } else {
+                cached.detail_outcome
             },
-        };
-    }
-    match result {
-        Ok(detail) => state_of(&detail),
+        },
         Err(e) => ImageDetectionState::Failed { error: e.into() },
     }
 }
@@ -350,10 +276,10 @@ pub fn left_out(project: &Project, id: Option<&str>) -> Result<Option<LeftOut>, 
 }
 
 /// What the project's cache holds of every image, read in parallel.
-pub fn probe_all(images: &Images, cache: &FsDetectionCache) -> Vec<ImageDetectionState> {
+pub fn cache_states(images: &Images, cache: &FsDetectionCache) -> Vec<ImageDetectionState> {
     let cells = images.cells();
     for_each_parallel(&cells, |cell| {
-        probe(
+        cache_state(
             cache,
             &images.dataset,
             &images.data_root,

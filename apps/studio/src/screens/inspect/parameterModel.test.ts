@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type {
   CameraParameter,
+  CameraParameters,
   CameraParameterSet,
   ParameterCovariance,
+  PoseParameter,
 } from "../../api/generated/types";
 import {
+  coveredLabels,
   groupParameters,
   modelSummary,
   otherRows,
   parametersJson,
+  planeView,
+  poseView,
+  sharedOf,
   sigmaReason,
   viewOf,
 } from "./parameterModel";
@@ -199,5 +205,70 @@ describe("pose parameters", () => {
     expect(rows[0]).toMatchObject({ unit: "mm" });
     expect(rows[0]!.sigma).toBeCloseTo(1);
     expect(rows[1]).toMatchObject({ unit: "°" });
+  });
+});
+
+describe("pose and plane values", () => {
+  const est = (sigma: number) => ({ kind: "estimated" as const, sigma });
+  const pose: PoseParameter = {
+    label: "cam1.cam_se3_rig",
+    camera: 1,
+    translation_m: [-0.12, 0.0001, 0],
+    rotation_deg: [0.01, -0.5, 0],
+    sigma: [est(0.01), est(0.02), est(0.03), est(0.0001), est(0.0002), est(0.0003)],
+  };
+  const reply: CameraParameters = {
+    cameras: [],
+    poses: [pose, { ...pose, label: "gripper_se3_rig", camera: null }],
+    planes: [
+      {
+        label: "cam1.plane",
+        camera: 1,
+        normal: [0, 0.6, 0.8],
+        distance_m: 0.5,
+        sigma: [
+          est(0.001),
+          est(0.001),
+          est(0.001),
+          { kind: "unavailable", reason: { kind: "fixed" } },
+        ],
+      },
+    ],
+  };
+
+  it("write a pose in millimetres and degrees, σ of its perturbation", () => {
+    const v = poseView(pose);
+    expect(v.translation).toBe("−120.000, 0.100, 0.000");
+    expect(v.rotation).toBe("0.0100, −0.5000, 0.0000");
+    expect(v.sigmaRotation).toBe("0.010, 0.020, 0.030");
+    expect(v.sigmaTranslation).toBe("0.10, 0.20, 0.30");
+    expect(v.reason).toBeNull();
+    const none = poseView({
+      ...pose,
+      sigma: pose.sigma.map(() => ({
+        kind: "unavailable" as const,
+        reason: { kind: "not_listed" as const },
+      })),
+    });
+    expect(none.sigmaRotation).toBe("–");
+    expect(none.reason).toMatch(/not among the estimated/);
+  });
+
+  it("write a plane's normal and distance with their σ", () => {
+    const v = planeView(reply.planes![0]!);
+    expect(v.normal).toBe("0.0000 ± 0.0010, 0.6000 ± 0.0010, 0.8000 ± 0.0010");
+    expect(v.distance).toBe("500 ·");
+    expect(v.reason).toBe("held fixed, not estimated");
+  });
+
+  it("belong to their camera or to none, and cover their labels", () => {
+    expect(sharedOf(reply, 0).poses.map((p) => p.label)).toEqual(["gripper_se3_rig"]);
+    expect(sharedOf(reply, 1).poses).toHaveLength(2);
+    expect(sharedOf(reply, 0).planes).toEqual([]);
+    const covered = coveredLabels(reply);
+    expect(covered.has("cam1.cam_se3_rig.tz")).toBe(true);
+    expect(covered.has("gripper_se3_rig.rx")).toBe(true);
+    expect(covered.has("cam1.plane.d")).toBe(true);
+    expect(covered.has("base_se3_target.rx")).toBe(false);
   });
 });

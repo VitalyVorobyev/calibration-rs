@@ -2,15 +2,24 @@
  * `value ± σ` with its unit, or the stated reason there is no σ. Pure. */
 import type {
   CameraParameter,
+  CameraParameters,
   CameraParameterSet,
   DistortionKind,
   ParameterCovariance,
   ParameterGroup,
+  ParameterSigma,
+  PlaneParameter,
+  PoseParameter,
   ProjectionKind,
   SensorKind,
   SigmaUnavailable,
 } from "../../api/generated/types";
-import { formatWithSigma, type Uncertainty } from "../../lib/format";
+import {
+  fixed,
+  formatWithSigma,
+  sigmaDecimals,
+  type Uncertainty,
+} from "../../lib/format";
 import { parameterRows, unavailableText, type ParameterRow } from "../../lib/uncertainty";
 
 /** The groups in the order the tab lists them. A group the back end may add
@@ -88,16 +97,26 @@ export function describeSigmaUnavailable(reason: SigmaUnavailable): string {
   }
 }
 
+/** Why a σ is missing; `null` when there is one. */
+function missingReason(sigma: ParameterSigma): string | null {
+  return sigma.kind === "estimated" ? null : describeSigmaUnavailable(sigma.reason);
+}
+
 /** Why a parameter has no σ; `null` when it has one. */
 export function sigmaReason(p: CameraParameter): string | null {
-  return p.sigma.kind === "estimated" ? null : describeSigmaUnavailable(p.sigma.reason);
+  return missingReason(p.sigma);
+}
+
+/** A σ as `formatWithSigma` takes it, times `scale`. */
+function uncertaintyOfSigma(sigma: ParameterSigma, scale = 1): Uncertainty {
+  if (sigma.kind === "estimated") return { kind: "sigma", sigma: sigma.sigma * scale };
+  if (sigma.reason.kind === "fixed") return { kind: "fixed" };
+  return { kind: "unavailable", reason: missingReason(sigma) ?? "unavailable" };
 }
 
 /** The σ of a parameter as `formatWithSigma` takes it. */
 export function uncertaintyOf(p: CameraParameter): Uncertainty {
-  if (p.sigma.kind === "estimated") return { kind: "sigma", sigma: p.sigma.sigma };
-  if (p.sigma.reason.kind === "fixed") return { kind: "fixed" };
-  return { kind: "unavailable", reason: sigmaReason(p) ?? "unavailable" };
+  return uncertaintyOfSigma(p.sigma);
 }
 
 /** A parameter as shown: radians are written in degrees (the sensor tilt),
@@ -160,10 +179,89 @@ export function parametersJson(set: CameraParameterSet): string {
   );
 }
 
-/** The shared parameters of the covariance that are no camera's own (a
- * rig's camera-to-rig pose, a hand-eye pose, a laser plane), as σ-only rows:
- * their covariance is over a perturbation of the pose, so there is no value
- * to write. Of `camera`: its own `cam<n>.` poses and those of no camera. */
+/** A pose as the Pose table writes it: translation in millimetres, the
+ * axis-angle rotation in degrees, and the σ of the perturbation the
+ * covariance is over (about the `from` frame's axes in degrees, along them
+ * in millimetres), or why there is none. */
+export interface PoseView {
+  label: string;
+  translation: string;
+  rotation: string;
+  sigmaRotation: string;
+  sigmaTranslation: string;
+  reason: string | null;
+}
+
+/** Three σ at the decimals of the smallest, or `–` when one is missing. */
+function sigmaTriple(sigmas: readonly ParameterSigma[], scale: number): string {
+  const values = sigmas.map((s) => (s.kind === "estimated" ? s.sigma * scale : null));
+  if (values.length !== 3 || values.some((v) => v === null)) return "–";
+  const decimals = sigmaDecimals(Math.min(...(values as number[])));
+  return values.map((v) => fixed(v!, decimals)).join(", ");
+}
+
+export function poseView(pose: PoseParameter): PoseView {
+  return {
+    label: pose.label,
+    translation: pose.translation_m.map((t) => fixed(t * 1000, 3)).join(", "),
+    rotation: pose.rotation_deg.map((r) => fixed(r, 4)).join(", "),
+    sigmaRotation: sigmaTriple(pose.sigma.slice(0, 3), 1),
+    sigmaTranslation: sigmaTriple(pose.sigma.slice(3, 6), 1000),
+    reason: pose.sigma.map(missingReason).find((r) => r !== null) ?? null,
+  };
+}
+
+/** A laser plane as the Plane table writes it: each normal component and
+ * the distance (millimetres) `± σ`, or why there is none. */
+export interface PlaneView {
+  label: string;
+  normal: string;
+  distance: string;
+  reason: string | null;
+}
+
+export function planeView(plane: PlaneParameter): PlaneView {
+  const sigma = (i: number, scale = 1) => {
+    const s = plane.sigma[i];
+    return s ? uncertaintyOfSigma(s, scale) : null;
+  };
+  return {
+    label: plane.label,
+    normal: plane.normal.map((n, i) => formatWithSigma(n, sigma(i)).text).join(", "),
+    distance: formatWithSigma(plane.distance_m * 1000, sigma(3, 1000)).text,
+    reason: plane.sigma.map(missingReason).find((r) => r !== null) ?? null,
+  };
+}
+
+/** The poses and planes of `camera`: its own pose in the rig and laser
+ * plane, and the poses of no camera (the hand-eye). */
+export function sharedOf(
+  reply: CameraParameters,
+  camera: number,
+): { poses: PoseParameter[]; planes: PlaneParameter[] } {
+  return {
+    poses: (reply.poses ?? []).filter((p) => p.camera == null || p.camera === camera),
+    planes: (reply.planes ?? []).filter((p) => p.camera === camera),
+  };
+}
+
+/** The covariance labels the reply's parameters, poses and planes cover. */
+export function coveredLabels(reply: CameraParameters): Set<string> {
+  const labels = reply.cameras.flatMap((c) => c.parameters.map((p) => p.label));
+  for (const pose of reply.poses ?? []) {
+    for (const c of ["rx", "ry", "rz", "tx", "ty", "tz"])
+      labels.push(`${pose.label}.${c}`);
+  }
+  for (const plane of reply.planes ?? []) {
+    for (const c of ["nx", "ny", "nz", "d"]) labels.push(`${plane.label}.${c}`);
+  }
+  return new Set(labels);
+}
+
+/** The shared parameters of the covariance that are no camera's own and no
+ * pose or plane of the reply (a target's pose), as σ-only rows: their
+ * covariance is over a perturbation of the pose, so there is no value to
+ * write. Of `camera`: its own `cam<n>.` poses and those of no camera. */
 export function otherRows(
   cov: ParameterCovariance,
   owned: ReadonlySet<string>,

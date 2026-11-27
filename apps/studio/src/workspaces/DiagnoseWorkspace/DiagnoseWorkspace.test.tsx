@@ -14,7 +14,8 @@
  * Fixtures are shared with the Playwright e2e specs via
  * `src/test/exportFixtures.ts` (see that module's header). The back end
  * is a mock transport (`api/transport/mock.ts`), the desktop app's kind, so
- * `useImageData`'s image URL resolves without a Tauri runtime.
+ * `useImageData`'s image URL resolves without a Tauri runtime; it answers
+ * the frame's residual statistics.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -47,9 +48,26 @@ const LASER_MANIFEST_EXPORT = {
 
 beforeEach(() => {
   // `useImageData` loads each frame by its URL; jsdom never fetches it,
-  // so the mock's stand-in will do. No command is expected on mount, but
-  // the mock makes the back end the desktop app's, as in the app.
-  setTransport(createMockTransport());
+  // so the mock's stand-in will do. The frame legend asks for the run's
+  // residual statistics.
+  setTransport(
+    createMockTransport({
+      commands: {
+        residual_stats: () => ({
+          cameras: [],
+          views: [],
+          cells: [
+            {
+              camera: 0,
+              view: 0,
+              stats: { count: 1, mean: 0.22, rms: 0.22, max: 0.22 },
+              unprojected: 0,
+            },
+          ],
+        }),
+      },
+    }),
+  );
 });
 
 afterEach(() => {
@@ -83,7 +101,7 @@ describe("DiagnoseWorkspace", () => {
     ).toBeTruthy();
   });
 
-  it("navigates an export without an image list by its residuals", () => {
+  it("navigates an export without an image list by its residuals", async () => {
     const diagnostics = {
       per_feature_residuals: PLANAR_EXPORT_FIXTURE.diagnostics.per_feature_residuals,
     };
@@ -100,8 +118,9 @@ describe("DiagnoseWorkspace", () => {
     const { container } = render(<DiagnoseWorkspace />);
     expect(screen.getByText(/This export has no image list/)).toBeTruthy();
     expect(container.querySelector('[aria-label="Frame viewer"]')).toBeNull();
-    // The frame's residual legend is still there; the image histogram is not.
-    expect(screen.getByText("mean 0.220 px")).toBeTruthy();
+    // The frame's residual legend is still there, with the back end's
+    // statistics of the frame; the image histogram is not.
+    expect(await screen.findByText("mean 0.220 px")).toBeTruthy();
     expect(screen.queryByText("histogram")).toBeNull();
   });
 

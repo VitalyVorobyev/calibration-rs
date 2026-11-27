@@ -164,6 +164,8 @@ function DatasetBody({ project }: { project: ProjectView }) {
             cameras={reply?.cameras ?? []}
             dataRoot={project.data_root}
             manifest={manifest}
+            pairsPoses={reply?.poses != null}
+            pairsLaser={reply?.laser_frames != null}
             onCamera={(camera) =>
               setSelection({ camera, view: selection.view, feature: null })
             }

@@ -1,3 +1,4 @@
+import { useStore } from "../../store";
 import type { AnyExport } from "../../store/types";
 import type { CursorReadout, FrameKey, LaserFeatureResidual } from "../../types";
 import { CursorChip, LaserResidualLegend, ResidualLegend } from "./ResidualLegends";
@@ -26,6 +27,7 @@ export function FrameFooter({
   histogram,
   cursor,
 }: FrameFooterProps) {
+  const run = useStore((s) => s.run);
   const inFrame = (r: { view: number; camera: number }) =>
     r.view === frame.pose && r.camera === frame.camera;
   const residuals = data.diagnostics.per_feature_residuals;
@@ -41,7 +43,7 @@ export function FrameFooter({
           hist={residuals.laser_hist_per_cam?.[camera]}
         />
       ) : (
-        <ResidualLegend residuals={residuals.target.filter(inFrame)} />
+        run && <ResidualLegend run={run} camera={frame.camera} view={frame.pose} />
       )}
       {frame.abs_path !== null && (
         <>

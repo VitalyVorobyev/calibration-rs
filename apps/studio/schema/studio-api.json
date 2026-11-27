@@ -200,7 +200,7 @@
       "args": {
         "$ref": "#/definitions/ProjectViewsArgs"
       },
-      "doc": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about.\n\nWith a `spec`, `dir` may also be a folder that is not a project yet (a\nnew project's data folder): the draft is then judged as a project in\nthat folder, its inline manifest's `root` read against it.",
+      "doc": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about. With\nrobot poses or laser images in the manifest, each view also names the\npose and the laser frames it pairs with, and what pairs with no view is\nlisted.\n\nWith a `spec`, `dir` may also be a folder that is not a project yet (a\nnew project's data folder): the draft is then judged as a project in\nthat folder, its inline manifest's `root` read against it.",
       "kind": "plain",
       "name": "project_views",
       "reply": {
@@ -354,7 +354,7 @@
       "args": {
         "$ref": "#/definitions/CameraParameterValuesArgs"
       },
-      "doc": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound.",
+      "doc": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound. Also the\nposes the run estimates (each camera's pose in a rig of several, the\nhand-eye: translation in metres, axis-angle rotation in degrees, the σ\nof the perturbation the covariance is over) and its laser planes (normal\nand distance with their σ).",
       "kind": "plain",
       "name": "camera_parameter_values",
       "reply": {
@@ -1175,7 +1175,7 @@
     },
     "CameraParameterValuesArgs": {
       "additionalProperties": false,
-      "description": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound.",
+      "description": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound. Also the\nposes the run estimates (each camera's pose in a rig of several, the\nhand-eye: translation in metres, axis-angle rotation in degrees, the σ\nof the perturbation the covariance is over) and its laser planes (normal\nand distance with their σ).",
       "properties": {
         "run": {
           "$ref": "#/definitions/RunRef"
@@ -1187,11 +1187,25 @@
       "type": "object"
     },
     "CameraParameters": {
-      "description": "Every camera's parameters, in camera order.",
+      "description": "Every camera's parameters, in camera order, and the poses and laser\nplanes the run estimates besides them.",
       "properties": {
         "cameras": {
           "items": {
             "$ref": "#/definitions/CameraParameterSet"
+          },
+          "type": "array"
+        },
+        "planes": {
+          "description": "Each camera's laser plane; absent for a run without a laser.",
+          "items": {
+            "$ref": "#/definitions/PlaneParameter"
+          },
+          "type": "array"
+        },
+        "poses": {
+          "description": "Each camera's pose in a rig of several cameras, then the hand-eye;\nabsent for one camera without a robot.",
+          "items": {
+            "$ref": "#/definitions/PoseParameter"
           },
           "type": "array"
         }
@@ -4711,6 +4725,22 @@
       ],
       "type": "object"
     },
+    "LaserFramePairing": {
+      "description": "What the laser frame pairing leaves over.",
+      "properties": {
+        "unpaired": {
+          "description": "The laser frames that pair with no view, by camera, each camera's in\nthe order its images sort.",
+          "items": {
+            "$ref": "#/definitions/UnpairedLaserFrameRef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "unpaired"
+      ],
+      "type": "object"
+    },
     "LaserLineTrace": {
       "description": "The calibrated laser line in one view's image.",
       "properties": {
@@ -5693,6 +5723,50 @@
       ],
       "type": "object"
     },
+    "PlaneParameter": {
+      "description": "A camera's laser plane, in the camera's frame.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "distance_m": {
+          "description": "The signed distance from the camera centre, metres.",
+          "format": "double",
+          "type": "number"
+        },
+        "label": {
+          "description": "Its name (`plane`, `cam1.plane`): its labels in the export's\nuncertainty are `<label>.nx`, `.ny`, `.nz` and `.d`.",
+          "type": "string"
+        },
+        "normal": {
+          "description": "The unit normal.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "sigma": {
+          "description": "The σ of `nx`, `ny`, `nz` (unitless; the covariance of a unit normal\nhas rank 2) and of the distance (metres).",
+          "items": {
+            "$ref": "#/definitions/ParameterSigma"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "camera",
+        "normal",
+        "distance_m",
+        "sigma"
+      ],
+      "type": "object"
+    },
     "PointRejection": {
       "description": "Why a point candidate was left out.",
       "oneOf": [
@@ -5883,6 +5957,80 @@
           "type": "object"
         }
       ]
+    },
+    "PoseParameter": {
+      "description": "A rigid pose the run estimates: a camera's pose in the rig, or the\nhand-eye.",
+      "properties": {
+        "camera": {
+          "description": "The camera whose pose in the rig it is; `null` for the hand-eye.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "Its name, `<to>_se3_<from>` (`cam1.cam_se3_rig`, `gripper_se3_rig`,\n`rig_se3_base`): its labels in the export's uncertainty are\n`<label>.rx … <label>.tz`.",
+          "type": "string"
+        },
+        "rotation_deg": {
+          "description": "The rotation as an axis-angle vector, degrees: along the axis, as\nlong as the angle.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "sigma": {
+          "description": "The σ of `[rx, ry, rz, tx, ty, tz]`, the right perturbation\n`pose·Exp(δ)` the covariance is over: small rotations about the\n`from` frame's axes in degrees, then small translations along them\nin metres. Not the σ of `rotation_deg`'s or `translation_m`'s\ncomponents, which the covariance does not give.",
+          "items": {
+            "$ref": "#/definitions/ParameterSigma"
+          },
+          "type": "array"
+        },
+        "translation_m": {
+          "description": "The translation, metres: the `from` frame's origin in the `to`\nframe.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "translation_m",
+        "rotation_deg",
+        "sigma"
+      ],
+      "type": "object"
+    },
+    "PoseRef": {
+      "description": "One pose of the manifest's robot pose file.",
+      "properties": {
+        "id": {
+          "description": "Its `pose_id`, when the manifest maps a `pose_id` column.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "description": "Its zero-based position among the file's poses (a CSV's header\nexcluded), as a pose parse error names it.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index"
+      ],
+      "type": "object"
     },
     "ProblemKind": {
       "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
@@ -6283,12 +6431,34 @@
           },
           "type": "array"
         },
+        "laser_frames": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LaserFramePairing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How the views pair with the cameras' laser frames (each view's\n`laser_frames`); absent when no camera declares laser images, or\nwhen they cannot be listed (a message says why)."
+        },
         "messages": {
           "description": "What a run would refuse, each with the field it is about when there\nis one; empty when the project would run.",
           "items": {
             "$ref": "#/definitions/StudioError"
           },
           "type": "array"
+        },
+        "poses": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RobotPosePairing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How the views pair with the manifest's robot poses (each view's\n`pose`); absent when the manifest declares none, or when the pose\nfile cannot be listed (a message says why)."
         },
         "views": {
           "description": "The views, in pairing order; empty when the images cannot be\nlisted or paired (a message says why).",
@@ -6307,7 +6477,7 @@
     },
     "ProjectViewsArgs": {
       "additionalProperties": false,
-      "description": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about.\n\nWith a `spec`, `dir` may also be a folder that is not a project yet (a\nnew project's data folder): the draft is then judged as a project in\nthat folder, its inline manifest's `root` read against it.",
+      "description": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about. With\nrobot poses or laser images in the manifest, each view also names the\npose and the laser frames it pairs with, and what pairs with no view is\nlisted.\n\nWith a `spec`, `dir` may also be a folder that is not a project yet (a\nnew project's data folder): the draft is then judged as a project in\nthat folder, its inline manifest's `root` read against it.",
       "properties": {
         "dir": {
           "$ref": "#/definitions/UserPath"
@@ -8595,6 +8765,22 @@
         }
       ]
     },
+    "RobotPosePairing": {
+      "description": "What the robot pose pairing leaves over.",
+      "properties": {
+        "unpaired": {
+          "description": "The poses that pair with no view, in file order.",
+          "items": {
+            "$ref": "#/definitions/PoseRef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "unpaired"
+      ],
+      "type": "object"
+    },
     "RobotPoseSigma": {
       "description": "A robot's pose error: the standard deviations of the tool's orientation\nerror about each gripper axis and of its position error along each.",
       "properties": {
@@ -10649,6 +10835,33 @@
         }
       ]
     },
+    "UnpairedLaserFrameRef": {
+      "description": "A laser frame that pairs with no view.",
+      "properties": {
+        "camera": {
+          "description": "Index of the camera in the manifest's `cameras`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image": {
+          "description": "The laser image, as `images` names images.",
+          "type": "string"
+        },
+        "token": {
+          "description": "The pairing token it carries: its index among the camera's laser\nimages under index pairing, the token its file name yields under\ntoken pairing; absent when the file name yields none. A token of a\nview belongs to a view another frame of the camera pairs with.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "camera",
+        "image"
+      ],
+      "type": "object"
+    },
     "UnrecordedRun": {
       "description": "A run of the desktop app's earlier format.",
       "properties": {
@@ -10839,6 +11052,27 @@
             ]
           },
           "type": "array"
+        },
+        "laser_frames": {
+          "description": "Each camera's laser frame in the view, as `images` names images;\n`null` where a camera has none. Empty when the reply has no\n`laser_frames`.",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "pose": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PoseRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The robot pose the view pairs with; absent when none does, or when\nthe reply has no `poses`."
         },
         "token": {
           "description": "Its pairing token (the view's index under index pairing).",
