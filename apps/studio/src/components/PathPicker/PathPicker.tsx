@@ -150,7 +150,17 @@ function PathPicker({
           No folders yet: Calibration Studio reads only the folders you add.
         </Empty>
       ) : (
-        <div className="max-h-[50vh] overflow-y-auto rounded-control border border-line">
+        <div
+          className="max-h-[50vh] overflow-y-auto rounded-control border border-line"
+          // On the whole row, not its text: the first click of a double click
+          // has selected the entry under the pointer.
+          onDoubleClick={(event) => {
+            if (!(event.target as HTMLElement).closest('[role="option"]')) return;
+            if (chosen === null) return;
+            if (selectable(chosen, mode) && chosen.kind === "file") onAnswer(chosen.path);
+            else open(chosen);
+          }}
+        >
           <Listbox
             aria-label="Entries"
             value={selected}
@@ -162,16 +172,7 @@ function PathPicker({
               disabled: e.kind === "file" && !selectable(e, mode),
             }))}
             renderOption={(option) => (
-              <span
-                className="flex items-center justify-between gap-3 font-mono text-[12px]"
-                onDoubleClick={() => {
-                  const entry = entries.find((e) => e.path === option.value);
-                  if (!entry) return;
-                  if (selectable(entry, mode) && entry.kind === "file")
-                    onAnswer(entry.path);
-                  else open(entry);
-                }}
-              >
+              <span className="flex items-center justify-between gap-3 font-mono text-[12px]">
                 <span className="truncate">{option.label}</span>
                 {option.description && (
                   <span className="text-[10px] text-fg-muted uppercase">
