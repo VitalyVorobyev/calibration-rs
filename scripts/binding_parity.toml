@@ -273,6 +273,8 @@
 "dataset_runner::detect_target" = "detect_target"
 "dataset_runner::detect_target_detail" = "dataset_runner.detect_target_detail"
 "dataset_runner::detection_detail" = "dataset_runner.detection_detail"
+"dataset_runner::cached_detection" = "dataset_runner.cached_detection"
+"dataset_runner::CachedDetection" = "dataset_runner.cached_detection"
 "detect::DetectionDetail" = "DetectionDetail"
 "detect::DetectionOutcome" = "types.DetectionOutcome"
 "detect::TargetDetail" = "types.TargetDetail"

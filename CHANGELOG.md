@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `dataset_runner::cached_detection` tells what the detection cache holds
+  for one image of a manifest without detecting or decoding it: `None` when
+  a run would detect the image, else the cached features' count and the
+  outcome of a stored detection detail (`CachedDetection`). It reads the
+  image file for the cache key a run uses (its bytes with the detector, its
+  configuration and the camera's region of interest), and the cache.
+  Python: `dataset_runner.cached_detection`.
+
 - The errors of checking a manifest or project name the field they are
   about: `field()` on `dataset::ValidationError`, `dataset::ManifestError`,
   `dataset_runner::RunError`, `dataset_runner::CalibrateDatasetError` and

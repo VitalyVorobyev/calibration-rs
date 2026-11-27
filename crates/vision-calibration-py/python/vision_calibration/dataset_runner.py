@@ -29,7 +29,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -96,6 +96,7 @@ __all__ = [
     "input_files",
     "detect_target",
     "detect_target_detail",
+    "cached_detection",
     "detection_detail",
     "patched_config",
 ]
@@ -857,4 +858,43 @@ def detection_detail(
             _cache_arg(cache),
             force_redetect,
         )
+    )
+
+
+def cached_detection(
+    manifest: Manifest,
+    camera: int,
+    image: str | os.PathLike[str],
+    cache: FsDetectionCache,
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any] | None:
+    """What ``cache`` holds for one image, without detecting it.
+
+    ``image`` is one of camera ``camera``'s target images (a relative path
+    resolves against ``base_dir``, which defaults to the manifest file's
+    directory). Returns ``None`` when a run of the manifest through
+    ``cache`` would detect the image, else ``{"feature_count",
+    "detail_outcome"}``: how many features the cached detection holds, and
+    the outcome of the detail stored beside them (the
+    :func:`detection_detail` reused without detecting), or ``None`` when
+    there is none. The image file is read for its cache key (its bytes with
+    the detector, its configuration and the camera's region of interest, as
+    a run keys it); nothing is decoded, detected or written.
+
+    Raises
+    ------
+    RunError
+        The image is not one of the camera's (``kind`` is
+        ``"image_not_in_dataset"``), or it or a cache entry cannot be read.
+    """
+    return cast(
+        "dict[str, Any] | None",
+        _native.cached_detection(
+            _manifest_arg(manifest),
+            camera,
+            os.fspath(image),
+            _cache_arg(cache),
+            _base_dir_arg(base_dir),
+        ),
     )

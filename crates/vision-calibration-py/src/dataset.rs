@@ -513,6 +513,38 @@ pub(crate) fn detection_detail<'py>(
     detail_parts(py, &detail)
 }
 
+/// `dataset_runner::cached_detection`: what `cache` holds for camera
+/// `camera`'s image `image`, `{"feature_count", "detail_outcome"}`, or
+/// `None` when a run would detect it.
+#[pyfunction]
+#[pyo3(signature = (manifest, camera, image, cache, base_dir=None))]
+pub(crate) fn cached_detection(
+    py: Python<'_>,
+    manifest: &Bound<'_, PyAny>,
+    camera: usize,
+    image: PathBuf,
+    cache: PyRef<'_, PyFsDetectionCache>,
+    base_dir: Option<PathBuf>,
+) -> PyResult<Py<PyAny>> {
+    #[derive(serde::Serialize)]
+    struct Cached {
+        feature_count: usize,
+        detail_outcome: Option<vision_calibration::detect::DetectionOutcome>,
+    }
+    let (spec, base) = resolve_manifest(manifest, base_dir)?;
+    let store = cache.inner().clone();
+    let cached = py
+        .detach(|| runner::cached_detection(&spec, &base, camera, &image, &store))
+        .map_err(|err| run_err(py, err))?;
+    to_py(
+        py,
+        &cached.map(|c| Cached {
+            feature_count: c.feature_count,
+            detail_outcome: c.detail_outcome,
+        }),
+    )
+}
+
 target_converter!(build_planar_input);
 target_converter!(build_single_cam_handeye_input);
 target_converter!(build_rig_extrinsics_input);
@@ -528,6 +560,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(camera_image_sizes, m)?)?;
     m.add_function(wrap_pyfunction!(input_files, m)?)?;
     m.add_function(wrap_pyfunction!(detection_detail, m)?)?;
+    m.add_function(wrap_pyfunction!(cached_detection, m)?)?;
     m.add_function(wrap_pyfunction!(vcal_main, m)?)?;
     m.add_function(wrap_pyfunction!(sample_catalogue, m)?)?;
     m.add_function(wrap_pyfunction!(fetch_sample, m)?)?;

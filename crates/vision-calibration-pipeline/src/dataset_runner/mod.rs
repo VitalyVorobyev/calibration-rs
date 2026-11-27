@@ -12,7 +12,8 @@
 //! image-wide analyses take; [`input_files`] lists every file a run reads.
 //! [`detection_detail`] returns what a run's detection of one image looked
 //! like, for review: the per-feature overlay data, the candidates left out
-//! and the image's outcome.
+//! and the image's outcome; [`cached_detection`] says what the detection
+//! cache holds for one image, without detecting.
 //!
 //! Converters, for a run driven step by step:
 //! - [`build_planar_input`] — `PlanarIntrinsics` (any camera model)
@@ -71,9 +72,9 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
-    CornerCovariance, CornerStrategy, DetectionCache, DetectionDetail, DetectorConfig, Feature,
-    GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod, RinggridCoding,
-    RinggridConfig, RinggridLattice, validate_charuco_layout,
+    CornerCovariance, CornerStrategy, DetectionCache, DetectionDetail, DetectionOutcome,
+    DetectorConfig, Feature, GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod,
+    RinggridCoding, RinggridConfig, RinggridLattice, validate_charuco_layout,
 };
 
 mod board_turn;
@@ -732,6 +733,75 @@ pub fn detection_detail(
     image: &Path,
     detection: Detection<'_>,
 ) -> Result<DetectionDetail, RunError> {
+    let (config, roi, path) = dataset_image(spec, base_dir, camera, image)?;
+    cached_or_detected_detail(&config, roi, &path, detection)
+}
+
+/// What a detection cache holds for one image of a manifest: see
+/// [`cached_detection`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct CachedDetection {
+    /// How many features the cached detection holds; 0 for an image in
+    /// which the detector found no target.
+    pub feature_count: usize,
+    /// The outcome of the detection detail stored beside the features, when
+    /// one is stored and holds the same features: the detail
+    /// [`detection_detail`] returns without detecting. `None` when the
+    /// cache holds no such detail.
+    pub detail_outcome: Option<DetectionOutcome>,
+}
+
+/// What `cache` holds for camera `camera`'s target image `image` of a
+/// manifest run (relative paths resolve against `base_dir`): `None` when a
+/// run of `spec` through `cache` would detect the image, else the cached
+/// features' count and the outcome of a stored detail.
+///
+/// Nothing is detected or decoded and nothing is written. The image file is
+/// read, since the cache key is the hash of its bytes with the detector,
+/// its configuration and the camera's region of interest, exactly as a run
+/// and [`detection_detail`] key it; the cache's features entry and, when
+/// present, its detail entry are read.
+///
+/// # Errors
+///
+/// As [`detection_detail`] before it detects: [`RunError::Validation`] for
+/// an invalid manifest, [`RunError::ImageNotInDataset`] for a camera index
+/// out of range or an image not among that camera's, [`RunError::Io`] when
+/// the image cannot be read, [`RunError::Cache`] when an entry cannot be
+/// read.
+pub fn cached_detection(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    camera: usize,
+    image: &Path,
+    cache: &dyn DetectionCache,
+) -> Result<Option<CachedDetection>, RunError> {
+    let (config, roi, path) = dataset_image(spec, base_dir, camera, image)?;
+    let bytes = std::fs::read(&path)?;
+    let key = CacheKey::for_detection(&bytes, &config, roi);
+    let Some(entry) = cache.get(&key)? else {
+        return Ok(None);
+    };
+    let detail_outcome = cache
+        .get_detail(&key)?
+        .filter(|detail| detail.features == entry.features)
+        .map(|detail| detail.outcome);
+    Ok(Some(CachedDetection {
+        feature_count: entry.features.len(),
+        detail_outcome,
+    }))
+}
+
+/// The detector config, region of interest and resolved path of camera
+/// `camera`'s target image `image` of a validated manifest: what a run
+/// detects that image with.
+fn dataset_image(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    camera: usize,
+    image: &Path,
+) -> Result<(DetectorConfig, Option<[u32; 4]>, PathBuf), RunError> {
     let config = target_to_detector_config(spec)?;
     vision_calibration_dataset::validate(spec)?;
     let not_in_dataset = || RunError::ImageNotInDataset {
@@ -744,7 +814,7 @@ pub fn detection_detail(
         .into_iter()
         .find(|path| lexical_absolute(path) == wanted)
         .ok_or_else(not_in_dataset)?;
-    cached_or_detected_detail(&config, source.roi_xywh, &path, detection)
+    Ok((config, source.roi_xywh, path))
 }
 
 /// [`cached_or_detected`] for the detail: the stored detail when it matches
