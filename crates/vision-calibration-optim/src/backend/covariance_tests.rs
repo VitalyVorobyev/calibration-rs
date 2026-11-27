@@ -231,7 +231,7 @@ fn planar_covariance_holds_under_outliers() {
 /// Both backends report the same covariance and noise level, with and
 /// without a robust loss. Solved to tight tolerances, so both stop at the
 /// same minimum: under a robust loss their steps differ (Triggs vs IRLS),
-/// and the default tolerances leave the optima 1e-5 apart.
+/// and the default rule leaves each within 0.01σ of it, not at one point.
 #[test]
 fn covariance_agrees_across_backends() {
     let scene = planar_scene();
@@ -240,6 +240,7 @@ fn covariance_agrees_across_backends() {
         max_abs_px: 0.5,
     };
     let tight = |backend| BackendSolveOptions {
+        sigma_tolerance: 0.0,
         min_abs_decrease: Some(0.0),
         min_rel_decrease: Some(1e-14),
         max_iters: 200,

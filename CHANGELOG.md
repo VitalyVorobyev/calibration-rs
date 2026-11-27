@@ -465,6 +465,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Results move.** A Levenberg–Marquardt solve stops when it is within a
+  hundredth of a standard deviation of its minimum, on both backends: the
+  Gauss–Newton step still to make, in the Mahalanobis norm of the
+  solution's covariance, is at most 0.01, so no parameter is further than
+  0.01 of its σ (corrected by the step's gain ratio under a robust loss).
+  The new reason is `SolveTermination::SigmaStep` (`"sigma_step"`). The
+  rules on the last step's decrease, below 10⁻⁵ of the cost or 10⁻⁵ in
+  absolute terms (`min_rel_decrease`, `min_abs_decrease`), no longer stop
+  a solve: they allowed a last step of `√(10⁻⁵ (m − n))` σ, half a σ with
+  28 000 residuals, and a step shortened by the damping or by a robust
+  loss's reweighting left more. On the regression suite 39 of 102 solves
+  ended more than 0.01σ from their minimum, 9 more than 0.1σ, the farthest
+  0.85σ; now none ends more than 0.0015σ away, and a solve restarted from
+  its result moves less than 0.002σ. Results change from the previous
+  release by up to 0.093σ (rig hand-eye, rig bundle adjustment), and by
+  1.03σ in the single-camera hand-eye with estimated robot-pose priors,
+  whose re-weighting iteration had stopped on a stalled solve. Solves take
+  about 45 % more iterations. Where a weakly determined parameter lies
+  along a long valley (a Scheimpflug tilt under weak distortion), a solve
+  no longer stops short of the minimum (up to 0.66σ before), and the
+  stated σ there now agrees with the scatter of repeated calibrations
+  (ratio 1.03–1.15, was 0.69–0.82). A coordinate held on its bound is held
+  out of the measure, so such a solve still converges. A solve that makes
+  no headway, a step moving it less than 0.001σ short of the minimum, stops
+  as `SolveTermination::StalledStep` (`"stalled_step"`). Where a parameter
+  is undetermined (a Scheimpflug tilt without lens distortion) a solve can
+  now run to its iteration budget and report its covariance unavailable,
+  where it used to stop early in the valley and report one.
+
 - The HTML report's "mean error by image region" figure (errors binned at
   the observed pixel) is replaced by two figures from one residual map: the
   systematic error `observed − projected`, greyed where it is not

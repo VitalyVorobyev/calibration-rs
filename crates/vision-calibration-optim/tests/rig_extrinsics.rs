@@ -177,6 +177,7 @@ fn stereo_rig_extrinsics_converges() {
         max_iters: 50,
         verbosity: 0,
         min_abs_decrease: Some(1e-10),
+        sigma_tolerance: 0.0,
         min_rel_decrease: Some(1e-10),
         min_error: Some(1e-12),
         ..Default::default()
@@ -395,6 +396,7 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
             let backend_opts = BackendSolveOptions {
                 max_iters: 100,
                 min_abs_decrease: Some(1e-14),
+                sigma_tolerance: 0.0,
                 min_rel_decrease: Some(1e-14),
                 min_error: Some(1e-16),
                 ..Default::default()

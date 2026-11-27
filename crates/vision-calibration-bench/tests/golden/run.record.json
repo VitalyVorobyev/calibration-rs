@@ -9,7 +9,7 @@
       "inputs": "sha256:a95eb8bc83ae9df011e4af3c611bf653d5cd5177bc9bce670b11cf6dad8bc72c",
       "quality": "sha256:1e426ba79481778a0c14f6fc4a607d403ebfe193464f3a97be83bf976d997938"
     },
-    "duration_ms": 17,
+    "duration_ms": 16,
     "inputs": {
       "config": {
         "config": {
@@ -149,7 +149,7 @@
     "kind": "planar_intrinsics",
     "verdict": "warn"
   },
-  "timestamp": 1795690983,
+  "timestamp": 1795809126,
   "tool": "golden",
   "version": 1
 }

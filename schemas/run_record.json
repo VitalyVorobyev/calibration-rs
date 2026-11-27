@@ -3063,7 +3063,7 @@
       "oneOf": [
         {
           "const": "tiny_solver",
-          "description": "`tiny-solver`: forward-mode dual numbers on the stack, each residual\nblock differentiated in passes of four directions; a robust loss\nenters through the Triggs correction (second-order exact).",
+          "description": "`tiny-solver`: forward-mode dual numbers on the stack, each residual\nblock differentiated in passes of four directions; a robust loss\nenters through the Triggs correction (second-order exact) where\n`ρ″ > 0`, and as iterative reweighting where `ρ″ ≤ 0`, as in Ceres.",
           "type": "string"
         },
         {

@@ -97,11 +97,15 @@ fn make_dataset(sensor: ScheimpflugParams) -> PlanarDataset {
     PlanarDataset::new(views).expect("dataset")
 }
 
+/// [`make_dataset`]'s views with deterministic noise, through a lens with
+/// barrel distortion (`k1 = −0.1`): only the distortion, centred on the
+/// lens axis, observes a sensor tilt, so without it the noisy tilt is
+/// undetermined (its σ about 0.25 rad here).
 fn make_noisy_dataset(sensor: ScheimpflugParams, noise_px: f64) -> PlanarDataset {
     let camera = Camera::new(
         Pinhole,
         BrownConrady5 {
-            k1: 0.0,
+            k1: -0.1,
             k2: 0.0,
             k3: 0.0,
             p1: 0.0,
@@ -448,6 +452,17 @@ fn public_api_converges_with_deterministic_noise() {
     };
     assert!((sensor.tilt_x - sensor_gt.tilt_x).abs() < 0.03);
     assert!((sensor.tilt_y - sensor_gt.tilt_y).abs() < 0.03);
+    let cov = result
+        .uncertainty
+        .covariance()
+        .expect("a converged solve's covariance");
+    for (label, est, truth) in [
+        ("tilt_x", sensor.tilt_x, sensor_gt.tilt_x),
+        ("tilt_y", sensor.tilt_y, sensor_gt.tilt_y),
+    ] {
+        let z = (est - truth).abs() / cov.std_dev(label).unwrap();
+        assert!(z < 5.0, "{label}: {z:.2} σ off the truth");
+    }
 }
 
 #[test]

@@ -14,12 +14,12 @@
     },
     {
       "const": "min_abs_decrease",
-      "description": "An accepted step lowered the cost by less than `min_abs_decrease`\n(10⁻⁵).",
+      "description": "An accepted step lowered the cost by less than `min_abs_decrease`.\nOff by default.",
       "type": "string"
     },
     {
       "const": "min_rel_decrease",
-      "description": "An accepted step lowered the cost by less than `min_rel_decrease`\n(10⁻⁵) of the cost before it.",
+      "description": "An accepted step lowered the cost by less than `min_rel_decrease`\nof the cost before it. Off by default.",
       "type": "string"
     },
     {
@@ -35,6 +35,16 @@
     {
       "const": "all_parameters_fixed",
       "description": "Every parameter is fixed: no iteration ran.",
+      "type": "string"
+    },
+    {
+      "const": "sigma_step",
+      "description": "The solution is within a hundredth of its standard deviation of the\nminimum: the Gauss–Newton step left to it, in the Mahalanobis norm\nof the solution's covariance, is at most `0.01`, and so is the\nchange it would make to any one parameter in units of that\nparameter's σ. The step is taken when it lowers the cost.",
+      "type": "string"
+    },
+    {
+      "const": "stalled_step",
+      "description": "An accepted step moved the solution by less than a thousandth of its\nstandard deviation while the step to the minimum was still longer\nthan a hundredth: progress has stalled, along a long curved valley\nof a weakly determined parameter or against a bound. The solution\nis near the minimum only as far as that progress shows; its\ncovariance is computed, and a weak parameter shows in it.",
       "type": "string"
     }
   ],

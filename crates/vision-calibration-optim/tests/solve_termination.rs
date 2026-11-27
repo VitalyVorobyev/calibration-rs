@@ -1,7 +1,7 @@
 //! Why a solve stopped, through the public result of `problem::solve`, on
 //! both linearization engines: convergence by a stopping rule, the same
-//! rule met on the last allowed iteration, the iteration budget, no
-//! accepted step and nothing to solve. A cancelled solve and a residual
+//! rule met on the last allowed iteration, the iteration budget, a
+//! coordinate held on its bound and nothing to solve. A cancelled solve and a residual
 //! that is not differentiable at the parameters are still errors, and a
 //! report written without the reason reads back as unknown.
 
@@ -159,9 +159,10 @@ fn nothing_free_is_all_parameters_fixed() {
 
 /// A point held on its bound, `x ≤ 0`, by a fixed camera that sees it a
 /// thousand metres to the right: every step is clamped back onto the
-/// bound, so none lowers the cost.
+/// bound. With the coordinate held there is no step left to the minimum the
+/// bound allows, so the solve stops on its first iteration at the bound.
 #[test]
-fn a_step_clamped_on_its_bound_is_no_accepted_step() {
+fn a_coordinate_held_on_its_bound_is_at_its_minimum() {
     let cam_params = camera(820.0, 810.0, 640.0, 360.0, 0.0);
     let mut problem = Problem::new();
     let cam = problem
@@ -196,7 +197,7 @@ fn a_step_clamped_on_its_bound_is_no_accepted_step() {
         let solution = run(&problem, backend, 100);
         assert_eq!(
             solution.report.termination,
-            Some(SolveTermination::NoAcceptedStep),
+            Some(SolveTermination::SigmaStep),
             "{backend:?}"
         );
         assert_eq!(solution.report.num_iters, 1, "{backend:?}");
@@ -249,6 +250,8 @@ fn the_reason_round_trips_and_an_old_report_reads_as_unknown() {
         (SolveTermination::NoAcceptedStep, "no_accepted_step"),
         (SolveTermination::MaxIters, "max_iters"),
         (SolveTermination::AllParametersFixed, "all_parameters_fixed"),
+        (SolveTermination::SigmaStep, "sigma_step"),
+        (SolveTermination::StalledStep, "stalled_step"),
     ] {
         assert_eq!(serde_json::to_value(reason).unwrap(), wire);
     }

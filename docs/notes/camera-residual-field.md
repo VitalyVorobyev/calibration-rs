@@ -70,6 +70,16 @@ plain-model data, 20 views, 4-fold held-out, two seeds:
 | field 2–4, at the projection | 0.0989 / 0.0981 | −0.4152 | −0.0960 |
 | field 2–4, at the observation | **0.0881 / 0.0893** | −4.12 | −0.044 |
 
+Since the loop stops on the distance to the minimum in σ (`lm-stopping.md`),
+the pinned test of this (`a_field_at_the_observation_contracts_the_noise`,
+10 views, field degree 4) shows the field at the projection trading with
+`k1` along a flat valley: `k1` −0.474 against −0.415 after 100 iterations
+without reaching the minimum, the cost 0.3 % lower (*measured*). The old
+rule had stopped it near its start. The contrast stands (−0.06 against
+more than 1 at the observation); whether the 20-view row above moves
+under the new rule is not re-measured (*hypothesis*: little, the valley
+being shorter with more views; rerun `--parts gen` to decide).
+
 The joint target study had the same form; its corrected rows are below.
 
 ## Held-out results

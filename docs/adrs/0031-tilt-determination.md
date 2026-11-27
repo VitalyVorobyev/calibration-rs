@@ -51,8 +51,9 @@ For a camera whose sensor is Scheimpflug, under `TiltPolicy::Determine`:
    `p1, p2` **free**: the tilt comes from the prior and the data, the
    decentring from the data. `source = Prior`. This solve runs in the
    gauge-aligned coordinates (`K'`, sensor-frame poses) or under the
-   σ-unit stopping rule (SOLVER-VALLEY-STOP): in the raw ones it stops a
-   σ short of the posterior mean.
+   σ-unit stopping rule (the loop's default, `notes/lm-stopping.md`):
+   under the old decrease rule, in the raw ones, it stopped a σ short of
+   the posterior mean.
 6. **Not determined, no prior** → if the data reject the plain camera
    against tilt-plus-decentring (`LR = (cost_plain − cost_both)·dof/cost_both`
    above the 99 % point of χ²₂, 9.21), the tilted fit with a warning

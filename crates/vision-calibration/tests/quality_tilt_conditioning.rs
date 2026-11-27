@@ -27,7 +27,7 @@ use vision_calibration::common::IntrinsicsManualInit;
 use vision_calibration::core::{
     BrownConrady5, CameraParams, CorrespondenceView, DistortionKind, DistortionParams, FxFyCxCy,
     Iso3, PlanarDataset, ProjectionParams, Pt2, ScheimpflugParams, SensorKind, SensorParams,
-    Uncertainty, Vec2, View,
+    Uncertainty, UncertaintyUnavailable, Vec2, View,
 };
 use vision_calibration::optim::SolverBackend;
 use vision_calibration::planar_intrinsics::{
@@ -503,10 +503,30 @@ fn zero_distortion_leaves_scheimpflug_tilt_unobservable() {
         corner_distortion: 0.0,
         ..Cell::BASELINE
     };
+    // Without distortion nothing observes the tilt: it trades against the
+    // principal point along a long, curved valley whose floor ends on the
+    // principal point's bound. The solve crawls along it and does not reach
+    // its minimum within the budget, so the result states no covariance
+    // (and claims no determined tilt); it once stopped early in the valley
+    // and reported one, with the tilt's σ inflated sevenfold.
     for backend in BACKENDS {
-        let (check, tilt) = run(&cell, backend);
-        assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
-        assert!(tilt > 7.0, "tilt_x ×{tilt:.2}");
-        assert!(check.subjects.contains(&"tilt_x".to_string()));
+        let export = calibrate(&cell, cell.free, backend);
+        let check = conditioning(&export);
+        assert_eq!(
+            check.status,
+            CheckStatus::NotApplicable,
+            "{}",
+            check.message
+        );
+        assert!(
+            matches!(
+                &export.uncertainty,
+                Uncertainty::Unavailable {
+                    reason: UncertaintyUnavailable::NotConverged
+                }
+            ),
+            "{backend:?}: {:?}",
+            export.uncertainty
+        );
     }
 }

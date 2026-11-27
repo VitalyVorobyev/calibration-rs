@@ -154,6 +154,7 @@ fn tight() -> BackendSolveOptions {
     BackendSolveOptions {
         max_iters: 200,
         min_abs_decrease: Some(1e-16),
+        sigma_tolerance: 0.0,
         min_rel_decrease: Some(1e-16),
         min_error: Some(1e-20),
         ..Default::default()

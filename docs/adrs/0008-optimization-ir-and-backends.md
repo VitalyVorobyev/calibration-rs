@@ -72,10 +72,16 @@ validation arms, per-chain code or config types.
 
 `backend/lm.rs` holds the only LM loop (Jacobi column scaling, clamped
 Marquardt diagonal, gain ratio on the robust cost `Σρ`, damping retries,
-step and decrease stops) and assembles the normal equations once per solve
-(`backend/normal_equations.rs`). A backend implements the private
-`LinearizationEngine` (`free_dim`, `cost`, `linearize`, `retract` with
-bounds, `norm`)
+and the stops: on the distance to the minimum in the solution's own
+standard deviations, `SigmaStep`, the Gauss–Newton step left within 0.01σ
+in the Mahalanobis norm, which the decrease rules (1e-5 of the cost,
+whose reach in σ grows as `√(m − n)`) gave way to; a stall, `StalledStep`,
+for progress under 0.001σ a step; and the step, error and retry stops;
+`docs/notes/lm-stopping.md` has the evidence) and assembles the normal
+equations once per solve (`backend/normal_equations.rs`). A backend
+implements the private `LinearizationEngine` (`free_dim`, `cost`,
+`linearize`, `retract` with bounds, `norm`, and `on_bounds`, the bounded
+coordinates on their bound, which the distance measure holds)
 and is selected by `SolverBackend` (`TinySolver` default, `Factrs`) in
 `SolverConfig.backend`.
 

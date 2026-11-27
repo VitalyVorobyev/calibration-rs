@@ -486,7 +486,15 @@ mod tests {
     /// A field evaluated at the observed pixel is not a camera model: on data
     /// from the plain model it pulls `k1` far from the truth and returns a
     /// residual below the noise it was given. Evaluated at the model's own
-    /// projection, the same field gains nothing and leaves `k1` alone.
+    /// projection, the same field gains nothing and moves `k1` far less.
+    ///
+    /// Not "leaves `k1` alone": run to its minimum (the loop stops within
+    /// 0.01σ of it), the degree-4 field trades with `k1` along a flat valley
+    /// (`k1` −0.474 against the truth's −0.415, the cost 0.3 % lower) and does
+    /// not reach the minimum in 100 iterations. An earlier stopping rule
+    /// ended it near its start, where `k1` stayed within 0.05. Hypothesis:
+    /// the field's radial terms duplicate `k1`; a field orthogonal to the
+    /// model's radial terms would decide it.
     #[test]
     fn a_field_at_the_observation_contracts_the_noise() {
         let plain = GenCfg::base("plain");
@@ -513,7 +521,7 @@ mod tests {
             rms(&proper),
             rms(&base)
         );
-        assert!((proper.params.dist[0] - truth.dist[0]).abs() < 0.05);
+        assert!((proper.params.dist[0] - truth.dist[0]).abs() < 0.2);
         assert!(
             rms(&eiv) < 0.93 * rms(&base),
             "{} vs {}",
