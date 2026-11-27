@@ -1,3 +1,4 @@
+import { ARROW_GAIN } from "../../components/frameOverlayPaths";
 import { colorForError, colorForLaserError } from "../../lib/errorColors";
 import type {
   CursorReadout,
@@ -37,6 +38,7 @@ export function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual
       <span>diverged {diverged}</span>
       <span>mean {mean.toFixed(3)} px</span>
       <span>max {max.toFixed(3)} px</span>
+      <span>arrows: observed − projected, from the observed corner, ×{ARROW_GAIN}</span>
       <span className="flex items-center gap-2">
         <Swatch color={colorForError(0.5)} label="<1" />
         <Swatch color={colorForError(1.5)} label="<2" />

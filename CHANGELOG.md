@@ -475,6 +475,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removes them); a project or manifest that names a path outside them is
   refused. Folders, projects, manifests and exports are chosen in an in-app
   browser over the roots, on the desktop and in a browser alike.
+- Calibration Studio's Inspect screen reads a run camera by camera in tabs
+  beside the scene and the frames. Parameters lists every parameter of the
+  camera, grouped, as value ± σ with its unit (or why there is no σ), copies
+  them as JSON, and lists the pose parameters by σ. Distortion maps the
+  displacement of the lens and of the sensor tilt over the sensor, with
+  iso-lines, arrows and a vertical legend in pixels. Residuals maps the
+  systematic residual (or its RMS, standard error, significance and support)
+  for all views or a chosen few, fading what is not distinguishable from zero,
+  with a sentence on where it peaks, and lists every feature's residual as a
+  scatter and a table that select the view and feature the frame viewer then
+  rings, with the reprojection statistics per camera and view. Projection σ
+  maps how well each pixel's ray is determined. Quality lists the checks with
+  their verdict, measured value and limit. The three maps share one viewer
+  (pan and zoom, colour map, a fixed or automatic range, the frame as an
+  underlay, a reading under the pointer); blank nodes are never drawn as zero.
+  The frame viewer's toolbar uses the same style, its legend states the
+  arrows' sign and anchor (`observed − projected`, from the observed corner),
+  and the old Stats and Uncertainty side panels, which these tabs replace, are
+  gone.
 - **Desktop app IPC types (breaking):** `DisparityResult::plane_rms` (`planeRms`
   in TypeScript) is now `Option<f64>` (`null` when fewer than three finite
   disparities exist or the plane fit is singular/non-finite; it was an

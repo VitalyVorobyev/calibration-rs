@@ -4,8 +4,10 @@ import { colorForError, colorForLaserError } from "../lib/errorColors";
 import {
   ARROW_GAIN,
   ARROW_LENGTH_CAP_PX,
+  buildFeatureRing,
   buildLaserOverlay,
   buildResidualArrows,
+  SELECTION_RING_PX,
 } from "./frameOverlayPaths";
 
 const FRAME = { pose: 1, camera: 0 };
@@ -168,5 +170,28 @@ describe("buildLaserOverlay", () => {
     ]);
     expect(out.dots[0]!.d.match(/M/g)).toHaveLength(2);
     expect(out.unresolved.match(/M/g)).toHaveLength(2);
+  });
+});
+
+describe("buildFeatureRing", () => {
+  const all = [
+    tgt({ observed_px: [10, 20], feature: 4 }),
+    tgt({ observed_px: [30, 40], feature: 5, view: 2 }),
+  ];
+
+  it("circles the observed corner of the selected feature of the frame", () => {
+    const d = buildFeatureRing(all, FRAME, 4, 1)!;
+    expect(d.startsWith(`M${10 - SELECTION_RING_PX} 20a`)).toBe(true);
+  });
+
+  it("is absent with no selection, another view's feature or no such feature", () => {
+    expect(buildFeatureRing(all, FRAME, null, 1)).toBeNull();
+    expect(buildFeatureRing(all, FRAME, 5, 1)).toBeNull();
+    expect(buildFeatureRing(all, FRAME, 9, 1)).toBeNull();
+  });
+
+  it("keeps its size on screen at any zoom", () => {
+    const d = buildFeatureRing(all, FRAME, 4, 0.5)!;
+    expect(d.startsWith(`M${10 - SELECTION_RING_PX * 0.5} 20a`)).toBe(true);
   });
 });

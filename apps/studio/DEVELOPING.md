@@ -107,9 +107,10 @@ render react-router `Link`s through `asChild`.
 (`screens.ts`: `parsePlace`, `placePath`). `useUrlSync` keeps it and the
 open project and run the same thing in both directions (a link opens the
 project and run; choosing either writes the address; a project opened without
-a run opens on its newest). Inspect's tabs are `Scene`, `Frames`, `Epipolar`
-and `Depth` (the viewers built before the screens); a tab a run cannot have
-is absent (`screens/inspect/tabs.ts`). The old addresses (`#/diagnose`,
+a run opens on its newest). Inspect's tabs are `Scene`, `Frames`, `Parameters`,
+`Distortion`, `Residuals`, `Projection σ` (`sigma`), `Quality`, `Epipolar`
+and `Depth` (see "Inspect" below); a tab a run cannot have is absent
+(`screens/inspect/tabs.ts`). The old addresses (`#/diagnose`,
 `#/viewer3d`, `#/epipolar`, `#/depth`, `#/run`) redirect. Calibrate is its own
 screen (see "Calibrate" below).
 
@@ -185,6 +186,59 @@ the run list is the shell's (`shell/RunList.tsx`).
   mark is only a mark; the star is the person's acceptance. Ticks feed
   `session/compareSet.ts`, which the Compare screen will read.
 - **Seed row**: "not available yet"; no command serves a seed.
+
+## Inspect
+
+`screens/inspect/` holds the per-camera tabs; `Scene`, `Frames`, `Epipolar`
+and `Depth` are the viewers of `workspaces/` (the Frames viewer lost its Stats
+and Uncertainty panels to the tabs). Every per-camera tab is a `CameraFrame`
+(`CameraFrame.tsx`, `target.ts`: the run in the export store and the camera of
+the selection, else the run's first; plain words while no run is shown and
+while a project's run is opening) over queries of the typed client.
+
+- **Maps.** `maps/useMaps.ts` makes each map command a query and joins its
+  reply (grid, channels, the planes' blob ids) to the decoded plane
+  (`fetchPlane`, one cache entry per blob id, so a plane is decoded once;
+  `blob_expired` runs the command again and reads the fresh blob).
+  `maps/MapViewer.tsx` is the one viewer of the distortion, residual and
+  projection σ maps: an `ImageStage` over the camera's image extent with
+  `HeatmapLayer` (smooth, over the plane's block rectangle, which a partial
+  last block makes run past the image: the layers sit in a clipping wrapper),
+  `ContourLayer`, `VectorField`, a vertical `ColormapLegend` (unit, clipping,
+  a named limit, the pointer's value), `MapReadout` and the toolbar
+  (`components/ViewerToolbar.tsx`, also the Frames viewer's). The tab passes
+  its own controls (`controls`) and what the map says (`build` in
+  `DistortionTab`, `SigmaTab`, `ResidualMapPanel`); `MapPanel` keeps the last
+  plane of the camera while the next loads, so the viewer keeps its choices.
+  The pure rules, each tested, are `mapModel.ts` (domain: 99.5th percentile
+  rounded up to 1/2/5·10ⁿ; node geometry; readout; arrows; the significance
+  mask; peaks), `viewerModel.ts` (colour map: viridis, inferno over an image,
+  blue-orange for a signed quantity; iso-line step; legend markers) and
+  `mapText.ts` (the statements). A significance test the plane lacks (too few
+  effective views) disables the fade instead of counting nodes as "not
+  significant"; 3.03 is the library's p < 0.01 cut.
+- **Residuals tab.** `ResidualsTab` owns the views scope (`residualModel.ts`:
+  all, the selected view, a chosen few, which become `residual_map`'s
+  `views`), then the map, `ResidualRecords` (`ScatterChart` and a windowed
+  `Table` of `residual_records`, worst first; a point or row selects camera,
+  view and feature in `session/selection.ts`) and `ResidualStatsTable`
+  (`residual_stats`). `components/FrameCanvas` rings the selected feature;
+  the arrows are anchored at the observed corner and run along
+  `observed − projected`, which the legend says.
+- **Parameters and Quality.** `parameterModel.ts` groups
+  `camera_parameter_values`, writes value ± σ with `lib/format.ts` (radians
+  as degrees), the reason there is no σ, and the JSON for the clipboard; pose
+  parameters are the covariance's labels no camera owns, by σ only
+  (`lib/uncertainty.ts`). `qualityModel.ts` holds the words of each check and
+  the measured value and limit; verdict colour is on the `Badge` there only.
+- **Tests.** Vitest per pure module, `maps/MapViewer.test.tsx` (legend,
+  controls, readout), `maps/useMaps.test.tsx` (decode once, `blob_expired`),
+  `InspectPanels.test.tsx` and `MapPanels.test.tsx` (each tab over a mock back
+  end, `test/inspectKit.tsx`; value planes from `test/planeFixtures.ts`, which
+  writes `VAM1` as `planes.rs` does). The
+  Playwright spec `e2e/server/inspect.spec.ts` makes a run of `planar-demo`
+  through Calibrate and walks the tabs, then opens the committed rig run.
+  The stage's own drawing needs a layout engine, so it is seen only there.
 
 ## Projects
 
