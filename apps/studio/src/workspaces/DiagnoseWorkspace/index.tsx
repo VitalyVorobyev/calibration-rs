@@ -322,7 +322,7 @@ export function DiagnoseWorkspace() {
             </div>
           ) : (
             <div className="m-auto text-[13px] text-fg-muted">
-              Open an <code>export.json</code> from a calibration run. Use ← / → for pose,
+              Open a project and choose one of its runs. Use ← / → for pose,
               ↑ / ↓ for camera; toggle Compare to view two frames side by side.
             </div>
           )}

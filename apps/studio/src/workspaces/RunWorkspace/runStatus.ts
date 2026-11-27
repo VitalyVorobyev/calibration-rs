@@ -1,11 +1,9 @@
 /** The Run workspace's run state machine: idle → running → a terminal
- * state, as the runner's `RunResponse` decides. */
-import type {
-  Progress,
-  RunProgress,
-  RunResponse,
-  RunStage,
-} from "../../lib/runCalibration";
+ * state, as the `calibrate` job ends: its output (the run it wrote) or its
+ * error envelope. */
+import { asStudioError } from "../../api";
+import type { RunInfo } from "../../api/generated/types";
+import { stageOf, type Progress, type RunStage } from "./runStages";
 
 export type RunStatus =
   | { kind: "idle" }
@@ -13,9 +11,9 @@ export type RunStatus =
       kind: "running";
       /** This run's id in the UI (a stale event names another). */
       runId: string;
-      /** Last stage the runner announced; `null` until the first message. */
+      /** The stage of the latest report; `null` until the first one. */
       stage: RunStage | null;
-      /** The library's latest report within the stage, if any. */
+      /** The library's latest report, if any. */
       report: Progress | null;
       /** The calibration step under way, for its iterations. */
       step: string | null;
@@ -25,70 +23,62 @@ export type RunStatus =
       cancelRequested: boolean;
     }
   | { kind: "cancelled" }
-  | {
-      kind: "ok";
-      durationMs: number;
-      usable: number;
-      total: number;
-      cacheUsed: boolean;
-      /** The project run it was saved as, when a project is open. */
-      savedAs: string | null;
-    }
+  | { kind: "ok"; run: RunInfo }
   | { kind: "error"; category: string; message: string }
-  | { kind: "validation"; message: string }
   | { kind: "ask_user"; field: string; prompt: string; suggestions: string[] };
 
-/** A running status advanced by one progress message: a new stage clears
- * the report, a step is remembered for the iterations that follow. */
+/** A running status advanced by one progress report: its stage, and a step
+ * remembered for the iterations that follow. */
 export function withProgress(
   status: Extract<RunStatus, { kind: "running" }>,
-  progress: RunProgress,
+  report: Progress,
 ): Extract<RunStatus, { kind: "running" }> {
-  const report = progress.report ?? null;
   return {
     ...status,
-    stage: progress.stage,
+    stage: stageOf(report),
     report,
-    step: report?.kind === "step" ? report.name : status.step,
+    step: report.kind === "step" ? report.name : status.step,
   };
 }
 
-/** The status a finished run's response leads to. `savedAs` names the
- * project run a successful export was saved as. */
-export function statusFromResponse(
-  response: RunResponse,
-  savedAs: string | null = null,
-): RunStatus {
-  switch (response.kind) {
-    case "ok":
-      return {
-        kind: "ok",
-        durationMs: response.duration_ms,
-        usable: response.usable_views,
-        total: response.total_views,
-        cacheUsed: response.cache_used,
-        savedAs,
-      };
-    case "cancelled":
-      return { kind: "cancelled" };
-    case "ask_user":
-      return {
-        kind: "ask_user",
-        field: response.field,
-        prompt: response.prompt,
-        suggestions: response.suggestions,
-      };
-    case "validation_failed":
-      return { kind: "validation", message: response.message };
-    case "failed":
-      return { kind: "error", category: response.category, message: response.message };
+/** The status a failed run's error leads to: a choice the manifest leaves
+ * open is a question (`needs_input`), a cancellation is its own state,
+ * anything else an error named by its kind. */
+export function statusFromError(e: unknown): RunStatus {
+  const error = asStudioError(e);
+  if (error.kind === "cancelled") return { kind: "cancelled" };
+  if (error.kind === "needs_input" && error.field) {
+    return {
+      kind: "ask_user",
+      field: error.field,
+      prompt: error.message,
+      suggestions: error.suggestions ?? [],
+    };
   }
+  const where = error.field ? ` (${error.field})` : "";
+  return { kind: "error", category: error.kind, message: `${error.message}${where}` };
 }
 
-/** Fresh correlation id for one run — routes the progress channel and
- * cancellation. `crypto.randomUUID` is available in every Tauri webview
- * and modern browser; the fallback covers environments without it (older
- * jsdom). */
+/** What a written run says about itself, for the success banner: its
+ * views and verdict. */
+export function runSummaryLine(run: RunInfo): string {
+  if (run.state.kind !== "recorded") return run.id;
+  const parts = [`saved as runs/${run.id}`];
+  const source = run.state.source;
+  if (source.kind === "calibrated") {
+    parts.unshift(
+      `${source.duration_ms} ms`,
+      `${source.usable_views}/${source.total_views} usable views`,
+    );
+  }
+  const verdict = run.state.summary.verdict;
+  if (verdict) parts.push(`verdict ${verdict}`);
+  return parts.join(" · ");
+}
+
+/** Fresh correlation id for one run in the UI. `crypto.randomUUID` is
+ * available in every Tauri webview and modern browser; the fallback covers
+ * environments without it (older jsdom). */
 export function newRunId(): string {
   const c = globalThis.crypto;
   if (c && typeof c.randomUUID === "function") return c.randomUUID();

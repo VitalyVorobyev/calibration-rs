@@ -7,6 +7,10 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use vision_calibration::dataset::DatasetSpec;
+use vision_calibration::dataset_runner::input_files;
+use vision_calibration::project::{DatasetSource, Project};
+
 use crate::api::{ErrorKind, StudioError};
 
 /// Why a path was refused.
@@ -336,6 +340,73 @@ pub fn check_manifest(
         })?;
     }
     Ok(())
+}
+
+/// The paths a project file names, judged before the library follows them.
+impl RootScope {
+    /// The project's data root and, for a referenced manifest, the manifest
+    /// file: both inside a root (lexically: either may not exist yet). What
+    /// opening a project needs before it reads the manifest.
+    pub fn check_project_paths(&self, project: &Project) -> Result<(), StudioError> {
+        let outside = |what: &str, path: &Path| {
+            StudioError::new(
+                ErrorKind::ForbiddenPath,
+                format!(
+                    "the project's {what} {} is outside the folders this back end serves",
+                    path.display()
+                ),
+            )
+            .at(path.to_string_lossy())
+        };
+        let root = project.data_root()?;
+        self.check_lexical(&root)
+            .map_err(|_| outside("data folder", &root))?;
+        if let DatasetSource::File { path, .. } = &project.spec().dataset {
+            let file = project.dir().join(path);
+            self.check_lexical(&file)
+                .map_err(|_| outside("manifest", &file))?;
+        }
+        Ok(())
+    }
+
+    /// Every file a run of `dataset` reads, resolved against `data_root`:
+    /// the glob bases lexically before any folder is listed, then each file
+    /// the library lists ([`input_files`]) through the scope, so a symbolic
+    /// link out of a root is refused too.
+    pub fn check_dataset(
+        &self,
+        dataset: &DatasetSpec,
+        data_root: &Path,
+    ) -> Result<(), StudioError> {
+        let manifest = serde_json::to_value(dataset)
+            .map_err(|e| StudioError::internal(format!("serialize the manifest: {e}")))?;
+        check_manifest(self, &manifest, data_root)?;
+        for file in input_files(dataset, data_root)? {
+            if file.exists() {
+                self.check(&file)?;
+            } else {
+                self.check_lexical(&file)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// [`check_project_paths`](Self::check_project_paths), then
+    /// [`check_dataset`](Self::check_dataset) of the project's manifest:
+    /// what a run, a view listing or a save checks before the library reads
+    /// anything the project names.
+    pub fn check_project(&self, project: &Project) -> Result<(), StudioError> {
+        self.check_project_paths(project)?;
+        self.check_dataset(&project.dataset()?, &project.data_root()?)
+    }
+}
+
+/// The folders that serve the project at `path` alone (a server started
+/// on one project): its folder and its data folder.
+pub fn project_roots(path: &Path) -> Result<Vec<PathBuf>, String> {
+    let project = Project::open(path).map_err(|e| e.to_string())?;
+    let data_root = project.data_root().map_err(|e| e.to_string())?;
+    Ok(vec![project.dir().to_path_buf(), data_root])
 }
 
 fn scope_error(path: &Path, e: ScopeError) -> StudioError {

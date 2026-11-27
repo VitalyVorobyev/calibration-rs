@@ -1,0 +1,25 @@
+# The e2e fixture: six rendered views of a 7 x 5 chessboard
+# (written by studio-core's `write_planar_demo`).
+
+version = 2
+name = "planar-demo"
+
+[dataset]
+root = "."
+
+[dataset.manifest]
+version = 1
+topology = "planar_intrinsics"
+
+[dataset.manifest.target]
+kind = "chessboard"
+rows = 5
+cols = 7
+square_size_m = 0.02
+
+[[dataset.manifest.cameras]]
+id = "cam0"
+
+[dataset.manifest.cameras.images]
+kind = "glob"
+pattern = "images/*.png"

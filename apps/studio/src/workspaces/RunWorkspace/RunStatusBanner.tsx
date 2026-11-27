@@ -1,14 +1,14 @@
 import { Button, Callout } from "@vitavision/ui";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { RunStage } from "../../lib/runCalibration";
 import {
   computeStageRows,
   formatElapsed,
   progressDetail,
+  type RunStage,
   type StageRow,
 } from "./runStages";
-import type { RunStatus } from "./runStatus";
+import { runSummaryLine, type RunStatus } from "./runStatus";
 
 interface RunStatusBannerProps {
   status: RunStatus;
@@ -36,7 +36,7 @@ export function RunStatusBanner({ status, onCancel }: RunStatusBannerProps) {
       return (
         <Callout tone="info" title="Run cancelled">
           <span className="font-mono text-xs">
-            stopped before it finished — no export was produced
+            stopped before it finished — no run was written
           </span>
         </Callout>
       );
@@ -44,19 +44,9 @@ export function RunStatusBanner({ status, onCancel }: RunStatusBannerProps) {
       return (
         <Callout tone="success" title="Solve completed">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs">
-              {status.durationMs} ms · {status.usable}/{status.total} usable views
-              {status.cacheUsed ? " · cache" : ""}
-              {status.savedAs ? ` · saved as runs/${status.savedAs}` : ""}
-            </span>
+            <span className="font-mono text-xs">{runSummaryLine(status.run)}</span>
             <span className="ml-auto text-xs">Routing to /diagnose…</span>
           </span>
-        </Callout>
-      );
-    case "validation":
-      return (
-        <Callout tone="info" title="Validation failed">
-          <code className="font-mono text-xs">{status.message}</code>
         </Callout>
       );
     case "error":

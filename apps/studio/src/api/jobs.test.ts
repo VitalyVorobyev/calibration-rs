@@ -34,28 +34,29 @@ describe("jobs", () => {
   it("reports progress, replayed to a late listener, and settles with the output", async () => {
     const mock = createMockTransport({
       jobs: {
-        run_calibration: (_args, control) => {
-          control.emit({ stage: "detect" });
-          control.emit({ stage: "solve" });
-          return { kind: "cancelled" };
+        calibrate: (args, control) => {
+          control.emit({ kind: "detection", done: 1, total: 2 });
+          control.emit({ kind: "step", name: "optimize" });
+          return {
+            id: "run-001",
+            dir: `${args.dir}/runs/run-001`,
+            notes: {},
+            state: { kind: "unreadable", message: "test" },
+          };
         },
       },
     });
     const { transport, open } = counted(mock);
     const api = client(transport);
-    const job = await api.jobs.runCalibration({
-      manifest: {},
-      config: {},
-      manifest_dir: "/d",
-    });
+    const job = await api.jobs.calibrate({ dir: "/p" });
     expect(open()).toBe(1);
     const output = await job.result;
     const stages: string[] = [];
-    job.onEvent((progress) => stages.push(progress.stage));
-    expect(stages).toEqual(["detect", "solve"]);
-    expect(output).toEqual({ kind: "cancelled" });
+    job.onEvent((progress) => stages.push(progress.kind));
+    expect(stages).toEqual(["detection", "step"]);
+    expect(output.id).toBe("run-001");
     expect(open()).toBe(0);
-    expect(mock.calls.map((c) => c.command)).toEqual(["run_calibration"]);
+    expect(mock.calls.map((c) => c.command)).toEqual(["calibrate"]);
   });
 
   it("rejects with the job's error, and with `cancelled` once it is cancelled", async () => {
@@ -84,14 +85,16 @@ describe("jobs", () => {
   });
 
   it("attaches to a job started earlier and finds it ended", async () => {
-    const mock = createMockTransport({ jobs: { fetch_sample: () => "/cache/m.toml" } });
+    const mock = createMockTransport({
+      jobs: { fetch_sample: () => ({ dir: "/cache/kuka_1" }) },
+    });
     const api = client(mock);
     const started = await api.jobs.fetchSample({ id: "kuka_1" });
     await started.result;
     // A fresh client (a reloaded page) follows it by its id.
-    const again = await client(mock).jobs.attach<null, string>(started.id);
-    await expect(again.result).resolves.toBe("/cache/m.toml");
-    const gone = await client(mock).jobs.attach<null, string>("9-none");
+    const again = await client(mock).jobs.attach<null, { dir: string }>(started.id);
+    await expect(again.result).resolves.toEqual({ dir: "/cache/kuka_1" });
+    const gone = await client(mock).jobs.attach<null, { dir: string }>("9-none");
     await expect(gone.result).rejects.toMatchObject({ kind: "job_not_found" });
   });
 });

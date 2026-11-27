@@ -5,8 +5,9 @@
 
 use schemars::JsonSchema;
 use serde::Serialize;
-
-use crate::project::{ProjectError, ProjectErrorKind};
+use vision_calibration::dataset::{ManifestError, ValidationError};
+use vision_calibration::dataset_runner::{CalibrateDatasetError, RunError};
+use vision_calibration::project::ProjectError;
 
 /// Why a command, job or resource failed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
@@ -18,6 +19,14 @@ pub struct StudioError {
     /// The path the failure is about, when there is one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// The field it is about, as a dotted path into the project file or
+    /// the manifest (`device.id`, `exclude.images[0]`, `pose_pairing`),
+    /// when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// The values to offer for `field` (`needs_input`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<String>,
 }
 
 /// The kinds of [`StudioError`].
@@ -48,25 +57,43 @@ pub enum ErrorKind {
     Internal,
     /// The folder has no project file.
     NotAProject,
+    /// The folder holds both project file names; which one counts is not
+    /// guessed.
+    AmbiguousProject,
     /// The folder already holds a project; creating one would overwrite it.
     ProjectExists,
     /// The project file has a version this app does not read.
     UnsupportedVersion,
-    /// A run name that is empty or not a plain folder name.
-    InvalidRunName,
-    /// A run of that name is already saved; runs are never overwritten.
-    RunExists,
+    /// The project file changed on disk since the revision the edit was
+    /// made on: open the project again and apply the edit to it.
+    ChangedOnDisk,
     /// A file or folder could not be read or written.
     Io,
     /// A file did not parse.
     Parse,
-    /// A dataset manifest that is not one.
+    /// A dataset manifest that is not one, or not a valid one.
     Manifest,
     /// A calibration config that is not valid for its workflow: a field it
     /// does not have, a value of the wrong type or out of range.
     Config,
-    /// The request cannot be served as asked: no export is active, a camera
-    /// index is out of range, the export lacks what the command needs.
+    /// An exclusion names something the dataset does not have (`field` is
+    /// the entry).
+    Exclusion,
+    /// The project has no run of that id.
+    RunNotFound,
+    /// An export of another workflow or camera count than the project's.
+    ImportMismatch,
+    /// The manifest leaves a choice open: `field` names it and
+    /// `suggestions` lists the values to offer.
+    NeedsInput,
+    /// Target or laser detection failed.
+    Detection,
+    /// The images could not be listed or paired, or the calibration
+    /// failed.
+    Calibration,
+    /// The request cannot be served as asked: a camera index out of range,
+    /// an export that lacks what the command needs, a field the project
+    /// cannot have (`field` names it).
     Invalid,
     /// The job was cancelled.
     Cancelled,
@@ -78,12 +105,20 @@ impl StudioError {
             kind,
             message: message.into(),
             path: None,
+            field: None,
+            suggestions: Vec::new(),
         }
     }
 
     /// The error with the path it is about.
     pub fn at(mut self, path: impl Into<String>) -> Self {
         self.path = Some(path.into());
+        self
+    }
+
+    /// The error with the field it is about.
+    pub fn on_field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
         self
     }
 
@@ -104,12 +139,15 @@ impl StudioError {
         match self.kind {
             ErrorKind::Unauthorized => 401,
             ErrorKind::ForbiddenPath => 403,
-            ErrorKind::UnknownCommand | ErrorKind::JobNotFound | ErrorKind::BlobExpired => 404,
+            ErrorKind::UnknownCommand
+            | ErrorKind::JobNotFound
+            | ErrorKind::BlobExpired
+            | ErrorKind::RunNotFound => 404,
             ErrorKind::TooLarge => 413,
             ErrorKind::InvalidArgs => 400,
             ErrorKind::Busy
             | ErrorKind::ProjectExists
-            | ErrorKind::RunExists
+            | ErrorKind::ChangedOnDisk
             | ErrorKind::RootsFixed => 409,
             ErrorKind::Internal => 500,
             _ => 422,
@@ -123,23 +161,119 @@ impl std::fmt::Display for StudioError {
     }
 }
 
+fn display(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// Each project error as its own kind, with the path and field it names.
 impl From<ProjectError> for StudioError {
     fn from(e: ProjectError) -> Self {
-        let kind = match e.kind {
-            ProjectErrorKind::NotAProject => ErrorKind::NotAProject,
-            ProjectErrorKind::ProjectExists => ErrorKind::ProjectExists,
-            ProjectErrorKind::UnsupportedVersion => ErrorKind::UnsupportedVersion,
-            ProjectErrorKind::InvalidRunName => ErrorKind::InvalidRunName,
-            ProjectErrorKind::RunExists => ErrorKind::RunExists,
-            ProjectErrorKind::Io => ErrorKind::Io,
-            ProjectErrorKind::Parse => ErrorKind::Parse,
-        };
-        Self::new(kind, e.message)
+        let message = e.to_string();
+        let error = |kind| StudioError::new(kind, message.clone());
+        match e {
+            ProjectError::NotAProject { dir } => error(ErrorKind::NotAProject).at(display(&dir)),
+            ProjectError::AmbiguousProject { dir } => {
+                error(ErrorKind::AmbiguousProject).at(display(&dir))
+            }
+            ProjectError::ProjectExists { dir } => {
+                error(ErrorKind::ProjectExists).at(display(&dir))
+            }
+            ProjectError::UnsupportedVersion { path, .. } => {
+                error(ErrorKind::UnsupportedVersion).at(display(&path))
+            }
+            ProjectError::ChangedOnDisk { path } => {
+                error(ErrorKind::ChangedOnDisk).at(display(&path))
+            }
+            ProjectError::Io { path, .. } => error(ErrorKind::Io).at(display(&path)),
+            ProjectError::Parse { path, .. } => error(ErrorKind::Parse).at(display(&path)),
+            ProjectError::Invalid { path, field, .. } => {
+                error(ErrorKind::Invalid).at(display(&path)).on_field(field)
+            }
+            ProjectError::Manifest(e) => e.into(),
+            ProjectError::Config(_) => error(ErrorKind::Config).on_field("config"),
+            ProjectError::Exclusion { entry, .. } => error(ErrorKind::Exclusion).on_field(entry),
+            ProjectError::RunNotFound { .. } => error(ErrorKind::RunNotFound),
+            ProjectError::ImportMismatch { .. } => error(ErrorKind::ImportMismatch),
+            ProjectError::Calibrate(e) => e.into(),
+            ProjectError::Cancelled => StudioError::cancelled(),
+            // A variant of a later library version.
+            _ => error(ErrorKind::Invalid),
+        }
     }
 }
 
-/// The command bodies shared with the viewer report a failure as a message:
-/// a request the loaded export cannot serve.
+impl From<ManifestError> for StudioError {
+    fn from(e: ManifestError) -> Self {
+        let message = e.to_string();
+        match e {
+            ManifestError::Io { path, .. } => {
+                StudioError::new(ErrorKind::Io, message).at(display(&path))
+            }
+            ManifestError::Parse { path, .. } => {
+                StudioError::new(ErrorKind::Manifest, message).at(display(&path))
+            }
+            _ => StudioError::new(ErrorKind::Manifest, message),
+        }
+    }
+}
+
+impl From<CalibrateDatasetError> for StudioError {
+    fn from(e: CalibrateDatasetError) -> Self {
+        let message = e.to_string();
+        match e {
+            CalibrateDatasetError::Run(e) => e.into(),
+            CalibrateDatasetError::Cancelled => StudioError::cancelled(),
+            CalibrateDatasetError::ConfigTopologyMismatch { .. } => {
+                StudioError::new(ErrorKind::Config, message).on_field("config")
+            }
+            _ => StudioError::new(ErrorKind::Calibration, message),
+        }
+    }
+}
+
+impl From<RunError> for StudioError {
+    fn from(e: RunError) -> Self {
+        let message = e.to_string();
+        let kind = |kind| StudioError::new(kind, message.clone());
+        match e {
+            RunError::AskUser {
+                field,
+                prompt,
+                suggestions,
+            } => StudioError {
+                kind: ErrorKind::NeedsInput,
+                message: prompt,
+                path: None,
+                field: Some(field),
+                suggestions,
+            },
+            RunError::Validation(v) => {
+                let field = match &v {
+                    ValidationError::Unresolved(fields) => fields.first().cloned(),
+                    ValidationError::FieldUnusedByTopology { field, .. } => Some(field.clone()),
+                    ValidationError::MissingRobotPoses { .. } => Some("robot_poses".into()),
+                    _ => None,
+                };
+                let error = kind(ErrorKind::Manifest);
+                match field {
+                    Some(field) => error.on_field(field),
+                    None => error,
+                }
+            }
+            RunError::Cancelled => StudioError::cancelled(),
+            RunError::Detection { path, .. } | RunError::CornerCovariance { path, .. } => {
+                kind(ErrorKind::Detection).at(display(&path))
+            }
+            RunError::LaserExtraction { .. } => kind(ErrorKind::Detection),
+            RunError::Decode { path, .. } => kind(ErrorKind::Io).at(display(&path)),
+            RunError::Io(_) => kind(ErrorKind::Io),
+            _ => kind(ErrorKind::Calibration),
+        }
+    }
+}
+
+/// The command bodies of the viewers report a failure as a message: a
+/// request the run's export cannot serve.
 impl From<String> for StudioError {
     fn from(message: String) -> Self {
         Self::invalid(message)
@@ -148,37 +282,75 @@ impl From<String> for StudioError {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     #[test]
-    fn every_project_error_kind_maps_to_its_own_kind() {
-        let kinds = [
-            (ProjectErrorKind::NotAProject, "not_a_project", 422),
-            (ProjectErrorKind::ProjectExists, "project_exists", 409),
+    fn project_errors_map_to_their_own_kinds_with_path_and_field() {
+        let cases = [
             (
-                ProjectErrorKind::UnsupportedVersion,
-                "unsupported_version",
+                ProjectError::NotAProject {
+                    dir: PathBuf::from("/p"),
+                },
+                "not_a_project",
                 422,
             ),
-            (ProjectErrorKind::InvalidRunName, "invalid_run_name", 422),
-            (ProjectErrorKind::RunExists, "run_exists", 409),
-            (ProjectErrorKind::Io, "io", 422),
-            (ProjectErrorKind::Parse, "parse", 422),
+            (
+                ProjectError::ProjectExists {
+                    dir: PathBuf::from("/p"),
+                },
+                "project_exists",
+                409,
+            ),
+            (
+                ProjectError::ChangedOnDisk {
+                    path: PathBuf::from("/p/calibration-project.toml"),
+                },
+                "changed_on_disk",
+                409,
+            ),
+            (
+                ProjectError::RunNotFound { id: "run-9".into() },
+                "run_not_found",
+                404,
+            ),
+            (ProjectError::Cancelled, "cancelled", 422),
         ];
-        for (kind, wire, status) in kinds {
-            let e = StudioError::from(ProjectError::new(kind, "m"));
+        for (error, wire, status) in cases {
+            let e = StudioError::from(error);
             assert_eq!(serde_json::to_value(e.kind).unwrap(), wire);
-            assert_eq!(e.message, "m");
             assert_eq!(e.http_status(), status, "{wire}");
         }
+        let invalid = StudioError::from(ProjectError::Invalid {
+            path: PathBuf::from("/p/calibration-project.toml"),
+            field: "device.id".into(),
+            message: "is empty".into(),
+        });
+        assert_eq!(invalid.kind, ErrorKind::Invalid);
+        assert_eq!(invalid.field.as_deref(), Some("device.id"));
+        assert_eq!(invalid.path.as_deref(), Some("/p/calibration-project.toml"));
     }
 
     #[test]
-    fn the_envelope_omits_an_absent_path() {
-        let e = StudioError::invalid("no export loaded yet");
+    fn an_open_choice_is_needs_input_with_its_field_and_suggestions() {
+        let e = StudioError::from(RunError::AskUser {
+            field: "pose_pairing".into(),
+            prompt: "How are views paired?".into(),
+            suggestions: vec!["by_index".into()],
+        });
+        assert_eq!(e.kind, ErrorKind::NeedsInput);
+        assert_eq!(e.field.as_deref(), Some("pose_pairing"));
+        assert_eq!(e.suggestions, ["by_index"]);
+        assert_eq!(e.message, "How are views paired?");
+    }
+
+    #[test]
+    fn the_envelope_omits_what_it_lacks() {
+        let e = StudioError::invalid("no such camera");
         assert_eq!(
             serde_json::to_value(&e).unwrap(),
-            serde_json::json!({"kind": "invalid", "message": "no export loaded yet"})
+            serde_json::json!({"kind": "invalid", "message": "no such camera"})
         );
         let e = StudioError::new(ErrorKind::ForbiddenPath, "out").at("/etc/passwd");
         assert_eq!(serde_json::to_value(&e).unwrap()["path"], "/etc/passwd");

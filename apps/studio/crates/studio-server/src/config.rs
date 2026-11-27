@@ -173,16 +173,11 @@ impl Config {
         let mut roots = args.roots;
         roots.extend(file.roots);
         if let Some(project) = &args.project {
-            let info = studio_core::project::open(project).map_err(|e| {
-                format!(
-                    "{}: {} (pass a project folder, or serve folders with --root)",
-                    project.display(),
-                    e.message
-                )
+            let folders = studio_core::scope::project_roots(project).map_err(|e| {
+                format!("{e} (pass a project folder, or serve folders with --root)")
             })?;
             if roots.is_empty() {
-                roots.push(PathBuf::from(&info.dir));
-                roots.push(PathBuf::from(&info.dataset_dir));
+                roots.extend(folders);
             }
         }
         if roots.is_empty() {

@@ -29,8 +29,39 @@ pub struct ServerInfo {
     /// Whether `add_root` and `remove_root` change them (the desktop); a
     /// server's are fixed when it starts.
     pub roots_editable: bool,
-    /// Whether the Quick Start samples can be downloaded.
-    pub samples: bool,
+    /// The Quick Start samples `fetch_sample` makes into projects: the
+    /// library's sample catalogue, empty when this back end was built
+    /// without them.
+    pub samples: Vec<SampleInfo>,
+}
+
+/// One Quick Start sample.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SampleInfo {
+    /// The id `fetch_sample` takes.
+    pub id: String,
+    /// What it holds: the workflow, the views, the target.
+    pub description: String,
+    /// Its workflow.
+    pub topology: vision_calibration::dataset::ProblemKind,
+    /// Its licence (SPDX; `NOASSERTION` when the publisher states none).
+    pub licence: String,
+}
+
+/// The samples this back end offers.
+fn sample_list() -> Vec<SampleInfo> {
+    if !cfg!(feature = "samples") {
+        return Vec::new();
+    }
+    vision_calibration::dataset::samples::catalogue()
+        .iter()
+        .map(|s| SampleInfo {
+            id: s.id.clone(),
+            description: s.description.clone(),
+            topology: s.manifest().topology,
+            licence: s.licence.clone(),
+        })
+        .collect()
 }
 
 /// One root folder.
@@ -60,7 +91,7 @@ fn info(ctx: &Ctx) -> ServerInfo {
             })
             .collect(),
         roots_editable: ctx.scope.is_editable(),
-        samples: cfg!(feature = "samples"),
+        samples: sample_list(),
     }
 }
 
@@ -203,6 +234,12 @@ mod tests {
         let api = Api::new(setup(&base, Some(vec![base.clone()])));
         let info = api.invoke("server_info", json!({})).unwrap();
         assert_eq!(info["roots_editable"], false);
+        let samples = info["samples"].as_array().unwrap();
+        assert!(
+            samples
+                .iter()
+                .any(|s| s["id"] == "kuka_1" && s["topology"] == "single_cam_handeye")
+        );
         for command in ["add_root", "remove_root"] {
             let err = api
                 .invoke(command, json!({"path": base.to_string_lossy()}))

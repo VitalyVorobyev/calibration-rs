@@ -52,12 +52,19 @@ export interface Transport {
 export class StudioError extends Error implements StudioErrorBody {
   readonly kind: ErrorKind;
   readonly path?: string | null;
+  /** The field it is about (a dotted path into the project or manifest). */
+  readonly field?: string | null;
+  /** The values to offer for `field` (`needs_input`). */
+  readonly suggestions?: string[];
 
   constructor(body: StudioErrorBody) {
     super(body.message);
     this.name = "StudioError";
     this.kind = body.kind;
     if (body.path !== undefined && body.path !== null) this.path = body.path;
+    if (body.field !== undefined && body.field !== null) this.field = body.field;
+    if (body.suggestions !== undefined && body.suggestions.length > 0)
+      this.suggestions = body.suggestions;
   }
 
   /** The message alone, as the UI shows a failure. */
@@ -71,12 +78,16 @@ export class StudioError extends Error implements StudioErrorBody {
 export function asStudioError(e: unknown): StudioError {
   if (e instanceof StudioError) return e;
   if (typeof e === "object" && e !== null) {
-    const { kind, message, path } = e as Record<string, unknown>;
+    const { kind, message, path, field, suggestions } = e as Record<string, unknown>;
     if (typeof kind === "string" && typeof message === "string") {
       return new StudioError({
         kind: kind as ErrorKind,
         message,
         ...(typeof path === "string" ? { path } : {}),
+        ...(typeof field === "string" ? { field } : {}),
+        ...(Array.isArray(suggestions)
+          ? { suggestions: suggestions.filter((s): s is string => typeof s === "string") }
+          : {}),
       });
     }
   }

@@ -6,8 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{Ctx, ErrorKind, StudioError};
-use crate::project::PROJECT_FILE;
 use crate::scope::UserPath;
+use vision_calibration::project::{PROJECT_FILE, PROJECT_FILE_JSON};
 
 /// The most entries a listing answers.
 pub const MAX_ENTRIES: usize = 5_000;
@@ -144,7 +144,8 @@ fn entry(target: &Path, name: String) -> Option<DirEntry> {
         name,
         path: target.to_string_lossy().into_owned(),
         kind,
-        is_project: kind == EntryKind::Dir && target.join(PROJECT_FILE).is_file(),
+        is_project: kind == EntryKind::Dir
+            && (target.join(PROJECT_FILE).is_file() || target.join(PROJECT_FILE_JSON).is_file()),
         size: (kind == EntryKind::File).then_some(meta.len()),
     })
 }

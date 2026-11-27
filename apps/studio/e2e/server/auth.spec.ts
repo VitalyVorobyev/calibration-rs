@@ -34,10 +34,10 @@ test("the page asks for the token, and logs in with it", async ({ page }) => {
   await expect(page.getByText("That is not this server's token.")).toBeVisible();
   await field.fill(E2E_TOKEN);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByText(/Open an/)).toBeVisible();
+  await expect(page.getByText(/Open a project and choose/)).toBeVisible();
   // The session survives a reload (the cookie), with no token asked.
   await page.reload();
-  await expect(page.getByText(/Open an/)).toBeVisible();
+  await expect(page.getByText(/Open a project and choose/)).toBeVisible();
   await expect(page.getByLabel("Token")).toHaveCount(0);
 });
 

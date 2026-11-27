@@ -28,13 +28,13 @@ test("app boots, the shell renders and says there is no back end", async ({ page
   await expect(page).toHaveURL(/#\/diagnose$/);
   await expect(page.getByText("No back end answers")).toBeVisible();
   // Empty-state copy, before any export is loaded.
-  await expect(page.getByText(/Open an/)).toBeVisible();
+  await expect(page.getByText(/Open a project and choose/)).toBeVisible();
 
   expect(errors).toEqual([]);
 });
 
 const WORKSPACES: { rail: string; hash: string; marker: RegExp }[] = [
-  { rail: "Diagnose", hash: "#/diagnose", marker: /Open an/ },
+  { rail: "Diagnose", hash: "#/diagnose", marker: /Open a project and choose/ },
   {
     rail: "3D viewer",
     hash: "#/viewer3d",

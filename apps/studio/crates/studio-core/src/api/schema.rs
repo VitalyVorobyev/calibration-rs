@@ -56,7 +56,7 @@ pub(crate) fn build(specs: &[CommandSpec]) -> Value {
     }
 
     // Wire types the frontend reads that no command names: the exports
-    // (`load_export` answers them as JSON it narrows by `kind`).
+    // (`run_export` answers them as JSON it narrows by `kind`).
     let mut types = serde_json::Map::new();
     for (name, schema) in [
         (
@@ -165,6 +165,12 @@ mod tests {
             })
     }
 
+    /// The contents of a project file or manifest: the paths they name are
+    /// not arguments a client chose but what the file says, judged by the
+    /// scope (`check_spec_paths`, `RootScope::check_dataset`) before the
+    /// library follows any of them.
+    const FILE_CONTENTS: [&str; 2] = ["ProjectSpec", "DatasetSpec"];
+
     /// Every path-named property reachable from `schema` that is not a
     /// `UserPath`, as `Type.field`.
     fn bare_paths(
@@ -179,6 +185,7 @@ mod tests {
             .and_then(|r| r.strip_prefix("#/definitions/"))
         {
             if seen.insert(name.to_owned())
+                && !FILE_CONTENTS.contains(&name)
                 && let Some(def) = definitions.get(name)
             {
                 if let Some(props) = def.get("properties").and_then(Value::as_object) {
@@ -250,9 +257,11 @@ mod tests {
             "ServerEvent",
             "StudioError",
             "JobInfo",
-            "RunProgress",
-            "RunResponse",
-            "ProjectInfo",
+            "Progress",
+            "ProjectView",
+            "ProjectSpec",
+            "RunInfo",
+            "LibraryScan",
             "DatasetSpec",
             "RigExtrinsicsExport",
             "UserPath",

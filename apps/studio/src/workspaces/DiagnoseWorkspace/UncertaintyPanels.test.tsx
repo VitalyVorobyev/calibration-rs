@@ -5,6 +5,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setTransport } from "../../api";
 import { createMockTransport } from "../../api/transport/mock";
+import { useStore } from "../../store";
 import { UncertaintyPanels } from "./UncertaintyPanels";
 import type { ProjectionUncertainty, Uncertainty } from "../../api/generated/types";
 
@@ -32,6 +33,8 @@ const MAP: ProjectionUncertainty = {
 };
 
 beforeEach(() => {
+  // The run the panels' commands name.
+  useStore.setState({ run: { dir: "/p", id: "run-001" } });
   setTransport(
     createMockTransport({
       commands: {
@@ -45,6 +48,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   setTransport(null);
+  useStore.setState({ run: null });
 });
 
 describe("UncertaintyPanels", () => {

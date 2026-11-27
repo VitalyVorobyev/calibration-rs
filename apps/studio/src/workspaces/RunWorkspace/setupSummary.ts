@@ -1,4 +1,4 @@
-/** One-line summaries of the Run setup, for the collapsed form sections
+/** One-line summaries of the project's setup, for the collapsed form sections
  * and the header subtitle. */
 
 /** The manifest's target kind, `?` when unset. */
@@ -52,15 +52,15 @@ export function runBlockReason(opts: {
   supported: boolean;
   unsupportedReason?: string | undefined;
   unresolved: number;
-  manifestDir: string | null;
+  hasProject: boolean;
   configLoaded: boolean;
 }): string | undefined {
+  if (!opts.hasProject) return "Open or create a project first";
   if (!opts.supported) return opts.unsupportedReason;
   if (opts.unresolved > 0) {
     const n = opts.unresolved;
     return `Resolve ${n} unresolved manifest field${n !== 1 ? "s" : ""} first`;
   }
-  if (!opts.manifestDir) return "Set a dataset folder first";
   if (!opts.configLoaded) return "The calibration config has not loaded";
   return undefined;
 }

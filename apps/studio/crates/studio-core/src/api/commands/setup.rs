@@ -1,15 +1,14 @@
-//! The Run workspace: loading a setup (a manifest file, a sniffed folder, a
-//! Quick Start sample, a default config) and running the calibration
-//! ([`crate::run`]).
+//! Where a project's dataset comes from before there is a project: a
+//! manifest file read, a folder sniffed into a draft manifest, a Quick
+//! Start sample fetched as a project of its own.
 
 use std::path::Path;
 
 use schemars::JsonSchema;
-use serde::Deserialize;
-use vision_calibration::dataset::{DatasetSpec, ManifestError, samples};
+use serde::{Deserialize, Serialize};
+use vision_calibration::dataset::{DatasetSpec, samples};
 
 use crate::api::{Ctx, ErrorKind, JobCx, StudioError};
-use crate::run::{self, RunProgress, RunResponse};
 use crate::scope::UserPath;
 
 /// Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
@@ -22,106 +21,106 @@ pub struct ReadManifestArgs {
 
 pub fn read_manifest(ctx: &Ctx, args: ReadManifestArgs) -> Result<DatasetSpec, StudioError> {
     let file = ctx.scope.existing_file(&args.path)?;
-    DatasetSpec::from_path(&file).map_err(|e| {
-        let kind = match e {
-            ManifestError::Io { .. } => ErrorKind::Io,
-            _ => ErrorKind::Manifest,
-        };
-        StudioError::new(kind, e.to_string()).at(args.path.as_str())
-    })
+    DatasetSpec::from_path(&file).map_err(|e| StudioError::from(e).at(args.path.as_str()))
 }
 
-/// Infer a dataset manifest from the folder `folder`: images grouped into
-/// cameras, a robot-pose file, a guessed topology. What cannot be
-/// determined is left at a placeholder and listed in the manifest's
-/// `_unresolved` (the same inference as `vcal init`).
+/// Infer a draft dataset manifest from the folder `folder` (the same
+/// inference as `vcal project init`): images grouped into cameras, a
+/// robot-pose file, a guessed topology. What cannot be determined is left
+/// at a placeholder and listed in `unresolved`; a run refuses the manifest
+/// until each is set and cleared from its `_unresolved`.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SniffFolderArgs {
     pub folder: UserPath,
 }
 
-pub fn sniff_folder(ctx: &Ctx, args: SniffFolderArgs) -> Result<DatasetSpec, StudioError> {
-    let folder = ctx.scope.existing_dir(&args.folder)?;
-    vision_calibration::dataset::sniff_folder(&folder)
-        .map_err(|e| StudioError::new(ErrorKind::Io, e.to_string()).at(args.folder.as_str()))
+/// A sniffed folder.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SniffedFolder {
+    /// The draft manifest, its relative paths against the folder.
+    pub spec: DatasetSpec,
+    /// The fields the sniffer could not determine, as dotted paths into the
+    /// manifest (`target`, `topology`, `pose_pairing`, …): the draft's
+    /// `_unresolved`.
+    pub unresolved: Vec<String>,
 }
 
-/// Make the sample dataset `id` (one of the library's sample catalogue)
-/// available locally and answer the absolute path of its manifest. The
-/// files are downloaded into the back end's samples folder (always one of
-/// its roots), checked against their SHA-256 and reused later, so the app
-/// carries no dataset. A back end built without samples answers
-/// `invalid` (`server_info.samples` is false).
+pub fn sniff_folder(ctx: &Ctx, args: SniffFolderArgs) -> Result<SniffedFolder, StudioError> {
+    let folder = ctx.scope.existing_dir(&args.folder)?;
+    let spec = vision_calibration::dataset::sniff_folder(&folder)
+        .map_err(|e| StudioError::new(ErrorKind::Io, e.to_string()).at(args.folder.as_str()))?;
+    Ok(SniffedFolder {
+        unresolved: spec.unresolved.clone(),
+        spec,
+    })
+}
+
+/// Make the sample dataset `id` (one of `server_info.samples`) available
+/// as a project and answer its folder: the files are downloaded into the
+/// back end's samples folder (always one of its roots), checked against
+/// their SHA-256 and reused later, and the folder becomes a project
+/// referencing the sample's manifest (once; an existing project is kept
+/// with its runs). A back end built without samples answers `invalid`.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FetchSampleArgs {
     pub id: String,
 }
 
+/// A Quick Start sample, ready to open.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SampleProject {
+    /// The sample's project folder.
+    pub dir: String,
+}
+
 pub fn fetch_sample(
     ctx: &Ctx,
     args: FetchSampleArgs,
     _: &JobCx<()>,
-) -> Result<String, StudioError> {
-    fetch_sample_into(&args.id, &ctx.dirs.samples).map_err(|e| StudioError::new(ErrorKind::Io, e))
+) -> Result<SampleProject, StudioError> {
+    let manifest = fetch_sample_into(&args.id, &ctx.dirs.samples)
+        .map_err(|e| StudioError::new(ErrorKind::Io, e))?;
+    let manifest = ctx.scope.check(&manifest)?;
+    let dir = manifest
+        .parent()
+        .ok_or_else(|| StudioError::internal("a sample's manifest is in its folder"))?;
+    sample_project(&args.id, dir, &manifest)?;
+    Ok(SampleProject {
+        dir: crate::runs::slash(dir),
+    })
 }
 
-/// [`fetch_sample`] against an explicit cache directory.
+/// The sample `id` in `dir` as a project referencing its `manifest`.
+fn sample_project(id: &str, dir: &Path, manifest: &Path) -> Result<(), StudioError> {
+    use vision_calibration::project::{Project, ProjectError, ProjectSpec};
+    match Project::open(dir) {
+        Ok(_) => return Ok(()),
+        Err(ProjectError::NotAProject { .. }) => {}
+        Err(e) => return Err(e.into()),
+    }
+    let name = manifest.file_name().map(Path::new).unwrap_or(manifest);
+    let mut spec = ProjectSpec::for_manifest(name);
+    spec.name = Some(id.to_owned());
+    spec.description = samples::sample(id).ok().map(|s| s.description.clone());
+    match Project::create(dir, spec) {
+        Ok(_) | Err(ProjectError::ProjectExists { .. }) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The sample `id` fetched into `cache`: its manifest's path.
 #[cfg(feature = "samples")]
-fn fetch_sample_into(id: &str, cache: &Path) -> Result<String, String> {
-    samples::fetch(id, cache)
-        .map(|manifest| manifest.to_string_lossy().into_owned())
-        .map_err(|e| format!("sample {id}: {e}"))
+fn fetch_sample_into(id: &str, cache: &Path) -> Result<std::path::PathBuf, String> {
+    samples::fetch(id, cache).map_err(|e| format!("sample {id}: {e}"))
 }
 
 #[cfg(not(feature = "samples"))]
-fn fetch_sample_into(id: &str, _: &Path) -> Result<String, String> {
+fn fetch_sample_into(id: &str, _: &Path) -> Result<std::path::PathBuf, String> {
     Err(format!(
         "sample {id}: this back end was built without the Quick Start samples"
     ))
-}
-
-/// Run a calibration end to end: detection (cached), the solve and the
-/// export, reporting each stage and the library's reports within it. The
-/// folder `manifest_dir` is what the manifest's relative paths resolve
-/// against; every path the manifest names must lie inside a root. A
-/// successful run's export becomes the active export.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct RunCalibrationArgs {
-    /// The dataset manifest (`DatasetSpec` JSON).
-    pub manifest: serde_json::Value,
-    /// The topology's `*Config` JSON.
-    pub config: serde_json::Value,
-    pub manifest_dir: UserPath,
-}
-
-/// The run's outcome is its output; a cancelled run ends the job as
-/// `cancelled`.
-pub fn run_calibration(
-    ctx: &Ctx,
-    args: RunCalibrationArgs,
-    cx: &JobCx<RunProgress>,
-) -> Result<RunResponse, StudioError> {
-    let dir = ctx.scope.existing_dir(&args.manifest_dir)?;
-    crate::scope::check_manifest(&ctx.scope, &args.manifest, &dir)?;
-    let reports = cx.clone();
-    let response = run::run_calibration(
-        args.manifest,
-        args.config,
-        &dir.to_string_lossy(),
-        cx.token(),
-        move |progress| reports.emit(&progress),
-    );
-    match response {
-        RunResponse::Cancelled => Err(StudioError::cancelled()),
-        RunResponse::Ok(success) => {
-            ctx.exports.set(success.export.clone());
-            Ok(RunResponse::Ok(success))
-        }
-        other => Ok(other),
-    }
 }
 
 #[cfg(test)]
@@ -137,10 +136,25 @@ mod tests {
     }
 
     #[test]
-    fn the_quick_start_samples_are_in_the_catalogue() {
-        for id in ["kuka_1", "ds8"] {
-            assert!(samples::sample(id).is_ok(), "{id}");
-        }
+    fn a_fetched_sample_becomes_a_project_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("kuka_1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("dataset.toml");
+        std::fs::write(
+            &manifest,
+            include_str!("../../../../../../../data/kuka_1/dataset.toml"),
+        )
+        .unwrap();
+        sample_project("kuka_1", &dir, &manifest).unwrap();
+        let project = vision_calibration::project::Project::open(&dir).unwrap();
+        assert_eq!(project.spec().name.as_deref(), Some("kuka_1"));
+        assert!(project.dataset().is_ok());
+        let revision = project.revision().to_owned();
+        // Again: the project is kept as it is.
+        sample_project("kuka_1", &dir, &manifest).unwrap();
+        let again = vision_calibration::project::Project::open(&dir).unwrap();
+        assert_eq!(again.revision(), revision);
     }
 
     #[test]
@@ -187,5 +201,18 @@ pattern = "*.png"
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::Manifest);
         assert_eq!(err.path.as_deref(), Some(&*broken.to_string_lossy()));
+
+        // A sniffed folder: a draft and what it leaves open.
+        std::fs::write(base.join("a.png"), b"").unwrap();
+        let sniffed = api
+            .invoke("sniff_folder", json!({"folder": base.to_string_lossy()}))
+            .unwrap();
+        assert_eq!(sniffed["unresolved"], sniffed["spec"]["_unresolved"]);
+        assert!(
+            sniffed["unresolved"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("target"))
+        );
     }
 }

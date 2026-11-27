@@ -49,10 +49,13 @@ describe("the page's back end", () => {
       nativeFolder: () => "/picked",
     });
     setTransport(mock);
-    expect(await api.cameraParameterValues({ labels: ["fx", "fy"] })).toEqual([1, 1]);
+    const run = { dir: "/p", id: "run-001" };
+    expect(await api.cameraParameterValues({ run, labels: ["fx", "fy"] })).toEqual([
+      1, 1,
+    ]);
     expect(await pickNativeFolder()).toBe("/picked");
     expect(mock.calls).toEqual([
-      { command: "camera_parameter_values", args: { labels: ["fx", "fy"] } },
+      { command: "camera_parameter_values", args: { run, labels: ["fx", "fy"] } },
     ]);
   });
 });

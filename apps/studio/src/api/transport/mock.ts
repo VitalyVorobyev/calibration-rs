@@ -113,7 +113,15 @@ export function createMockTransport(options: MockOptions = {}): MockTransport {
               info,
               error.kind === "cancelled"
                 ? { kind: "cancelled" }
-                : { kind: "failed", error: { kind: error.kind, message: error.message } },
+                : {
+                    kind: "failed",
+                    error: {
+                      kind: error.kind,
+                      message: error.message,
+                      ...(error.field ? { field: error.field } : {}),
+                      ...(error.suggestions ? { suggestions: error.suggestions } : {}),
+                    },
+                  },
             );
           },
         );

@@ -1,4 +1,5 @@
 import { api } from "../../api";
+import { useStore } from "../../store";
 import { useEffect, useState } from "react";
 import type { TargetFeatureResidual } from "../../types";
 
@@ -20,11 +21,13 @@ export function useUndistortedResiduals(
     value: TargetFeatureResidual[];
   } | null>(null);
 
+  const run = useStore((s) => s.run);
   useEffect(() => {
     let cancelled = false;
     const points: Promise<NullablePx[]> =
-      residuals.length > 0
+      residuals.length > 0 && run !== null
         ? api.undistortPoints({
+            run,
             camera,
             points_px: residuals.map((r) => r.observed_px),
           })
@@ -53,7 +56,7 @@ export function useUndistortedResiduals(
     return () => {
       cancelled = true;
     };
-  }, [camera, residuals, onError]);
+  }, [run, camera, residuals, onError]);
 
   return mapped && mapped.source === residuals && mapped.camera === camera
     ? mapped.value

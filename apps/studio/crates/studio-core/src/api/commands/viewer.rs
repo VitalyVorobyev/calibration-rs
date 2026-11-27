@@ -1,6 +1,5 @@
-//! The viewers' commands: loading an export and making it active, and the
-//! math over the active export ([`crate::ops`]): undistortion, epipolar
-//! overlays, uncertainty, and the disparity job.
+//! The viewers' commands over a run's export ([`RunRef`]): undistortion,
+//! epipolar overlays, uncertainty, and the disparity job.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -9,59 +8,19 @@ use vision_calibration::optim::ProjectionUncertainty;
 use crate::api::{Ctx, JobCx, StudioError};
 use crate::blobs::{BlobRef, BlobStore};
 use crate::disparity::{DisparityMetrics, DisparityParams};
-use crate::epipolar::EpipolarOverlay;
+use crate::epipolar::{self, EpipolarOverlay};
 use crate::images::ImageCache;
-use crate::ops;
 use crate::planes;
+use crate::runs::RunRef;
 use crate::scope::UserPath;
+use crate::uncertainty;
 
-/// Read and parse the calibration export at `path` and check its schema
-/// version. It does not become active: the frontend validates it first and
-/// then calls `set_active_export`. Its images are read through the `image`
-/// resource, so they too must lie inside a root.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct LoadExportArgs {
-    pub path: UserPath,
-}
-
-/// A loaded export.
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct LoadExportResult {
-    /// The parsed export JSON; the frontend narrows it by its `kind`.
-    pub export: serde_json::Value,
-    /// The folder holding the export (absolute, `/`-separated): its image
-    /// manifest's `root` resolves against it.
-    pub export_dir: String,
-}
-
-pub fn load_export(ctx: &Ctx, args: LoadExportArgs) -> Result<LoadExportResult, StudioError> {
-    let file = ctx.scope.existing_file(&args.path)?;
-    let loaded =
-        ops::read_export(&file).map_err(|e| StudioError::invalid(e).at(args.path.as_str()))?;
-    Ok(LoadExportResult {
-        export: loaded.result.export,
-        export_dir: loaded.result.export_dir,
-    })
-}
-
-/// Make `export` the active export, the one every viewer command reads.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SetActiveExportArgs {
-    pub export: serde_json::Value,
-}
-
-pub fn set_active_export(ctx: &Ctx, args: SetActiveExportArgs) -> Result<(), StudioError> {
-    ctx.exports.set(args.export);
-    Ok(())
-}
-
-/// Map raw (distorted) pixels of `camera` into its undistorted pixel frame;
-/// `null` where back-projection has no finite ray.
+/// Map raw (distorted) pixels of `camera` of the run into its undistorted
+/// pixel frame; `null` where back-projection has no finite ray.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UndistortPointsArgs {
+    pub run: RunRef,
     pub camera: usize,
     pub points_px: Vec<[f64; 2]>,
 }
@@ -70,8 +29,9 @@ pub fn undistort_points(
     ctx: &Ctx,
     args: UndistortPointsArgs,
 ) -> Result<Vec<Option<[f64; 2]>>, StudioError> {
-    Ok(ops::undistort_points(
-        &ctx.exports,
+    let run = ctx.runs.get(ctx, &args.run)?;
+    Ok(epipolar::undistort_points(
+        &run.export,
         args.camera,
         args.points_px,
     )?)
@@ -79,10 +39,11 @@ pub fn undistort_points(
 
 /// The epipolar polyline and epipole in camera `cam_b` (distorted pixels)
 /// of the pixel `point_px` of camera `cam_a`, through each camera's full
-/// model.
+/// model of the run.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EpipolarOverlayArgs {
+    pub run: RunRef,
     pub cam_a: usize,
     pub cam_b: usize,
     pub point_px: [f64; 2],
@@ -92,8 +53,9 @@ pub fn epipolar_overlay(
     ctx: &Ctx,
     args: EpipolarOverlayArgs,
 ) -> Result<EpipolarOverlay, StudioError> {
-    Ok(ops::compute_epipolar_overlay(
-        &ctx.exports,
+    let run = ctx.runs.get(ctx, &args.run)?;
+    Ok(epipolar::compute_overlay(
+        &run.export,
         args.cam_a,
         args.cam_b,
         args.point_px,
@@ -106,6 +68,7 @@ pub fn epipolar_overlay(
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EpipolarOverlayUndistortedArgs {
+    pub run: RunRef,
     pub cam_a: usize,
     pub cam_b: usize,
     pub point_px: [f64; 2],
@@ -117,20 +80,23 @@ pub fn epipolar_overlay_undistorted(
     ctx: &Ctx,
     args: EpipolarOverlayUndistortedArgs,
 ) -> Result<EpipolarOverlay, StudioError> {
-    Ok(ops::compute_epipolar_overlay_undistorted(
-        &ctx.exports,
+    let run = ctx.runs.get(ctx, &args.run)?;
+    Ok(epipolar::compute_overlay_undistorted(
+        &run.export,
         args.cam_a,
         args.cam_b,
         args.point_px,
-        [args.image_width_b, args.image_height_b],
+        args.image_width_b,
+        args.image_height_b,
     )?)
 }
 
-/// The value of each labelled parameter of the active export that is a
+/// The value of each labelled parameter of the run's export that is a
 /// camera parameter, aligned with `labels`; `null` for poses and planes.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CameraParameterValuesArgs {
+    pub run: RunRef,
     pub labels: Vec<String>,
 }
 
@@ -138,14 +104,19 @@ pub fn camera_parameter_values(
     ctx: &Ctx,
     args: CameraParameterValuesArgs,
 ) -> Result<Vec<Option<f64>>, StudioError> {
-    Ok(ops::camera_parameter_values(&ctx.exports, &args.labels)?)
+    let run = ctx.runs.get(ctx, &args.run)?;
+    Ok(uncertainty::camera_parameter_values(
+        &run.export,
+        &args.labels,
+    )?)
 }
 
-/// The projection uncertainty of `camera` of the active export over an
-/// image of `image_width` × `image_height` pixels.
+/// The projection uncertainty of `camera` of the run over an image of
+/// `image_width` × `image_height` pixels.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionUncertaintyArgs {
+    pub run: RunRef,
     pub camera: usize,
     pub image_width: u32,
     pub image_height: u32,
@@ -155,15 +126,16 @@ pub fn projection_uncertainty(
     ctx: &Ctx,
     args: ProjectionUncertaintyArgs,
 ) -> Result<ProjectionUncertainty, StudioError> {
-    Ok(ops::projection_uncertainty(
-        &ctx.exports,
+    let run = ctx.runs.get(ctx, &args.run)?;
+    Ok(uncertainty::projection_uncertainty(
+        &run.export,
         args.camera,
         [args.image_width, args.image_height],
     )?)
 }
 
 /// A disparity map of the stereo pair `path_a` (camera `cam_a`) and
-/// `path_b` (camera `cam_b`) at `pose`: rectified from the active export and
+/// `path_b` (camera `cam_b`) at `pose`: rectified from the run's export and
 /// dense-matched. The output names its fields as blobs: a value plane of
 /// disparity, depth and the rectified left image, the point cloud, and the
 /// rectified pair. The same request again answers from the blob store while
@@ -171,6 +143,7 @@ pub fn projection_uncertainty(
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DisparityArgs {
+    pub run: RunRef,
     pub path_a: UserPath,
     pub path_b: UserPath,
     pub cam_a: usize,
@@ -209,10 +182,7 @@ pub fn disparity(
 ) -> Result<DisparityResult, StudioError> {
     let path_a = ctx.scope.existing_file(&args.path_a)?;
     let path_b = ctx.scope.existing_file(&args.path_b)?;
-    let export = ctx
-        .exports
-        .snapshot()
-        .ok_or_else(|| StudioError::invalid("no export loaded yet"))?;
+    let run = ctx.runs.get(ctx, &args.run)?;
     // What makes the result: the request, the images as they are on disk
     // and the calibration.
     let request = serde_json::json!({
@@ -223,7 +193,7 @@ pub fn disparity(
         "block_size": args.params.block_size,
         "semi_global": args.params.semi_global,
         "downscale": args.params.downscale,
-        "calibration": export.fingerprint,
+        "calibration": run.fingerprint,
     })
     .to_string();
     let id = |part: &str| BlobStore::id(&[b"disparity", request.as_bytes(), part.as_bytes()]);
@@ -240,7 +210,7 @@ pub fn disparity(
     }
 
     let data = crate::disparity::compute(
-        &export.value,
+        &run.export,
         &path_a,
         &path_b,
         args.cam_a,
@@ -283,107 +253,110 @@ pub fn disparity(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use serde_json::json;
 
     use crate::api::{Api, Conditions, ErrorKind, Setup};
     use crate::scope::RootScope;
 
-    /// The committed fixture project's run (a two-camera rig with images).
-    struct Run {
-        dir: std::path::PathBuf,
-        export: std::path::PathBuf,
-        images: std::path::PathBuf,
+    /// The committed fixture project and its legacy run (a two-camera rig
+    /// with images).
+    struct Fixture {
+        project: PathBuf,
+        images: PathBuf,
     }
 
     fn slash(path: &Path) -> String {
         path.to_string_lossy().replace('\\', "/")
     }
 
-    /// The fixture run, behind a scope of the fixture project alone.
-    fn viewer() -> (Api, Run, tempfile::TempDir) {
+    /// The fixture, behind a scope of the fixture project alone.
+    fn viewer() -> (Api, Fixture, tempfile::TempDir) {
         let project = dunce::canonicalize(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/library/rig-demo"),
         )
         .unwrap();
-        let dir = project.join("runs/run-001");
-        let run = Run {
-            export: dir.join("export.json"),
+        let fixture = Fixture {
             images: project.join("images"),
-            dir,
+            project: project.clone(),
         };
         let cache = tempfile::tempdir().unwrap();
         let setup = Setup::for_tests(Some(cache.path().to_path_buf()));
         let api = Api::with_scope(RootScope::fixed([project]), setup);
-        (api, run, cache)
+        (api, fixture, cache)
+    }
+
+    fn run(fixture: &Fixture) -> serde_json::Value {
+        json!({"dir": slash(&fixture.project), "id": "run-001"})
     }
 
     #[test]
-    fn the_viewer_commands_answer_over_the_active_export() {
-        let (api, run, _cache) = viewer();
-        let early = api
-            .invoke(
-                "undistort_points",
-                json!({"camera": 0, "points_px": [[1.0, 2.0]]}),
-            )
-            .unwrap_err();
-        assert_eq!(early.kind, ErrorKind::Invalid);
-        assert_eq!(early.message, "no export loaded yet");
-
-        let loaded = api
-            .invoke("load_export", json!({"path": slash(&run.export)}))
-            .unwrap();
-        assert_eq!(loaded["export_dir"], slash(&run.dir));
-        assert_eq!(loaded["export"]["kind"], "rig_extrinsics");
-        api.invoke("set_active_export", json!({"export": loaded["export"]}))
-            .unwrap();
+    fn the_viewer_commands_answer_over_a_named_run() {
+        let (api, fixture, _cache) = viewer();
+        let run = run(&fixture);
+        let export = api.invoke("run_export", json!({"run": run})).unwrap();
+        assert_eq!(export["export"]["kind"], "rig_extrinsics");
+        // A run of the app's earlier format: its frames resolve from the
+        // run folder's image root (`../../images`).
+        assert_eq!(export["image_root"], slash(&fixture.images));
 
         // A distortion-free camera maps pixels to themselves.
         let px = api
             .invoke(
                 "undistort_points",
-                json!({"camera": 1, "points_px": [[10.0, 20.0]]}),
+                json!({"run": run, "camera": 1, "points_px": [[10.0, 20.0]]}),
             )
             .unwrap();
         assert!((px[0][0].as_f64().unwrap() - 10.0).abs() < 1e-6, "{px}");
         let values = api
             .invoke(
                 "camera_parameter_values",
-                json!({"labels": ["cam1.fx", "cam0.cy"]}),
+                json!({"run": run, "labels": ["cam1.fx", "cam0.cy"]}),
             )
             .unwrap();
         assert_eq!(values, json!([200.0, 59.5]));
         api.invoke(
             "projection_uncertainty",
-            json!({"camera": 0, "image_width": 160, "image_height": 120}),
+            json!({"run": run, "camera": 0, "image_width": 160, "image_height": 120}),
         )
         .unwrap();
         api.invoke(
             "epipolar_overlay_undistorted",
-            json!({"cam_a": 0, "cam_b": 1, "point_px": [80.0, 60.0],
+            json!({"run": run, "cam_a": 0, "cam_b": 1, "point_px": [80.0, 60.0],
                    "image_width_b": 160.0, "image_height_b": 120.0}),
         )
         .unwrap();
 
-        let image = slash(&run.images.join("cam0_view0.png"));
+        let image = slash(&fixture.images.join("cam0_view0.png"));
         let png = api
             .resource(
                 "undistorted_image",
-                json!({"path": image, "camera": 0, "roi": null}),
+                json!({"run": run, "path": image, "camera": 0, "roi": null}),
                 &Conditions::default(),
             )
             .unwrap();
         assert_eq!(png.media_type, "image/png");
         assert!(png.read_body().unwrap().starts_with(b"\x89PNG"));
 
+        // A run the project does not have.
+        let missing = api
+            .invoke(
+                "undistort_points",
+                json!({"run": {"dir": run["dir"], "id": "run-404"}, "camera": 0, "points_px": []}),
+            )
+            .unwrap_err();
+        assert_eq!(missing.kind, ErrorKind::RunNotFound);
         let bad = api
-            .invoke("undistort_points", json!({"camera": "zero"}))
+            .invoke("undistort_points", json!({"run": run, "camera": "zero"}))
             .unwrap_err();
         assert_eq!(bad.kind, ErrorKind::InvalidArgs);
         // The old camelCase names are refused.
         let camel = api
-            .invoke("undistort_points", json!({"camera": 0, "pointsPx": []}))
+            .invoke(
+                "undistort_points",
+                json!({"run": run, "camera": 0, "pointsPx": []}),
+            )
             .unwrap_err();
         assert_eq!(camel.kind, ErrorKind::InvalidArgs);
     }
@@ -402,15 +375,11 @@ mod tests {
 
     #[test]
     fn a_disparity_job_answers_blobs_and_memoizes_them() {
-        let (api, run, _cache) = viewer();
-        let loaded = api
-            .invoke("load_export", json!({"path": slash(&run.export)}))
-            .unwrap();
-        api.invoke("set_active_export", json!({"export": loaded["export"]}))
-            .unwrap();
+        let (api, fixture, _cache) = viewer();
         let args = json!({
-            "path_a": slash(&run.images.join("cam0_view0.png")),
-            "path_b": slash(&run.images.join("cam1_view0.png")),
+            "run": run(&fixture),
+            "path_a": slash(&fixture.images.join("cam0_view0.png")),
+            "path_b": slash(&fixture.images.join("cam1_view0.png")),
             "cam_a": 0, "cam_b": 1, "pose": 0,
             "params": {"block_size": 5, "semi_global": true, "downscale": 1}
         });
@@ -456,7 +425,7 @@ mod tests {
 
     #[test]
     fn paths_outside_the_viewer_scope_are_refused() {
-        let (api, run, _cache) = viewer();
+        let (api, fixture, _cache) = viewer();
         let outside = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         let err = api
             .invoke("read_manifest", json!({"path": slash(&outside)}))
@@ -465,13 +434,18 @@ mod tests {
         let err = api
             .resource(
                 "undistorted_image",
-                json!({"path": slash(&run.images.join("../../vcal-run/calibration.json")), "camera": 0}),
+                json!({"run": run(&fixture),
+                       "path": slash(&fixture.images.join("../../vcal-run/calibration.json")),
+                       "camera": 0}),
                 &Conditions::default(),
             )
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::ForbiddenPath);
         let err = api
-            .invoke("load_export", json!({"path": "export.json"}))
+            .invoke(
+                "run_export",
+                json!({"run": {"dir": "rig-demo", "id": "run-001"}}),
+            )
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::ForbiddenPath);
     }

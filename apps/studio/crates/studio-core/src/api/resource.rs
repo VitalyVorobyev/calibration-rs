@@ -21,6 +21,10 @@ pub enum Resource {
         media_type: &'static str,
         cache_control: &'static str,
     },
+    /// An HTML page (a run's report), served as a file under
+    /// [`PAGE_CSP`]: its scripts run, in an opaque origin with no access to
+    /// the app, its cookie or its API.
+    Page { path: PathBuf },
     /// Bytes in memory, named by `etag`.
     Bytes {
         bytes: Arc<Vec<u8>>,
@@ -35,6 +39,10 @@ pub enum Resource {
 pub const REVALIDATE: &str = "private, no-cache";
 /// `Cache-Control` of content-addressed bytes, which never change.
 pub const IMMUTABLE: &str = "private, max-age=31536000, immutable";
+
+/// The `Content-Security-Policy` of a [`Resource::Page`].
+pub const PAGE_CSP: &str = "sandbox allow-scripts; default-src 'none'; \
+    script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:";
 
 /// The request's conditions, as the client sent them.
 #[derive(Debug, Clone, Default)]
@@ -69,6 +77,9 @@ pub struct ResourceReply {
     pub cache_control: &'static str,
     /// `Content-Range` of a 206 or 416.
     pub content_range: Option<String>,
+    /// The `Content-Security-Policy` the reply carries instead of the
+    /// app's (a sandboxed page).
+    pub content_security_policy: Option<&'static str>,
     pub body: Body,
 }
 
@@ -123,6 +134,17 @@ pub fn hex(bytes: &[u8]) -> String {
 
 /// `resource` answered under `conditions`.
 pub fn reply(resource: Resource, conditions: &Conditions) -> Result<ResourceReply, StudioError> {
+    let (resource, content_security_policy) = match resource {
+        Resource::Page { path } => (
+            Resource::File {
+                path,
+                media_type: "text/html; charset=utf-8",
+                cache_control: REVALIDATE,
+            },
+            Some(PAGE_CSP),
+        ),
+        other => (other, None),
+    };
     let (media_type, cache_control, etag, total, full) = match resource {
         Resource::File {
             path,
@@ -164,6 +186,9 @@ pub fn reply(resource: Resource, conditions: &Conditions) -> Result<ResourceRepl
             let len = bytes.len() as u64;
             (media_type, cache_control, etag, len, Body::Bytes(bytes))
         }
+        Resource::Page { .. } => {
+            return Err(StudioError::internal("a page is served as a file"));
+        }
     };
     let base = ResourceReply {
         status: 200,
@@ -171,6 +196,7 @@ pub fn reply(resource: Resource, conditions: &Conditions) -> Result<ResourceRepl
         etag,
         cache_control,
         content_range: None,
+        content_security_policy,
         body: Body::Empty,
     };
     if conditions

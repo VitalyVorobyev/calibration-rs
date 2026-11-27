@@ -1,6 +1,6 @@
 //! The resources: what the frontend's URLs (`api.urls.*`) load. A source
-//! image, an image undistorted through the active export, and a derived
-//! blob. Every path goes through the scope; derived images are cached on
+//! image, an image undistorted through a run's export, a derived blob, and
+//! a run's report page. Every path goes through the scope; derived images are cached on
 //! disk ([`crate::images::ImageCache`]), blobs in memory
 //! ([`crate::blobs::BlobStore`]).
 
@@ -13,6 +13,7 @@ use vision_calibration::core::PixelRect;
 use crate::api::resource::{IMMUTABLE, REVALIDATE};
 use crate::api::{Ctx, ErrorKind, Resource, StudioError};
 use crate::images::{self, ImageCache};
+use crate::runs::RunRef;
 use crate::scope::UserPath;
 
 /// The image file at `path`, as a browser can decode it: JPEG, PNG, WebP,
@@ -57,10 +58,11 @@ fn file_resource(path: std::path::PathBuf, media_type: &'static str) -> Resource
 }
 
 /// The image at `path` rendered into `camera`'s undistorted pixel frame of
-/// the active export (a PNG), cropped to `roi` when given.
+/// the run's export (a PNG), cropped to `roi` when given.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UndistortedImageQuery {
+    pub run: RunRef,
     pub path: UserPath,
     pub camera: usize,
     #[serde(default)]
@@ -69,21 +71,33 @@ pub struct UndistortedImageQuery {
 
 pub fn undistorted_image(ctx: &Ctx, query: UndistortedImageQuery) -> Result<Resource, StudioError> {
     let file = ctx.scope.existing_file(&query.path)?;
-    let export = ctx
-        .exports
-        .snapshot()
-        .ok_or_else(|| StudioError::invalid("no export loaded yet"))?;
+    let run = ctx.runs.get(ctx, &query.run)?;
     let roi = query
         .roi
         .map(|r| format!("{},{},{},{}", r.x, r.y, r.w, r.h))
         .unwrap_or_default();
-    let variant = format!("undistorted:{}:{}:{roi}", export.fingerprint, query.camera);
+    let variant = format!("undistorted:{}:{}:{roi}", run.fingerprint, query.camera);
     let key = ImageCache::key(&file, &variant)?;
     let path = ctx.images.get_or_make(&key, "png", || {
-        crate::epipolar::undistort_image_png(&export.value, &file, query.camera, query.roi)
+        crate::epipolar::undistort_image_png(&run.export, &file, query.camera, query.roi)
             .map_err(StudioError::invalid)
     })?;
     Ok(file_resource(path, "image/png"))
+}
+
+/// The run's page, `report.html` (written with every calibration this app
+/// runs), served sandboxed: its scripts run without access to the app.
+/// `io` when the run has none.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReportQuery {
+    pub run: RunRef,
+}
+
+pub fn report(ctx: &Ctx, query: ReportQuery) -> Result<Resource, StudioError> {
+    let run = crate::runs::resolve(ctx, &query.run)?;
+    let path = ctx.scope.check(&run.info.report_path())?;
+    Ok(Resource::Page { path })
 }
 
 /// The blob `id` a command made (a value plane, raw floats, a PNG).

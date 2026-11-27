@@ -562,3 +562,76 @@ async fn the_event_stream_reports_a_job_and_resumes_after_the_last_id() {
         assert_eq!(next_record(&mut body).await.0, *expected);
     }
 }
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn projects_answer_a_stale_save_with_409_and_reports_are_sandboxed() {
+    let f = fixture(Some(TOKEN));
+    let project = f.root.join("rig-demo");
+    copy_dir(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/library/rig-demo"),
+        &project,
+    );
+    let command = |name: &str, args: serde_json::Value| {
+        bearer(post(&format!("/api/cmd/{name}")))
+            .body(json(args))
+            .unwrap()
+    };
+    let opened = send(
+        &f.app,
+        command("open_project", serde_json::json!({"dir": project})),
+    )
+    .await;
+    assert_eq!(opened.status, StatusCode::OK);
+    let view = opened.json();
+    assert_eq!(view["runs"][0]["id"], "run-001");
+    let stale = send(
+        &f.app,
+        command(
+            "save_project",
+            serde_json::json!({"dir": project, "revision": "sha256:0", "spec": view["spec"]}),
+        ),
+    )
+    .await;
+    assert_eq!(stale.status, StatusCode::CONFLICT);
+    assert_eq!(stale.json()["kind"], "changed_on_disk");
+
+    std::fs::write(
+        project.join("runs/run-001/report.html"),
+        "<!doctype html><script>1</script>",
+    )
+    .unwrap();
+    let url = format!(
+        "/api/r/report?q={}",
+        query(serde_json::json!({"run": {"dir": project, "id": "run-001"}}))
+    );
+    let report = send(&f.app, bearer(get(&url)).body(Body::empty()).unwrap()).await;
+    assert_eq!(report.status, StatusCode::OK);
+    assert_eq!(
+        report.headers[header::CONTENT_TYPE],
+        "text/html; charset=utf-8"
+    );
+    assert!(
+        report.headers[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap()
+            .starts_with("sandbox allow-scripts")
+    );
+    let missing = format!(
+        "/api/r/report?q={}",
+        query(serde_json::json!({"run": {"dir": project, "id": "run-404"}}))
+    );
+    let missing = send(&f.app, bearer(get(&missing)).body(Body::empty()).unwrap()).await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
+}

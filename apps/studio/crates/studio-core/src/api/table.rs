@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Ctx;
-use super::commands::{files, forms, jobs, project, resources, session, setup, viewer};
+use super::commands::{files, forms, jobs, project, resources, runs, session, setup, viewer};
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
 use super::resource::Resource;
@@ -156,25 +156,32 @@ pub fn table() -> Vec<CommandSpec> {
         plain("remove_root", session::remove_root),
         plain("recent_projects", session::recent_projects),
         plain("forget_recent", session::forget_recent),
-        // The folder browser.
+        // The folder browser and what a dataset folder holds.
         plain("list_dir", files::list_dir),
-        // Projects.
-        plain("create_project", project::create_project),
-        plain("open_project", project::open_project),
-        plain("save_project_manifest", project::save_project_manifest),
-        plain("save_project_run", project::save_project_run),
-        // The forms, from the library's schemas and defaults.
-        plain("config_form", forms::config_form),
-        plain("dataset_form", forms::dataset_form),
-        plain("resolve_config", forms::resolve_config),
-        // The Run workspace's setup and the runner.
         plain("read_manifest", setup::read_manifest),
         plain("sniff_folder", setup::sniff_folder),
         job("fetch_sample", Lane::Light, setup::fetch_sample),
-        job("run_calibration", Lane::Heavy, setup::run_calibration),
-        // The viewers, over the active export.
-        plain("load_export", viewer::load_export),
-        plain("set_active_export", viewer::set_active_export),
+        // The forms, from the library's schemas, defaults and merge rule.
+        plain("config_form", forms::config_form),
+        plain("dataset_form", forms::dataset_form),
+        plain("resolve_config", forms::resolve_config),
+        plain("config_patch", forms::config_patch),
+        // Projects, through the library.
+        plain("scan_library", project::scan_library),
+        plain("open_project", project::open_project),
+        plain("create_project", project::create_project),
+        plain("save_project", project::save_project),
+        plain("project_views", project::project_views),
+        plain("list_runs", project::list_runs),
+        plain("set_run_notes", project::set_run_notes),
+        plain("delete_run", project::delete_run),
+        plain("import_export", project::import_export),
+        // Runs: calibrate the next one; read one.
+        job("calibrate", Lane::Heavy, runs::calibrate),
+        plain("run_info", runs::run_info),
+        plain("run_export", runs::run_export),
+        plain("run_quality", runs::run_quality),
+        // The viewers, over a run's export.
         plain("undistort_points", viewer::undistort_points),
         plain("epipolar_overlay", viewer::epipolar_overlay),
         plain(
@@ -188,6 +195,7 @@ pub fn table() -> Vec<CommandSpec> {
         resource("image", resources::image),
         resource("undistorted_image", resources::undistorted_image),
         resource("blob", resources::blob),
+        resource("report", resources::report),
         // Jobs.
         plain("list_jobs", jobs::list_jobs),
         plain("job_status", jobs::job_status),

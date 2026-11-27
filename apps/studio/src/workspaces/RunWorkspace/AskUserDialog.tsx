@@ -1,6 +1,5 @@
 import { Button, Dialog, DialogClose, Input } from "@vitavision/ui";
 import { useState } from "react";
-import { hintFor } from "./manifestFields";
 
 interface AskUserDialogProps {
   field: string;
@@ -12,9 +11,9 @@ interface AskUserDialogProps {
   onDismiss: () => void;
 }
 
-/** Dialog for a runner `ask_user` event (fail-fast on ambiguity).
+/** Dialog for a run that ended `needs_input` (fail-fast on ambiguity).
  *
- * The dataset runner raises an `ask_user` event when it hits an ambiguity it
+ * The dataset runner refuses with `needs_input` (a field and suggestions) when it hits an ambiguity it
  * refuses to guess (e.g. how images pair into views). This surfaces the
  * field + prompt, renders each suggestion as a click-to-apply button, and
  * offers a free-text input for open-ended fields. Applying writes the choice
@@ -28,7 +27,6 @@ export function AskUserDialog({
   onDismiss,
 }: AskUserDialogProps) {
   const [freeText, setFreeText] = useState("");
-  const hint = hintFor(field);
   const trimmed = freeText.trim();
 
   return (
@@ -47,9 +45,6 @@ export function AskUserDialog({
     >
       <div className="mt-3 flex flex-col gap-3">
         <code className="font-mono text-[11px] text-fg-muted">{field}</code>
-        {hint && hint !== prompt && (
-          <p className="text-xs leading-relaxed text-fg-muted">{hint}</p>
-        )}
 
         {suggestions.length > 0 && (
           <div className="flex flex-col gap-1.5">
