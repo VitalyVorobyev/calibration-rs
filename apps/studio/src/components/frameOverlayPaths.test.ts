@@ -60,13 +60,28 @@ describe("buildResidualArrows", () => {
       FRAME,
       1,
     ).arrows[0]!;
-    expect(shaft(short.d).to[0]! - 5).toBeCloseTo(0.1 * ARROW_GAIN, 3);
+    expect(shaft(short.d).to[0]! - 5).toBeCloseTo(-0.1 * ARROW_GAIN, 3);
     const long = buildResidualArrows(
       [tgt({ observed_px: [5, 5], projected_px: [5, 105] })],
       FRAME,
       1,
     ).arrows[0]!;
-    expect(shaft(long.d).to[1]! - 5).toBeCloseTo(ARROW_LENGTH_CAP_PX, 3);
+    expect(shaft(long.d).to[1]! - 5).toBeCloseTo(-ARROW_LENGTH_CAP_PX, 3);
+  });
+
+  it("points along observed − projected, from the observed corner", () => {
+    // The model put the corner 1 px left of and 2 px above where it was
+    // detected: the arrow points right and down.
+    const { arrows } = buildResidualArrows(
+      [tgt({ observed_px: [10, 10], projected_px: [9, 8] })],
+      FRAME,
+      1,
+    );
+    const { from, to } = shaft(arrows[0]!.d);
+    expect(from).toEqual([10, 10]);
+    expect(to[0]! - from[0]!).toBeGreaterThan(0);
+    expect(to[1]! - from[1]!).toBeGreaterThan(0);
+    expect((to[1]! - from[1]!) / (to[0]! - from[0]!)).toBeCloseTo(2, 4);
   });
 
   it("skips zero-length residuals and those without a projection", () => {

@@ -77,6 +77,11 @@ function bucket(items: Iterable<[string, string]>): ColoredPath[] {
   return [...byColor].map(([color, d]) => ({ color, d }));
 }
 
+/** One arrow per residual of the frame, anchored at the observed corner
+ * and pointing along the residual `observed − projected` (the sign of the
+ * library's residuals and maps: where the data put the corner relative to
+ * the model), magnified by {@link ARROW_GAIN} up to
+ * {@link ARROW_LENGTH_CAP_PX}. */
 export function buildResidualArrows(
   all: readonly TargetFeatureResidual[],
   frame: Pick<FrameKey, "pose" | "camera">,
@@ -89,8 +94,9 @@ export function buildResidualArrows(
   for (const r of ofFrame(all, frame)) {
     if (!r.projected_px) continue;
     const [ox, oy] = r.observed_px;
-    const dx0 = r.projected_px[0] - ox;
-    const dy0 = r.projected_px[1] - oy;
+    // observed − projected.
+    const dx0 = ox - r.projected_px[0];
+    const dy0 = oy - r.projected_px[1];
     const mag = Math.hypot(dx0, dy0);
     if (mag < ZERO_LENGTH) continue;
     const gain = Math.min(ARROW_GAIN, ARROW_LENGTH_CAP_PX / mag);
