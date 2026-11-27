@@ -41,7 +41,7 @@ describe("FrameCanvas", () => {
       label: "a",
       roi: { x: 20, y: 10, w: 100, h: 80 },
     };
-    const residuals = [residual(0, 0.5), residual(1, 0.4), residual(2, 3)];
+    const residuals = [residual(0, 0.5), residual(1, 0.52), residual(2, 3)];
     const { container } = render(
       <FrameCanvas frame={frame} residuals={residuals} image={fakeImage(160, 120)}>
         <EpipolarOverlay

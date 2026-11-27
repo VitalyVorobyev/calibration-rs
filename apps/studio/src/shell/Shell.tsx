@@ -86,7 +86,8 @@ export function Shell() {
       <SettingsDialog />
       <ShortcutsDialog />
       <CommandPalette />
-      <Toaster />
+      {/* Above the status line, which the package's corner would cover. */}
+      <Toaster className="bottom-12" />
     </>
   );
 }

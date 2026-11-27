@@ -3,6 +3,7 @@ import { api } from "../../api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FrameCanvasHandle } from "../../components/FrameCanvas";
 import { PoseStepper } from "../../components/PoseStepper";
+import { ToolbarGroup, ViewerToolbar } from "../../components/ViewerToolbar";
 import { ZoomControls } from "../../components/ZoomControls";
 import { useUndistortedImageData } from "../../hooks/useImageData";
 import { ZOOM_STEP } from "../../hooks/useZoomShortcuts";
@@ -190,59 +191,68 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
-      <div className="flex flex-wrap items-center gap-3">
+      <ViewerToolbar label="Epipolar display">
         {numPoses > 0 && (
-          <PoseStepper
-            poseValues={poseIndices}
-            selectedPose={selectedPose}
-            onSelectPose={(next) => setSelectedPose(next, "A")}
-          />
-        )}
-        {(["A", "B"] as const).map((which) => (
-          <div key={which} className="flex items-center gap-1.5">
-            <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
-              cam {which}
-            </span>
-            <Select
-              aria-label={`cam ${which}`}
-              className="h-7 w-16 font-mono text-xs"
-              value={String(which === "A" ? cameraA : cameraB)}
-              options={camerasInPose.map((i) => ({ value: String(i), label: String(i) }))}
-              onValueChange={(v) => setCamera(Number(v), which)}
+          <ToolbarGroup label="Pose">
+            <PoseStepper
+              poseValues={poseIndices}
+              selectedPose={selectedPose}
+              onSelectPose={(next) => setSelectedPose(next, "A")}
             />
-          </div>
-        ))}
-        <ZoomControls
-          onFit={() => drivePane((h) => h.fit())}
-          onOneToOne={() => drivePane((h) => h.reset1to1())}
-          onZoomIn={() => drivePane((h) => h.zoomBy(ZOOM_STEP))}
-          onZoomOut={() => drivePane((h) => h.zoomBy(1 / ZOOM_STEP))}
-        />
-        <ToggleChip
-          checked={linked}
-          onCheckedChange={setLinked}
-          title="Share zoom + pan between both panes (common AOI)"
-        >
-          Linked
-        </ToggleChip>
-        <ToggleChip
-          checked={showFeatures}
-          onCheckedChange={setShowFeatures}
-          title="Show every detected feature as a clickable dot"
-        >
-          Features
-        </ToggleChip>
-        <ToggleChip
-          checked={showTieLines}
-          onCheckedChange={setShowTieLines}
-          title="Render every observed feature as a faint dot (both panes)"
-        >
-          Tie-points
-        </ToggleChip>
-        <span className="ml-auto font-mono text-[11px] text-fg-muted">
+          </ToolbarGroup>
+        )}
+        <ToolbarGroup label="Cameras">
+          {(["A", "B"] as const).map((which) => (
+            <div key={which} className="flex items-center gap-1.5">
+              <span className="font-mono text-[11px] text-fg-muted">{which}</span>
+              <Select
+                aria-label={`cam ${which}`}
+                className="h-7 w-16 font-mono text-xs"
+                value={String(which === "A" ? cameraA : cameraB)}
+                options={camerasInPose.map((i) => ({
+                  value: String(i),
+                  label: String(i),
+                }))}
+                onValueChange={(v) => setCamera(Number(v), which)}
+              />
+            </div>
+          ))}
+        </ToolbarGroup>
+        <ToolbarGroup label="Zoom">
+          <ZoomControls
+            onFit={() => drivePane((h) => h.fit())}
+            onOneToOne={() => drivePane((h) => h.reset1to1())}
+            onZoomIn={() => drivePane((h) => h.zoomBy(ZOOM_STEP))}
+            onZoomOut={() => drivePane((h) => h.zoomBy(1 / ZOOM_STEP))}
+          />
+        </ToolbarGroup>
+        <ToolbarGroup label="Layers">
+          <ToggleChip
+            checked={linked}
+            onCheckedChange={setLinked}
+            title="Share zoom + pan between both panes (common AOI)"
+          >
+            Linked
+          </ToggleChip>
+          <ToggleChip
+            checked={showFeatures}
+            onCheckedChange={setShowFeatures}
+            title="Show every detected feature as a clickable dot"
+          >
+            Features
+          </ToggleChip>
+          <ToggleChip
+            checked={showTieLines}
+            onCheckedChange={setShowTieLines}
+            title="Render every observed feature as a faint dot (both panes)"
+          >
+            Tie-points
+          </ToggleChip>
+        </ToolbarGroup>
+        <span className="ml-auto font-mono text-xs text-fg-muted">
           {exportKindLabel(kind)}
         </span>
-      </div>
+      </ViewerToolbar>
 
       <RelativePoseStrip
         relativePose={relativePose}

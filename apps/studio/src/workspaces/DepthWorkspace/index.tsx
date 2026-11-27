@@ -10,6 +10,7 @@ import {
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { NoImageList } from "../../components/NoImageList";
 import { PoseStepper } from "../../components/PoseStepper";
+import { ToolbarGroup, ViewerToolbar } from "../../components/ViewerToolbar";
 import { useStore } from "../../store";
 import { loadDisparityView, type DisparityView } from "./depthView";
 
@@ -168,62 +169,65 @@ export function DepthWorkspace() {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
-      <div className="flex flex-wrap items-center gap-3">
-        <PoseStepper
-          poseValues={poseValues}
-          selectedPose={selectedPose}
-          onSelectPose={(p) => setSelectedPose(p)}
-        />
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
-            left
-          </span>
-          <Select
-            aria-label="left"
-            className="h-7 w-16 font-mono text-xs"
-            value={String(cameraA)}
-            options={cameraValues.map((i) => ({ value: String(i), label: String(i) }))}
-            onValueChange={(v) => setCamera(Number(v), "A")}
+      <ViewerToolbar label="Depth display">
+        <ToolbarGroup label="Pose">
+          <PoseStepper
+            poseValues={poseValues}
+            selectedPose={selectedPose}
+            onSelectPose={(p) => setSelectedPose(p)}
           />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
-            right
-          </span>
-          <Select
-            aria-label="right"
-            className="h-7 w-16 font-mono text-xs"
-            value={String(cameraB)}
-            options={cameraValues.map((i) => ({ value: String(i), label: String(i) }))}
-            onValueChange={(v) => setCamera(Number(v), "B")}
-          />
-        </div>
-        <ToggleChip
-          checked={semiGlobal}
-          onCheckedChange={setSemiGlobal}
-          title="Semi-global aggregation: fills low-texture regions"
-        >
-          SGM
-        </ToggleChip>
-        <Button
-          variant="primary"
-          size="sm"
-          loading={loading}
-          onClick={() => void compute()}
-          disabled={!canCompute}
-        >
-          {loading ? "Matching…" : "Compute disparity"}
-        </Button>
+        </ToolbarGroup>
+        <ToolbarGroup label="Pair">
+          {(
+            [
+              ["left", cameraA, "A"],
+              ["right", cameraB, "B"],
+            ] as const
+          ).map(([name, value, which]) => (
+            <div key={name} className="flex items-center gap-1.5">
+              <span className="font-mono text-[11px] text-fg-muted">{name}</span>
+              <Select
+                aria-label={name}
+                className="h-7 w-16 font-mono text-xs"
+                value={String(value)}
+                options={cameraValues.map((i) => ({
+                  value: String(i),
+                  label: String(i),
+                }))}
+                onValueChange={(v) => setCamera(Number(v), which)}
+              />
+            </div>
+          ))}
+        </ToolbarGroup>
+        <ToolbarGroup label="Matching">
+          <ToggleChip
+            checked={semiGlobal}
+            onCheckedChange={setSemiGlobal}
+            title="Semi-global aggregation: fills low-texture regions"
+          >
+            SGM
+          </ToggleChip>
+          <Button
+            variant="primary"
+            size="sm"
+            loading={loading}
+            onClick={() => void compute()}
+            disabled={!canCompute}
+          >
+            {loading ? "Matching…" : "Compute disparity"}
+          </Button>
+        </ToolbarGroup>
         {result && (
-          <SegmentedControl
-            aria-label="View"
-            className="ml-auto"
-            value={viewMode}
-            options={VIEW_MODES.map((m) => ({ value: m, label: VIEW_LABEL[m] }))}
-            onValueChange={(v) => setViewMode(v as ViewMode)}
-          />
+          <ToolbarGroup label="View">
+            <SegmentedControl
+              aria-label="View"
+              value={viewMode}
+              options={VIEW_MODES.map((m) => ({ value: m, label: VIEW_LABEL[m] }))}
+              onValueChange={(v) => setViewMode(v as ViewMode)}
+            />
+          </ToolbarGroup>
         )}
-      </div>
+      </ViewerToolbar>
 
       {error && <ErrorBox>{error}</ErrorBox>}
 

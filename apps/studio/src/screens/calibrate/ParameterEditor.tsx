@@ -14,7 +14,7 @@ import {
 } from "../../project/runEditor";
 import { useReadOnly } from "../../session/jobs";
 import { useQuery } from "../../session/query";
-import { topologyLabel } from "./labels";
+import { exportKindLabel } from "../../store/exportKind";
 import { curateConfig, seedLossScales } from "./curate";
 import { cameraRenderer } from "./cameraRenderer";
 import { PatchView } from "./PatchView";
@@ -85,7 +85,7 @@ export function ParameterEditor({
         <div className="flex min-w-0 flex-col gap-0.5">
           <h2 className="text-sm font-semibold tracking-tight text-fg">Parameters</h2>
           <p className="text-xs text-fg-muted">
-            {topologyLabel(topology)} · edits apply to the next run only
+            {exportKindLabel(topology)} · edits apply to the next run only
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

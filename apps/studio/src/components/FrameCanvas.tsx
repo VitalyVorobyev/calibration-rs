@@ -25,12 +25,14 @@ import type {
   TargetFeatureResidual,
   ViewportTransform,
 } from "../types";
+import { laserRamp, targetRamp } from "../lib/errorColors";
 import { useSelection } from "../session/selection";
 import {
   buildFeatureRing,
   buildLaserOverlay,
   buildResidualArrows,
   LASER_LINE_STROKE,
+  ARROW_HALO_STROKE,
   LASER_UNRESOLVED_FILL,
   OBSERVED_DOT_FILL,
   STROKE_PX,
@@ -121,16 +123,20 @@ function ResidualLayer({
   const { image } = useStage();
   const unit = useScreenPx()(1);
   const { pose, camera } = frame;
+  // One scale for the whole run, so frames compare; the footer's legend reads
+  // the same arrays through the same functions.
+  const ramp = useMemo(() => targetRamp(residuals), [residuals]);
+  const lramp = useMemo(() => laserRamp(laser?.residuals ?? []), [laser]);
   const arrows = useMemo(
-    () => buildResidualArrows(residuals, { pose, camera }, unit),
-    [residuals, pose, camera, unit],
+    () => buildResidualArrows(residuals, { pose, camera }, unit, ramp),
+    [residuals, pose, camera, unit, ramp],
   );
   const laserPaths = useMemo(
     () =>
       laser
-        ? buildLaserOverlay(laser.residuals, laser.lines, { pose, camera }, unit)
+        ? buildLaserOverlay(laser.residuals, laser.lines, { pose, camera }, unit, lramp)
         : null,
-    [laser, pose, camera, unit],
+    [laser, pose, camera, unit, lramp],
   );
   const feature = useSelection((s) => s.selection.feature);
   const ring = useMemo(
@@ -144,6 +150,15 @@ function ResidualLayer({
       className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
       aria-hidden="true"
     >
+      {arrows.arrows.length > 0 && (
+        <path
+          d={arrows.arrows.map((a) => a.d).join("")}
+          fill="none"
+          stroke={ARROW_HALO_STROKE}
+          strokeWidth={stroke * 2.6}
+          strokeLinecap="round"
+        />
+      )}
       {arrows.arrows.map((a) => (
         <path key={a.color} d={a.d} fill="none" stroke={a.color} strokeWidth={stroke} />
       ))}

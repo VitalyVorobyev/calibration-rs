@@ -1,6 +1,7 @@
 import { DensityProvider, Empty, Select, ToggleChip, Tooltip } from "@vitavision/ui";
 import { useMemo, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
+import { ToolbarGroup, ViewerToolbar } from "../../components/ViewerToolbar";
 import { adaptSceneExport } from "../../lib/sceneExport";
 import { useStore } from "../../store";
 import { exportKindLabel } from "../../store/exportKind";
@@ -88,35 +89,33 @@ export function Viewer3DWorkspace() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight">3D viewer</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          {numPoses > 0 && (
+      <ViewerToolbar label="Scene display">
+        {numPoses > 0 && (
+          <ToolbarGroup label="Pose">
             <PoseStepper
               poseValues={poseIndices}
               selectedPose={safePose}
               onSelectPose={(next) => setSelectedPose(next, "A")}
             />
-          )}
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[11px] tracking-wider text-fg-muted uppercase">
-              ref cam
+          </ToolbarGroup>
+        )}
+        <ToolbarGroup label="Reference camera">
+          <Tooltip content="Reference camera for the relative-pose readout">
+            <span>
+              <Select
+                aria-label="Reference camera"
+                className="h-7 w-16 font-mono text-xs"
+                value={String(safeRefCamera)}
+                options={cameraIndices.map((i) => ({
+                  value: String(i),
+                  label: String(i),
+                }))}
+                onValueChange={(v) => setReferenceCamera(Number(v))}
+              />
             </span>
-            <Tooltip content="Reference camera for the relative-pose readout">
-              <span>
-                <Select
-                  aria-label="ref cam"
-                  className="h-7 w-16 font-mono text-xs"
-                  value={String(safeRefCamera)}
-                  options={cameraIndices.map((i) => ({
-                    value: String(i),
-                    label: String(i),
-                  }))}
-                  onValueChange={(v) => setReferenceCamera(Number(v))}
-                />
-              </span>
-            </Tooltip>
-          </div>
+          </Tooltip>
+        </ToolbarGroup>
+        <ToolbarGroup label="Layers">
           <ToggleChip
             checked={showAllPoses}
             onCheckedChange={setShowAllPoses}
@@ -133,11 +132,11 @@ export function Viewer3DWorkspace() {
               Laser planes
             </ToggleChip>
           )}
-          <span className="font-mono text-[11px] text-fg-muted">
-            {exportKindLabel(kind)}
-          </span>
-        </div>
-      </header>
+        </ToolbarGroup>
+        <span className="ml-auto font-mono text-xs text-fg-muted">
+          {exportKindLabel(kind)}
+        </span>
+      </ViewerToolbar>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_18rem] gap-3 overflow-hidden">
         <div className="relative overflow-hidden rounded-control border border-line">

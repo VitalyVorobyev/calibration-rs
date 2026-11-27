@@ -2,6 +2,7 @@
  * map a quantity gets, the domain of a fixed or automatic range, the
  * iso-line step, and what the legend marks. */
 import type { ColormapName } from "@vitavision/charts";
+import { CANVAS_COLORMAP, UNDERLAY_COLORMAP } from "../../../lib/colorRange";
 import { readoutNumber } from "./mapModel";
 
 /** A magnitude runs `[0, D]` on a sequential map; a signed quantity
@@ -28,7 +29,7 @@ export function effectiveColormap(
 ): ColormapName {
   if (kind === "signed") return "blueOrange";
   if (choice !== "auto") return choice;
-  return underlay ? "inferno" : "viridis";
+  return underlay ? UNDERLAY_COLORMAP : CANVAS_COLORMAP;
 }
 
 /** The opacity of the heatmap: over an image it lets the image through. */
