@@ -33,6 +33,8 @@ test("app boots, the shell renders and says there is no back end", async ({ page
 
 const ADDRESSES: { hash: string; marker: RegExp }[] = [
   { hash: "#/library", marker: /^Library$/ },
+  // The Device screen reads the library, so it opens with no project.
+  { hash: "#/device", marker: /^Device$/ },
   // Screens that work on a project say so while none is open.
   { hash: "#/dataset", marker: /Dataset works on a project/ },
   { hash: "#/detect", marker: /Detect works on a project/ },

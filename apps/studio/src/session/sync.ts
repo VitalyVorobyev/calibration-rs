@@ -33,8 +33,15 @@ export function startSync(): () => void {
     if (event.body.kind !== "project_changed") return;
     const { dir } = event.body;
     queryCache.invalidateProject(dir);
-    // Any project's change moves the library (its runs, its verdicts).
-    queryCache.invalidate((command) => command === "scan_library");
+    // Any project's change moves the library (its runs, its verdicts) and
+    // so the device histories and seeds read from it.
+    queryCache.invalidate(
+      (command) =>
+        command === "scan_library" ||
+        command === "device_history" ||
+        command === "device_series" ||
+        command === "seed_preview",
+    );
     pending.add(dir);
     if (timer === null) timer = setTimeout(flush, COALESCE_MS);
   });

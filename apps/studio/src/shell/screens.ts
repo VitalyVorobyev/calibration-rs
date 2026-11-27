@@ -35,7 +35,7 @@ export const SCREENS: readonly Screen[] = [
   },
   { id: "inspect", label: "Inspect", path: "/inspect", needsProject: true, built: true },
   { id: "compare", label: "Compare", path: "/compare", needsProject: true, built: false },
-  { id: "device", label: "Device", path: "/device", needsProject: false, built: false },
+  { id: "device", label: "Device", path: "/device", needsProject: false, built: true },
 ];
 
 export function screenById(id: ScreenId): Screen {

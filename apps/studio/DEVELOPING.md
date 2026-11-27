@@ -46,7 +46,7 @@ one the page says no back end answers.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: the rail of
   seven screens, the context bar, the run list, the job tray, the status
   line, Settings, the keys; see "The shell"), `screens/` (one folder per
-  screen: Library, Dataset, Detect, Calibrate, Inspect; the ones not built yet are a
+  screen: Library, Dataset, Detect, Calibrate, Inspect, Device; the ones not built yet are a
   "coming" page), `session/` (the stores every screen shares: the session
   with the back end, the selection, the jobs and the connection, the query
   cache, the pure rules of a job row), `project/` (the open project, `projectStore.ts`; its unsaved edits,
@@ -245,6 +245,49 @@ while a project's run is opening) over queries of the typed client.
   through Calibrate and walks the tabs, then opens the committed rig run.
   The stage's own drawing needs a layout engine, so it is seen only there.
 
+## Device
+
+`screens/device/` is the screen over `device_history`, `device_series`,
+`seed_preview`, `export_seed` and `set_project_seed` (the back end is under
+"Devices and seeds"). The address is `#/device?product=…&device=…[&scope=type]
+[&tab=trends|seed][&starred=1][&x=time]` plus the shell's `project` and `run`;
+with no device in it the screen shows the open project's (a project with none
+gets the Set device dialog). The Library's **Device history** button and the
+screen's own picker write the same parameters. `useUrlSync` keeps every query
+parameter it does not own when it writes the project and run back, so a tab or
+a device survives a project change.
+
+- `deviceModel.ts`: the address (`fromParams`/`toParams`), the target
+  (`DeviceTarget`: a device or a type) and the selector it asks with, the
+  history rows (`HistoryRow.order` is the run's place in the whole history,
+  whatever the starred filter hides), `runKey` (project and id: ids repeat
+  across projects), the seed a run started from as a line, one row per unit.
+- `seriesModel.ts`: `device_series` shaped for `LineChart`. A `null` point is a
+  `NaN` y (the chart lifts the pen: a gap, never a zero); σ is the band's
+  half-width, `NaN` edges where a point has none, and no band at all (so no
+  legend entry) when no run has one; a `perturbation` σ says so in the legend
+  and the card. x is the run number (`order + 1`, as the table's `#`) or the
+  timestamp, where a run without one is not drawn and the chart says so.
+  Ticks come from the history (`runMetaMap`: representative, starred) and
+  from `at_bound`. The statistics are the library's `SeedSpread`, only for a
+  series that names its `spread` label: a pose's spread is over the seed's own
+  parametrization (rotation vector about the chordal mean), so it is not
+  placed beside values it is not of.
+- Linked selection: one hovered run key in `index.tsx`; a chart's `onHover`
+  reports the nearest run that has a value (`nearestRun`), its `cursor` is that
+  run's x (`xOfRun`), and the table's `isRowActive` follows the same key (a
+  click keeps it). The Trends tab shows the compact run list beside the charts
+  for exactly that.
+- `seedModel.ts`: what a source choice asks for (`seedRequest`: a run; at
+  least two runs; at least two units that have a representative run), a seed's
+  values as rows, the file an export writes (`exportDest`: the folder the
+  path picker chose and a name whose extension picks the format), and the
+  project `[seed]` a single run makes directly (`runSeedSource`); an aggregate
+  has to be a file first. `SeedActions` asks before replacing (`file_exists`),
+  shows the library's refusal of a seed that does not fit
+  (`set_project_seed`), and disables every write under `useReadOnly`.
+- The device queries are marked stale with the library scan (`session/sync.ts`).
+
 ## Projects
 
 **Projects are the library's** (`vision_calibration::project`, the book's
@@ -418,7 +461,7 @@ device of a product, `{ kind: "type", product }`.
 Tests: `api/commands/device_tests.rs` on the fixture library (the two
 `SN-0042` projects, `SN-0057`, `rig-demo`, and a seeded run of
 `planar-demo`) with the reply goldens, and `e2e/server/device.spec.ts`
-over HTTP. The Device screen itself is not built yet.
+over HTTP; the screen is described under "Device".
 
 Recent projects are the back end's list (`recent_projects`,
 `forget_recent`; the desktop's, or a server's shared by its clients), put

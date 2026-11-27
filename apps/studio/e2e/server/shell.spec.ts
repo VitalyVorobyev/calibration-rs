@@ -24,7 +24,7 @@ test("the rail leads to the screens, and a screen that is not built is disabled"
     "Device",
   ]);
   // No project: the screens that read one wait for it; the rest are not built.
-  for (const name of ["Dataset", "Detect", "Calibrate", "Inspect", "Compare", "Device"]) {
+  for (const name of ["Dataset", "Detect", "Calibrate", "Inspect", "Compare"]) {
     await expect(rail.getByRole("link", { name })).toHaveAttribute(
       "aria-disabled",
       "true",
