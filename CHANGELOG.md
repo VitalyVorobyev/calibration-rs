@@ -63,6 +63,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checks. Python: `vision_calibration.DeviceSeed` (`from_export`,
   `from_spec`, `from_payload`, `nominal`, `select`). The existing
   device-spec functions return the same values as before.
+- Seeded dataset runs: `dataset_runner::calibrate_dataset_with_seed` runs a
+  manifest like `calibrate_dataset` with every initialization from a
+  `DeviceSeed` — a previous calibration of the device or of another unit of
+  its type, or a datasheet. Every topology takes one: the lenses, mounts,
+  hand-eye and laser planes where the workflow initializes them (a rig
+  laserline device takes only the planes). The seed is an initial value: a
+  good one ends where the unseeded run ends. Before any image is read, a
+  seed that does not fit is a `CalibrateDatasetError::Seed`: its cameras
+  are not the manifest's (`DeviceSeedError::CameraIdsDiffer`), a calibrated
+  lens is of another model than the configured one, projection included
+  (`ModelMismatch`), a nominal tilt is given for an untilted model
+  (`TiltForUntiltedModel`), a camera's images are of another size
+  (`ImageSizeMismatch`, after reading the image headers only) or nothing in
+  it applies (`NothingToSeed`). `vcal run --seed <file>` and
+  `--device-spec <spec.json>` start a manifest's run from a seed file or a
+  device spec; Python `calibrate_dataset(..., seed=...)`. A laserline
+  device's init log notes a tilt held at the seed. Unseeded runs are
+  unchanged, bit for bit.
 - Facade re-exports under `vision_calibration`:
   `core::{CameraProject, DistortionModel, IntrinsicsModel, NoDistortion, ProjectionModel}`,
   `dataset::validate`, `mvg::refine`, and `mvg::solvers::essential_linear`.

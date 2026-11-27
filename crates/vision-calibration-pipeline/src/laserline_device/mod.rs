@@ -9,6 +9,8 @@ mod problem;
 mod state;
 mod steps;
 
+pub(crate) use steps::run_seeded;
+
 // Public API
 pub use problem::{
     DeviceOptimizeConfig, LaserlineDeviceConfig, LaserlineDeviceEstimate, LaserlineDeviceExport,

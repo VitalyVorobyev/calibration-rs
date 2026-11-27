@@ -16,7 +16,7 @@ The Rust crate and the Python package install the same program.
 |---|---|
 | `vcal init <folder>` | drafts `<folder>/dataset.toml` from the file names |
 | `vcal check <manifest>` | checks the manifest and its images, without detecting |
-| `vcal run <manifest>` | detects, calibrates, writes `calibration.json` and `quality.json` (`--report` adds `report.html`) |
+| `vcal run <manifest>` | detects, calibrates, writes `calibration.json` and `quality.json` (`--report` adds `report.html`; `--seed` starts from a previous calibration) |
 | `vcal run <project>` | the same, into the project's next `runs/run-NNN/` ([Projects](#projects)) |
 | `vcal project init <folder>` | makes a folder a calibration project |
 | `vcal project runs <project>` | lists a project's runs |
@@ -127,6 +127,35 @@ not have is an error, so a misspelt name never passes silently. The fields
 are those of [Configuring a Run](getting_started.md#configuring-a-run) and
 of each workflow's chapter.
 
+## Starting from a previous calibration
+
+`--seed <file>` starts every stage of the calibration from a seed instead
+of the closed-form initialization: the lenses, mounts, hand-eye and laser
+planes of a previous calibration of the device, or of another unit of its
+type. The file is a `DeviceSeed`, JSON (TOML by its extension), which the
+library and the Python package make from an export
+([Starting from a previous calibration](manual_init.md#starting-from-a-previous-calibration)).
+`--device-spec <spec.json>` starts from a datasheet instead: each camera's
+focal length and mount tilt and the drawing's mounts
+([Device Specifications](manifest.md#device-specifications)).
+
+```bash
+vcal run unit_0008/dataset.toml --seed unit_0007/seed.json
+```
+
+```text
+planar_intrinsics: 13 of 13 views used
+started from the seed unit_0007/seed.json
+...
+```
+
+The seed is a starting point, not a constraint: the calibration still
+estimates everything, and a good seed ends where the unseeded run ends. Its
+cameras must be the manifest's, each for images of the same size and, for a
+calibrated lens, of the configured camera model; anything else fails before
+any detection with a message that says which. The two options exclude each
+other and are for a manifest's run.
+
 ## Projects
 
 A [project](projects.md) keeps a dataset with its configuration changes,
@@ -210,7 +239,7 @@ in the platform's cache directory, or `--cache <dir>`.
 |---:|---|
 | 0 | done; for `run`, the verdict is pass or warn |
 | 1 | an error, printed on standard error |
-| 2 | a wrong command line (`-o` with a project, `--label` with a manifest included) |
+| 2 | a wrong command line (`-o`, `--seed` or `--device-spec` with a project, `--label` with a manifest, `--seed` with `--device-spec`, included) |
 | 3 | `run` wrote its files, but the verdict is fail |
 | 130 | interrupted with Ctrl-C: the run stopped and wrote nothing |
 

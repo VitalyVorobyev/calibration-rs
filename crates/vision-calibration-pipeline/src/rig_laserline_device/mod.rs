@@ -10,6 +10,8 @@ mod problem;
 mod state;
 mod steps;
 
+pub(crate) use steps::run_seeded;
+
 pub use problem::{
     PlaneOptimizeConfig, RigLaserlineDeviceConfig, RigLaserlineDeviceExport,
     RigLaserlineDeviceInput, RigLaserlineDeviceProblem, RigUpstreamCalibration,

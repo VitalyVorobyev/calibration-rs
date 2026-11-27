@@ -4,7 +4,8 @@
 //! vcal init <folder>              draft <folder>/dataset.toml from the file names
 //! vcal check <manifest>           check a manifest and its images, without detecting
 //! vcal run <manifest> [-o <dir>]  detect, calibrate, write calibration.json and quality.json
-//!                                 (--report adds report.html)
+//!                                 (--report adds report.html; --seed or --device-spec
+//!                                 start it from a previous calibration or a datasheet)
 //! vcal run <project>              the same into the project's next runs/run-NNN/
 //! vcal project init <folder>      make a folder a calibration project
 //! vcal project runs <project>     list a project's runs
@@ -40,7 +41,7 @@
 //! |---:|---|
 //! | 0 | done; for `run`, the quality verdict is pass or warn |
 //! | 1 | an error, printed to standard error |
-//! | 2 | the command line is wrong (`-o` with a project, `--label` with a manifest included) |
+//! | 2 | the command line is wrong (`-o`, `--seed` or `--device-spec` with a project, `--label` with a manifest included) |
 //! | 3 | `run` calibrated and wrote its files, but the quality verdict is fail |
 //! | 130 | interrupted (Ctrl-C): the run stopped and wrote nothing |
 
@@ -62,9 +63,10 @@ use vision_calibration::core::Uncertainty;
 use vision_calibration::dataset::{DatasetSpec, ProblemKind, samples, sniff_folder};
 use vision_calibration::dataset_runner::{
     CalibrateDatasetError, CalibrationConfig, ConfigPatch, Detection, calibrate_dataset,
-    camera_image_sizes,
+    calibrate_dataset_with_seed, camera_image_sizes,
 };
 use vision_calibration::detect::FsDetectionCache;
+use vision_calibration::device_seed::{DeviceSeed, DeviceSpec};
 use vision_calibration::project::{
     DatasetSource, DeviceIdentity, LibraryScan, LibraryScanOptions, PROJECT_FILE,
     PROJECT_FILE_JSON, Project, ProjectError, ProjectRunOptions, ProjectSpec, RunInfo, RunNotes,
@@ -170,6 +172,20 @@ enum Command {
         /// project.
         #[arg(long)]
         label: Option<String>,
+        /// Start the calibration from a seed: a `DeviceSeed` file (JSON, or
+        /// TOML by its extension), the lenses, mounts, hand-eye and laser
+        /// planes of a previous calibration of the device or of one of its
+        /// type. Its cameras must be the manifest's, for images of the same
+        /// size, and a calibrated lens of the configured camera model. The
+        /// seed is a starting point: the calibration still estimates
+        /// everything. Only for a manifest.
+        #[arg(long, value_name = "FILE", conflicts_with = "device_spec")]
+        seed: Option<PathBuf>,
+        /// Start the calibration from a device spec (`spec.json`): each
+        /// camera's datasheet focal length and mount tilt, and the drawing's
+        /// camera and hand-eye mounts. Only for a manifest.
+        #[arg(long, value_name = "FILE")]
+        device_spec: Option<PathBuf>,
     },
     /// Make and read calibration projects: a dataset with its configuration
     /// changes, exclusions and every run.
@@ -327,22 +343,27 @@ where
             redetect,
             report,
             label,
+            seed,
+            device_spec,
         } => {
             if is_project(&manifest) {
-                match out {
-                    Some(_) => Err(Usage(
+                if out.is_some() {
+                    Err(Usage(
                         "-o is for a manifest's run; a project's runs are written to its runs folder"
                             .into(),
                     )
-                    .into()),
-                    None => calibrate_project(
+                    .into())
+                } else if seed.is_some() || device_spec.is_some() {
+                    Err(Usage("--seed and --device-spec are for a manifest's run".into()).into())
+                } else {
+                    calibrate_project(
                         &manifest,
                         config.as_deref(),
                         redetect,
                         report,
                         label,
                         control,
-                    ),
+                    )
                 }
             } else if label.is_some() {
                 Err(
@@ -350,14 +371,22 @@ where
                         .into(),
                 )
             } else {
-                calibrate(
-                    &manifest,
-                    out.as_deref(),
-                    config.as_deref(),
-                    redetect,
-                    report,
-                    control,
-                )
+                let seed = match (seed, device_spec) {
+                    (Some(path), _) => seed_file(&path).map(Some),
+                    (None, Some(path)) => seed_from_spec(&path).map(Some),
+                    (None, None) => Ok(None),
+                };
+                seed.and_then(|seed| {
+                    calibrate(
+                        &manifest,
+                        out.as_deref(),
+                        config.as_deref(),
+                        seed.as_ref(),
+                        redetect,
+                        report,
+                        control,
+                    )
+                })
             }
         }
         Command::Project { command } => project(command).map(|()| 0),
@@ -561,10 +590,47 @@ fn check(manifest: &Path) -> Result<()> {
     Ok(())
 }
 
+/// A seed and where it came from, for the run's output.
+struct Seed {
+    seed: DeviceSeed,
+    source: String,
+}
+
+/// The [`DeviceSeed`] in the file at `path`, TOML or JSON by its extension.
+fn seed_file(path: &Path) -> Result<Seed> {
+    let context = || format!("reading the seed {}", path.display());
+    let text = std::fs::read_to_string(path).with_context(context)?;
+    let seed: DeviceSeed = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+    {
+        toml::from_str(&text).with_context(context)?
+    } else {
+        serde_json::from_str(&text).with_context(context)?
+    };
+    seed.validate().with_context(context)?;
+    Ok(Seed {
+        seed,
+        source: format!("the seed {}", path.display()),
+    })
+}
+
+/// The datasheet seed of the device spec at `path`.
+fn seed_from_spec(path: &Path) -> Result<Seed> {
+    let context = || format!("reading the device spec {}", path.display());
+    let spec = DeviceSpec::from_path(path).with_context(context)?;
+    let seed = DeviceSeed::from_spec(&spec).with_context(context)?;
+    Ok(Seed {
+        seed,
+        source: format!("the device spec {}", path.display()),
+    })
+}
+
 fn calibrate(
     manifest: &Path,
     out: Option<&Path>,
     config: Option<&Path>,
+    seed: Option<&Seed>,
     redetect: bool,
     html: bool,
     control: &RunControl,
@@ -591,7 +657,12 @@ fn calibrate(
         }
         None => control.clone(),
     };
-    let run = calibrate_dataset(&spec, &base, config, detection, None, &control);
+    let run = match seed {
+        Some(seed) => {
+            calibrate_dataset_with_seed(&spec, &base, config, &seed.seed, detection, None, &control)
+        }
+        None => calibrate_dataset(&spec, &base, config, detection, None, &control),
+    };
     if let Some(line) = &status {
         line.clear();
     }
@@ -614,6 +685,12 @@ fn calibrate(
         run.usable_views,
         run.total_views
     );
+    if let Some(seed) = seed {
+        match &seed.seed.description {
+            Some(description) => say!("started from {} ({description})", seed.source),
+            None => say!("started from {}", seed.source),
+        }
+    }
     for rejected in &run.rejected {
         say!(
             "  left out {}: {}",

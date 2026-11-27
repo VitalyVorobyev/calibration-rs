@@ -19,6 +19,7 @@ use super::laser::{
 };
 use super::planar::build_planar_input_with;
 use super::rig::{build_rig_extrinsics_input_with, build_rig_handeye_input_with};
+use super::seed::OrderedSeed;
 use super::{
     Detection, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult, PlanarRunResult,
     RejectedDetection, RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,
@@ -26,6 +27,7 @@ use super::{
 };
 use crate::Error;
 use crate::common::{CalibratedCameras, ExportDiagnostics};
+use crate::device_seed::{DeviceSeed, DeviceSeedError};
 use crate::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceProblem,
 };
@@ -33,9 +35,10 @@ use crate::planar_intrinsics::{
     PlanarIntrinsicsConfig, PlanarIntrinsicsExport, PlanarIntrinsicsProblem,
 };
 use crate::rig_extrinsics::{RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsProblem};
-use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem};
+use crate::rig_handeye::{RigHandeyeConfig, RigHandeyeExport, RigHandeyeProblem, RigHandeyeSeed};
 use crate::rig_handeye_laserline::{
-    RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport, RigHandeyeLaserlineProblem,
+    JointManualInit, RigHandeyeLaserlineConfig, RigHandeyeLaserlineExport,
+    RigHandeyeLaserlineProblem,
 };
 use crate::rig_laserline_device::{
     RigLaserlineDeviceConfig, RigLaserlineDeviceExport, RigLaserlineDeviceProblem,
@@ -261,6 +264,10 @@ pub enum CalibrateDatasetError {
     /// calibration.
     #[error("cancelled")]
     Cancelled,
+    /// The seed of [`calibrate_dataset_with_seed`] does not fit the dataset
+    /// or the config; raised before any image is read.
+    #[error(transparent)]
+    Seed(DeviceSeedError),
 }
 
 impl From<RunError> for CalibrateDatasetError {
@@ -269,6 +276,12 @@ impl From<RunError> for CalibrateDatasetError {
             RunError::Cancelled => Self::Cancelled,
             other => Self::Run(other),
         }
+    }
+}
+
+impl From<DeviceSeedError> for CalibrateDatasetError {
+    fn from(err: DeviceSeedError) -> Self {
+        Self::Seed(err)
     }
 }
 
@@ -363,10 +376,84 @@ pub fn calibrate_dataset(
         laser_extractor,
         control,
         &ConvertOptions::default(),
+        None,
     )
 }
 
-/// [`calibrate_dataset`], leaving out of the input what `options` names.
+/// [`calibrate_dataset`], each initialization of the workflow from a
+/// [`DeviceSeed`]: a previous calibration of the device, or of one of its
+/// type, or its datasheet ([`DeviceSeed::from_calibration`],
+/// [`DeviceSeed::from_spec`]).
+///
+/// The seed is an initial value: the calibration estimates everything it
+/// would estimate unseeded, from the seeded values instead of the closed-form
+/// ones. What the seed holds is used where the workflow initializes it:
+///
+/// | Topology | Seeded |
+/// |---|---|
+/// | `planar_intrinsics` | the lens |
+/// | `single_cam_handeye` | the lens, the hand-eye |
+/// | `laserline_device` | the lens, the laser plane |
+/// | `rig_extrinsics` | every lens, the mounts |
+/// | `rig_handeye` | every lens, the mounts, the hand-eye |
+/// | `rig_laserline_device` | the laser planes (the input's upstream calibration gives the cameras and the rig) |
+/// | `rig_handeye_laserline` | every lens, the mounts, the hand-eye, the laser planes |
+///
+/// A lens is the intrinsics, the distortion and the sensor tilt of a
+/// calibrated lens, or the intrinsics and the tilt of a nominal one (the
+/// distortion then starts at zero). The mounts and the hand-eye are
+/// re-expressed in the frame of the config's reference camera, whatever the
+/// seed's rig frame. The seeded lenses replace a rig hand-eye config's
+/// `manual_init`.
+///
+/// Two seeded values change how the calibration proceeds, as their seeded
+/// steps document: a seeded tilt of a Scheimpflug camera in planar
+/// intrinsics runs the refinement bounded around the seed, and a laserline
+/// device holds a Scheimpflug camera's tilt at the seed unless
+/// `camera.fix.sensor` lists the tilts to estimate.
+///
+/// # Errors
+///
+/// Those of [`calibrate_dataset`], and [`CalibrateDatasetError::Seed`]
+/// before any image is read: a seed that does not validate; cameras that
+/// are not the manifest's ([`DeviceSeedError::CameraIdsDiffer`]: a seed for
+/// some of a device's cameras is made with [`DeviceSeed::select`]); a
+/// calibrated lens of another model than the config's, projection included
+/// ([`DeviceSeedError::ModelMismatch`]: [`DeviceSeed::nominal`] keeps only
+/// the intrinsics and the tilt) or a nominal tilt for an untilted model
+/// ([`DeviceSeedError::TiltForUntiltedModel`]); a hand-eye of the other
+/// mode ([`DeviceSeedError::HandeyeModeMismatch`]); lenses or laser planes
+/// seeded for some cameras and not others
+/// ([`DeviceSeedError::PartialField`]); a seed of which nothing applies
+/// ([`DeviceSeedError::NothingToSeed`]). A camera whose seed is for another
+/// image size ([`DeviceSeedError::ImageSizeMismatch`]) fails once the
+/// images' headers are read, before any detection.
+pub fn calibrate_dataset_with_seed(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    config: Option<CalibrationConfig>,
+    seed: &DeviceSeed,
+    detection: Detection<'_>,
+    laser_extractor: Option<&dyn LaserPixelExtractor>,
+    control: &RunControl,
+) -> Result<DatasetCalibration, CalibrateDatasetError> {
+    calibrate_dataset_with(
+        spec,
+        base_dir,
+        config,
+        detection,
+        laser_extractor,
+        control,
+        &ConvertOptions::default(),
+        Some(seed),
+    )
+}
+
+/// [`calibrate_dataset`], leaving out of the input what `options` names,
+/// and seeded from `seed` when one is given
+/// ([`calibrate_dataset_with_seed`]); unseeded, every step is the one
+/// [`calibrate_dataset`] runs.
+#[allow(clippy::too_many_arguments)] // The public entry points' arguments and the two crate-internal ones.
 pub(crate) fn calibrate_dataset_with(
     spec: &DatasetSpec,
     base_dir: &Path,
@@ -375,6 +462,7 @@ pub(crate) fn calibrate_dataset_with(
     laser_extractor: Option<&dyn LaserPixelExtractor>,
     control: &RunControl,
     options: &ConvertOptions,
+    seed: Option<&DeviceSeed>,
 ) -> Result<DatasetCalibration, CalibrateDatasetError> {
     let topology = spec.topology;
     let config = config.unwrap_or_else(|| CalibrationConfig::default_for(topology));
@@ -400,17 +488,35 @@ pub(crate) fn calibrate_dataset_with(
     // An open choice in the manifest is asked before any image is read.
     vision_calibration_dataset::validate(spec).map_err(RunError::from)?;
     require_pose_pairing(spec)?;
-    // A camera whose images differ in size fails here, before any detection.
-    let image_sizes = camera_image_sizes(spec, base_dir)?;
+    // A seed whose cameras are not the manifest's fails here, before any
+    // image is read.
+    let seed = seed.map(|seed| OrderedSeed::new(seed, spec)).transpose()?;
 
-    // Each arm builds its problem's input from the manifest, runs every step
-    // and wraps the export. `config.topology() == topology` was checked
-    // above, so each arm sees the config variant of its own topology.
+    // Each arm resolves the seed for its problem (a seed that does not fit
+    // the config fails before any image is read), reads the image sizes,
+    // builds its problem's input from the manifest, runs every step and
+    // wraps the export. `config.topology() == topology` was checked above,
+    // so each arm sees the config variant of its own topology.
     macro_rules! calibrate {
-        ($config:ident, $variant:ident, $module:ident, $build:expr) => {{
+        ($config:ident, $variant:ident, $resolve:expr, $run:expr, $build:expr) => {{
+            let resolved = match &seed {
+                Some(seed) => Some($resolve(seed, &$config)?),
+                None => None,
+            };
+            // A camera whose images differ in size, or whose seed is for
+            // images of another size, fails here, before any detection.
+            let image_sizes = camera_image_sizes(spec, base_dir)?;
+            if let Some(seed) = &seed {
+                seed.check_image_sizes(&image_sizes)?;
+            }
             let run = $build?;
             let image_manifest = run.image_manifest(spec, base_dir);
-            let mut export = solve(run.input, $config, crate::$module::run_calibration, control)?;
+            let mut export = solve(
+                run.input,
+                $config,
+                |session| $run(session, resolved),
+                control,
+            )?;
             export.diagnostics.image_manifest = Some(image_manifest);
             Ok(DatasetCalibration {
                 export: CalibrationExport::$variant(export),
@@ -425,19 +531,22 @@ pub(crate) fn calibrate_dataset_with(
         CalibrationConfig::PlanarIntrinsics(c) => calibrate!(
             c,
             PlanarIntrinsics,
-            planar_intrinsics,
+            OrderedSeed::planar,
+            crate::planar_intrinsics::run_seeded,
             build_planar_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::SingleCamHandeye(c) => calibrate!(
             c,
             SingleCamHandeye,
-            single_cam_handeye,
+            OrderedSeed::single_cam_handeye,
+            crate::single_cam_handeye::run_seeded,
             build_single_cam_handeye_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::LaserlineDevice(c) => calibrate!(
             c,
             LaserlineDevice,
-            laserline_device,
+            OrderedSeed::laserline_device,
+            crate::laserline_device::run_seeded,
             build_laserline_device_input_with(
                 spec,
                 base_dir,
@@ -450,19 +559,22 @@ pub(crate) fn calibrate_dataset_with(
         CalibrationConfig::RigExtrinsics(c) => calibrate!(
             c,
             RigExtrinsics,
-            rig_extrinsics,
+            OrderedSeed::rig_extrinsics,
+            crate::rig_extrinsics::run_seeded,
             build_rig_extrinsics_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::RigHandeye(c) => calibrate!(
             c,
             RigHandeye,
-            rig_handeye,
+            OrderedSeed::rig_handeye,
+            crate::rig_handeye::run_seeded,
             build_rig_handeye_input_with(spec, base_dir, detection, control, options)
         ),
         CalibrationConfig::RigLaserlineDevice(c) => calibrate!(
             c,
             RigLaserlineDevice,
-            rig_laserline_device,
+            OrderedSeed::rig_laserline_device,
+            crate::rig_laserline_device::run_seeded,
             build_rig_laserline_device_input_with(
                 spec,
                 base_dir,
@@ -475,7 +587,8 @@ pub(crate) fn calibrate_dataset_with(
         CalibrationConfig::RigHandeyeLaserline(c) => calibrate!(
             c,
             RigHandeyeLaserline,
-            rig_handeye_laserline,
+            OrderedSeed::rig_handeye_laserline,
+            run_joint_seeded,
             build_rig_handeye_laserline_input_with(
                 spec,
                 base_dir,
@@ -595,10 +708,22 @@ impl RunFrames for RigHandeyeLaserlineRunResult {
     }
 }
 
-fn solve<P: ProblemType>(
+/// The joint rig hand-eye laserline run of the dataset path: its warm
+/// start and its planes from the resolved seed, or unseeded.
+pub(super) fn run_joint_seeded(
+    session: &mut CalibrationSession<RigHandeyeLaserlineProblem>,
+    seed: Option<(JointManualInit, RigHandeyeSeed)>,
+) -> Result<(), Error> {
+    match seed {
+        Some((manual, rig)) => crate::rig_handeye_laserline::run_seeded(session, manual, Some(rig)),
+        None => crate::rig_handeye_laserline::run_seeded(session, JointManualInit::default(), None),
+    }
+}
+
+pub(super) fn solve<P: ProblemType>(
     input: P::Input,
     config: P::Config,
-    run: fn(&mut CalibrationSession<P>) -> Result<(), Error>,
+    run: impl FnOnce(&mut CalibrationSession<P>) -> Result<(), Error>,
     control: &RunControl,
 ) -> Result<P::Export, Error> {
     let mut session = CalibrationSession::<P>::new();
@@ -889,6 +1014,7 @@ mod tests {
                 None,
                 &RunControl::default(),
                 &options,
+                None,
             )
             .unwrap()
         };

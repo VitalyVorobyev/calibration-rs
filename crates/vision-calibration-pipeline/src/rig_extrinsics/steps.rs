@@ -13,7 +13,7 @@ use crate::common::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigInitResult,
     RigIntrinsicsInitResult, RigIntrinsicsManualInit, RigManualInit, RigOptimizeOptions,
 };
-use crate::rig_family::{self, rig_ba_notes};
+use crate::rig_family::{self, RigSeed, rig_ba_notes, seeded_rig_init};
 use crate::session::CalibrationSession;
 
 use super::problem::RigExtrinsicsProblem;
@@ -208,12 +208,25 @@ pub fn step_rig_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<RigExtrinsicsProblem>,
 ) -> Result<(), Error> {
+    run_seeded(session, None)
+}
+
+/// The steps of [`run_calibration`], each initialization from `seed` when
+/// one is given: the one step list of the workflow, seeded or not.
+pub(crate) fn run_seeded(
+    session: &mut CalibrationSession<RigExtrinsicsProblem>,
+    seed: Option<RigSeed>,
+) -> Result<(), Error> {
     session.begin_step("intrinsics_init_all")?;
-    let _ = step_intrinsics_init_all(session, None)?;
+    let _ = match &seed {
+        Some(seed) => step_intrinsics_init_all_with_seed(session, seed.intrinsics.clone(), None)?,
+        None => step_intrinsics_init_all(session, None)?,
+    };
     session.begin_step("intrinsics_optimize_all")?;
     let _ = step_intrinsics_optimize_all(session, None)?;
     session.begin_step("rig_init")?;
-    let _ = step_rig_init(session, None)?;
+    let manual = seeded_rig_init(session, seed.as_ref())?;
+    let _ = step_rig_init_with_seed(session, manual, None)?;
     session.begin_step("rig_optimize")?;
     let _ = step_rig_optimize(session, None)?;
     Ok(())

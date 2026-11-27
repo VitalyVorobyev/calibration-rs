@@ -49,6 +49,7 @@ from ._generated_types import RigHandeyeLaserlineInput as _RigHandeyeLaserlineIn
 from ._generated_types import RigLaserlineDeviceInput as _RigLaserlineDeviceInputPayload
 from ._generated_types import SingleCamHandeyeInput as _SingleCamHandeyeInputPayload
 from .detect import DetectionDetail, Features, FsDetectionCache, _detection_detail, _features
+from .device_seed import DeviceSeed
 from .models import (
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
@@ -557,6 +558,7 @@ def calibrate_dataset(
     force_redetect: bool = False,
     laser_extractor: LaserPixelExtractor | None = None,
     progress: ProgressCallback | None = None,
+    seed: DeviceSeed | Mapping[str, Any] | None = None,
 ) -> DatasetCalibration:
     """Calibrate a dataset from its manifest.
 
@@ -564,6 +566,16 @@ def calibrate_dataset(
     into the problem's input (the ``build_*_input`` of the topology), which is
     calibrated with ``config`` (the problem's config dataclass or payload;
     ``None`` for the defaults) and exported.
+
+    With a ``seed``, every initialization of the workflow starts from it: the
+    lenses (intrinsics, distortion and tilt), the mounts, the hand-eye and the
+    laser planes of a previous calibration of the device or of one of its
+    type, or a datasheet's values. The seed is a starting point: the
+    calibration still estimates everything. The mounts and the hand-eye are
+    re-expressed in the frame of the config's reference camera. A seeded
+    Scheimpflug tilt runs planar intrinsics' refinement bounded around the
+    seed, and a laserline device holds a seeded tilt unless the config's
+    ``camera.fix.sensor`` lists the tilts to estimate.
 
     Parameters
     ----------
@@ -590,6 +602,14 @@ def calibrate_dataset(
         detected, each calibration step begun, each solver iteration.
         Raising from it stops the run and the exception propagates; Ctrl-C
         stops it with :class:`KeyboardInterrupt`.
+    seed:
+        A :class:`~vision_calibration.DeviceSeed`, or its JSON form, whose
+        cameras are the manifest's (:meth:`~vision_calibration.DeviceSeed.select`
+        picks some of a device's), each for images of the dataset's size and,
+        for a calibrated lens, of the configured camera model
+        (:meth:`~vision_calibration.DeviceSeed.nominal` keeps only the
+        intrinsics and the tilt). ``rig_laserline_device`` takes only the
+        laser planes; its cameras are the input's upstream calibration.
 
     Returns
     -------
@@ -609,7 +629,9 @@ def calibrate_dataset(
         The manifest is invalid, or detection or pairing failed.
     ValueError
         The config is invalid or for another topology, a laser topology has
-        no ``laser_extractor``, or the problem rejects the detected input.
+        no ``laser_extractor``, the problem rejects the detected input, or the
+        seed does not fit the dataset or the config (raised before any image
+        is detected).
     RuntimeError
         The calibration itself failed.
     KeyboardInterrupt
@@ -632,6 +654,7 @@ def calibrate_dataset(
         force_redetect,
         None if laser_extractor is None else _LaserAdapter(laser_extractor),
         progress,
+        None if seed is None else _seed_payload(seed),
     )
     export_payload = raw["export"]
     export_type = _PROBLEMS[export_payload["kind"]][1]
@@ -642,6 +665,13 @@ def calibrate_dataset(
         total_views=int(raw["total_views"]),
         rejected=_rejected(raw["rejected"]),
     )
+
+
+def _seed_payload(seed: DeviceSeed | Mapping[str, Any]) -> dict[str, Any]:
+    """The JSON form of a seed given as a :class:`DeviceSeed` or a mapping."""
+    if isinstance(seed, DeviceSeed):
+        return seed.to_payload()
+    return DeviceSeed.from_payload(seed).to_payload()
 
 
 def patched_config(topology: str, patch: ConfigPatch) -> CalibrationConfig:

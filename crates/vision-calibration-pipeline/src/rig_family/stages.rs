@@ -115,6 +115,41 @@ impl RigPoses {
     }
 }
 
+/// The seeds of a seeded run of the rig stages: every camera's, and the
+/// mounts when the device seed has them, in the input's camera order and in
+/// the frame of the configured reference camera.
+#[derive(Debug, Clone)]
+pub(crate) struct RigSeed {
+    /// The per-camera intrinsics stage's seed.
+    pub intrinsics: RigIntrinsicsManualInit,
+    /// `cam_se3_rig` per camera, the reference camera's the identity;
+    /// `None` runs the linear extrinsics fit.
+    pub cam_se3_rig: Option<Vec<Iso3>>,
+}
+
+/// The rig stage's seed of a seeded run: `seed`'s mounts with each view
+/// anchored on its first camera with a target pose of the refined intrinsics
+/// stage (the session's state). Unseeded without a seed or without mounts.
+///
+/// # Errors
+///
+/// [`Error::NotAvailable`] when the intrinsics stage has not run;
+/// [`Error::InvalidInput`] when a view has no target pose in any camera.
+pub(crate) fn seeded_rig_init<P: RigStages>(
+    session: &CalibrationSession<P>,
+    seed: Option<&RigSeed>,
+) -> Result<RigManualInit, Error> {
+    let Some(mounts) = seed.and_then(|seed| seed.cam_se3_rig.as_ref()) else {
+        return Ok(RigManualInit::default());
+    };
+    let cam_se3_target = P::stages(&session.state)
+        .cam_se3_target
+        .as_ref()
+        .ok_or_else(|| Error::not_available("per-camera target poses"))?;
+    crate::device_seed::anchor_views(mounts.clone(), cam_se3_target)
+        .map_err(|err| Error::invalid_input(format!("rig seed: {err}")))
+}
+
 /// Typed return value of the per-camera intrinsics initialization of a rig
 /// (`step_intrinsics_init_all`, `step_intrinsics_init_all_with_seed`).
 ///

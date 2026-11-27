@@ -309,10 +309,16 @@ pub fn step_init_with_seed(
         Some(rmse) => format!("plane_rmse={:.4}", rmse),
         None => "plane=manual".to_string(),
     };
+    // A held tilt the seed set is the seed's value for the whole solve.
+    let tilt_note = if holds_tilt && manual.sensor.is_some() {
+        ", tilt held at the seed"
+    } else {
+        ""
+    };
     session.log_success_with_notes(
         "init",
         format!(
-            "fx={:.1}, fy={:.1}, {} {}",
+            "fx={:.1}, fy={:.1}, {} {}{tilt_note}",
             camera.intrinsics.fx,
             camera.intrinsics.fy,
             plane_note,
@@ -404,8 +410,17 @@ pub fn step_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<LaserlineDeviceProblem>,
 ) -> Result<(), Error> {
+    run_seeded(session, None)
+}
+
+/// The steps of [`run_calibration`], the initialization from `seed` when
+/// one is given: the one step list of the workflow, seeded or not.
+pub(crate) fn run_seeded(
+    session: &mut CalibrationSession<LaserlineDeviceProblem>,
+    seed: Option<DeviceManualInit>,
+) -> Result<(), Error> {
     session.begin_step("init")?;
-    let _ = step_init(session, None)?;
+    let _ = step_init_with_seed(session, seed.unwrap_or_default(), None)?;
     session.begin_step("optimize")?;
     let _ = step_optimize(session, None)?;
     Ok(())
