@@ -25,7 +25,7 @@ export interface Screen {
 export const SCREENS: readonly Screen[] = [
   { id: "library", label: "Library", path: "/library", needsProject: false, built: true },
   { id: "dataset", label: "Dataset", path: "/dataset", needsProject: true, built: true },
-  { id: "detect", label: "Detect", path: "/detect", needsProject: true, built: false },
+  { id: "detect", label: "Detect", path: "/detect", needsProject: true, built: true },
   {
     id: "calibrate",
     label: "Calibrate",

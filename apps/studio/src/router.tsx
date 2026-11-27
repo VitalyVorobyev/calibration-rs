@@ -2,6 +2,7 @@ import { createHashRouter, type RouteObject } from "react-router";
 import { RouteErrorFallback, ScreenErrorFallback } from "./components/ErrorBoundary";
 import { CalibrateScreen } from "./screens/calibrate";
 import { DatasetScreen } from "./screens/dataset";
+import { DetectScreen } from "./screens/detect";
 import { InspectScreen } from "./screens/inspect";
 import { LibraryScreen } from "./screens/library";
 import { Redirect, Unbuilt } from "./screens/Redirect";
@@ -37,6 +38,7 @@ export const router = createHashRouter([
       { index: true, element: <Redirect to="/library" /> },
       { path: "library", element: <LibraryScreen />, ...screen },
       { path: "dataset", element: <DatasetScreen />, ...screen },
+      { path: "detect", element: <DetectScreen />, ...screen },
       { path: "calibrate", element: <CalibrateScreen />, ...screen },
       {
         path: "inspect",

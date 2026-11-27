@@ -34,8 +34,8 @@ test("the rail leads to the screens, and a screen that is not built is disabled"
     "aria-current",
     "page",
   );
-  // An address of an unbuilt screen (Detect) says so instead of breaking.
-  await page.goto("/#/detect");
+  // An address of an unbuilt screen (Compare) says so instead of breaking.
+  await page.goto("/#/compare");
   await expect(page.getByText("Coming in a later release.")).toBeVisible();
   expect(errors).toEqual([]);
 });

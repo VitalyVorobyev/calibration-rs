@@ -1,39 +1,13 @@
 import { Empty, StatusDot } from "@vitavision/ui";
 import { ImageLayer, ImageStage, type StageView } from "@vitavision/stage2d";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../../api";
 import type { DatasetSpec, ViewRow } from "../../api/generated/types";
 import { imagePath } from "../../components/ViewMatrix/matrixModel";
-
-type Size = { width: number; height: number };
-
-/** The decoded size of the image at `url`; `"error"` when it does not
- * open, `null` while it loads. */
-function useImageSize(url: string | null): Size | "error" | null {
-  const [result, setResult] = useState<{ url: string; size: Size | "error" } | null>(
-    null,
-  );
-  useEffect(() => {
-    if (url === null) return;
-    let live = true;
-    const img = new Image();
-    img.onload = () => {
-      if (live)
-        setResult({ url, size: { width: img.naturalWidth, height: img.naturalHeight } });
-    };
-    img.onerror = () => {
-      if (live) setResult({ url, size: "error" });
-    };
-    img.src = url;
-    return () => {
-      live = false;
-    };
-  }, [url]);
-  return url !== null && result?.url === url ? result.size : null;
-}
+import { useImageSize, type ImageSize } from "../../hooks/useImageSize";
 
 /** The image in a zoomable stage, opened fitted (a new image, a new key). */
-function Viewer({ url, size, label }: { url: string; size: Size; label: string }) {
+function Viewer({ url, size, label }: { url: string; size: ImageSize; label: string }) {
   const [view, setView] = useState<StageView | null>(null);
   return (
     <ImageStage

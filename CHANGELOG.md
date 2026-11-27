@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and deletion with a confirmation. A failed run says what failed, where and
   what to try. This replaces the Run workspace.
 
+- Calibration Studio's Detect screen: a camera × view matrix of the features
+  found in each image (with why the last run left one out, and filters for
+  problems, exclusions and a low count), **Detect all** as a job with progress
+  and cancel, the image with the detection drawn over it for every target
+  (chessboard, ChArUco with marker quads and ids, PuzzleBoard with cell ids
+  and edge bits, ring grids with their ellipses) and the candidates the
+  detector rejected with the reason in words, the detector's settings as a
+  form with a preview on one image that writes nothing and **Apply to
+  project**, and exclusions of features (click or box), of one camera's image
+  or of a whole view, written to the project's `[exclude]` with undo.
+
 - Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
   returns a `DetectionDetail` with the features `detect` returns (bit for
   bit), the image's outcome (detected; not found, with the detector's

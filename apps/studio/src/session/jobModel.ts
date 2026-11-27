@@ -49,6 +49,12 @@ function isProgress(event: unknown): event is Progress {
   );
 }
 
+/** `detect_all`'s report: the images done and in all. */
+function isImageCount(event: unknown): event is { done: number; total: number } {
+  const e = event as { done?: unknown; total?: unknown } | null;
+  return typeof e?.done === "number" && typeof e.total === "number";
+}
+
 function withEvent(row: JobRow, event: unknown): JobRow {
   if (event === undefined || event === null) return row;
   const costs =
@@ -161,6 +167,13 @@ export function describeJob(row: JobRow): JobLine {
   }
   if (row.cancelling) return { stage: "Cancelling…", progress: null };
   const event = row.event;
+  // `detect_all` reports the images done, with no `kind`.
+  if (row.command === "detect_all" && isImageCount(event)) {
+    return {
+      stage: `Detecting ${formatCount(event.done)}/${formatCount(event.total)}`,
+      progress: { done: event.done, total: event.total },
+    };
+  }
   if (!isProgress(event)) return { stage: "Running", progress: null };
   switch (event.kind) {
     case "detection":

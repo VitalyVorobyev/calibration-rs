@@ -6,7 +6,7 @@ import {
   type SequenceMatrixSelection,
 } from "@vitavision/workbench";
 import { ImageOff } from "lucide-react";
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import type { ViewRow } from "../../api/generated/types";
 import { hasGap, imagePath } from "./matrixModel";
 import { Thumb } from "./Thumb";
@@ -25,6 +25,15 @@ export interface ViewMatrixProps {
   /** A cell's width and height, px (thumbnails keep 4:3). */
   colWidth?: number;
   rowHeight?: number;
+  /** What a cell holds in place of the thumbnail (the Detect screen's
+   * counts): the view, the camera's index and the image's absolute path
+   * (`null` where the camera has none). The selection ring is still drawn. */
+  renderCellContent?:
+    ((view: ViewRow, camera: number, path: string | null) => ReactNode) | undefined;
+  /** A cell's accessible name in place of "view 0002, camera cam1, <image>". */
+  describeCell?: ((view: ViewRow, camera: number) => string) | undefined;
+  /** A mark after a row's token in place of the missing-image dot. */
+  rowMark?: ((view: ViewRow) => ReactNode) | undefined;
   /** Size the matrix to its content, at most this many rows high (it then
    * scrolls inside); without it the matrix fills the box its parent gives. */
   fitRows?: number;
@@ -42,6 +51,9 @@ export function ViewMatrix({
   value,
   onValueChange,
   onCellAction,
+  renderCellContent,
+  describeCell,
+  rowMark,
   colWidth = 112,
   rowHeight = 72,
   fitRows,
@@ -94,11 +106,14 @@ export function ViewMatrix({
         const view = byToken.get(row.id);
         return (
           <span className="flex min-w-0 items-center gap-1.5">
-            {view && hasGap(view) && (
-              <StatusDot tone="defect">
-                <span className="sr-only">a camera has no image for this view</span>
-              </StatusDot>
-            )}
+            {view &&
+              (rowMark
+                ? rowMark(view)
+                : hasGap(view) && (
+                    <StatusDot tone="defect">
+                      <span className="sr-only">a camera has no image for this view</span>
+                    </StatusDot>
+                  ))}
             <span className="truncate font-mono text-[11px] text-fg">{row.id}</span>
           </span>
         );
@@ -109,6 +124,7 @@ export function ViewMatrix({
       cellLabel={(row, column) => {
         const view = byToken.get(row.id);
         const cam = cameraIndex.get(column.id);
+        if (view && cam !== undefined && describeCell) return describeCell(view, cam);
         const image = view && cam !== undefined ? view.images[cam] : null;
         return `view ${row.id}, camera ${column.id}, ${image ?? "no image"}`;
       }}
@@ -118,7 +134,9 @@ export function ViewMatrix({
         const path = view && cam !== undefined ? imagePath(dataRoot, view, cam) : null;
         return (
           <span className="relative block size-full">
-            {path === null ? (
+            {renderCellContent && view && cam !== undefined ? (
+              renderCellContent(view, cam, path)
+            ) : path === null ? (
               <span
                 title="This camera has no image for this view"
                 className="grid size-full place-items-center gap-0 bg-defect/8 text-defect"

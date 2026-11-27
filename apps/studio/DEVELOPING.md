@@ -46,7 +46,7 @@ one the page says no back end answers.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: the rail of
   seven screens, the context bar, the run list, the job tray, the status
   line, Settings, the keys; see "The shell"), `screens/` (one folder per
-  screen: Library, Dataset, Calibrate, Inspect; the ones not built yet are a
+  screen: Library, Dataset, Detect, Calibrate, Inspect; the ones not built yet are a
   "coming" page), `session/` (the stores every screen shares: the session
   with the back end, the selection, the jobs and the connection, the query
   cache, the pure rules of a job row), `project/` (the open project, `projectStore.ts`; its unsaved edits,
@@ -272,6 +272,40 @@ box), each pattern an `ImagePatternField` with what it matches. The matrix is
 per-view robot pose and laser frame the spec shows as matrix columns are not
 in `project_views` (the library pairs only the cameras' images), so the screen
 lists what the manifest declares instead.
+
+**The Detect screen** (`screens/detect/`) reads the detection cache and
+writes the project's `[exclude]`. `useDetectData.ts` holds its reads:
+`detection_overview` and `detection_detail` through the query cache (a saved
+project marks them stale, so a changed detector or an exclusion refetches
+them), `detect_preview` as a screen-owned, never cached answer, and the
+`detect_all` job (`describeJob` reads its `{ done, total }` report; a
+finished job invalidates the project's queries). An image with no cached
+detection is detected only when the user asks (`detection_detail` would
+detect and cache it). The pure rules are `detectModel.ts` (a cell's status
+and tone, the sentences for an outcome, a run's `left_out` and a
+`PointRejection`, the filters), `overlayModel.ts` (a `DetectionDetail` into
+`@vitavision/overlays`' `TargetDetection` per target kind, the table rows, the
+rejected items, the diff of a preview) and `exclusions.ts` (toggle a view, an
+image or features by their `world_xyz` within the library's micrometre; counts;
+notes). Overlay ids: a feature is its index in `detail.features`, a marker
+`m<n>`, an edge bit `e<n>`, a rejected candidate `r<n>`, a rejected marker
+`x<n>`. The stage is `StagePane` (`DetectionLayers` draws the accepted layer
+`acc-*`, the dimmed rejected layer `rej-*`, the excluded crosses and the ring
+covariance ellipses); `PickSurface` is the one press target (`useStageHitTest`:
+a press on an accepted feature picks it, `⇧`-drag boxes, anything else pans).
+Picking is `usePicking.ts` (state keyed by image and shown detection, so
+another image starts clean without an effect). Every exclusion is one
+`save_project` through `useExclusions.ts` (`changeExclusions`, `undoExclusion`
+with a history of the `[exclude]` before each write; on `changed_on_disk` it
+reloads and retries once); the keys are `useDetectKeys.ts` (`X`, `⇧X`, `⌘Z`;
+views and cameras are the Dataset screen's `useViewKeys`). The Detector tab
+cuts the manifest schema (`dataset_form`) down to its `detector` section
+(`detectorModel.ts`) and applies by writing the saved manifest with the new
+`detector`; it refuses while the Dataset draft has edits and for a manifest
+that is a file of its own. The matrix is `components/ViewMatrix` with
+`renderCellContent` (`CountCell`). Tests: `detect/*.test.ts(x)` (the pure
+rules, each tab on every target kind, the screen over a mock back end) and
+`e2e/server/detect.spec.ts` on the committed fixtures.
 
 Recent projects are the back end's list (`recent_projects`,
 `forget_recent`; the desktop's, or a server's shared by its clients), put
