@@ -354,6 +354,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists the shortcuts; the server's sign-in is a page of its own. The old
   addresses still open. The screens beyond Inspect and Calibrate are not
   built yet and say so.
+- Calibration Studio's back end serves what the Inspect, Detect and Compare
+  screens show: a run's distortion map (lens and sensor layers), residual
+  map (systematic error, RMS, standard error, significance and support,
+  for all views or a subset) and projection σ, all on one grid per camera;
+  every camera parameter with its σ or the reason it has none; the
+  per-feature residuals and their statistics per camera and view; and the
+  dataset's detections: what the detection cache holds of each image (and
+  why the last run left an image out), one image's detection with what an
+  overlay needs, a preview of one image with edited detector settings that
+  writes nothing, and a job that detects every image. The frame view's
+  residual arrows now point along `observed − projected`, the sign of every
+  map and of the library's residuals.
 - Calibration Studio reads and writes only inside its root folders. The
   desktop app starts with none and asks you to add one (Settings lists and
   removes them); a project or manifest that names a path outside them is

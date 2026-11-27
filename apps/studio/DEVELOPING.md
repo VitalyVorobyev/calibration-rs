@@ -64,7 +64,8 @@ one the page says no back end answers.
   schema; its `commands/` hold the command functions), `runs.rs` (a run as
   commands name it, `RunRef`, and `RunCache`, the parsed exports),
   `disparity.rs`, `epipolar.rs`, `uncertainty.rs`, `laser.rs`, `images.rs`,
-  `blobs.rs`, `planes.rs` (see "Images and resources"), `scope.rs` (the file
+  `blobs.rs`, `planes.rs` (see "Images and resources"), `maps.rs` and
+  `detections.rs` (see "Maps, residuals and detections"), `scope.rs` (the file
   scope: `RootScope`, `UserPath`, and the checks of what a project and its
   manifest name), `settings.rs` (the desktop's roots, the recent projects),
   `bin/studio_schema.rs` (writes `schema/studio-api.json`). Projects and
@@ -265,6 +266,66 @@ protocol. The CSP applies to the built app only (in `tauri dev` the webview
 loads the Vite server directly). `dangerousDisableAssetCspModification`
 keeps Tauri from adding nonces to `style-src`, which would disable the
 `'unsafe-inline'` that React's `style` attributes need.
+
+## Maps, residuals and detections
+
+What the Inspect, Detect and Compare screens read. Every displacement is
+`actual − reference` in pixels; a residual is **`observed − projected`**
+(the library's sign; the Frames overlay draws its arrows that way too).
+
+- **Maps of a run's camera** (`api/commands/maps.rs`, `maps.rs`):
+  `distortion_map`, `residual_map` and `projection_sigma_map` take
+  `{ run, camera, columns? }` and share one grid (`MapGrid`: the camera's
+  image size, its region of interest for a tiled camera, cut into
+  `stride × stride` blocks; `columns` defaults to 64, at most 1024). Each
+  answers JSON with `MapPlane`s: a `BlobRef` to a `VAM1` plane and its
+  channels, each with a name, a unit (`px`, `chi`, `samples`, `views`) and
+  the `[min, max]` of its finite values (`null` when none). The distortion
+  map has three planes (`distortion`, `sensor`, `total`) of `dx`, `dy`,
+  `magnitude`; the residual map one plane of `mean_dx`, `mean_dy`,
+  `mean_magnitude`, `rms`, `std_error`, `significance`,
+  `effective_samples`, `effective_views`, plus the bandwidth, how it was
+  chosen, the options as used (`options.min_effective_samples` is the
+  support boundary; `options.views` maps a subset of views), `chain_level`
+  (rig and hand-eye runs: the residuals include the pose chain's error),
+  the counts and the outliers' record indices; the projection σ map one
+  plane `sigma`, or `{ status: "unavailable", reason }`. `NaN` in a plane is
+  "no value", never a colour.
+- **Memo and expiry.** A reply is kept in the blob store under a content
+  address of the command, its resolved options, the image size and the
+  export's SHA-256, so asking again answers at once with the same blob ids.
+  The store holds 256 MiB; a plane it dropped answers `blob_expired`, and
+  the command run again makes the same ids. A different run, camera,
+  `columns` or option is a different address.
+- **Parameters and residuals.** `camera_parameter_values { run }` lists
+  every parameter of every camera, whatever the model (label in the
+  export's uncertainty, name, group, value, unit, σ or why there is none:
+  `no_covariance` with the library's reason, `fixed`, `not_listed`,
+  `unsupported_model`; `at_bound`). The bounds' values are not in the
+  export. `residual_records { run, camera, view? }` answers the records as
+  columns (`index` into `per_feature_residuals.target`, `view`, `feature`,
+  `target_xyz_m`, `observed_px`, `projected_px`, `residual_px`);
+  `residual_stats { run }` the library's mean, RMS, max and count per
+  camera, per view and per camera and view, with the diverged records.
+- **Detections** (`api/commands/detection.rs`, `detections.rs`), each over
+  a project `dir`; an image is named as `project_views` lists it (relative
+  to the data folder). `detection_overview { dir, run? }` reads the
+  project's detection cache for every view and camera (features, the
+  detector's outcome, or `not_detected`; the expected count of a complete
+  board; why the latest calibrated run, or `run`, left an image out). It
+  decodes nothing, but reads every image to find its cache entry.
+  `detection_detail { dir, camera, image }` is the library's
+  `DetectionDetail` from the cache, detected and cached when missing (in
+  the camera's region-of-interest pixels; exclude a feature by its
+  `world_xyz`). `detect_preview { dir, camera, image, detector }` detects
+  one image with edited detector settings and writes nothing. The
+  `detect_all { dir, redetect? }` job fills the cache (several images at a
+  time), reports `{ done, total, camera, image }` and ends with the
+  overview; it then announces `project_changed`, so cached overviews go
+  stale.
+- **Exclusions** need no command: edit `spec.exclude` and `save_project`.
+  A stale entry is the library's `exclusion` error with its entry as
+  `field` (`project_views` lists it in `messages`).
 
 ## The server (`calibration-studio-server`)
 
