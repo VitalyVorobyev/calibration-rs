@@ -1,0 +1,48 @@
+version = 2
+name = "Four-camera cell"
+
+[dataset]
+root = "."
+
+[dataset.manifest]
+version = 1
+topology = "rig_extrinsics"
+
+[dataset.manifest.target]
+kind = "chessboard"
+rows = 4
+cols = 5
+square_size_m = 0.02
+
+[[dataset.manifest.cameras]]
+id = "cam0"
+
+[dataset.manifest.cameras.images]
+kind = "glob"
+pattern = "images/cam0_*.png"
+
+[[dataset.manifest.cameras]]
+id = "cam1"
+
+[dataset.manifest.cameras.images]
+kind = "glob"
+pattern = "images/cam1_*.png"
+
+[[dataset.manifest.cameras]]
+id = "cam2"
+
+[dataset.manifest.cameras.images]
+kind = "glob"
+pattern = "images/cam2_*.png"
+
+[[dataset.manifest.cameras]]
+id = "cam3"
+
+[dataset.manifest.cameras.images]
+kind = "glob"
+pattern = "images/cam3_*.png"
+
+[dataset.manifest.pose_pairing]
+kind = "shared_filename_token"
+regex = "^cam\\d_(?<view>\\d+)\\.png$"
+group = "view"

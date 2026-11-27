@@ -33,6 +33,8 @@ export function startSync(): () => void {
     if (event.body.kind !== "project_changed") return;
     const { dir } = event.body;
     queryCache.invalidateProject(dir);
+    // Any project's change moves the library (its runs, its verdicts).
+    queryCache.invalidate((command) => command === "scan_library");
     pending.add(dir);
     if (timer === null) timer = setTimeout(flush, COALESCE_MS);
   });

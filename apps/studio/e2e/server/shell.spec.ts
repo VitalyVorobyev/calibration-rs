@@ -23,7 +23,7 @@ test("the rail leads to the screens, and a screen that is not built is disabled"
     "Compare",
     "Device",
   ]);
-  // No project: Calibrate and Inspect wait for one; the rest are not built.
+  // No project: the screens that read one wait for it; the rest are not built.
   for (const name of ["Dataset", "Detect", "Calibrate", "Inspect", "Compare", "Device"]) {
     await expect(rail.getByRole("link", { name })).toHaveAttribute(
       "aria-disabled",
@@ -34,8 +34,8 @@ test("the rail leads to the screens, and a screen that is not built is disabled"
     "aria-current",
     "page",
   );
-  // An address of an unbuilt screen says so instead of breaking.
-  await page.goto("/#/dataset");
+  // An address of an unbuilt screen (Detect) says so instead of breaking.
+  await page.goto("/#/detect");
   await expect(page.getByText("Coming in a later release.")).toBeVisible();
   expect(errors).toEqual([]);
 });

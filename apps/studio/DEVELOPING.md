@@ -46,7 +46,7 @@ one the page says no back end answers.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: the rail of
   seven screens, the context bar, the run list, the job tray, the status
   line, Settings, the keys; see "The shell"), `screens/` (one folder per
-  screen: Library, Calibrate, Inspect; the ones not built yet are a
+  screen: Library, Dataset, Calibrate, Inspect; the ones not built yet are a
   "coming" page), `session/` (the stores every screen shares: the session
   with the back end, the selection, the jobs and the connection, the query
   cache, the pure rules of a job row), `project/` (the open project, `projectStore.ts`; its unsaved edits,
@@ -226,7 +226,52 @@ dir, id }`); there is no "active export".
   in `_unresolved` and blocks a run), of a manifest file (referenced, never
   written), or a Quick Start sample (`fetch_sample` downloads it into the
   samples folder and makes that folder a project referencing its manifest).
-  A folder that already holds a project is opened instead.
+  A folder that already holds a project is opened instead. The Run
+  workspace still uses these; the Library and the project menu use the
+  dialogs below.
+
+**The Library and the project dialogs.** `screens/library/` is the Library:
+`libraryModel.ts` (pure: a scan as rows, grouped `product → device →
+project`, the search and filters, what a node's table lists), `libraryUrl.ts`
+(the search, filters and selected node in the address, beside `project` and
+`run`), `LibraryTree`, `ProjectTable`, `LibraryToolbar`. `scan_library` is
+read through `project/useLibraryScan.ts` (any `project_changed` marks it
+stale; the Library also rescans when the window regains focus). The dialogs
+are mounted by the shell (`shell/ProjectDialogs.tsx`) and opened through
+`project/dialogs.ts` from the Library, the project menu and the context bar:
+New project (`screens/library/newProject/`: five steps over the draft
+manifest of `useNewProject`, with the rules of each step in
+`newProjectModel.ts`), Import export (`ImportDialog.tsx`) and Set device
+(`shell/SetDeviceDialog.tsx`). The breadcrumb's device type and device are
+`SiblingPopover`s over the same scan. New project writes nothing until its
+last step: the layout preview asks `project_views` for the draft spec in the
+data folder itself (a folder that is not a project yet; the back end judges
+it as a project in a scratch folder), and what the sniffer left open
+(`_unresolved`) is asked as one question per field, its control taken from the
+dataset form's schema. The camera × view matrix is `components/ViewMatrix/`
+(`SequenceMatrix` with thumbnails from the `image` resource; at most six
+loads at a time, `lib/thumbQueue.ts`), shared with the Dataset screen.
+
+**The Dataset screen** (`screens/dataset/`) edits the open project's
+manifest as an explicit draft. The draft is `project/draftStore.ts`
+(`manifest`, its saved baseline, `manifestDirty`); a change of the project
+file under unsaved edits keeps them and sets `disk` (`rebase` puts the edits
+back on the disk's version, a field changed in both keeps mine and is marked
+changed; `keepEditing` overwrites; `revert` drops them). `useProjectViews`
+asks `project_views` for the draft spec 400 ms after the last edit; the
+library's messages are placed on the form's fields (`datasetModel.ts`:
+`placeMessages`, which reads the field out of a message that names none; the
+app's own warning for a pattern that matched nothing; counts), the rail's
+badge reads the error count (`project/problems.ts`) and `⌘S` is refused while
+there are errors. `DatasetForm` is `SchemaValueForm` with `baseline`,
+`messages` and the groups of `datasetUi`; the cameras are `CamerasEditor`
+(`renderField`, since the schema's control for a list of structures is a JSON
+box), each pattern an `ImagePatternField` with what it matches. The matrix is
+`components/ViewMatrix` in `MatrixPane` (filters), the selection the app's
+(`session/selection.ts`), the selected image `ViewDetail` on stage2d. The
+per-view robot pose and laser frame the spec shows as matrix columns are not
+in `project_views` (the library pairs only the cameras' images), so the screen
+lists what the manifest declares instead.
 
 Recent projects are the back end's list (`recent_projects`,
 `forget_recent`; the desktop's, or a server's shared by its clients), put

@@ -29,7 +29,7 @@ const STATE_TITLE: Record<RunStateName, string | undefined> = {
   Unreadable: "The run's files do not read.",
 };
 
-const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
+export const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   pass: { label: "Pass", tone: "normal" },
   warn: { label: "Check", tone: "warning" },
   fail: { label: "Fail", tone: "defect" },

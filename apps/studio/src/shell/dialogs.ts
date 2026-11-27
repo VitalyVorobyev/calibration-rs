@@ -25,3 +25,8 @@ export function pickManifestFile(): Promise<string | null> {
     mode: "manifest",
   });
 }
+
+/** Choose any file (a robot pose file, an image list). */
+export function pickFile(title: string): Promise<string | null> {
+  return requestPath({ title, mode: "file" });
+}

@@ -3,7 +3,7 @@
 import type { DirEntry } from "../../api/generated/types";
 
 /** What is being picked. */
-export type PickMode = "folder" | "project" | "manifest" | "export";
+export type PickMode = "folder" | "project" | "manifest" | "export" | "file";
 
 /** The noun of each mode, for the dialog's text. */
 export const MODE_NOUN: Record<PickMode, string> = {
@@ -11,11 +11,12 @@ export const MODE_NOUN: Record<PickMode, string> = {
   project: "a project",
   manifest: "a dataset manifest (.toml or .json)",
   export: "a calibration export (.json)",
+  file: "a file",
 };
 
 /** Whether the listing shows files for `mode` (folders always show). */
 export function showsFiles(mode: PickMode): boolean {
-  return mode === "manifest" || mode === "export";
+  return mode === "manifest" || mode === "export" || mode === "file";
 }
 
 function extension(name: string): string {
@@ -34,6 +35,8 @@ export function selectable(entry: DirEntry, mode: PickMode): boolean {
       return entry.kind === "file" && ["toml", "json"].includes(extension(entry.name));
     case "export":
       return entry.kind === "file" && extension(entry.name) === "json";
+    case "file":
+      return entry.kind === "file";
   }
 }
 

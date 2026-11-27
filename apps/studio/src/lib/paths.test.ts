@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dirnamePath, joinPath } from "./paths";
+import { dirnamePath, joinPath, relativePath } from "./paths";
 
 describe("joinPath", () => {
   it("joins with / and drops duplicate separators", () => {
@@ -30,5 +30,21 @@ describe("dirnamePath", () => {
   it("is the parent folder, with / separators", () => {
     expect(dirnamePath("/data/kuka_1/dataset.toml")).toBe("/data/kuka_1");
     expect(dirnamePath("C:\\d\\m.json")).toBe("C:/d");
+  });
+});
+
+describe("relativePath", () => {
+  it("walks up and down between folders", () => {
+    expect(relativePath("/lib/stereo/bench", "/lib/captures/set1")).toBe(
+      "../../captures/set1",
+    );
+    expect(relativePath("/lib/p", "/lib/p/data/img")).toBe("data/img");
+    expect(relativePath("/lib/p", "/lib/p")).toBe(".");
+    expect(relativePath("/lib/p/", "/lib")).toBe("..");
+  });
+
+  it("keeps a path on another drive absolute", () => {
+    expect(relativePath("C:\\a\\b", "D:\\c")).toBe("D:/c");
+    expect(relativePath("C:\\a\\b", "C:\\a\\c")).toBe("../c");
   });
 });

@@ -12,6 +12,7 @@ import {
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Logo } from "../components/Logo";
+import { useDatasetProblems } from "../project/problems";
 import { useProject } from "../project/projectStore";
 import { useJobs } from "../session/jobs";
 import { isLive } from "../session/jobModel";
@@ -49,6 +50,9 @@ function labelOf(id: ScreenId): string {
  * why. The links keep the open project and run in the address. */
 export function ScreenRail({ place }: { place: Place }) {
   const hasProject = useProject((s) => s.project !== null);
+  const openDir = useProject((s) => s.project?.dir ?? null);
+  // What the Dataset screen last judged, for the open project only.
+  const datasetErrors = useDatasetProblems((s) => (s.dir === openDir ? s.errors : 0));
   const calibrating = useJobs((s) =>
     s.rows.some((r) => r.command === "calibrate" && isLive(r.state)),
   );
@@ -73,6 +77,14 @@ export function ScreenRail({ place }: { place: Place }) {
                     aria-label="A calibration is running"
                     className="size-3 animate-spin motion-reduce:animate-none"
                   />
+                ) : screen.id === "dataset" && datasetErrors > 0 ? (
+                  <span
+                    role="img"
+                    aria-label={`${datasetErrors} ${datasetErrors === 1 ? "error" : "errors"} in the dataset`}
+                    className="grid min-w-4 place-items-center rounded-full bg-defect px-1 font-mono text-[10px] leading-4 text-white"
+                  >
+                    {datasetErrors}
+                  </span>
                 ) : undefined
               }
               asChild

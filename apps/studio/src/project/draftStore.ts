@@ -4,6 +4,7 @@
  * holds only what is not saved yet, and `save` writes it through
  * `save_project` (the configuration as its changes from the library's
  * defaults, `config_patch`). */
+import { diffPaths, getAtPath, setAtPath } from "@vitavision/forms";
 import { create } from "zustand";
 import { api } from "../api";
 import type { DatasetSpec, ProblemKind, ProjectView } from "../api/generated/types";
@@ -28,8 +29,27 @@ export interface DraftState {
   config: unknown;
   manifestDirty: boolean;
   configDirty: boolean;
+  /** The manifest and configuration as saved at `base`: what the forms mark
+   * "changed" against. */
+  baseManifest: DatasetSpec | null;
+  baseConfig: unknown;
+  /** The project as the disk now has it when it changed under unsaved edits
+   * (another tab or program saved it); `null` while the draft is on the
+   * version it started from. The edits stay until `rebase` or
+   * `keepEditing` says what becomes of them. */
+  disk: ProjectView | null;
+  /** A save is in flight: its own change of the file is not another's. */
+  saving: boolean;
   /** Start over from `view` (the project as last read), dropping edits. */
   resetFrom: (view: ProjectView | null) => void;
+  /** Drop the unsaved edits: start over from the project as last read. */
+  revert: () => void;
+  /** Take the disk's version as the base and put my edits back on it: a
+   * field I changed keeps my value (marked changed, with the disk's as its
+   * baseline); every other field takes the disk's. */
+  rebase: () => void;
+  /** Dismiss the disk's change: the next save overwrites it. */
+  keepEditing: () => void;
   setManifest: (next: DatasetSpec) => void;
   setConfig: (next: unknown) => void;
   /** Write the edits to the project; `true` when nothing is left unsaved. */
@@ -47,6 +67,10 @@ const EMPTY = {
   config: null,
   manifestDirty: false,
   configDirty: false,
+  baseManifest: null,
+  baseConfig: null,
+  disk: null,
+  saving: false,
 };
 
 export const useDraft = create<DraftState>()((set, get) => {
@@ -75,16 +99,53 @@ export const useDraft = create<DraftState>()((set, get) => {
         return;
       }
       const manifest = view.dataset.kind === "ok" ? view.dataset.spec : null;
+      const config = view.config.kind === "ok" ? view.config.config : null;
       set({
         base: `${view.dir}|${view.revision}`,
         manifest,
         editable: inlineManifest(view.spec) !== null,
-        config: view.config.kind === "ok" ? view.config.config : null,
+        config,
         manifestDirty: false,
         configDirty: false,
+        baseManifest: manifest,
+        baseConfig: config,
+        disk: null,
+        saving: false,
       });
       // An invalid configuration starts the form from the defaults.
       if (view.config.kind !== "ok") void resetConfig(topologyOf(manifest));
+    },
+
+    revert: () => get().resetFrom(useProject.getState().project),
+
+    rebase: () => {
+      const { disk, manifest, baseManifest, config, configDirty } = get();
+      if (disk === null) return;
+      const onDisk = disk.dataset.kind === "ok" ? disk.dataset.spec : null;
+      const diskConfig = disk.config.kind === "ok" ? disk.config.config : null;
+      let next = onDisk;
+      if (onDisk !== null && manifest !== null && baseManifest !== null) {
+        next = diffPaths(manifest, baseManifest).reduce(
+          (acc, path) => setAtPath(acc, path, getAtPath(manifest, path)) as DatasetSpec,
+          onDisk,
+        );
+      }
+      set({
+        base: `${disk.dir}|${disk.revision}`,
+        manifest: next,
+        baseManifest: onDisk,
+        editable: inlineManifest(disk.spec) !== null,
+        manifestDirty:
+          next !== null && onDisk !== null && diffPaths(next, onDisk).length > 0,
+        config: configDirty ? config : diskConfig,
+        baseConfig: diskConfig,
+        disk: null,
+      });
+    },
+
+    keepEditing: () => {
+      const { disk } = get();
+      if (disk !== null) set({ base: `${disk.dir}|${disk.revision}`, disk: null });
     },
 
     setManifest: (next) => {
@@ -126,7 +187,12 @@ export const useDraft = create<DraftState>()((set, get) => {
         }
       }
       // A saved project is re-read; the draft starts again from it.
-      return useProject.getState().save(spec);
+      set({ saving: true });
+      try {
+        return await useProject.getState().save(spec);
+      } finally {
+        set({ saving: false });
+      }
     },
   };
 });
@@ -142,7 +208,27 @@ export function isDirty(
 // revision) starts it again.
 function follow(view: ProjectView | null): void {
   const base = view ? `${view.dir}|${view.revision}` : null;
-  if (base !== useDraft.getState().base) useDraft.getState().resetFrom(view);
+  const draft = useDraft.getState();
+  if (base === draft.base) return;
+  // Unsaved edits are not thrown away by a change of the project file
+  // (another tab, or a save of the project's other fields): when the
+  // manifest and configuration are what the draft started from, only the
+  // base moves; when they changed too, the draft says so (`disk`) and waits.
+  if (
+    view !== null &&
+    isDirty(draft) &&
+    !draft.saving &&
+    draft.base?.startsWith(`${view.dir}|`)
+  ) {
+    const onDisk = view.dataset.kind === "ok" ? view.dataset.spec : null;
+    const diskConfig = view.config.kind === "ok" ? view.config.config : null;
+    const same =
+      diffPaths(onDisk, draft.baseManifest).length === 0 &&
+      diffPaths(diskConfig, draft.baseConfig).length === 0;
+    useDraft.setState(same ? { base, disk: null } : { disk: view });
+    return;
+  }
+  draft.resetFrom(view);
 }
 useProject.subscribe((state) => follow(state.project));
 follow(useProject.getState().project);

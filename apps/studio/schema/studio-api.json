@@ -200,7 +200,7 @@
       "args": {
         "$ref": "#/definitions/ProjectViewsArgs"
       },
-      "doc": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about.",
+      "doc": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about.\n\nWith a `spec`, `dir` may also be a folder that is not a project yet (a\nnew project's data folder): the draft is then judged as a project in\nthat folder, its inline manifest's `root` read against it.",
       "kind": "plain",
       "name": "project_views",
       "reply": {
@@ -6307,7 +6307,7 @@
     },
     "ProjectViewsArgs": {
       "additionalProperties": false,
-      "description": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about.",
+      "description": "The views the project's images pair into, without reading an image, and\nwhat is wrong with the project as a run would find it before detection:\nof the saved project, or of the draft `spec` when given (nothing is\nwritten). Each problem is a message with the field it is about.\n\nWith a `spec`, `dir` may also be a folder that is not a project yet (a\nnew project's data folder): the draft is then judged as a project in\nthat folder, its inline manifest's `root` read against it.",
       "properties": {
         "dir": {
           "$ref": "#/definitions/UserPath"

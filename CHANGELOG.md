@@ -397,6 +397,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes nothing, and a job that detects every image. The frame view's
   residual arrows now point along `observed − projected`, the sign of every
   map and of the library's residuals.
+- Calibration Studio's Library lists every project under its folders by
+  device type and device (a project with no device is listed apart), each with
+  the verdict and RMS of its latest run, a search and filters that a link
+  reopens, and the folders it could not read. A new project is made in five
+  steps (the data, its layout with the images laid out as a camera by view
+  matrix and the fields the library could not decide asked as questions, the
+  target, the device, the name and place), writing nothing until the last; an
+  export calibrated elsewhere is imported as a run of the project it fits; a
+  project's device is set from the context bar, whose device type and device
+  list their siblings. `calibration-studio-server` previews the layout of a
+  draft project in a folder that is not a project yet.
+- Calibration Studio's Dataset screen describes how the data is laid out: a
+  form of the manifest in groups (workflow, cameras, pairing, target, poses
+  and motion, laser, detector) with the cameras as cards to add, duplicate,
+  reorder and remove, beside the camera by view matrix of thumbnails that
+  description finds (ten cameras by hundreds of views stay light; filters for
+  the views with a missing image, one camera, a token) and the selected image
+  in a zoomable stage. After each edit the library judges the draft and its
+  messages appear under the fields they are about; Save writes the manifest
+  into the project file and is refused while there are errors. Edits survive
+  a change of the project file by another tab or program: the screen says so
+  and puts them back on the new version. A manifest kept in a file of its own
+  is shown read-only, with the way to copy it into the project.
 - Calibration Studio reads and writes only inside its root folders. The
   desktop app starts with none and asks you to add one (Settings lists and
   removes them); a project or manifest that names a path outside them is

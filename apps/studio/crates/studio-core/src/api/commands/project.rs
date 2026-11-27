@@ -274,6 +274,10 @@ pub fn save_project(ctx: &Ctx, args: SaveProjectArgs) -> Result<ProjectView, Stu
 /// what is wrong with the project as a run would find it before detection:
 /// of the saved project, or of the draft `spec` when given (nothing is
 /// written). Each problem is a message with the field it is about.
+///
+/// With a `spec`, `dir` may also be a folder that is not a project yet (a
+/// new project's data folder): the draft is then judged as a project in
+/// that folder, its inline manifest's `root` read against it.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectViewsArgs {
@@ -306,11 +310,24 @@ pub struct ViewRow {
 }
 
 pub fn project_views(ctx: &Ctx, args: ProjectViewsArgs) -> Result<ProjectViews, StudioError> {
-    let mut project = open_checked(ctx, &args.dir)?;
-    if let Some(spec) = args.spec {
-        check_spec_paths(ctx, project.dir(), &spec)?;
-        *project.spec_mut() = spec;
-    }
+    // The scratch project of a draft in a folder that is no project yet;
+    // removed when this call ends.
+    let mut _scratch = None;
+    let project = match (open_checked(ctx, &args.dir), &args.spec) {
+        (Err(e), Some(spec)) if e.kind == ErrorKind::NotAProject => {
+            let (project, guard) = draft_project(ctx, &args.dir, spec)?;
+            _scratch = Some(guard);
+            project
+        }
+        (opened, _) => {
+            let mut project = opened?;
+            if let Some(spec) = args.spec {
+                check_spec_paths(ctx, project.dir(), &spec)?;
+                *project.spec_mut() = spec;
+            }
+            project
+        }
+    };
     let mut messages: Vec<StudioError> = Vec::new();
     let push = |error: StudioError, messages: &mut Vec<StudioError>| {
         if !messages.iter().any(|m| m.message == error.message) {
@@ -355,6 +372,54 @@ pub fn project_views(ctx: &Ctx, args: ProjectViewsArgs) -> Result<ProjectViews, 
         views,
         messages,
     })
+}
+
+/// A scratch folder for a draft project, removed on drop.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        // Best effort: a leftover scratch folder holds one small file.
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The draft `spec` as a project whose data folder is `folder` (a folder
+/// that holds no project yet), so a new project's layout can be previewed
+/// before anything is written to it: the project file goes to a scratch
+/// folder under the cache, its manifest's `root` made the absolute data
+/// folder. Only an inline manifest has a data folder of its own.
+fn draft_project(
+    ctx: &Ctx,
+    folder: &UserPath,
+    spec: &ProjectSpec,
+) -> Result<(Project, Scratch), StudioError> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let folder = ctx.scope.existing_dir(folder)?;
+    let DatasetSource::Inline {
+        root,
+        spec: manifest,
+        ..
+    } = &spec.dataset
+    else {
+        return Err(StudioError::invalid(
+            "a draft in a folder that holds no project needs its manifest written in the spec",
+        ));
+    };
+    // What the draft names must lie inside the roots, as a saved project's
+    // does (judged as if the project were the folder itself).
+    check_spec_paths(ctx, &folder, spec)?;
+    let data_root = folder.join(root);
+    let mut draft = spec.clone();
+    draft.dataset = DatasetSource::inline(data_root, manifest.as_ref().clone());
+    let dir = ctx.dirs.cache.join("drafts").join(format!(
+        "{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let guard = Scratch(dir.clone());
+    let project = Project::create(&dir, draft)?;
+    Ok((project, guard))
 }
 
 /// `path` relative to `root` when it lies under it, `/`-separated.

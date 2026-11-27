@@ -5286,6 +5286,10 @@ export interface ViewRow {
  * what is wrong with the project as a run would find it before detection:
  * of the saved project, or of the draft `spec` when given (nothing is
  * written). Each problem is a message with the field it is about.
+ *
+ * With a `spec`, `dir` may also be a folder that is not a project yet (a
+ * new project's data folder): the draft is then judged as a project in
+ * that folder, its inline manifest's `root` read against it.
  */
 export interface ProjectViewsArgs {
   dir: UserPath;

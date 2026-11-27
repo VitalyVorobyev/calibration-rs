@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { stepId } from "../lib/selection";
 import { isDirty, useDraft } from "../project/draftStore";
+import { useDatasetProblems } from "../project/problems";
 import { runsNewestFirst } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
 import { useJobs } from "../session/jobs";
@@ -75,6 +76,20 @@ export function useShellKeys(): void {
         case "save":
           e.preventDefault();
           if (isDirty(useDraft.getState())) {
+            // A dataset the library refuses is not saved by a key either.
+            const problems = useDatasetProblems.getState();
+            if (
+              useDraft.getState().manifestDirty &&
+              problems.errors > 0 &&
+              problems.dir === useProject.getState().project?.dir
+            ) {
+              toast({
+                title: "Fix the errors first",
+                description: `The dataset has ${problems.errors} ${problems.errors === 1 ? "error" : "errors"}.`,
+                tone: "error",
+              });
+              return;
+            }
             void useDraft
               .getState()
               .save()

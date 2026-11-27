@@ -37,7 +37,9 @@ describe("the screens", () => {
     expect(isEnabled(screenById("library"), false)).toBe(true);
     expect(isEnabled(screenById("inspect"), false)).toBe(false);
     expect(isEnabled(screenById("inspect"), true)).toBe(true);
-    expect(isEnabled(screenById("dataset"), true)).toBe(false);
+    expect(isEnabled(screenById("dataset"), true)).toBe(true);
+    expect(isEnabled(screenById("dataset"), false)).toBe(false);
+    expect(isEnabled(screenById("detect"), true)).toBe(false);
     expect(isEnabled(screenById("device"), false)).toBe(false);
   });
 
