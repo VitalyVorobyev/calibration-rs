@@ -294,7 +294,9 @@ describe("Seed", () => {
     device();
     renderDevice(seed);
     expect(await screen.findByText("A seed is a starting value")).toBeTruthy();
-    expect(screen.getByText(/does not constrain the result/)).toBeTruthy();
+    expect(
+      screen.getByText(/still estimates its values from its own images/),
+    ).toBeTruthy();
     const values = await screen.findByRole("table", { name: "Values of the seed" });
     expect(within(values).getByText("cam0.fx")).toBeTruthy();
     expect(within(values).getByText("200.6")).toBeTruthy();

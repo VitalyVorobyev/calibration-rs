@@ -79,9 +79,10 @@ export function SeedPanel({
     <div className="grid min-h-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
       <div className="flex flex-col gap-4">
         <Callout tone="info" title="A seed is a starting value">
-          It gives the next calibration of this device something to start from. It does
-          not constrain the result: the calibration still estimates every value from its
-          own images.
+          It gives the next calibration of this device something to start from; the
+          calibration still estimates its values from its own images. One exception: a
+          tilted (Scheimpflug) sensor is refined within bounds around the seed, and a
+          laserline device holds the seeded tilt.
         </Callout>
         <section aria-label="Seed source" className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold text-fg">Seed from</h3>
