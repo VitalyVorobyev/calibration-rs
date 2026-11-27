@@ -631,6 +631,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version is part of the detection-cache key, so these caches are rebuilt
   on the next run. The Python examples' optional `calib-targets` package is
   0.17.0 or later.
+- Calibration Studio colours the frame viewer's residual arrows and laser
+  points on the same sequential colour map as its maps, over a range that fits
+  the run, with a legend of that range; the maps' automatic range now reaches
+  the largest value (or the 99.5th percentile when a few values lie far above)
+  instead of a rounded-up step. A PuzzleBoard corner that disagrees with the
+  master pattern is ringed on the image, an excluded feature is dimmed and
+  crossed, and a modifier-drag box picks features.
 
 ### Documentation
 
@@ -639,6 +646,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pupil magnification `m_p`, the mechanical tilt only when `m_p = 1`.
 - The book has one bibliography: the References page lists every work the
   book cites, and each chapter links its citations to it.
+- The book's desktop-app chapter describes the app as it is: the Library,
+  Dataset, Detect, Calibrate and Inspect screens, projects and runs, the
+  desktop and the browser with its token, and the keyboard shortcuts.
 
 ### Fixed
 
