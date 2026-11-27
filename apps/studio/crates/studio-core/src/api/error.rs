@@ -265,6 +265,10 @@ impl From<RunError> for StudioError {
                 kind(ErrorKind::Detection).at(display(&path))
             }
             RunError::LaserExtraction { .. } => kind(ErrorKind::Detection),
+            // The cached features and a fresh detection of the image
+            // disagree: the cache is not what this detector finds.
+            RunError::DetailMismatch { path } => kind(ErrorKind::Detection).at(display(&path)),
+            RunError::ImageNotInDataset { path, .. } => kind(ErrorKind::Invalid).at(display(&path)),
             RunError::Decode { path, .. } => kind(ErrorKind::Io).at(display(&path)),
             RunError::Io(_) => kind(ErrorKind::Io),
             _ => kind(ErrorKind::Calibration),

@@ -11,7 +11,8 @@
 //!   the cache of their parsed exports.
 //! - [`epipolar`], [`uncertainty`], [`disparity`] — the math behind the
 //!   viewers' commands; [`maps`] — a run's diagnostic maps as value planes
-//!   and its per-feature residuals.
+//!   and its per-feature residuals; [`detections`] — what a project's
+//!   detection cache knows of its images.
 //! - [`laser`] — the laser-line extractor the laser topologies use.
 //! - [`images`], [`blobs`], [`planes`] — what resources serve: source
 //!   images (passed through, transcoded, thumbnails, in an on-disk cache),
@@ -24,6 +25,7 @@
 
 pub mod api;
 pub mod blobs;
+pub mod detections;
 pub mod disparity;
 pub mod epipolar;
 pub mod images;

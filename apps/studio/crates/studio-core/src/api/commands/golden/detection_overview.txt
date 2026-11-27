@@ -1,0 +1,17 @@
+$.cameras: array
+$.cameras[]: string
+$.expected: number
+$.run: null
+$.views: array
+$.views[].images: array
+$.views[].images[].image: string
+$.views[].images[].left_out: null
+$.views[].images[].state.features: number
+$.views[].images[].state.kind: string
+$.views[].images[].state.outcome.status: string
+$.views[].images[].state.outcome: object
+$.views[].images[].state: object
+$.views[].images[]: object
+$.views[].token: string
+$.views[]: object
+$: object

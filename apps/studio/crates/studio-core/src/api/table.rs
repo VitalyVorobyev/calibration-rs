@@ -9,7 +9,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Ctx;
-use super::commands::{files, forms, jobs, maps, project, resources, runs, session, setup, viewer};
+use super::commands::{
+    detection, files, forms, jobs, maps, project, resources, runs, session, setup, viewer,
+};
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
 use super::resource::Resource;
@@ -197,6 +199,12 @@ pub fn table() -> Vec<CommandSpec> {
         plain("projection_sigma_map", maps::projection_sigma_map),
         plain("residual_records", maps::residual_records),
         plain("residual_stats", maps::residual_stats),
+        // Detection: the project's cache, one image's detail, a preview
+        // with other detector settings, and the whole dataset.
+        plain("detection_overview", detection::detection_overview),
+        plain("detection_detail", detection::detection_detail),
+        plain("detect_preview", detection::detect_preview),
+        job("detect_all", Lane::Heavy, detection::detect_all),
         // Resources: the bytes behind the frontend's URLs.
         resource("image", resources::image),
         resource("undistorted_image", resources::undistorted_image),

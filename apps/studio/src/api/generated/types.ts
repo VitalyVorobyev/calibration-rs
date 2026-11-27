@@ -894,6 +894,98 @@ export type RunSource =
  */
 export type Verdict = "pass" | "warn" | "fail";
 export type DeleteRunReply = RunInfo[];
+/**
+ * The outcome of one image's detection.
+ */
+export type DetectionOutcome =
+  | {
+      status: "detected";
+    }
+  | {
+      /**
+       * The detector's reason, for a reader.
+       */
+      reason: string;
+      status: "not_found";
+    }
+  | {
+      /**
+       * Features whose pixel repeats an earlier feature's.
+       */
+      repeated_pixels: number;
+      /**
+       * Features whose target point repeats an earlier feature's.
+       */
+      repeated_points: number;
+      status: "ambiguous";
+    }
+  | {
+      status: "filtered";
+    };
+/**
+ * Why a point candidate was left out.
+ */
+export type PointRejection =
+  | {
+      kind: "unlabelled";
+      /**
+       * The corner detector's response.
+       */
+      strength: number;
+    }
+  | {
+      kind: "outside_board";
+    }
+  | {
+      /**
+       * The detector's confidence in the centre, in `[0, 1]`.
+       */
+      confidence: number;
+      kind: "unanchored";
+    }
+  | {
+      /**
+       * The detector's confidence in the centre, in `[0, 1]`.
+       */
+      confidence: number;
+      kind: "uncorrected_center";
+    };
+/**
+ * Overlay data of one target kind.
+ */
+export type TargetDetail =
+  | (ChessboardDetail & {
+      kind: "chessboard";
+    })
+  | (CharucoDetail & {
+      kind: "charuco";
+    })
+  | (PuzzleboardDetail & {
+      kind: "puzzleboard";
+    })
+  | (RinggridDetail & {
+      kind: "ringgrid";
+    });
+/**
+ * Which estimator produced a ring marker's centre.
+ */
+export type RingCenter = "outer_ellipse" | "projective" | "photometric";
+/**
+ * What the cache holds of one camera's image.
+ */
+export type ImageDetectionState =
+  | {
+      kind: "not_detected";
+    }
+  | {
+      features: number;
+      kind: "detected";
+      outcome?: DetectionOutcome | null;
+    }
+  | {
+      error: StudioError;
+      kind: "failed";
+    };
 export type EntryKind = "dir" | "file";
 export type DisparityEvent = null;
 /**
@@ -1179,15 +1271,19 @@ export interface StudioApiTypes {
   CameraSummary?: CameraSummary;
   CancelJobArgs?: CancelJobArgs;
   CellStats?: CellStats;
+  CharucoDetail?: CharucoDetail;
   CheckKind?: CheckKind;
   CheckStatus?: CheckStatus;
   ChessCornersDetectorSpec?: ChessCornersDetectorSpec;
+  ChessboardDetail?: ChessboardDetail;
   CombinationTerm?: CombinationTerm;
   ConfigFormArgs?: ConfigFormArgs;
   ConfigPatch?: ConfigPatch;
   ConfigPatchArgs?: ConfigPatchArgs;
   ConfigState?: ConfigState;
   CornerCovarianceSpec?: CornerCovarianceSpec;
+  CornerDetail?: CornerDetail;
+  CornerQuality?: CornerQuality;
   CornerStrategySpec?: CornerStrategySpec;
   CreateProjectArgs?: CreateProjectArgs;
   DatasetFormArgs?: DatasetFormArgs;
@@ -1197,6 +1293,14 @@ export interface StudioApiTypes {
   DatasetState?: DatasetState;
   DeleteRunArgs?: DeleteRunArgs;
   DeleteRunReply?: DeleteRunReply;
+  DetectAllArgs?: DetectAllArgs;
+  DetectPreviewArgs?: DetectPreviewArgs;
+  DetectProgress?: DetectProgress;
+  DetectionDetail?: DetectionDetail;
+  DetectionDetailArgs?: DetectionDetailArgs;
+  DetectionOutcome?: DetectionOutcome;
+  DetectionOverview?: DetectionOverview;
+  DetectionOverviewArgs?: DetectionOverviewArgs;
   DetectorSpec?: DetectorSpec;
   DeviceIdentity?: DeviceIdentity;
   DeviceOptimizeConfig?: DeviceOptimizeConfig;
@@ -1211,6 +1315,8 @@ export interface StudioApiTypes {
   DistortionMap?: DistortionMap;
   DistortionMapArgs?: DistortionMapArgs;
   DistortionParams?: DistortionParams;
+  EdgeBitDetail?: EdgeBitDetail;
+  EllipseDetail?: EllipseDetail;
   EntryKind?: EntryKind;
   EpipolarOverlay?: EpipolarOverlay;
   EpipolarOverlayArgs?: EpipolarOverlayArgs;
@@ -1219,6 +1325,8 @@ export interface StudioApiTypes {
   EventBody?: EventBody;
   Exclusions?: Exclusions;
   ExportDiagnostics?: ExportDiagnostics;
+  Feature?: Feature;
+  FeatureBlur?: FeatureBlur;
   FeatureExclusion?: FeatureExclusion;
   FeatureResidualHistogram?: FeatureResidualHistogram;
   FetchSampleArgs?: FetchSampleArgs;
@@ -1234,6 +1342,8 @@ export interface StudioApiTypes {
   HandeyeMode?: HandeyeMode;
   HandeyeOptimizeConfig?: HandeyeOptimizeConfig;
   HandeyeSolution?: HandeyeSolution;
+  ImageDetection?: ImageDetection;
+  ImageDetectionState?: ImageDetectionState;
   ImageExclusion?: ImageExclusion;
   ImageManifest?: ImageManifest;
   ImageNoiseSpec?: ImageNoiseSpec;
@@ -1267,6 +1377,7 @@ export interface StudioApiTypes {
   ListRunsReply?: ListRunsReply;
   MapGrid?: MapGrid;
   MapPlane?: MapPlane;
+  MarkerDetail?: MarkerDetail;
   Measurement?: Measurement;
   OpenProjectArgs?: OpenProjectArgs;
   ParameterCovariance?: ParameterCovariance;
@@ -1279,6 +1390,7 @@ export interface StudioApiTypes {
   PlanarOptimizeConfig?: PlanarOptimizeConfig;
   PlaneChannel?: PlaneChannel;
   PlaneOptimizeConfig?: PlaneOptimizeConfig;
+  PointRejection?: PointRejection;
   PoseColumnMap?: PoseColumnMap;
   PoseConvention?: PoseConvention;
   PosePairing?: PosePairing;
@@ -1296,6 +1408,8 @@ export interface StudioApiTypes {
   ProjectionSigmaMapArgs?: ProjectionSigmaMapArgs;
   ProjectionUncertainty?: ProjectionUncertainty;
   ProjectionUncertaintyArgs?: ProjectionUncertaintyArgs;
+  PuzzleboardDecode?: PuzzleboardDecode;
+  PuzzleboardDetail?: PuzzleboardDetail;
   QualityCheck?: QualityCheck;
   QualityReport?: QualityReport;
   QualityThresholds?: QualityThresholds;
@@ -1303,6 +1417,8 @@ export interface StudioApiTypes {
   RecentProjectsArgs?: RecentProjectsArgs;
   RecentProjectsReply?: RecentProjectsReply;
   RejectReason?: RejectReason;
+  RejectedMarker?: RejectedMarker;
+  RejectedPoint?: RejectedPoint;
   RemoveRootArgs?: RemoveRootArgs;
   ReportQuery?: ReportQuery;
   ReprojectionStats?: ReprojectionStats;
@@ -1328,8 +1444,11 @@ export interface StudioApiTypes {
   RigIntrinsicsManualInit?: RigIntrinsicsManualInit;
   RigLaserlineDeviceConfig?: RigLaserlineDeviceConfig;
   RigLaserlineDeviceExport?: RigLaserlineDeviceExport;
+  RingCenter?: RingCenter;
+  RingDetail?: RingDetail;
   RinggridCenterSpec?: RinggridCenterSpec;
   RinggridCodingSpec?: RinggridCodingSpec;
+  RinggridDetail?: RinggridDetail;
   RinggridLatticeSpec?: RinggridLatticeSpec;
   RobotPoseConfig?: RobotPoseConfig;
   RobotPoseFormat?: RobotPoseFormat;
@@ -1376,6 +1495,7 @@ export interface StudioApiTypes {
   SolverBackend?: SolverBackend;
   SolverConfig?: SolverConfig;
   StudioError?: StudioError;
+  TargetDetail?: TargetDetail;
   TargetFeatureResidual?: TargetFeatureResidual;
   TargetSpec?: TargetSpec;
   TransformConvention?: TransformConvention;
@@ -1390,6 +1510,7 @@ export interface StudioApiTypes {
   UserPath?: UserPath;
   Verdict?: Verdict;
   ViewCovariance?: ViewCovariance;
+  ViewDetections?: ViewDetections;
   ViewExclusion?: ViewExclusion;
   ViewRef?: ViewRef;
   ViewRow?: ViewRow;
@@ -3084,6 +3205,177 @@ export interface CellStats {
   view: number;
 }
 /**
+ * A ChArUco board's overlay data.
+ */
+export interface CharucoDetail {
+  /**
+   * One per feature, in feature order.
+   */
+  corners: CornerDetail[];
+  /**
+   * The markers the board alignment kept.
+   */
+  markers: MarkerDetail[];
+  /**
+   * How well the corners are localized.
+   */
+  quality: CornerQuality;
+  /**
+   * Marker cells, of the board the detection was built from, whose bits
+   * match another marker of the board better than the one the chosen
+   * alignment places there: a misread or wrongly placed marker.
+   */
+  rejected_markers?: RejectedMarker[];
+}
+/**
+ * One labelled board corner, aligned with a [`Feature`].
+ */
+export interface CornerDetail {
+  /**
+   * Directions of the two grid lines through the corner, radians in
+   * `[0, 2π)`, as the corner stage measured them. Present on a chessboard
+   * corner whose corner stage fitted at least one axis; `None` on ChArUco
+   * and PuzzleBoard corners, whose detectors do not report them.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  axes_rad?: [number, number] | null;
+  /**
+   * The detector's lattice label `[u, v]`: `u` along the board's +x, `v`
+   * along its +y. A plain chessboard labels each view from its own
+   * top-left corner; a ChArUco board and a PuzzleBoard label it on the
+   * board (the PuzzleBoard on its master pattern).
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  grid: [number, number];
+  /**
+   * The ChArUco corner id, or the PuzzleBoard master corner id; `None`
+   * on a chessboard.
+   */
+  id?: number | null;
+  /**
+   * The detector's corner score: higher is better, not comparable across
+   * detectors.
+   */
+  score: number;
+}
+/**
+ * One decoded ArUco marker of a ChArUco board.
+ */
+export interface MarkerDetail {
+  /**
+   * The board square it sits in, `[column, row]`.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  cell: [number, number];
+  /**
+   * Bits read in the image that differ from the marker's code.
+   */
+  hamming: number;
+  /**
+   * The marker's dictionary id.
+   */
+  id: number;
+  /**
+   * The square's corners in image pixels, in the board's order: the
+   * square's top-left on the board (the marker's own top-left) first,
+   * then clockwise on the board.
+   *
+   * @minItems 4
+   * @maxItems 4
+   */
+  quad_px: [[number, number], [number, number], [number, number], [number, number]];
+  /**
+   * The rotation, in quarter turns, that aligns the bits read in the
+   * image with the dictionary's code.
+   */
+  rotation: number;
+  /**
+   * The decoding's confidence, in `[0, 1]`.
+   */
+  score: number;
+}
+/**
+ * How well a detection's corners are localized, as the detector measured
+ * it on the corners it returned.
+ */
+export interface CornerQuality {
+  /**
+   * Number of corners with enough labelled neighbours (six of the eight)
+   * for the leave-one-out check: each such corner's position is
+   * predicted from its neighbours.
+   */
+  local_residual_count: number;
+  /**
+   * RMS length of the leave-one-out residuals (observed minus predicted
+   * position) over those corners, px; `None` when no corner qualifies.
+   * The detectors report this aggregate only, not each corner's residual.
+   */
+  local_residual_rms_px?: number | null;
+  /**
+   * Median over the corners of their 1σ position uncertainty along the
+   * least certain direction, px; `None` when no corner carries a
+   * covariance.
+   */
+  median_sigma_px?: number | null;
+  /**
+   * The image noise level, gray levels (1σ), the corner covariances were
+   * computed with; `None` when no covariance was computed.
+   */
+  noise_sigma?: number | null;
+}
+/**
+ * A ChArUco marker cell whose bits match another marker of the board
+ * better than the one the board places there.
+ */
+export interface RejectedMarker {
+  /**
+   * The board marker the cell's bits match best, over every marker of the
+   * board and every rotation.
+   */
+  decoded_id: number;
+  /**
+   * The marker the board places in this cell under the chosen alignment.
+   */
+  expected_id: number;
+  /**
+   * The cell's corners in image pixels, in the board's order (as
+   * [`MarkerDetail::quad_px`]).
+   *
+   * @minItems 4
+   * @maxItems 4
+   */
+  quad_px: [[number, number], [number, number], [number, number], [number, number]];
+  /**
+   * The matcher's log-likelihood of the cell's bits under the decoded
+   * marker: higher is better, comparable within one image.
+   */
+  score: number;
+}
+/**
+ * A chessboard's overlay data.
+ */
+export interface ChessboardDetail {
+  /**
+   * The board's cell size in pixels (median labelled edge length);
+   * `None` when no board was detected.
+   */
+  cell_size_px?: number | null;
+  /**
+   * One per feature, in feature order.
+   */
+  corners: CornerDetail[];
+  /**
+   * How well the corners are localized.
+   */
+  quality: CornerQuality;
+}
+/**
  * One term of a combination of parameters: a parameter and its weight, in
  * units of the parameter's σ.
  */
@@ -3362,6 +3654,473 @@ export interface UnrecordedRun {
    * Views that entered the calibration, from its `diagnostics.json`.
    */
   usable_views?: number | null;
+}
+/**
+ * Detect every image of the project into its detection cache (images it
+ * already holds are read from it, unless `redetect`), several at a time;
+ * its events count the images done, its output is the
+ * `detection_overview` of the result. An image that cannot be read or
+ * detected is reported in the overview, not as the job's failure.
+ * Cancelling stops between images; what was detected stays cached.
+ */
+export interface DetectAllArgs {
+  /**
+   * The project folder.
+   */
+  dir: UserPath;
+  redetect?: boolean;
+}
+/**
+ * `detection_detail` of one image with `detector` in place of the
+ * project's detector settings (the manifest's `detector` section; `{}` is
+ * the detectors' defaults), to preview an edit: detected now, and nothing
+ * is written (neither the project nor its detection cache).
+ */
+export interface DetectPreviewArgs {
+  camera: number;
+  detector: DetectorSpec;
+  /**
+   * The project folder.
+   */
+  dir: UserPath;
+  image: string;
+}
+/**
+ * How far `detect_all` is.
+ */
+export interface DetectProgress {
+  /**
+   * The image last done: its camera and path (relative to the data
+   * folder).
+   */
+  camera: number;
+  /**
+   * Images done.
+   */
+  done: number;
+  image: string;
+  /**
+   * Images in all.
+   */
+  total: number;
+}
+/**
+ * What a detector found in one image: the correspondences
+ * [`DetectorConfig::detect`](crate::DetectorConfig::detect) returns, and
+ * what an overlay needs to judge them.
+ */
+export interface DetectionDetail {
+  /**
+   * The features, equal bit for bit to what
+   * [`DetectorConfig::detect`](crate::DetectorConfig::detect) returns for
+   * the same image and config.
+   */
+  features: Feature[];
+  /**
+   * The image-level outcome.
+   */
+  outcome: DetectionOutcome;
+  /**
+   * Point candidates the detector or this crate saw and did not keep,
+   * each with its reason. Empty when there were none, and on an
+   * [`DetectionOutcome::Ambiguous`] image (its dropped points are not
+   * listed).
+   */
+  rejected?: RejectedPoint[];
+  /**
+   * Target-specific overlay data. Its per-feature vector (`corners` or
+   * `rings`) holds one entry per feature, in the order of
+   * [`features`](Self::features).
+   */
+  target: TargetDetail;
+}
+/**
+ * Single 2D-3D feature correspondence in canonical units.
+ *
+ * `image_xy` is in source-image pixels (pre-ROI-crop if a ROI is
+ * declared in the manifest, the converter adjusts as needed).
+ * `world_xyz` is in metres, expressed in the calibration target's
+ * own frame (target origin at `(0, 0, 0)`, target plane at `z = 0`).
+ */
+export interface Feature {
+  /**
+   * The blur the detector measured at this feature, with its covariance
+   * ([`FeatureBlur`]). Present when the detector was asked to measure one
+   * (`measure_blur` on the chessboard and PuzzleBoard configs) and the
+   * estimate at this corner was not declined; `None` otherwise.
+   *
+   * A measurement only: no calibration reads it.
+   */
+  blur?: FeatureBlur | null;
+  /**
+   * Covariance of `image_xy` as `[xx, xy, yy]` in px², in the image
+   * frame of `image_xy`. Present only when the detector was asked for it
+   * (`ChessCornersConfig::covariance`) and measured one; `None` otherwise.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  cov_px?: [number, number, number] | null;
+  /**
+   * Pixel coordinates `[x, y]` (column, row).
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  image_xy: [number, number];
+  /**
+   * World coordinates `[x, y, z]` in metres in the target frame.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  world_xyz: [number, number, number];
+}
+/**
+ * The blur a detector measured at one feature: the Gaussian point-spread
+ * function (PSF) that best explains the blurred print around the feature,
+ * and the covariance of that estimate.
+ *
+ * **`psf_px`** is the PSF's covariance matrix `Σ = [[xx, xy], [xy, yy]]`
+ * in px², stored as `[xx, xy, yy]` (the layout of
+ * [`Feature::cov_px`]), in the image frame of `image_xy`. Its principal
+ * axes are the directions of least and most blur, and `√(tr Σ / 2) =
+ * √((xx + yy) / 2)` is the PSF's width σ in pixels.
+ *
+ * `Σ` is the blur **as the image shows it, including the pixel's area
+ * integration**: for a Gaussian optical PSF of covariance `Σ_o` seen by
+ * square pixels, `Σ = Σ_o + I/12`, so a perfectly focused camera has
+ * `Σ = I/12`. A model of the optics that predicts `Σ_o` adds `I/12` to its
+ * prediction before comparing it with `psf_px`. The constant is not
+ * subtracted here: it is what the detector measured, its covariance is
+ * unchanged by a constant shift, and on a sharp feature `Σ − I/12` is
+ * within the estimate's error of zero and need not be positive definite.
+ *
+ * **`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴, row-major. How
+ * far it can be trusted is the detector's statement. For chessboard and
+ * PuzzleBoard corners it allows for residuals correlated between
+ * neighbouring pixels, and a combination of `Σ` the print around the
+ * corner constrains weakly (with one edge direction, the width along that
+ * edge) shows as a large variance.
+ *
+ * Under a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the covariance
+ * of the Gaussian that blurs the print most like the lens does, not the
+ * PSF's second moment; it then depends on the cell size and the pattern,
+ * so compare values measured on the same board.
+ */
+export interface FeatureBlur {
+  /**
+   * The covariance of `psf_px`, px⁴, row-major.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  cov: [[number, number, number], [number, number, number], [number, number, number]];
+  /**
+   * The PSF covariance `[xx, xy, yy]`, px², including the pixel's area
+   * integration.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  psf_px: [number, number, number];
+}
+/**
+ * A point candidate the detector or this crate saw and did not keep.
+ */
+export interface RejectedPoint {
+  /**
+   * Its lattice label, when it had one.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  grid?: [number, number] | null;
+  /**
+   * Its id (a ring's codebook id, a PuzzleBoard master corner id), when
+   * it had one.
+   */
+  id?: number | null;
+  /**
+   * Its position, image pixels.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  image_xy: [number, number];
+  /**
+   * Why it was left out.
+   */
+  reason: PointRejection;
+  /**
+   * The target point it would have had, metres, when it had a label.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  world_xyz?: [number, number, number] | null;
+}
+/**
+ * A PuzzleBoard's overlay data.
+ */
+export interface PuzzleboardDetail {
+  /**
+   * One per feature, in feature order.
+   */
+  corners: CornerDetail[];
+  /**
+   * The decode summary; `None` when no board was decoded.
+   */
+  decode?: PuzzleboardDecode | null;
+  /**
+   * The code bits read on the edges between two kept corners.
+   */
+  edge_bits?: EdgeBitDetail[];
+  /**
+   * How well the corners are localized.
+   */
+  quality: CornerQuality;
+}
+/**
+ * How a PuzzleBoard decoded.
+ */
+export interface PuzzleboardDecode {
+  /**
+   * Fraction of the read bits that disagree with the master pattern.
+   */
+  bit_error_rate: number;
+  /**
+   * Fraction of the read confidence that lost its majority vote; high
+   * means noisy dots or a mislabelled grid.
+   */
+  dot_dissent_rate: number;
+  /**
+   * Edges whose bit matched the master pattern after alignment.
+   */
+  edges_matched: number;
+  /**
+   * Edges whose bit was read.
+   */
+  edges_observed: number;
+  /**
+   * The same, over the distinct master bits the view reads, after the
+   * repeated reads of each were majority-voted.
+   */
+  logical_bit_error_rate: number;
+  /**
+   * Where the view's local corner `(0, 0)` lies on the master pattern,
+   * `[row, column]`.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  master_origin: [number, number];
+}
+/**
+ * One code bit read on a PuzzleBoard edge.
+ */
+export interface EdgeBitDetail {
+  /**
+   * The bit read: the dot on the edge is black (`0`) or white (`1`).
+   */
+  bit: number;
+  /**
+   * The read's confidence, in `[0, 1]`.
+   */
+  confidence: number;
+  /**
+   * The two corners the edge joins, image pixels. An edge is listed only
+   * when both are features.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  endpoints_px: [[number, number], [number, number]];
+  /**
+   * Whether the bit equals the master pattern's bit at this edge under
+   * the decoded alignment.
+   */
+  matches_master: boolean;
+}
+/**
+ * A ring grid's overlay data.
+ */
+export interface RinggridDetail {
+  /**
+   * Whether the labels are absolute board positions: always for a coded
+   * board that was labelled, for a plain one when its origin dots placed
+   * the view on the board.
+   */
+  anchored: boolean;
+  /**
+   * Whether every marker of the board was detected; `None` when nothing
+   * was labelled.
+   */
+  board_complete?: boolean | null;
+  /**
+   * The origin dots of a plain board, predicted through the board-to-image
+   * homography (no lens model), image pixels. The detector does not
+   * report the dots it found, so these are where the board places them.
+   * Empty for a coded board and for a view not placed on the board.
+   */
+  origin_dots_px?: [number, number][];
+  /**
+   * One per feature, in feature order.
+   */
+  rings: RingDetail[];
+}
+/**
+ * One ring marker, aligned with a [`Feature`].
+ */
+export interface RingDetail {
+  /**
+   * Which estimator produced the feature's position.
+   */
+  center: RingCenter;
+  /**
+   * The covariance of the centre as the detector stated it, `[xx, xy,
+   * yy]` px²: photometric centres only. The calibration does not read it
+   * ([`Feature::cov_px`] stays `None` for ring markers).
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  center_cov_px?: [number, number, number] | null;
+  /**
+   * The detector's confidence in the centre, in `[0, 1]`.
+   */
+  confidence: number;
+  /**
+   * The lattice cell `[u, v]` (axial coordinates on a hex lattice).
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  grid?: [number, number] | null;
+  /**
+   * The decoded codebook id (coded boards); `None` on a plain board.
+   */
+  id?: number | null;
+  /**
+   * The fitted inner ellipse.
+   */
+  inner?: EllipseDetail | null;
+  /**
+   * The fitted outer ellipse.
+   */
+  outer?: EllipseDetail | null;
+}
+/**
+ * An ellipse in image pixels.
+ */
+export interface EllipseDetail {
+  /**
+   * The direction of the major axis, radians.
+   */
+  angle_rad: number;
+  /**
+   * The centre, px.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  center_px: [number, number];
+  /**
+   * The semi-axes `[a, b]`, `a ≥ b`, px.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  semi_axes_px: [number, number];
+}
+/**
+ * Camera `camera`'s detection of `image` (relative to the data folder, as
+ * `project_views` lists it) with what an overlay needs: the features (in
+ * the camera's region of interest when it has one), the target's per-kind
+ * detail aligned with them, the candidates the detector left out and the
+ * image's outcome. Read from the project's detection cache, or detected
+ * and stored there (features and detail) when it holds none: the
+ * detection a calibration of the project uses. A feature is excluded by
+ * its `world_xyz`. `invalid` for an image that is not one of the
+ * camera's.
+ */
+export interface DetectionDetailArgs {
+  camera: number;
+  /**
+   * The project folder.
+   */
+  dir: UserPath;
+  image: string;
+}
+/**
+ * The project's images as its detection cache knows them.
+ */
+export interface DetectionOverview {
+  /**
+   * The cameras' ids, in manifest order.
+   */
+  cameras: string[];
+  /**
+   * The features a complete detection of the board has (corners of a
+   * chessboard or ChArUco board, markers of a ring grid); `null` for a
+   * PuzzleBoard, which is made to be seen in part.
+   */
+  expected?: number | null;
+  /**
+   * The run whose `left_out` reasons are given: the one asked for, else
+   * the project's latest calibrated run; `null` when there is none.
+   */
+  run?: string | null;
+  /**
+   * The views, in pairing order.
+   */
+  views: ViewDetections[];
+}
+/**
+ * One view: each camera's image.
+ */
+export interface ViewDetections {
+  /**
+   * One entry per camera; `null` where the camera has no image of the
+   * view.
+   */
+  images: (ImageDetection | null)[];
+  /**
+   * The view's pairing token (as `project_views` lists it).
+   */
+  token: string;
+}
+/**
+ * One camera's image of a view.
+ */
+export interface ImageDetection {
+  /**
+   * The image, relative to the data folder (absolute outside it),
+   * `/`-separated: as `project_views` lists it, and as an exclusion
+   * names it.
+   */
+  image: string;
+  /**
+   * Why the overview's run left the image out; `null` when it used it
+   * (or there is no run).
+   */
+  left_out?: RejectReason | null;
+  state: ImageDetectionState;
+}
+/**
+ * What the project's detection cache holds of every image, view by view
+ * and camera by camera (the views of `project_views`): the features found
+ * and the detector's outcome, or that the image has no cached detection
+ * with the project's detector settings. No image is decoded or detected;
+ * each is read to find its cache entry. `left_out` gives why run `run`
+ * (default: the latest calibrated run) left an image out.
+ */
+export interface DetectionOverviewArgs {
+  /**
+   * The project folder.
+   */
+  dir: UserPath;
+  run?: string | null;
 }
 /**
  * One entry of a listing.

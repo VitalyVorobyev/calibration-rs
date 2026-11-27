@@ -54,6 +54,9 @@ export interface Commands {
   projection_sigma_map: { args: T.ProjectionSigmaMapArgs; reply: T.ProjectionSigmaMap };
   residual_records: { args: T.ResidualRecordsArgs; reply: T.ResidualRecords };
   residual_stats: { args: T.ResidualStatsArgs; reply: T.ResidualStats };
+  detection_overview: { args: T.DetectionOverviewArgs; reply: T.DetectionOverview };
+  detection_detail: { args: T.DetectionDetailArgs; reply: T.DetectionDetail };
+  detect_preview: { args: T.DetectPreviewArgs; reply: T.DetectionDetail };
   list_jobs: { args: T.ListJobsArgs; reply: T.ListJobsReply };
   job_status: { args: T.JobStatusArgs; reply: T.JobInfo };
   cancel_job: { args: T.CancelJobArgs; reply: T.JobInfo };
@@ -71,6 +74,11 @@ export interface Jobs {
     args: T.DisparityArgs;
     event: T.DisparityEvent;
     output: T.DisparityResult;
+  };
+  detect_all: {
+    args: T.DetectAllArgs;
+    event: T.DetectProgress;
+    output: T.DetectionOverview;
   };
 }
 
@@ -354,6 +362,37 @@ export function createClient(t: Transport, hub: JobHub) {
     residualStats: (args: T.ResidualStatsArgs): Promise<T.ResidualStats> =>
       t.invoke("residual_stats", args) as Promise<T.ResidualStats>,
     /**
+     * What the project's detection cache holds of every image, view by view
+     * and camera by camera (the views of `project_views`): the features found
+     * and the detector's outcome, or that the image has no cached detection
+     * with the project's detector settings. No image is decoded or detected;
+     * each is read to find its cache entry. `left_out` gives why run `run`
+     * (default: the latest calibrated run) left an image out.
+     */
+    detectionOverview: (args: T.DetectionOverviewArgs): Promise<T.DetectionOverview> =>
+      t.invoke("detection_overview", args) as Promise<T.DetectionOverview>,
+    /**
+     * Camera `camera`'s detection of `image` (relative to the data folder, as
+     * `project_views` lists it) with what an overlay needs: the features (in
+     * the camera's region of interest when it has one), the target's per-kind
+     * detail aligned with them, the candidates the detector left out and the
+     * image's outcome. Read from the project's detection cache, or detected
+     * and stored there (features and detail) when it holds none: the
+     * detection a calibration of the project uses. A feature is excluded by
+     * its `world_xyz`. `invalid` for an image that is not one of the
+     * camera's.
+     */
+    detectionDetail: (args: T.DetectionDetailArgs): Promise<T.DetectionDetail> =>
+      t.invoke("detection_detail", args) as Promise<T.DetectionDetail>,
+    /**
+     * `detection_detail` of one image with `detector` in place of the
+     * project's detector settings (the manifest's `detector` section; `{}` is
+     * the detectors' defaults), to preview an edit: detected now, and nothing
+     * is written (neither the project nor its detection cache).
+     */
+    detectPreview: (args: T.DetectPreviewArgs): Promise<T.DetectionDetail> =>
+      t.invoke("detect_preview", args) as Promise<T.DetectionDetail>,
+    /**
      * Every job the back end still knows of, live or recently finished, in
      * start order.
      */
@@ -414,6 +453,24 @@ export function createClient(t: Transport, hub: JobHub) {
         args: T.DisparityArgs,
       ): Promise<Job<T.DisparityEvent, T.DisparityResult>> =>
         startJob<T.DisparityEvent, T.DisparityResult>(t, hub, control, "disparity", args),
+      /**
+       * Detect every image of the project into its detection cache (images it
+       * already holds are read from it, unless `redetect`), several at a time;
+       * its events count the images done, its output is the
+       * `detection_overview` of the result. An image that cannot be read or
+       * detected is reported in the overview, not as the job's failure.
+       * Cancelling stops between images; what was detected stays cached.
+       */
+      detectAll: (
+        args: T.DetectAllArgs,
+      ): Promise<Job<T.DetectProgress, T.DetectionOverview>> =>
+        startJob<T.DetectProgress, T.DetectionOverview>(
+          t,
+          hub,
+          control,
+          "detect_all",
+          args,
+        ),
       /** Follow the job `id` (started earlier, say before a reload). */
       attach: <E, R>(id: string): Promise<Job<E, R>> => attachJob<E, R>(hub, control, id),
     },
