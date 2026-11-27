@@ -50,10 +50,17 @@ export interface MockTransport extends Transport {
   calls: { command: string; args: unknown }[];
   /** Send an event to the subscribers. */
   emit(event: ServerEvent["body"]): void;
+  /** Drop (`false`) or restore (`true`) the event stream: the subscribers'
+   * status callbacks hear it. */
+  setConnected(open: boolean): void;
+  /** Make commands fail as an unreachable back end does (`false`). */
+  setReachable(reachable: boolean): void;
 }
 
 export function createMockTransport(options: MockOptions = {}): MockTransport {
   const subscribers = new Set<(event: ServerEvent) => void>();
+  const statusListeners = new Set<(open: boolean) => void>();
+  let reachable = true;
   const jobs = new Map<string, { info: JobInfo; cancel: () => void }>();
   let seq = 0;
   let counter = 0;
@@ -133,9 +140,20 @@ export function createMockTransport(options: MockOptions = {}): MockTransport {
   const transport: MockTransport = {
     calls: [],
     emit,
+    setConnected(open) {
+      for (const listener of [...statusListeners]) listener(open);
+    },
+    setReachable(value) {
+      reachable = value;
+    },
 
     async invoke(name, args) {
       transport.calls.push({ command: name, args });
+      if (!reachable) {
+        const error = asStudioError(new TypeError("Failed to fetch"));
+        error.network = true;
+        throw error;
+      }
       if (name === "job_status" || name === "cancel_job") {
         const { id } = args as { id: string };
         const job = jobs.get(id);
@@ -155,9 +173,19 @@ export function createMockTransport(options: MockOptions = {}): MockTransport {
       }
     },
 
-    subscribe(onEvent) {
+    subscribe(onEvent, _after, onStatus) {
       subscribers.add(onEvent);
-      return { ready: Promise.resolve(), close: () => subscribers.delete(onEvent) };
+      if (onStatus) {
+        statusListeners.add(onStatus);
+        onStatus(true);
+      }
+      return {
+        ready: Promise.resolve(),
+        close: () => {
+          subscribers.delete(onEvent);
+          if (onStatus) statusListeners.delete(onStatus);
+        },
+      };
     },
 
     resourceUrl(name, query) {

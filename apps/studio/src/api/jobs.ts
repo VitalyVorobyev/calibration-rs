@@ -41,7 +41,11 @@ function isTerminal(state: JobState): boolean {
   return state.kind === "done" || state.kind === "failed" || state.kind === "cancelled";
 }
 
-/** One subscription to the event stream, shared by every job followed. */
+/** Whether the event stream is up. */
+export type Connection = "connecting" | "open" | "lost";
+
+/** One subscription to the event stream, shared by every job followed and
+ * by the app's standing watch (`connect`). */
 export class JobHub {
   private readonly transport: Transport;
   private subscription: Subscription | null = null;
@@ -49,6 +53,11 @@ export class JobHub {
   private readonly entries = new Map<string, Entry>();
   /** Starts in flight: the stream stays open for them. */
   private holds = 0;
+  /** The app watches the stream for good (`connect`). */
+  private standing = false;
+  private connection: Connection = "connecting";
+  private readonly listeners = new Set<(event: ServerEvent) => void>();
+  private readonly connectionListeners = new Set<(c: Connection) => void>();
 
   constructor(transport: Transport) {
     this.transport = transport;
@@ -61,16 +70,60 @@ export class JobHub {
     this.lastSeq = undefined;
     this.entries.clear();
     this.holds = 0;
+    this.standing = false;
+    this.setConnection("connecting");
+  }
+
+  /** Keep the stream open for good, whatever jobs come and go: the app's
+   * standing watch of the back end. Resolves once it is registered. */
+  connect(): Promise<void> {
+    this.standing = true;
+    return this.open();
+  }
+
+  /** End the standing watch (the stream closes when no job needs it). */
+  disconnect(): void {
+    this.standing = false;
+    this.closeIfIdle();
+  }
+
+  /** Hear every event of the stream, jobs' and projects' alike. Returns
+   * the unsubscribe function. */
+  listen(listener: (event: ServerEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** Hear the stream go up and down; `listener` is told the current state
+   * at once. Returns the unsubscribe function. */
+  onConnection(listener: (c: Connection) => void): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.connection);
+    return () => this.connectionListeners.delete(listener);
+  }
+
+  private setConnection(next: Connection): void {
+    if (this.connection === next) return;
+    this.connection = next;
+    for (const listener of [...this.connectionListeners]) listener(next);
+  }
+
+  private open(): Promise<void> {
+    if (!this.subscription) {
+      this.subscription = this.transport.subscribe(
+        (e) => this.dispatch(e),
+        this.lastSeq,
+        (open) => this.setConnection(open ? "open" : "lost"),
+      );
+    }
+    return this.subscription.ready;
   }
 
   /** Keep the stream open for a job about to be followed (until
    * `release`); resolves once the stream is registered. */
   hold(): Promise<void> {
     this.holds += 1;
-    if (!this.subscription) {
-      this.subscription = this.transport.subscribe((e) => this.dispatch(e), this.lastSeq);
-    }
-    return this.subscription.ready;
+    return this.open();
   }
 
   release(): void {
@@ -80,9 +133,10 @@ export class JobHub {
 
   private closeIfIdle(): void {
     const live = [...this.entries.values()].some((e) => e.followed && !e.terminal);
-    if (!live && this.holds === 0) {
+    if (!live && this.holds === 0 && !this.standing) {
       this.subscription?.close();
       this.subscription = null;
+      this.setConnection("connecting");
     }
   }
 
@@ -114,6 +168,7 @@ export class JobHub {
 
   private dispatch(event: ServerEvent): void {
     this.lastSeq = event.seq;
+    for (const listener of [...this.listeners]) listener(event);
     const body = event.body;
     if (body.kind !== "job") return;
     const entry = this.entry(body.id);

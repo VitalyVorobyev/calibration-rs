@@ -29,11 +29,19 @@ async function send(url: string, init?: RequestInit): Promise<Response> {
   try {
     response = await fetch(url, init);
   } catch (e) {
-    throw asStudioError(e);
+    // No answer at all: the connection, not the command, failed.
+    const error = asStudioError(e);
+    error.network = true;
+    throw error;
   }
   if (!response.ok) throw await failure(response);
   return response;
 }
+
+/** `EventSource.readyState` of a source that will not reconnect by itself. */
+const CLOSED = 2;
+/** How long to wait before opening a new stream after a closed one. */
+const RECONNECT_MS = 2000;
 
 /** The URL of resource `name` for `query`. */
 export function resourceUrl(name: string, query: unknown): string {
@@ -50,27 +58,54 @@ export const httpTransport: Transport = {
     return (await response.json()) as unknown;
   },
 
-  subscribe(onEvent, after) {
+  subscribe(onEvent, after, onStatus) {
     let last = after;
-    const url = after === undefined ? "/api/events" : `/api/events?after=${after}`;
-    const source = new EventSource(url);
-    // A reconnecting EventSource resumes by itself with `Last-Event-ID`.
-    source.onmessage = (message: MessageEvent<string>) => {
-      let event: ServerEvent;
-      try {
-        event = JSON.parse(message.data) as ServerEvent;
-      } catch {
-        return;
-      }
-      if (last !== undefined && event.seq < last) return;
-      last = event.seq;
-      onEvent(event);
+    let source: EventSource | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
+    let settle!: () => void;
+    const ready = new Promise<void>((resolve) => (settle = resolve));
+
+    const connect = () => {
+      const url = last === undefined ? "/api/events" : `/api/events?after=${last}`;
+      const current = new EventSource(url);
+      source = current;
+      current.onmessage = (message: MessageEvent<string>) => {
+        let event: ServerEvent;
+        try {
+          event = JSON.parse(message.data) as ServerEvent;
+        } catch {
+          return;
+        }
+        if (last !== undefined && event.seq < last) return;
+        last = event.seq;
+        onEvent(event);
+      };
+      current.addEventListener("open", () => {
+        onStatus?.(true);
+        settle();
+      });
+      current.addEventListener("error", () => {
+        onStatus?.(false);
+        settle();
+        // A dropped connection is retried by the browser, resuming with
+        // `Last-Event-ID`. An answer that is not a stream (the server came
+        // back and wants a new login, a proxy's error page) closes the
+        // source for good: open a new one, after `last`.
+        if (current.readyState === CLOSED && !closed) {
+          retry = setTimeout(connect, RECONNECT_MS);
+        }
+      });
     };
-    const ready = new Promise<void>((resolve) => {
-      source.addEventListener("open", () => resolve(), { once: true });
-      source.addEventListener("error", () => resolve(), { once: true });
-    });
-    return { ready, close: () => source.close() };
+    connect();
+    return {
+      ready,
+      close() {
+        closed = true;
+        if (retry !== null) clearTimeout(retry);
+        source?.close();
+      },
+    };
   },
 
   resourceUrl,

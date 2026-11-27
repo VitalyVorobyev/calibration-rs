@@ -98,3 +98,51 @@ describe("jobs", () => {
     await expect(gone.result).rejects.toMatchObject({ kind: "job_not_found" });
   });
 });
+
+describe("the standing watch", () => {
+  it("keeps the stream open with no job, and gives every event to its listeners", async () => {
+    const mock = createMockTransport({
+      jobs: { fetch_sample: () => ({ dir: "/cache/x" }) },
+    });
+    const { transport, open } = counted(mock);
+    const hub = new JobHub(transport);
+    const seen: string[] = [];
+    hub.listen((e) => seen.push(e.body.kind));
+    await hub.connect();
+    expect(open()).toBe(1);
+    mock.emit({ kind: "project_changed", dir: "/p" });
+    expect(seen).toEqual(["project_changed"]);
+    // A job that comes and goes does not close it.
+    const job = await createClient(transport, hub).jobs.fetchSample({ id: "x" });
+    await job.result;
+    expect(open()).toBe(1);
+    expect(seen).toContain("job");
+    hub.disconnect();
+    expect(open()).toBe(0);
+  });
+
+  it("tells the connection's state, the current one at once", async () => {
+    const mock = createMockTransport();
+    const hub = new JobHub(mock);
+    const states: string[] = [];
+    hub.onConnection((c) => states.push(c));
+    await hub.connect();
+    mock.setConnected(false);
+    mock.setConnected(true);
+    expect(states).toEqual(["connecting", "open", "lost", "open"]);
+    hub.disconnect();
+    expect(states[states.length - 1]).toBe("connecting");
+  });
+
+  it("stops hearing after its unsubscribe", async () => {
+    const mock = createMockTransport();
+    const hub = new JobHub(mock);
+    const seen: number[] = [];
+    const stop = hub.listen((e) => seen.push(e.seq));
+    await hub.connect();
+    mock.emit({ kind: "project_changed", dir: "/p" });
+    stop();
+    mock.emit({ kind: "project_changed", dir: "/p" });
+    expect(seen).toEqual([1]);
+  });
+});
