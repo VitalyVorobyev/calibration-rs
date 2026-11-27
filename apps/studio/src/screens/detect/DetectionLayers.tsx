@@ -1,4 +1,4 @@
-import { EllipseSet, PointSet, type EllipseSetItem } from "@vitavision/stage2d";
+import { EllipseSet, type EllipseSetItem } from "@vitavision/stage2d";
 import {
   covarianceEllipse,
   TargetOverlay,
@@ -39,24 +39,10 @@ export function DetectionLayers({
   onHover: (hit: TargetHit | null) => void;
 }) {
   const accepted = useMemo(
-    () => acceptedDetection(detail, { axes: layers.axes }),
-    [detail, layers.axes],
+    () => acceptedDetection(detail, { axes: layers.axes, excluded }),
+    [detail, layers.axes, excluded],
   );
   const rejectedDet = useMemo(() => rejectedDetection(rejected), [rejected]);
-  const dimExcluded = useMemo(
-    () => (id: TargetId) => typeof id === "number" && excluded.has(id),
-    [excluded],
-  );
-
-  const crosses = useMemo(
-    () =>
-      [...excluded].flatMap((index) => {
-        const f = detail.features[index];
-        return f ? [{ id: index, x: f.image_xy[0], y: f.image_xy[1] }] : [];
-      }),
-    [excluded, detail],
-  );
-
   const ringCov = useMemo<EllipseSetItem[]>(() => {
     if (!layers.uncertainty || detail.target.kind !== "ringgrid") return [];
     return detail.target.rings.flatMap((ring, index) => {
@@ -103,22 +89,12 @@ export function DetectionLayers({
           showLabels={layers.labels}
           hoveredId={hovered}
           selectedIds={picked}
-          dimmed={dimExcluded}
           onHoverChange={onHover}
           layerIdPrefix="acc"
           {...(uncertainty ? { uncertainty } : {})}
         />
       )}
       {ringCov.length > 0 && <EllipseSet items={ringCov} pickable={false} role="model" />}
-      {crosses.length > 0 && (
-        <PointSet
-          items={crosses}
-          kind="cross"
-          pickable={false}
-          labels={false}
-          label="Excluded features"
-        />
-      )}
     </>
   );
 }

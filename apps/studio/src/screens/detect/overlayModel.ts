@@ -61,6 +61,8 @@ export function sigmaOf(cov: readonly [number, number, number] | null | undefine
   return Number.isFinite(largest) && largest >= 0 ? Math.sqrt(largest) : null;
 }
 
+const NO_FEATURES: ReadonlySet<number> = new Set();
+
 const key = (p: readonly [number, number]) => `${p[0].toFixed(3)},${p[1].toFixed(3)}`;
 
 /** The features of `detail` as table rows. */
@@ -117,6 +119,7 @@ function cornersOf(
   detail: DetectionDetail,
   rows: readonly FeatureRow[],
   axes: boolean,
+  excluded: ReadonlySet<number>,
 ): TargetCorner[] {
   return rows.map((row) => {
     const corner =
@@ -135,28 +138,33 @@ function cornersOf(
         : {}),
       ...(feature.cov_px ? { cov: feature.cov_px } : {}),
       label: featureLabel(kind, row),
+      ...(excluded.has(row.index) ? { excluded: true } : {}),
+      ...(row.masterMismatch ? { flagged: true } : {}),
     };
   });
 }
 
 /** The accepted part of a detection, for `TargetOverlay`. `axes` adds the
- * chessboard corners' edge directions. */
+ * chessboard corners' edge directions; `excluded` holds the indices of the
+ * features the project leaves out (drawn dimmed and crossed). A PuzzleBoard
+ * corner off the master pattern is `flagged`. */
 export function acceptedDetection(
   detail: DetectionDetail,
-  options: { axes: boolean },
+  options: { axes: boolean; excluded?: ReadonlySet<number> },
 ): TargetDetection {
+  const excluded = options.excluded ?? NO_FEATURES;
   const target = detail.target;
   const rows = featureRows(detail);
   switch (target.kind) {
     case "chessboard":
       return {
         kind: "chessboard",
-        corners: cornersOf("chessboard", detail, rows, options.axes),
+        corners: cornersOf("chessboard", detail, rows, options.axes, excluded),
       };
     case "charuco":
       return {
         kind: "charuco",
-        corners: cornersOf("charuco", detail, rows, false),
+        corners: cornersOf("charuco", detail, rows, false, excluded),
         markers: target.markers.map((m, n): TargetMarker => ({
           id: `m${n}`,
           corners: m.quad_px.flat(),
@@ -166,7 +174,7 @@ export function acceptedDetection(
     case "puzzleboard":
       return {
         kind: "puzzleboard",
-        corners: cornersOf("puzzleboard", detail, rows, false),
+        corners: cornersOf("puzzleboard", detail, rows, false, excluded),
         edgeBits: (target.edge_bits ?? []).map((bit, n): TargetEdgeBit => {
           const [a, b] = bit.endpoints_px;
           return {
@@ -190,6 +198,7 @@ export function acceptedDetection(
           outer: outer ? ellipse(outer) : { rx: 2, ry: 2, angle: 0 },
           ...(ring.outer && ring.inner ? { inner: ellipse(ring.inner) } : {}),
           label: featureLabel("ringgrid", row),
+          ...(excluded.has(index) ? { excluded: true } : {}),
         };
       });
       return {

@@ -80,7 +80,7 @@ export function StagePane({
   const points = useMemo(
     () =>
       (shown?.features ?? []).map((f, index) => ({
-        index,
+        id: index,
         x: f.image_xy[0],
         y: f.image_xy[1],
       })),
@@ -207,7 +207,7 @@ export function StagePane({
               excluded={excluded}
               onHover={onHover}
             />
-            <PickSurface points={points} image={size} onPick={onPick} onBox={onBox} />
+            <PickSurface points={points} onPick={onPick} onBox={onBox} />
           </>
         )}
       </ImageStage>

@@ -83,10 +83,6 @@ export function ViewMatrix({
 
   return (
     <SequenceMatrix
-      // The matrix keeps the window of rows it last drew and reads it before
-      // it measures again: fewer rows than that (a filter) would read past
-      // its end. A new size is a new matrix.
-      key={`${rows.length}x${columns.length}`}
       aria-label={rest["aria-label"]}
       rows={rows}
       columns={columns}

@@ -15,7 +15,6 @@ import {
   rejectedItems,
   sigmaOf,
 } from "./overlayModel";
-import { pointsInBox } from "./pickModel";
 
 describe("a chessboard", () => {
   const detail = chessboardDetail();
@@ -117,6 +116,27 @@ describe("a PuzzleBoard", () => {
   });
 });
 
+describe("excluded and flagged features", () => {
+  it("marks a master mismatch as flagged and an excluded index as excluded", () => {
+    const det = acceptedDetection(puzzleboardDetail(), {
+      axes: false,
+      excluded: new Set([1]),
+    });
+    expect(det.corners?.every((c) => c.flagged)).toBe(true);
+    expect(det.corners?.map((c) => c.excluded ?? false)).toEqual([false, true]);
+    const plain = acceptedDetection(chessboardDetail(), { axes: false });
+    expect(plain.corners?.some((c) => c.flagged || c.excluded)).toBe(false);
+  });
+
+  it("marks an excluded ring", () => {
+    const det = acceptedDetection(ringgridDetail(), {
+      axes: false,
+      excluded: new Set([0]),
+    });
+    expect(det.rings?.map((r) => r.excluded ?? false)).toEqual([true, false]);
+  });
+});
+
 describe("a ring grid", () => {
   const detail = ringgridDetail();
 
@@ -193,19 +213,5 @@ describe("the diff of a preview against the saved detection", () => {
     preview.features[0] = { ...preview.features[0]!, world_xyz: [0.5, 0.5, 0] };
     expect(diffDetections(saved, preview).relabelled).toBe(1);
     expect(describeDiff(diffDetections(saved, preview))).toContain("1 label changed");
-  });
-});
-
-describe("boxing features", () => {
-  const points = [
-    { index: 0, x: 10, y: 10 },
-    { index: 1, x: 30, y: 10 },
-    { index: 2, x: 10, y: 30 },
-  ];
-
-  it("takes those inside the box, whichever corner is first", () => {
-    expect(pointsInBox(points, { x0: 0, y0: 0, x1: 20, y1: 20 })).toEqual([0]);
-    expect(pointsInBox(points, { x0: 40, y0: 40, x1: 0, y1: 0 })).toEqual([0, 1, 2]);
-    expect(pointsInBox(points, { x0: 50, y0: 50, x1: 60, y1: 60 })).toEqual([]);
   });
 });
