@@ -11,7 +11,12 @@ import type {
   LaserLineTrace,
   TargetFeatureResidual,
 } from "../types";
-import { colorForError, colorForLaserError } from "../lib/errorColors";
+import {
+  colorForValue,
+  laserError,
+  targetError,
+  type ErrorRamp,
+} from "../lib/errorColors";
 
 /** Residual arrows are magnified by this factor... */
 export const ARROW_GAIN = 30;
@@ -27,6 +32,9 @@ export const OBSERVED_DOT_PX = 1.6;
 export const SELECTION_RING_PX = 7;
 /** On-screen px: radius of a laser observation dot. */
 export const LASER_DOT_PX = 1.4;
+/** Under the arrows: the dark end of a sequential map would vanish on a dark
+ * pattern, so each arrow rides on a pale outline. */
+export const ARROW_HALO_STROKE = "rgba(255,255,255,0.6)";
 /** Fill of the observed dots. */
 export const OBSERVED_DOT_FILL = "rgba(255,255,255,0.85)";
 /** Stroke of the projected laser line. */
@@ -88,6 +96,7 @@ export function buildResidualArrows(
   all: readonly TargetFeatureResidual[],
   frame: Pick<FrameKey, "pose" | "camera">,
   unit: number,
+  ramp: ErrorRamp,
 ): ResidualArrowPaths {
   const head = ARROW_HEAD_PX * unit;
   const dotR = OBSERVED_DOT_PX * unit;
@@ -110,7 +119,7 @@ export function buildResidualArrows(
     const x4 = x2 - head * Math.cos(angle + HEAD_ANGLE);
     const y4 = y2 - head * Math.sin(angle + HEAD_ANGLE);
     arrows.push([
-      colorForError(r.error_px ?? mag),
+      colorForValue(ramp, targetError(r) ?? mag),
       `M${n(ox)} ${n(oy)}L${n(x2)} ${n(y2)}L${n(x3)} ${n(y3)}M${n(x2)} ${n(y2)}L${n(x4)} ${n(y4)}`,
     ]);
     dots += circle(ox, oy, dotR);
@@ -137,6 +146,7 @@ export function buildLaserOverlay(
   lines: readonly LaserLineTrace[],
   frame: Pick<FrameKey, "pose" | "camera">,
   unit: number,
+  ramp: ErrorRamp,
 ): LaserOverlayPaths {
   const records = ofFrame(all, frame);
   const trace = lines.find((l) => l.view === frame.pose && l.camera === frame.camera);
@@ -151,8 +161,9 @@ export function buildLaserOverlay(
   let unresolved = "";
   for (const rec of records) {
     const [x, y] = rec.observed_px;
-    if (rec.residual_m != null) {
-      dots.push([colorForLaserError(Math.abs(rec.residual_m) * 1e3), circle(x, y, r)]);
+    const mm = laserError(rec);
+    if (mm !== null) {
+      dots.push([colorForValue(ramp, mm), circle(x, y, r)]);
     } else {
       unresolved += circle(x, y, r);
     }

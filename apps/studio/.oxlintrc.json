@@ -56,10 +56,6 @@
       // Tailwind palette classes, no hex literals.
       "files": ["src/**/*.{ts,tsx}"],
       "excludeFiles": [
-        // The residual-magnitude ramp (px and mm) FrameCanvas draws on a
-        // <canvas> and the legends/matrix echo; a data scale, the same in
-        // both themes.
-        "src/lib/errorColors.ts",
         // Categorical per-laser-plane palette for the 3D scene's cut lines
         // (three.js materials, not CSS).
         "src/workspaces/Viewer3DWorkspace/LaserTargetCuts.tsx"

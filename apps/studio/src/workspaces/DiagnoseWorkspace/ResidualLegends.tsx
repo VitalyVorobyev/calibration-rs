@@ -1,7 +1,8 @@
 import { api } from "../../api";
 import type { RunRef } from "../../api/generated/types";
 import { ARROW_GAIN } from "../../components/frameOverlayPaths";
-import { colorForError, colorForLaserError } from "../../lib/errorColors";
+import { ColormapLegend } from "@vitavision/charts";
+import type { ErrorRamp } from "../../lib/errorColors";
 import { useQuery } from "../../session/query";
 import type {
   CursorReadout,
@@ -27,15 +28,18 @@ export function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
 }
 
 /** The frame's target residual statistics (the back end's, of camera
- * `camera` in view `view` of `run`) and the colour ramp key. */
+ * `camera` in view `view` of `run`) and the colour scale of its arrows. */
 export function ResidualLegend({
   run,
   camera,
   view,
+  ramp,
 }: {
   run: RunRef;
   camera: number;
   view: number;
+  /** The scale the arrows are drawn on (one for the whole run). */
+  ramp: ErrorRamp;
 }) {
   const q = useQuery("residual_stats", { run }, () => api.residualStats({ run }));
   const cell = q.data?.cells.find((c) => c.camera === camera && c.view === view);
@@ -49,13 +53,7 @@ export function ResidualLegend({
       <span>mean {px(cell?.stats.mean)}</span>
       <span>max {px(cell?.stats.max)}</span>
       <span>arrows: observed − projected, from the observed corner, ×{ARROW_GAIN}</span>
-      <span className="flex items-center gap-2">
-        <Swatch color={colorForError(0.5)} label="<1" />
-        <Swatch color={colorForError(1.5)} label="<2" />
-        <Swatch color={colorForError(3)} label="<5" />
-        <Swatch color={colorForError(7)} label="<10" />
-        <Swatch color={colorForError(20)} label="≥10" />
-      </span>
+      <RampLegend ramp={ramp} label="Reprojection error" />
     </div>
   );
 }
@@ -64,8 +62,11 @@ export function ResidualLegend({
 export function LaserResidualLegend({
   residuals,
   hist,
+  ramp,
 }: {
   residuals: LaserFeatureResidual[];
+  /** The scale the laser points are drawn on (one for the whole run). */
+  ramp: ErrorRamp;
   hist?: FeatureResidualHistogram | null | undefined;
 }) {
   const mm = residuals
@@ -82,25 +83,22 @@ export function LaserResidualLegend({
       <span>mean {mean.toFixed(3)} mm</span>
       <span>max {max.toFixed(3)} mm</span>
       {hist && <span>cam px-mean {hist.mean.toFixed(3)}</span>}
-      <span className="flex items-center gap-2">
-        <Swatch color={colorForLaserError(0.1)} label="<0.2" />
-        <Swatch color={colorForLaserError(0.3)} label="<0.5" />
-        <Swatch color={colorForLaserError(0.7)} label="<1" />
-        <Swatch color={colorForLaserError(1.5)} label="<2" />
-        <Swatch color={colorForLaserError(3)} label="≥2" />
-      </span>
+      <RampLegend ramp={ramp} label="Point-to-plane distance" />
     </div>
   );
 }
 
-function Swatch({ color, label }: { color: string; label: string }) {
+/** The colour scale an overlay is drawn on: its range, unit and whether some
+ * values lie above it. */
+function RampLegend({ ramp, label }: { ramp: ErrorRamp; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1">
-      <span
-        className="inline-block h-2 w-2 rounded-[2px]"
-        style={{ background: color }}
-      />
-      {label}
-    </span>
+    <ColormapLegend
+      map={ramp.map}
+      domain={ramp.domain}
+      unit={ramp.unit}
+      label={label}
+      clipped={ramp.clipped ? "high" : undefined}
+      className="shrink-0 whitespace-nowrap"
+    />
   );
 }

@@ -1,6 +1,6 @@
 # Inspecting Results
 
-The Inspect screen judges one run of the open project: how the model fits the data, where it does not, how well each parameter is determined, and whether the calibration passes its [quality checks](quality.md). It works on the run chosen in the run list or the run selector, or the one a calibration just wrote. An export calibrated elsewhere (any `*Export.json` produced by a calibration session, with `diagnostics.image_manifest` populated, or a `vcal run -o` folder) joins the project as a run with **Import Export…**. It works for all seven export kinds, single-camera or rig, with or without a laser stage.
+The Inspect screen judges one run of the open project: how the model fits the data, where it does not, how well each parameter is determined, and whether the calibration passes its [quality checks](quality.md). It works on the run chosen in the run list or the run selector, or the one a calibration just wrote. An export calibrated elsewhere (any `*Export.json` produced by a calibration session, with `diagnostics.image_manifest` populated, or a `vcal run -o` folder) joins the project as a run with **Import export** (in the Library, or **Import an export as a run…** in the project menu). It works for all seven export kinds, single-camera or rig, with or without a laser stage.
 
 Inspect is a row of tabs; the tab is part of the address, so a link opens the same one. The camera of the per-camera tabs is the app-wide selection: choose it in the tab's camera list (a single-camera run has no list) or step with `,` and `.`. A tab a run cannot have, such as Epipolar for a single camera, is not offered.
 
@@ -15,7 +15,7 @@ Inspect is a row of tabs; the tab is part of the address, so a link opens the sa
 | **Quality** | the checks of the run's quality report |
 | **Epipolar**, **Depth** | the two-camera views, for rigs |
 
-Every map follows the same conventions. A residual is `observed − projected`, in pixels, and a displacement is where a ray lands minus where it would land without the stage. A magnitude is drawn on a sequential colour map from zero to a round top (the 99.5th percentile of the values, rounded up to 1, 2 or 5 × 10ⁿ), a signed quantity on a diverging map centred on zero; the legend carries the unit, says when values exceed its top, and names a limit that is a place on the scale. Nodes without a value are blank, never zero. The pointer reading under the map, the provenance line and the sentence under it say the same in text.
+Every map follows the same conventions. A residual is `observed − projected`, in pixels, and a displacement is where a ray lands minus where it would land without the stage. A magnitude is drawn on a sequential colour map from zero to a round top (the largest value, or, when a few values lie far above the rest, their 99.5th percentile, rounded up to two significant digits), a signed quantity on a diverging map centred on zero; the legend carries the unit, says when values exceed its top, and names a limit that is a place on the scale. Nodes without a value are blank, never zero. The pointer reading under the map, the provenance line and the sentence under it say the same in text.
 
 ## Parameters
 
@@ -45,7 +45,7 @@ The run's [quality report](quality.md): the overall verdict, the worst of the as
 
 ## Frames
 
-The frame viewer: step through `(view, camera)` frames with the steppers or the arrow keys. The source image renders with the detected corners, each with an arrow from the observed corner along `observed − projected` (magnified, the factor is in the legend), colour-coded by reprojection error. These are the [per-feature residuals](per_feature_residuals.md) of the export. **Compare** shows two frames side by side with a linked viewport; **Laser** switches a target frame to its paired laser frame with the point-to-plane residuals. A histogram of the image and the cursor position sit below.
+The frame viewer: step through `(view, camera)` frames with the steppers or the arrow keys. The source image renders with the detected corners, each with an arrow from the observed corner along `observed − projected` (magnified, the factor is in the legend), coloured by reprojection error on the same sequential colour map as the maps, from zero to a round top that fits the whole run, so frames compare; the legend under the frame gives that range and says when values exceed it. These are the [per-feature residuals](per_feature_residuals.md) of the export. **Compare** shows two frames side by side with a linked viewport; **Laser** switches a target frame to its paired laser frame with the point-to-plane residuals, coloured on the same kind of scale in millimetres. A histogram of the image and the cursor position sit below.
 
 ## Scene
 

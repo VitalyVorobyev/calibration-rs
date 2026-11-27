@@ -27,7 +27,8 @@ export type CalibrationExport =
  * sentinel for payloads that carry no recognised tag. */
 export type ExportKind = WireExportKind | "unknown";
 
-/** Human-readable labels for the diagnose header, keyed by wire kind.
+/** The one source of a workflow's name as people say it (badges, filters,
+ * headers, the editor's subtitle), keyed by wire kind.
  *
  * This `Record` is the single source of truth for both the label vocabulary
  * *and* the set of recognised kinds (see {@link detectExportKind}). Typing it
@@ -36,12 +37,12 @@ export type ExportKind = WireExportKind | "unknown";
  * matching edit here, or the build fails. */
 const WIRE_KIND_LABELS: Record<WireExportKind, string> = {
   planar_intrinsics: "Planar intrinsics",
-  single_cam_handeye: "Single-cam hand-eye",
-  laserline_device: "Laserline device",
+  single_cam_handeye: "Single-camera hand-eye",
+  laserline_device: "Laser-line device",
   rig_extrinsics: "Rig extrinsics",
   rig_handeye: "Rig hand-eye",
-  rig_laserline_device: "Rig + laserline",
-  rig_handeye_laserline: "Rig hand-eye + laserline",
+  rig_laserline_device: "Rig laser-line device",
+  rig_handeye_laserline: "Rig hand-eye with laser line",
 };
 
 /** Narrows an arbitrary string to a known wire kind. */

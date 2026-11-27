@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodePlane } from "@vitavision/stage2d";
+import { quantile } from "../../../lib/colorRange";
 import {
   GRID,
   RESIDUAL_CHANNELS,
@@ -14,12 +15,10 @@ import {
   clipsHigh,
   maskedBelow,
   meanOf,
-  niceCeil,
   nodeAt,
   nodeCentre,
   peakOf,
   planeRect,
-  quantile,
   quiver,
   quiverEvery,
   readoutAt,
@@ -37,27 +36,26 @@ describe("decoding", () => {
   });
 });
 
-describe("niceCeil", () => {
-  it("rounds up to 1, 2 or 5 times a power of ten", () => {
-    expect(niceCeil(0.03)).toBe(0.05);
-    expect(niceCeil(0.11)).toBe(0.2);
-    expect(niceCeil(2)).toBe(2);
-    expect(niceCeil(2.01)).toBe(5);
-    expect(niceCeil(54.3)).toBe(100);
-    expect(niceCeil(0)).toBe(1);
-    expect(niceCeil(Number.NaN)).toBe(1);
-  });
-});
-
 describe("domains", () => {
   const p = plane(2, 2, 2, (c, col, row) =>
     c === 0 ? col + 2 * row : (col + 2 * row) * -1,
   );
   it("runs a magnitude from zero to a round top", () => {
-    expect(autoDomain(p, 0, false)).toEqual([0, 5]);
+    expect(autoDomain(p, 0, false)).toEqual([0, 3]);
+  });
+  it("fits the data and clips only a real outlier", () => {
+    const flat = plane(10, 10, 1, (_c, col, row) => 0.01 + (col + 10 * row) * 0.0002);
+    const [, top] = autoDomain(flat, 0, false)!;
+    expect(top).toBeGreaterThanOrEqual(0.0298);
+    expect(top).toBeLessThan(0.032);
+    expect(clipsHigh(flat, 0, [0, top])).toBe(false);
+    const spiky = plane(40, 25, 1, (_c, col, row) => (col + 40 * row === 999 ? 5 : 0.01));
+    const [, spikyTop] = autoDomain(spiky, 0, false)!;
+    expect(spikyTop).toBeLessThan(0.1);
+    expect(clipsHigh(spiky, 0, [0, spikyTop])).toBe(true);
   });
   it("centres a signed quantity on zero", () => {
-    expect(autoDomain(p, 1, true)).toEqual([-5, 5]);
+    expect(autoDomain(p, 1, true)).toEqual([-3, 3]);
   });
   it("has none for a channel without a finite value", () => {
     const empty = plane(2, 2, 1, () => Number.NaN);
@@ -66,7 +64,7 @@ describe("domains", () => {
   });
   it("says when the scale clips", () => {
     expect(clipsHigh(p, 0, [0, 2])).toBe(true);
-    expect(clipsHigh(p, 0, [0, 5])).toBe(false);
+    expect(clipsHigh(p, 0, [0, 3])).toBe(false);
   });
   it("takes nearest-rank quantiles", () => {
     expect(quantile([1, 2, 3, 4], 0.5)).toBe(2);

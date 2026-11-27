@@ -71,6 +71,9 @@ export function ScreenRail({ place }: { place: Place }) {
               label={screen.label}
               icon={ICONS[screen.id]}
               disabled={!enabled}
+              // An available screen reads at full strength; one that is not stays
+              // legible but plainly off.
+              className={enabled ? "text-fg" : "opacity-60"}
               badge={
                 screen.id === "calibrate" && calibrating ? (
                   <Loader

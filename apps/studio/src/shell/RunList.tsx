@@ -103,12 +103,15 @@ export function RunList({ project }: { project: ProjectView | null }) {
             <h2 className="text-[10px] font-semibold tracking-wider text-fg-muted uppercase">
               Runs · {rows.length}
             </h2>
-            <span
-              className="truncate font-mono text-[10px] text-fg-subtle"
-              title={project.data_root}
-            >
-              data {project.data_root === project.dir ? "." : project.data_root}
-            </span>
+            {/* The data folder only when it is not the project's own. */}
+            {project.data_root !== project.dir && (
+              <span
+                className="truncate font-mono text-[10px] text-fg-subtle"
+                title={project.data_root}
+              >
+                data {project.data_root}
+              </span>
+            )}
           </div>
           {rows.length > 1 && (
             <SegmentedControl

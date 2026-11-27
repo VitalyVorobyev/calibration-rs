@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LaserFeatureResidual, TargetFeatureResidual } from "../types";
-import { colorForError, colorForLaserError } from "../lib/errorColors";
+import { colorForValue, errorRamp } from "../lib/errorColors";
 import {
   ARROW_GAIN,
   ARROW_LENGTH_CAP_PX,
@@ -11,6 +11,8 @@ import {
 } from "./frameOverlayPaths";
 
 const FRAME = { pose: 1, camera: 0 };
+const RAMP = errorRamp([0.5, 6, 12], "px");
+const LASER_RAMP = errorRamp([0.1, 3], "mm");
 
 function tgt(
   over: Partial<TargetFeatureResidual> & Pick<TargetFeatureResidual, "observed_px">,
@@ -45,15 +47,20 @@ describe("buildResidualArrows", () => {
       tgt({ observed_px: [20, 20], projected_px: [20.4, 20], error_px: 0.4 }),
       tgt({ observed_px: [30, 30], projected_px: [36, 30], error_px: 6 }),
     ];
-    const { arrows } = buildResidualArrows(res, FRAME, 1);
-    expect(arrows.map((a) => a.color)).toEqual([colorForError(0.5), colorForError(6)]);
+    const { arrows } = buildResidualArrows(res, FRAME, 1, RAMP);
+    expect(arrows.map((a) => a.color)).toEqual([
+      colorForValue(RAMP, 0.5),
+      colorForValue(RAMP, 6),
+    ]);
     expect(arrows[0]!.d.match(/M/g)).toHaveLength(4); // two arrows x (shaft + 2nd barb)
     expect(arrows[1]!.d.match(/M/g)).toHaveLength(2);
   });
 
   it("falls back to the geometric magnitude when error_px is absent", () => {
     const res = [tgt({ observed_px: [0, 0], projected_px: [12, 0] })];
-    expect(buildResidualArrows(res, FRAME, 1).arrows[0]!.color).toBe(colorForError(12));
+    expect(buildResidualArrows(res, FRAME, 1, RAMP).arrows[0]!.color).toBe(
+      colorForValue(RAMP, 12),
+    );
   });
 
   it("magnifies short residuals by the gain and caps long ones in length", () => {
@@ -61,12 +68,14 @@ describe("buildResidualArrows", () => {
       [tgt({ observed_px: [5, 5], projected_px: [5.1, 5] })],
       FRAME,
       1,
+      RAMP,
     ).arrows[0]!;
     expect(shaft(short.d).to[0]! - 5).toBeCloseTo(-0.1 * ARROW_GAIN, 3);
     const long = buildResidualArrows(
       [tgt({ observed_px: [5, 5], projected_px: [5, 105] })],
       FRAME,
       1,
+      RAMP,
     ).arrows[0]!;
     expect(shaft(long.d).to[1]! - 5).toBeCloseTo(-ARROW_LENGTH_CAP_PX, 3);
   });
@@ -78,6 +87,7 @@ describe("buildResidualArrows", () => {
       [tgt({ observed_px: [10, 10], projected_px: [9, 8] })],
       FRAME,
       1,
+      RAMP,
     );
     const { from, to } = shaft(arrows[0]!.d);
     expect(from).toEqual([10, 10]);
@@ -91,7 +101,7 @@ describe("buildResidualArrows", () => {
       tgt({ observed_px: [1, 1], projected_px: [1, 1] }),
       tgt({ observed_px: [2, 2], projected_px: null }),
     ];
-    expect(buildResidualArrows(res, FRAME, 1)).toEqual({ arrows: [], dots: "" });
+    expect(buildResidualArrows(res, FRAME, 1, RAMP)).toEqual({ arrows: [], dots: "" });
   });
 
   it("keeps only the requested pose and camera", () => {
@@ -99,7 +109,7 @@ describe("buildResidualArrows", () => {
       tgt({ observed_px: [1, 1], projected_px: [2, 1], view: 2 }),
       tgt({ observed_px: [1, 1], projected_px: [2, 1], camera: 3 }),
     ];
-    expect(buildResidualArrows(res, FRAME, 1).arrows).toEqual([]);
+    expect(buildResidualArrows(res, FRAME, 1, RAMP).arrows).toEqual([]);
   });
 
   it("draws in the ROI-local frame as given, with no offset applied", () => {
@@ -107,14 +117,15 @@ describe("buildResidualArrows", () => {
       [tgt({ observed_px: [7.5, 9.25], projected_px: [8.5, 9.25] })],
       FRAME,
       1,
+      RAMP,
     );
     expect(shaft(arrows[0]!.d).from).toEqual([7.5, 9.25]);
   });
 
   it("scales heads and dots with the screen-pixel unit, not the data", () => {
     const res = [tgt({ observed_px: [0, 0], projected_px: [1, 0] })];
-    const one = buildResidualArrows(res, FRAME, 1);
-    const half = buildResidualArrows(res, FRAME, 0.5);
+    const one = buildResidualArrows(res, FRAME, 1, RAMP);
+    const half = buildResidualArrows(res, FRAME, 0.5, RAMP);
     expect(shaft(one.arrows[0]!.d).to).toEqual(shaft(half.arrows[0]!.d).to);
     expect(one.arrows[0]!.d).not.toBe(half.arrows[0]!.d);
     expect(one.dots).toContain("a1.6 1.6");
@@ -140,13 +151,19 @@ describe("buildLaserOverlay", () => {
         ] as [number, number][],
       },
     ];
-    const out = buildLaserOverlay([las({ observed_px: [2, 2] })], lines, FRAME, 1);
+    const out = buildLaserOverlay(
+      [las({ observed_px: [2, 2] })],
+      lines,
+      FRAME,
+      1,
+      LASER_RAMP,
+    );
     expect(out.line).toBe("M0 10L50 11.5L100 12");
   });
 
   it("has no line when the frame has none", () => {
     expect(
-      buildLaserOverlay([las({ observed_px: [1, 1] })], [], FRAME, 1).line,
+      buildLaserOverlay([las({ observed_px: [1, 1] })], [], FRAME, 1, LASER_RAMP).line,
     ).toBeNull();
   });
 
@@ -163,10 +180,11 @@ describe("buildLaserOverlay", () => {
       [],
       FRAME,
       1,
+      LASER_RAMP,
     );
     expect(out.dots.map((d) => d.color)).toEqual([
-      colorForLaserError(0.1),
-      colorForLaserError(3),
+      colorForValue(LASER_RAMP, 0.1),
+      colorForValue(LASER_RAMP, 3),
     ]);
     expect(out.dots[0]!.d.match(/M/g)).toHaveLength(2);
     expect(out.unresolved.match(/M/g)).toHaveLength(2);

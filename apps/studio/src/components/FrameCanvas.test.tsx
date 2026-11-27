@@ -41,7 +41,7 @@ describe("FrameCanvas", () => {
       label: "a",
       roi: { x: 20, y: 10, w: 100, h: 80 },
     };
-    const residuals = [residual(0, 0.5), residual(1, 0.4), residual(2, 3)];
+    const residuals = [residual(0, 0.5), residual(1, 0.52), residual(2, 3)];
     const { container } = render(
       <FrameCanvas frame={frame} residuals={residuals} image={fakeImage(160, 120)}>
         <EpipolarOverlay
@@ -62,8 +62,9 @@ describe("FrameCanvas", () => {
     const svgs = stage.querySelectorAll("svg");
     expect(svgs).toHaveLength(2);
     expect(svgs[0]!.getAttribute("viewBox")).toBe("-0.5 -0.5 100 80");
-    // 2 error colours + 1 observed-dot path; 3 residuals are not 3 elements.
-    expect(svgs[0]!.querySelectorAll("path")).toHaveLength(3);
+    // 2 error colours + 1 halo under them + 1 observed-dot path; 3 residuals
+    // are not 3 elements.
+    expect(svgs[0]!.querySelectorAll("path")).toHaveLength(4);
     // The epipolar layer: 1 batched marker path (+ the polyline element).
     expect(svgs[1]!.querySelectorAll("path")).toHaveLength(1);
     expect(svgs[1]!.querySelectorAll("polyline")).toHaveLength(1);

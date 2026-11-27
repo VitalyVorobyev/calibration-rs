@@ -17,6 +17,15 @@
    `@source`. Import it after ui's. */
 @import "@vitavision/workbench/styles.css";
 
+/* A number field of a schema form holds a short number: it takes the width of
+   its content class (the label and its hint stay together over it), not of the
+   column. The form has no width option, so the rule is here. */
+[data-columns] label:has(> input[type="number"]) {
+  width: 14rem;
+  max-width: 100%;
+  align-self: flex-start;
+}
+
 @layer base {
   html,
   body,

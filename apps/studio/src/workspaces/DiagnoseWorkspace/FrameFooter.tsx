@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { laserRamp, targetRamp } from "../../lib/errorColors";
 import { useStore } from "../../store";
 import type { AnyExport } from "../../store/types";
 import type { CursorReadout, FrameKey, LaserFeatureResidual } from "../../types";
@@ -9,6 +11,7 @@ interface FrameFooterProps {
   frame: FrameKey;
   /** The laser frame and its residuals are shown, not the target's. */
   laser: boolean;
+  /** Every laser residual of the run (the frame's are picked here). */
   laserResiduals: LaserFeatureResidual[];
   camera: number;
   /** The image's luminance histogram; `null` while it decodes. */
@@ -22,7 +25,7 @@ export function FrameFooter({
   data,
   frame,
   laser,
-  laserResiduals,
+  laserResiduals: laserAll,
   camera,
   histogram,
   cursor,
@@ -31,6 +34,9 @@ export function FrameFooter({
   const inFrame = (r: { view: number; camera: number }) =>
     r.view === frame.pose && r.camera === frame.camera;
   const residuals = data.diagnostics.per_feature_residuals;
+  // The same scales the canvas draws on, from the same run-wide arrays.
+  const targetScale = useMemo(() => targetRamp(residuals.target), [residuals.target]);
+  const laserScale = useMemo(() => laserRamp(laserAll), [laserAll]);
   return (
     // Reserve a stable height so the panel doesn't shimmy when the
     // histogram briefly drops out during a frame switch (the image unloads
@@ -39,11 +45,19 @@ export function FrameFooter({
     <div className="flex min-h-[3.25rem] flex-wrap items-center gap-x-4 gap-y-2">
       {laser ? (
         <LaserResidualLegend
-          residuals={laserResiduals.filter(inFrame)}
+          residuals={laserAll.filter(inFrame)}
+          ramp={laserScale}
           hist={residuals.laser_hist_per_cam?.[camera]}
         />
       ) : (
-        run && <ResidualLegend run={run} camera={frame.camera} view={frame.pose} />
+        run && (
+          <ResidualLegend
+            run={run}
+            camera={frame.camera}
+            view={frame.pose}
+            ramp={targetScale}
+          />
+        )
       )}
       {frame.abs_path !== null && (
         <>

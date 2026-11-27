@@ -9,26 +9,11 @@
  * centred on its in-image pixels. `NaN` is "no value", never a colour. */
 import type { Rect, ValuePlane } from "@vitavision/stage2d";
 import type { MapGrid, PlaneChannel } from "../../../api/generated/types";
+import { rangeTop } from "../../../lib/colorRange";
 
 /** The χ above which a residual field differs from zero at p < 0.01 (the
  * library's value, `residual_map`'s documentation). */
 export const SIGNIFICANCE_P01 = 3.03;
-
-/** The share of finite values that sets the top of an automatic domain:
- * a few extreme nodes do not wash out the rest. */
-const DOMAIN_PERCENTILE = 0.995;
-
-/** The smallest of 1, 2, 5 × 10ⁿ that is at least `value`; 1 for a
- * non-positive or non-finite one. */
-export function niceCeil(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) return 1;
-  const exponent = Math.floor(Math.log10(value));
-  const base = 10 ** exponent;
-  for (const step of [1, 2, 5, 10]) {
-    if (step * base >= value * (1 - 1e-12)) return step * base;
-  }
-  return 10 * base;
-}
 
 /** The index of the channel named `name` in `channels`; −1 when absent. */
 export function channelIndex(channels: readonly PlaneChannel[], name: string): number {
@@ -48,18 +33,11 @@ export function finiteValues(plane: ValuePlane, channel: number): number[] {
   return out;
 }
 
-/** The nearest-rank `p` quantile of `values` (any order); `NaN` when empty. */
-export function quantile(values: readonly number[], p: number): number {
-  if (values.length === 0) return Number.NaN;
-  const sorted = [...values].sort((a, b) => a - b);
-  const at = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
-  return sorted[at]!;
-}
-
 /** The domain a channel is coloured over by default: `[0, D]` for a
- * magnitude and `[−D, D]` for a signed channel, `D` the 99.5th percentile
- * of the finite magnitudes rounded up to 1, 2 or 5 × 10ⁿ. `null` for a
- * channel with no finite value. */
+ * magnitude and `[−D, D]` for a signed channel, `D` the largest finite
+ * magnitude when it is within a quarter of the 99.5th percentile, else the
+ * percentile (the few nodes above it clip and the legend says so), rounded
+ * up to two significant digits. `null` for a channel with no finite value. */
 export function autoDomain(
   plane: ValuePlane,
   channel: number,
@@ -67,8 +45,8 @@ export function autoDomain(
 ): [number, number] | null {
   const values = finiteValues(plane, channel);
   if (values.length === 0) return null;
-  const top = quantile(signed ? values.map(Math.abs) : values, DOMAIN_PERCENTILE);
-  const d = niceCeil(top);
+  const d = rangeTop(signed ? values.map(Math.abs) : values);
+  if (d === null) return null;
   return signed ? [-d, d] : [0, d];
 }
 
