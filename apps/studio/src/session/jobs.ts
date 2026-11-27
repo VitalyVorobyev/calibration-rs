@@ -141,7 +141,8 @@ export function startJobWatch(onBack: () => void): () => void {
     schedule();
   });
 
-  void events.connect();
+  // A stream that cannot open is the connection state's to say, not an error.
+  events.connect().catch(() => useJobs.setState({ connection: "lost" }));
   return () => {
     stopped = true;
     if (probe !== null) clearTimeout(probe);

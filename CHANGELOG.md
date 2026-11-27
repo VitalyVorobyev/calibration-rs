@@ -325,6 +325,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   calibrated elsewhere is imported into a project as its next run; projects
   of the app's earlier format open and are written in the current format
   when first saved. The built-in preset list is gone.
+- Calibration Studio has a new frame: a rail of seven screens (Library,
+  Dataset, Detect, Calibrate, Inspect, Compare, Device; `⌘1` to `⌘7`) and a
+  context bar that names the project and the current run with what that
+  run is (the state of its files, its verdict in words, and whether the
+  project changed since). The diagnose, 3D, epipolar and depth workspaces
+  are the tabs of Inspect (Frames, Scene, Epipolar, Depth) and the Run
+  workspace is Calibrate; the project, run and tab are in the address, so a
+  link reopens the same place. A job indicator and tray follow every job
+  (including another tab's) with its stage, a Cancel and the solver's cost;
+  a change another tab or program makes to the open project arrives without
+  a reload; a dropped connection says so and pauses what writes until it is
+  back. `⌘K` opens a palette, `[` `]` `,` `.` step views and cameras, `?`
+  lists the shortcuts; the server's sign-in is a page of its own. The old
+  addresses still open. The screens beyond Inspect and Calibrate are not
+  built yet and say so.
 - Calibration Studio reads and writes only inside its root folders. The
   desktop app starts with none and asks you to add one (Settings lists and
   removes them); a project or manifest that names a path outside them is
