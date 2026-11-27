@@ -3140,6 +3140,14 @@ export interface CameraStats {
 }
 /**
  * Summary statistics for reprojection errors.
+ *
+ * The percentiles (`median`, `p95`) interpolate linearly between order
+ * statistics of the ascending-sorted errors, the default of numpy and
+ * pandas: the `q`-quantile of `n` errors lies at fractional rank
+ * `q * (n - 1)`, so the median of an even count is the mean of the middle
+ * two. They are present when the statistics were computed from the errors
+ * ([`from_errors`](Self::from_errors)), and absent when built from
+ * aggregates ([`from_summary`](Self::from_summary)).
  */
 export interface ReprojectionStats {
   /**
@@ -3154,6 +3162,17 @@ export interface ReprojectionStats {
    * Mean reprojection error in pixels.
    */
   mean: number;
+  /**
+   * Median reprojection error in pixels (the 50th percentile, linearly
+   * interpolated); `None` when built from aggregates. `0.0` for no
+   * errors, as the other statistics.
+   */
+  median?: number | null;
+  /**
+   * 95th percentile of the reprojection error in pixels, linearly
+   * interpolated; `None` when built from aggregates.
+   */
+  p95?: number | null;
   /**
    * Root mean square error in pixels.
    */
