@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `project::Project::view_poses` and `Project::view_laser_frames` pair the
+  views `Project::views` lists with the manifest's robot poses and each
+  camera's laser frames: a pose is named by its position in the pose file
+  and its `pose_id` (`dataset_runner::PoseRow`, `ViewPoses`,
+  `ViewLaserFrames`). What the pairing leaves unmatched is data rather than
+  a later error: a view without a pose or laser frame, and the pose rows
+  and laser frames that pair with no view (`ViewPoses::unpaired`,
+  `ViewLaserFrames::unpaired`, `UnpairedLaserFrame`). The robot pose file
+  is read and the laser folders listed; no image is read. Python:
+  `Project.views()` returns them as `robot_poses` and `laser_frames`, with
+  the error in place of a listing that cannot be made.
+
 - `analysis::projection_difference` compares two calibrations of one camera,
   of the same model or of different ones, through where they put the same
   ray: at each node of the first camera's `ImageGrid`, the second camera's

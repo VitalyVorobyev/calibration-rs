@@ -102,8 +102,8 @@ pub use laser::{
     build_laserline_device_input, build_rig_handeye_laserline_input,
     build_rig_laserline_device_input,
 };
-pub use pairing::PairedViews;
-pub(crate) use pairing::pair_dataset_views;
+pub use pairing::{PairedViews, PoseRow, UnpairedLaserFrame, ViewLaserFrames, ViewPoses};
+pub(crate) use pairing::{list_laser_frames, list_view_poses, pair_dataset_views};
 pub use planar::{PlanarRunResult, build_planar_input};
 pub use rig::{RigRunResult, build_rig_extrinsics_input, build_rig_handeye_input};
 pub use view_filter::{RejectReason, RejectedDetection};

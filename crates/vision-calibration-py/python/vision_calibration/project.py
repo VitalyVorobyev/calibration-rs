@@ -183,7 +183,19 @@ class Project:
 
     def views(self) -> dict[str, Any]:
         """The views the images pair into, without reading an image:
-        ``{"paths": [[path or None per camera] per view], "tokens": [...]}``."""
+        ``{"paths": [[path or None per camera] per view], "tokens": [...],
+        "robot_poses": ..., "laser_frames": ...}``.
+
+        ``robot_poses`` is ``None`` when the manifest declares no robot
+        poses, else ``{"views": [row or None per view], "unpaired": [row,
+        ...]}``, a row being ``{"index", "id"}``: the pose's position in the
+        pose file and its ``pose_id``. ``laser_frames`` is ``None`` when no
+        camera declares laser images, else ``{"paths": [[path or None per
+        camera] per view], "unpaired": [{"camera", "path", "token"}, ...]}``.
+        What pairs with no view is listed under ``unpaired``; a run refuses
+        it. When the pose file or the laser frames cannot be listed, the
+        entry is ``{"error": message}`` instead. The robot pose file is read
+        and the laser image folders listed."""
         return cast("dict[str, Any]", self._native.views())
 
     def detection_cache_dir(self) -> Path:

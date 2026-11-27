@@ -227,6 +227,24 @@ pub fn validate(spec: &DatasetSpec) -> Result<(), ValidationError> {
     Ok(())
 }
 
+/// The checks of [`validate`] that make a manifest's robot pose file
+/// readable: a `pose_convention` beside `robot_poses`, and a column mapping
+/// that fits the file's format. `Ok` when the manifest declares no robot
+/// poses.
+///
+/// Workspace-internal: the dataset runner lists a manifest's pose rows with
+/// it while other fields of the manifest are still invalid.
+#[doc(hidden)]
+pub fn validate_robot_pose_source(spec: &DatasetSpec) -> Result<(), ValidationError> {
+    let Some(robot) = &spec.robot_poses else {
+        return Ok(());
+    };
+    let Some(convention) = &spec.pose_convention else {
+        return Err(ValidationError::MissingPoseConvention);
+    };
+    validate_pose_columns(robot, Some(convention.rotation_format))
+}
+
 fn validate_target(target: &TargetSpec) -> Result<(), ValidationError> {
     match target {
         TargetSpec::Chessboard {

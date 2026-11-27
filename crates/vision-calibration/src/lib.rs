@@ -594,13 +594,13 @@ pub mod dataset_runner {
     pub use vision_calibration_pipeline::dataset_runner::{
         CalibrateDatasetError, CalibrationConfig, CalibrationExport, ConfigPatch, CovarianceFault,
         DatasetCalibration, Detection, HandeyeRunResult, LaserPixelExtractor, LaserlineRunResult,
-        PairedViews, PlanarRunResult, RejectReason, RejectedDetection,
+        PairedViews, PlanarRunResult, PoseRow, RejectReason, RejectedDetection,
         RigHandeyeLaserlineRunResult, RigLaserlineRunResult, RigRunResult, RunError,
-        build_laserline_device_input, build_planar_input, build_rig_extrinsics_input,
-        build_rig_handeye_input, build_rig_handeye_laserline_input,
-        build_rig_laserline_device_input, build_single_cam_handeye_input, calibrate_dataset,
-        calibrate_dataset_with_seed, camera_image_sizes, detect_target, detect_target_detail,
-        detection_detail, input_files,
+        UnpairedLaserFrame, ViewLaserFrames, ViewPoses, build_laserline_device_input,
+        build_planar_input, build_rig_extrinsics_input, build_rig_handeye_input,
+        build_rig_handeye_laserline_input, build_rig_laserline_device_input,
+        build_single_cam_handeye_input, calibrate_dataset, calibrate_dataset_with_seed,
+        camera_image_sizes, detect_target, detect_target_detail, detection_detail, input_files,
     };
 }
 

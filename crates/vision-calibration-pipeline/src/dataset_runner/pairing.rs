@@ -12,11 +12,19 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use vision_calibration_dataset::{DatasetSpec, PosePairing};
+use vision_calibration_dataset::{
+    DatasetSpec, PosePairing, ValidationError, validate_robot_pose_source,
+};
 
-use super::{RunError, expand_camera_images, require_pose_pairing};
+use super::poses::{load_robot_poses, poses_by_id, require_pose_id_column};
+use super::{RunError, expand_camera_images, expand_image_pattern, require_pose_pairing};
 
 /// Per-camera image lists aligned into rig views.
+///
+/// [`Project::views`](crate::project::Project::views) lists them;
+/// [`Project::view_poses`](crate::project::Project::view_poses) and
+/// [`Project::view_laser_frames`](crate::project::Project::view_laser_frames)
+/// pair them with the manifest's robot poses and laser frames.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct PairedViews {
@@ -26,6 +34,73 @@ pub struct PairedViews {
     /// View token per view (token pairing) or stringified index
     /// (`by_index`). Used to pair robot poses by `pose_id`.
     pub tokens: Vec<String>,
+}
+
+/// One pose of a manifest's robot pose file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PoseRow {
+    /// The pose's zero-based position among the file's poses: its data row
+    /// for CSV (the header excluded) and JSON Lines, its element for JSON,
+    /// its line for `rowmajor4x4`, its matrix for `counted4x4`. Blank lines
+    /// are not counted. A pose parse error names its row the same way.
+    pub index: usize,
+    /// Its `pose_id` value, when the manifest maps a `pose_id` column.
+    pub id: Option<String>,
+}
+
+/// How a dataset's views pair with its robot poses, by the manifest's
+/// `pose_pairing`: pose `i` with view `i` under `by_index`, the pose whose
+/// `pose_id` is the view's token under `shared_filename_token`.
+///
+/// What the pairing leaves unmatched is data here rather than an error: a
+/// view without a pose, a pose that pairs with no view. A run refuses such
+/// a dataset (for instance with [`RunError::PoseCountMismatch`] under
+/// `by_index` pairing); this shows which views and rows are at fault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ViewPoses {
+    /// Per view, in the order of [`PairedViews::tokens`], the pose it pairs
+    /// with; `None` for a view no pose pairs with.
+    pub views: Vec<Option<PoseRow>>,
+    /// The poses that pair with no view, in file order.
+    pub unpaired: Vec<PoseRow>,
+}
+
+/// How a dataset's laser frames pair with its views, by the manifest's
+/// `pose_pairing`: each camera's laser image `i` with view `i` under
+/// `by_index`, the laser image whose file name yields the view's token
+/// under `shared_filename_token`.
+///
+/// What the pairing leaves unmatched is data here rather than an error: a
+/// view without a camera's laser frame, a laser frame that pairs with no
+/// view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ViewLaserFrames {
+    /// `paths[view][camera]`, shaped like [`PairedViews::paths`]: the laser
+    /// frame of that camera in that view; `None` where it has none (a
+    /// camera without `laser_images` has none in any view).
+    pub paths: Vec<Vec<Option<PathBuf>>>,
+    /// The laser frames that pair with no view, by camera, each camera's in
+    /// the order its images sort.
+    pub unpaired: Vec<UnpairedLaserFrame>,
+}
+
+/// A laser frame that pairs with no view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct UnpairedLaserFrame {
+    /// Index of the camera in the manifest's `cameras`.
+    pub camera: usize,
+    /// The laser image.
+    pub path: PathBuf,
+    /// The pairing token the frame carries: its index among the camera's
+    /// laser images under `by_index`, the token its file name yields under
+    /// `shared_filename_token`; `None` when the file name yields none. A
+    /// token that is one of the views' belongs to a view another frame of
+    /// the camera already pairs with (the first in sort order pairs).
+    pub token: Option<String>,
 }
 
 /// The views a manifest's images pair into, without reading any image:
@@ -52,6 +127,181 @@ pub(crate) fn pair_dataset_views(
         Some(pairing) => pair_views(&images, &camera_ids, pairing),
         None => pair_views(&images, &camera_ids, &PosePairing::ByIndex),
     }
+}
+
+/// The robot pose of each of the views `tokens`, by the manifest's
+/// pairing; `None` when the manifest declares no `robot_poses`. Reads the
+/// robot pose file.
+///
+/// # Errors
+///
+/// What keeps the pose file from being listed: it cannot be read or parsed
+/// ([`RunError::Io`], [`RunError::PoseParse`]), its `pose_convention` or
+/// column mapping is missing or does not fit ([`RunError::Validation`]),
+/// token pairing has no `pose_id` column ([`RunError::AskUser`]) or a
+/// repeated `pose_id` ([`RunError::PairingTokenMismatch`]).
+pub(crate) fn list_view_poses(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    tokens: &[String],
+) -> Result<Option<ViewPoses>, RunError> {
+    if spec.robot_poses.is_none() {
+        return Ok(None);
+    }
+    let pairing = spec.pose_pairing.as_ref().unwrap_or(&PosePairing::ByIndex);
+    pair_pose_rows(spec, base_dir, pairing, tokens).map(Some)
+}
+
+/// Each camera's laser frame in each of the views `tokens`, by the
+/// manifest's pairing; `None` when no camera declares `laser_images`. Lists
+/// the laser image folders.
+///
+/// # Errors
+///
+/// A laser image pattern that does not expand ([`RunError::BadGlob`]), a
+/// pairing regex that does not compile ([`RunError::BadPairingRegex`]).
+pub(crate) fn list_laser_frames(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    tokens: &[String],
+) -> Result<Option<ViewLaserFrames>, RunError> {
+    if spec
+        .cameras
+        .iter()
+        .all(|camera| camera.laser_images.is_none())
+    {
+        return Ok(None);
+    }
+    let pairing = spec.pose_pairing.as_ref().unwrap_or(&PosePairing::ByIndex);
+    pair_laser_frames(spec, base_dir, pairing, tokens).map(Some)
+}
+
+/// The pose rows of a manifest that declares robot poses, paired with the
+/// views `tokens` by `pairing`.
+fn pair_pose_rows(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    pairing: &PosePairing,
+    tokens: &[String],
+) -> Result<ViewPoses, RunError> {
+    validate_robot_pose_source(spec)?;
+    // The check above refuses robot poses without a convention, and the
+    // caller pairs poses only when the manifest declares them.
+    let (Some(source), Some(convention)) = (&spec.robot_poses, &spec.pose_convention) else {
+        return Err(ValidationError::MissingPoseConvention.into());
+    };
+    let poses = load_robot_poses(source, convention, base_dir)?;
+    let rows: Vec<PoseRow> = poses
+        .iter()
+        .enumerate()
+        .map(|(index, pose)| PoseRow {
+            index,
+            id: pose.id.clone(),
+        })
+        .collect();
+    let views: Vec<Option<usize>> = match pairing {
+        PosePairing::ByIndex => (0..tokens.len())
+            .map(|view| (view < rows.len()).then_some(view))
+            .collect(),
+        PosePairing::SharedFilenameToken { .. } => {
+            require_pose_id_column(spec)?;
+            let by_id = poses_by_id(&poses)?;
+            tokens
+                .iter()
+                .map(|token| by_id.get(token.as_str()).copied())
+                .collect()
+        }
+        other => {
+            return Err(RunError::UnsupportedOption {
+                option: "pairing",
+                value: format!("{other:?}"),
+            });
+        }
+    };
+    let mut paired = vec![false; rows.len()];
+    for &index in views.iter().flatten() {
+        paired[index] = true;
+    }
+    Ok(ViewPoses {
+        views: views
+            .into_iter()
+            .map(|index| index.map(|i| rows[i].clone()))
+            .collect(),
+        unpaired: rows
+            .into_iter()
+            .zip(paired)
+            .filter_map(|(row, paired)| (!paired).then_some(row))
+            .collect(),
+    })
+}
+
+/// Every camera's laser frames, paired with the views `tokens` by
+/// `pairing`: each frame pairs with the view whose token it carries, the
+/// first in sort order where two carry one.
+fn pair_laser_frames(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    pairing: &PosePairing,
+    tokens: &[String],
+) -> Result<ViewLaserFrames, RunError> {
+    let token_regex = match pairing {
+        PosePairing::ByIndex => None,
+        PosePairing::SharedFilenameToken { regex, group } => {
+            let re = regex::Regex::new(regex).map_err(|e| RunError::BadPairingRegex {
+                regex: regex.clone(),
+                message: e.to_string(),
+            })?;
+            Some((re, group.as_str()))
+        }
+        other => {
+            return Err(RunError::UnsupportedOption {
+                option: "pairing",
+                value: format!("{other:?}"),
+            });
+        }
+    };
+    let view_of: HashMap<&str, usize> = tokens
+        .iter()
+        .enumerate()
+        .map(|(view, token)| (token.as_str(), view))
+        .collect();
+    let mut paths = vec![vec![None; spec.cameras.len()]; tokens.len()];
+    let mut unpaired = Vec::new();
+    for (camera, source) in spec.cameras.iter().enumerate() {
+        let Some(pattern) = &source.laser_images else {
+            continue;
+        };
+        for (i, path) in expand_image_pattern(pattern, &source.id, base_dir)?
+            .into_iter()
+            .enumerate()
+        {
+            let token = match &token_regex {
+                None => Some(i.to_string()),
+                Some((re, group)) => filename_token(re, group, &path),
+            };
+            let free_view = token
+                .as_deref()
+                .and_then(|t| view_of.get(t).copied())
+                .filter(|&view| paths[view][camera].is_none());
+            match free_view {
+                Some(view) => paths[view][camera] = Some(path),
+                None => unpaired.push(UnpairedLaserFrame {
+                    camera,
+                    path,
+                    token,
+                }),
+            }
+        }
+    }
+    Ok(ViewLaserFrames { paths, unpaired })
+}
+
+/// The pairing token `re`'s group `group` captures from `path`'s file name.
+fn filename_token(re: &regex::Regex, group: &str, path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy();
+    re.captures(&name)
+        .and_then(|c| c.name(group))
+        .map(|m| m.as_str().to_string())
 }
 
 /// Align per-camera image lists into views using `pairing`.
@@ -238,6 +488,210 @@ mod tests {
             }
             other => panic!("expected BadPairingRegex, got {other:?}"),
         }
+    }
+
+    /// A two-camera rig hand-eye dataset in `dir` paired by the token of
+    /// `img_<token>.png`: cam0 sees views 1, 2, 3 and cam1 views 1, 3.
+    /// `pose_ids` are the rows of `poses.csv`; `laser` writes laser frames
+    /// `laser_<token>.png` of cam0 for those tokens.
+    fn token_handeye(dir: &Path, pose_ids: &[&str], laser: Option<&[&str]>) -> DatasetSpec {
+        for (cam, views) in [(0, vec![1, 2, 3]), (1, vec![1, 3])] {
+            std::fs::create_dir_all(dir.join(format!("cam{cam}"))).unwrap();
+            for view in views {
+                std::fs::write(dir.join(format!("cam{cam}/img_{view}.png")), b"-").unwrap();
+            }
+        }
+        let mut csv = String::from("id,x,y,z,qx,qy,qz,qw\n");
+        for id in pose_ids {
+            csv.push_str(&format!("{id},0,0,0,0,0,0,1\n"));
+        }
+        std::fs::write(dir.join("poses.csv"), csv).unwrap();
+        let mut cam0 = serde_json::json!({
+            "id": "cam0", "images": { "kind": "glob", "pattern": "cam0/img_*.png" }
+        });
+        if let Some(tokens) = laser {
+            std::fs::create_dir_all(dir.join("laser")).unwrap();
+            for token in tokens {
+                std::fs::write(dir.join(format!("laser/laser_{token}.png")), b"-").unwrap();
+            }
+            cam0["laser_images"] = serde_json::json!({ "kind": "glob", "pattern": "laser/*.png" });
+        }
+        serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "topology": "rig_handeye",
+            "cameras": [
+                cam0,
+                { "id": "cam1", "images": { "kind": "glob", "pattern": "cam1/img_*.png" } },
+            ],
+            "target": { "kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.03 },
+            "robot_poses": {
+                "path": "poses.csv",
+                "format": "csv",
+                "columns": {
+                    "pose_id": "id", "tx": "x", "ty": "y", "tz": "z",
+                    "rotation": ["qx", "qy", "qz", "qw"]
+                }
+            },
+            "pose_convention": {
+                "transform": "t_base_tcp", "rotation_format": "quat_xyzw", "translation_units": "m"
+            },
+            "pose_pairing": {
+                "kind": "shared_filename_token", "regex": "_(?P<id>\\d+)\\.png$", "group": "id"
+            },
+        }))
+        .unwrap()
+    }
+
+    fn row(index: usize, id: &str) -> PoseRow {
+        PoseRow {
+            index,
+            id: Some(id.into()),
+        }
+    }
+
+    /// The views of `spec` and their robot poses.
+    fn poses(spec: &DatasetSpec, dir: &Path) -> Result<Option<ViewPoses>, RunError> {
+        let views = pair_dataset_views(spec, dir).unwrap();
+        list_view_poses(spec, dir, &views.tokens)
+    }
+
+    /// The views of `spec` and their laser frames.
+    fn lasers(spec: &DatasetSpec, dir: &Path) -> ViewLaserFrames {
+        let views = pair_dataset_views(spec, dir).unwrap();
+        list_laser_frames(spec, dir, &views.tokens)
+            .unwrap()
+            .expect("the manifest declares laser frames")
+    }
+
+    #[test]
+    fn views_pair_with_their_robot_pose_and_the_rows_no_view_pairs_with_are_listed() {
+        let tmp = tempfile::tempdir().unwrap();
+        // View 2 has no row; row "7" has no view.
+        let spec = token_handeye(tmp.path(), &["3", "7", "1"], None);
+        let views = pair_dataset_views(&spec, tmp.path()).unwrap();
+        assert_eq!(views.tokens, ["1", "2", "3"]);
+        let listed = poses(&spec, tmp.path()).unwrap().unwrap();
+        assert_eq!(listed.views, [Some(row(2, "1")), None, Some(row(0, "3"))]);
+        assert_eq!(listed.unpaired, [row(1, "7")]);
+        assert_eq!(
+            list_laser_frames(&spec, tmp.path(), &views.tokens).unwrap(),
+            None,
+            "no camera declares laser images"
+        );
+        // A manifest without robot poses has none to pair.
+        let mut planar = spec.clone();
+        planar.robot_poses = None;
+        assert_eq!(poses(&planar, tmp.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn by_index_pairs_pose_rows_by_position_and_lists_the_extra_rows() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut spec = token_handeye(tmp.path(), &["a", "b", "c", "d"], None);
+        // cam1 gets the third image by_index needs.
+        std::fs::write(tmp.path().join("cam1/img_2.png"), b"-").unwrap();
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        let listed = poses(&spec, tmp.path()).unwrap().unwrap();
+        assert_eq!(
+            listed.views,
+            [Some(row(0, "a")), Some(row(1, "b")), Some(row(2, "c"))]
+        );
+        assert_eq!(listed.unpaired, [row(3, "d")]);
+        // Fewer rows than views: the last views have none.
+        std::fs::write(
+            tmp.path().join("poses.csv"),
+            "id,x,y,z,qx,qy,qz,qw\na,0,0,0,0,0,0,1\n",
+        )
+        .unwrap();
+        let listed = poses(&spec, tmp.path()).unwrap().unwrap();
+        assert_eq!(listed.views, [Some(row(0, "a")), None, None]);
+        assert!(listed.unpaired.is_empty());
+    }
+
+    #[test]
+    fn a_pose_file_that_cannot_be_listed_is_the_run_s_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A repeated pose_id: the run's own error.
+        let spec = token_handeye(tmp.path(), &["1", "1"], None);
+        let err = poses(&spec, tmp.path()).unwrap_err();
+        assert!(
+            matches!(err, RunError::PairingTokenMismatch { ref message } if message.contains("duplicate pose_id")),
+            "{err:?}"
+        );
+        // No pose_id column under token pairing: the run's question.
+        let mut spec = token_handeye(tmp.path(), &["1"], None);
+        spec.robot_poses
+            .as_mut()
+            .unwrap()
+            .columns
+            .as_mut()
+            .unwrap()
+            .pose_id = None;
+        assert!(matches!(
+            poses(&spec, tmp.path()).unwrap_err(),
+            RunError::AskUser { ref field, .. } if field == "robot_poses.columns.pose_id"
+        ));
+        // A missing pose file, and a missing convention.
+        let mut spec = token_handeye(tmp.path(), &["1"], None);
+        std::fs::remove_file(tmp.path().join("poses.csv")).unwrap();
+        assert!(matches!(
+            poses(&spec, tmp.path()).unwrap_err(),
+            RunError::Io(_)
+        ));
+        spec.pose_convention = None;
+        assert!(matches!(
+            poses(&spec, tmp.path()).unwrap_err(),
+            RunError::Validation(ValidationError::MissingPoseConvention)
+        ));
+    }
+
+    #[test]
+    fn laser_frames_pair_by_token_and_the_unpaired_ones_are_listed() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Frame 9 has no view; view 2 has no frame.
+        let spec = token_handeye(tmp.path(), &["1", "2", "3"], Some(&["1", "3", "9"]));
+        std::fs::write(tmp.path().join("laser/notes.png"), b"-").unwrap();
+        let frames = lasers(&spec, tmp.path());
+        let laser = |name: &str| Some(tmp.path().join("laser").join(name));
+        assert_eq!(
+            frames.paths,
+            [
+                vec![laser("laser_1.png"), None],
+                vec![None, None],
+                vec![laser("laser_3.png"), None],
+            ]
+        );
+        assert_eq!(
+            frames.unpaired,
+            [
+                UnpairedLaserFrame {
+                    camera: 0,
+                    path: tmp.path().join("laser/laser_9.png"),
+                    token: Some("9".into()),
+                },
+                UnpairedLaserFrame {
+                    camera: 0,
+                    path: tmp.path().join("laser/notes.png"),
+                    token: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn by_index_pairs_laser_frames_by_position() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut spec = token_handeye(tmp.path(), &["1", "2", "3"], Some(&["1", "2", "3", "4"]));
+        std::fs::write(tmp.path().join("cam1/img_2.png"), b"-").unwrap();
+        spec.pose_pairing = Some(PosePairing::ByIndex);
+        let frames = lasers(&spec, tmp.path());
+        assert_eq!(frames.paths.len(), 3);
+        assert_eq!(
+            frames.paths[2][0].as_deref(),
+            Some(tmp.path().join("laser/laser_3.png").as_path())
+        );
+        assert_eq!(frames.unpaired.len(), 1);
+        assert_eq!(frames.unpaired[0].token.as_deref(), Some("3"));
     }
 
     #[test]

@@ -12,7 +12,10 @@ use super::{
     DETECTIONS_DIR, DatasetSource, PROJECT_FILE, PROJECT_FILE_JSON, PROJECT_VERSION, ProjectDigest,
     ProjectError, ProjectSpec, RUNS_DIR,
 };
-use crate::dataset_runner::{CalibrationConfig, ConfigPatch, PairedViews, pair_dataset_views};
+use crate::dataset_runner::{
+    CalibrationConfig, ConfigPatch, PairedViews, ViewLaserFrames, ViewPoses, list_laser_frames,
+    list_view_poses, pair_dataset_views,
+};
 
 /// The manifest file of a version 1 project, beside its project file.
 const V1_MANIFEST_FILE: &str = "dataset.json";
@@ -304,6 +307,9 @@ impl Project {
 
     /// The views the dataset's images pair into, without reading an image:
     /// what an exclusion names, and what a review lists.
+    /// [`view_poses`](Self::view_poses) and
+    /// [`view_laser_frames`](Self::view_laser_frames) pair them with the
+    /// robot poses and laser frames.
     ///
     /// # Errors
     ///
@@ -313,6 +319,52 @@ impl Project {
     pub fn views(&self) -> Result<PairedViews, ProjectError> {
         let dataset = self.dataset()?;
         Ok(pair_dataset_views(&dataset, &self.data_root()?)?)
+    }
+
+    /// The robot pose each of `views` (this project's [`views`](Self::views))
+    /// pairs with by the manifest's pairing, and the pose rows that pair
+    /// with no view; `None` when the manifest declares no robot poses.
+    /// Reads the robot pose file; no image is read.
+    ///
+    /// A view without a pose and a row without a view are listed, not
+    /// refused: a run refuses them, and this shows which they are.
+    ///
+    /// # Errors
+    ///
+    /// [`ProjectError::Manifest`] as [`dataset`](Self::dataset);
+    /// [`ProjectError::Calibrate`] when the pose file cannot be listed: it
+    /// cannot be read or parsed, its `pose_convention` or column mapping is
+    /// missing or does not fit, or token pairing has no `pose_id` column or
+    /// a repeated `pose_id`.
+    pub fn view_poses(&self, views: &PairedViews) -> Result<Option<ViewPoses>, ProjectError> {
+        let dataset = self.dataset()?;
+        Ok(list_view_poses(
+            &dataset,
+            &self.data_root()?,
+            &views.tokens,
+        )?)
+    }
+
+    /// Each camera's laser frame in each of `views` (this project's
+    /// [`views`](Self::views)) by the manifest's pairing, and the laser
+    /// frames that pair with no view; `None` when no camera declares laser
+    /// images. Lists the laser image folders; no image is read.
+    ///
+    /// # Errors
+    ///
+    /// [`ProjectError::Manifest`] as [`dataset`](Self::dataset);
+    /// [`ProjectError::Calibrate`] when a laser image pattern does not
+    /// expand or the pairing regex does not compile.
+    pub fn view_laser_frames(
+        &self,
+        views: &PairedViews,
+    ) -> Result<Option<ViewLaserFrames>, ProjectError> {
+        let dataset = self.dataset()?;
+        Ok(list_laser_frames(
+            &dataset,
+            &self.data_root()?,
+            &views.tokens,
+        )?)
     }
 
     /// Check everything a run checks before it reads an image: the project
@@ -753,7 +805,10 @@ mod tests {
             std::fs::write(tmp.path().join(format!("img/{i}.png")), b"-").unwrap();
         }
         let mut project = Project::create(tmp.path(), inline()).unwrap();
-        assert_eq!(project.views().unwrap().paths.len(), 3);
+        let views = project.views().unwrap();
+        assert_eq!(views.paths.len(), 3);
+        assert_eq!(project.view_poses(&views).unwrap(), None);
+        assert_eq!(project.view_laser_frames(&views).unwrap(), None);
         project.check().unwrap();
         project
             .spec_mut()

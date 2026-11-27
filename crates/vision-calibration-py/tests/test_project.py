@@ -85,6 +85,52 @@ class ProjectFileTest(unittest.TestCase):
                 Project.open(root)
             self.assertEqual(caught.exception.kind, "ambiguous_project")
 
+    def test_views_list_robot_poses_and_what_pairs_with_no_view(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("img_1.png", "img_2.png"):
+                (root / name).write_bytes(b"-")
+            (root / "poses.csv").write_text(
+                "id,x,y,z,qx,qy,qz,qw\n2,0,0,0,0,0,0,1\n9,0,0,0,0,0,0,1\n"
+            )
+            manifest = {
+                "version": 1,
+                "topology": "single_cam_handeye",
+                "cameras": [{"id": "cam0", "images": {"kind": "glob", "pattern": "img_*.png"}}],
+                "target": {"kind": "chessboard", "rows": 6, "cols": 8, "square_size_m": 0.03},
+                "robot_poses": {
+                    "path": "poses.csv",
+                    "format": "csv",
+                    "columns": {
+                        "pose_id": "id",
+                        "tx": "x",
+                        "ty": "y",
+                        "tz": "z",
+                        "rotation": ["qx", "qy", "qz", "qw"],
+                    },
+                },
+                "pose_convention": {
+                    "transform": "t_base_tcp",
+                    "rotation_format": "quat_xyzw",
+                    "translation_units": "m",
+                },
+                "pose_pairing": {
+                    "kind": "shared_filename_token",
+                    "regex": "_(?P<id>\\d+)\\.png$",
+                    "group": "id",
+                },
+            }
+            project = Project.create(root, {"version": 2, "dataset": {"manifest": manifest}})
+            views = project.views()
+            self.assertEqual(views["tokens"], ["1", "2"])
+            self.assertEqual(
+                views["robot_poses"],
+                {"views": [None, {"index": 0, "id": "2"}], "unpaired": [{"index": 1, "id": "9"}]},
+            )
+            self.assertIsNone(views["laser_frames"])
+            (root / "poses.csv").unlink()
+            self.assertIn("error", project.views()["robot_poses"])
+
     def test_a_version_1_project_opens_and_migrates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "cam"

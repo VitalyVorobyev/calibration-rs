@@ -6,10 +6,12 @@ use std::sync::Mutex;
 
 use pyo3::prelude::*;
 use serde::Serialize;
-use vision_calibration::dataset_runner::{ConfigPatch, LaserPixelExtractor};
+use vision_calibration::dataset_runner::{
+    ConfigPatch, LaserPixelExtractor, PoseRow, UnpairedLaserFrame, ViewLaserFrames, ViewPoses,
+};
 use vision_calibration::project::{
-    DeviceHistory, LibraryScan, LibraryScanOptions, Project, ProjectRunOptions, ProjectSpec,
-    RunNotes, scan_library,
+    DeviceHistory, LibraryScan, LibraryScanOptions, Project, ProjectError, ProjectRunOptions,
+    ProjectSpec, RunNotes, scan_library,
 };
 
 use crate::control::PyRunControl;
@@ -163,22 +165,95 @@ impl PyProject {
         to_py(py, &digest)
     }
 
-    /// The views the images pair into: `{"paths": [[path | None, ...]], "tokens": [...]}`.
+    /// The views the images pair into: `{"paths", "tokens", "robot_poses",
+    /// "laser_frames"}`; the last two are `None` when the manifest declares
+    /// no robot poses or laser frames, and `{"error"}` when they
+    /// cannot be listed.
     fn views(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        #[derive(Serialize)]
+        struct Row {
+            index: usize,
+            id: Option<String>,
+        }
+        #[derive(Serialize)]
+        struct Poses {
+            views: Vec<Option<Row>>,
+            unpaired: Vec<Row>,
+        }
+        #[derive(Serialize)]
+        struct Unpaired {
+            camera: usize,
+            path: PathBuf,
+            token: Option<String>,
+        }
+        #[derive(Serialize)]
+        struct Lasers {
+            paths: Vec<Vec<Option<PathBuf>>>,
+            unpaired: Vec<Unpaired>,
+        }
+        /// A listing, or why it could not be made.
+        #[derive(Serialize)]
+        #[serde(untagged)]
+        enum Listed<T> {
+            Ok(T),
+            Err { error: String },
+        }
+        fn listed<A, T>(
+            result: Result<Option<A>, ProjectError>,
+            convert: impl FnOnce(A) -> T,
+        ) -> Option<Listed<T>> {
+            result.transpose().map(|result| match result {
+                Ok(value) => Listed::Ok(convert(value)),
+                Err(e) => Listed::Err {
+                    error: e.to_string(),
+                },
+            })
+        }
+        fn row(row: PoseRow) -> Row {
+            Row {
+                index: row.index,
+                id: row.id,
+            }
+        }
         #[derive(Serialize)]
         struct Views {
             paths: Vec<Vec<Option<PathBuf>>>,
             tokens: Vec<String>,
+            robot_poses: Option<Listed<Poses>>,
+            laser_frames: Option<Listed<Lasers>>,
         }
         let project = self.snapshot();
-        let views = py
-            .detach(|| project.views())
+        let (views, poses, frames) = py
+            .detach(|| {
+                let views = project.views()?;
+                let poses = project.view_poses(&views);
+                let frames = project.view_laser_frames(&views);
+                Ok((views, poses, frames))
+            })
             .map_err(|e| project_err(py, e))?;
+        let robot_poses = listed(poses, |poses: ViewPoses| Poses {
+            views: poses.views.into_iter().map(|r| r.map(row)).collect(),
+            unpaired: poses.unpaired.into_iter().map(row).collect(),
+        });
+        let laser_frames = listed(frames, |frames: ViewLaserFrames| Lasers {
+            paths: frames.paths,
+            unpaired: frames
+                .unpaired
+                .into_iter()
+                .map(|frame: UnpairedLaserFrame| Unpaired {
+                    camera: frame.camera,
+                    path: frame.path,
+                    token: frame.token,
+                })
+                .collect(),
+        });
         to_py(
             py,
             &Views {
                 paths: views.paths,
                 tokens: views.tokens,
+                robot_poses,
+                laser_frames,
             },
         )
     }

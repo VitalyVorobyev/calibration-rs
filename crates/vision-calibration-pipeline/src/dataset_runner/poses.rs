@@ -410,42 +410,12 @@ pub(crate) fn match_poses_to_tokens(
                 .collect()
         }
         PosePairing::SharedFilenameToken { .. } => {
-            if spec
-                .robot_poses
-                .as_ref()
-                .and_then(|s| s.columns.as_ref())
-                .is_none_or(|c| c.pose_id.is_none())
-            {
-                return Err(RunError::AskUser {
-                    field: "robot_poses.columns.pose_id".into(),
-                    prompt: "shared_filename_token pairing needs a pose_id column mapping \
-                             so each pose row can be matched to its view token."
-                        .into(),
-                    suggestions: vec![],
-                });
-            }
-            // Collecting straight into a HashMap would silently keep only
-            // the last row for a repeated pose_id, attaching an arbitrary
-            // pose to the matching view. A duplicate id is an ambiguous
-            // manifest, so reject it up front like a missing token.
-            let mut by_id: std::collections::HashMap<&str, &ParsedPose> =
-                std::collections::HashMap::with_capacity(poses.len());
-            for pose in poses {
-                if let Some(id) = pose.id.as_deref()
-                    && by_id.insert(id, pose).is_some()
-                {
-                    return Err(RunError::PairingTokenMismatch {
-                        message: format!(
-                            "duplicate pose_id {id:?} in the robot-pose table; each \
-                             pose_id must be unique so views pair unambiguously"
-                        ),
-                    });
-                }
-            }
+            require_pose_id_column(spec)?;
+            let by_id = poses_by_id(poses)?;
             tokens
                 .iter()
                 .map(|token| {
-                    let pose = by_id.get(token.as_str()).ok_or_else(|| {
+                    let index = by_id.get(token.as_str()).ok_or_else(|| {
                         RunError::PairingTokenMismatch {
                             message: format!(
                                 "no pose row with pose_id {token:?} (the cameras produced a \
@@ -453,7 +423,7 @@ pub(crate) fn match_poses_to_tokens(
                             ),
                         }
                     })?;
-                    Ok(pose.base_se3_gripper)
+                    Ok(poses[*index].base_se3_gripper)
                 })
                 .collect()
         }
@@ -462,6 +432,53 @@ pub(crate) fn match_poses_to_tokens(
             value: format!("{other:?}"),
         }),
     }
+}
+
+/// `shared_filename_token` pairing of robot poses matches each view token
+/// to a pose's `pose_id` column: without a mapping for it the pairing is an
+/// open question ([`RunError::AskUser`]).
+pub(crate) fn require_pose_id_column(spec: &DatasetSpec) -> Result<(), RunError> {
+    if spec
+        .robot_poses
+        .as_ref()
+        .and_then(|s| s.columns.as_ref())
+        .is_none_or(|c| c.pose_id.is_none())
+    {
+        return Err(RunError::AskUser {
+            field: "robot_poses.columns.pose_id".into(),
+            prompt: "shared_filename_token pairing needs a pose_id column mapping \
+                     so each pose row can be matched to its view token."
+                .into(),
+            suggestions: vec![],
+        });
+    }
+    Ok(())
+}
+
+/// Each pose's index in `poses` by its `pose_id`; a pose without one is
+/// left out.
+///
+/// Collecting straight into a map would silently keep only the last row for
+/// a repeated pose_id, attaching an arbitrary pose to the matching view. A
+/// duplicate id is an ambiguous manifest, so it is refused
+/// ([`RunError::PairingTokenMismatch`]) like a missing token.
+pub(crate) fn poses_by_id(
+    poses: &[ParsedPose],
+) -> Result<std::collections::HashMap<&str, usize>, RunError> {
+    let mut by_id = std::collections::HashMap::with_capacity(poses.len());
+    for (index, pose) in poses.iter().enumerate() {
+        if let Some(id) = pose.id.as_deref()
+            && by_id.insert(id, index).is_some()
+        {
+            return Err(RunError::PairingTokenMismatch {
+                message: format!(
+                    "duplicate pose_id {id:?} in the robot-pose table; each \
+                     pose_id must be unique so views pair unambiguously"
+                ),
+            });
+        }
+    }
+    Ok(by_id)
 }
 
 /// Parse one headerless `rowmajor4x4` line: 16 whitespace-separated
