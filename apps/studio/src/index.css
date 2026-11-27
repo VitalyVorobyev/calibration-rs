@@ -21,7 +21,7 @@
    its content class (the label and its hint stay together over it), not of the
    column. The form has no width option, so the rule is here. */
 [data-columns] label:has(> input[type="number"]) {
-  width: 11rem;
+  width: 14rem;
   max-width: 100%;
   align-self: flex-start;
 }

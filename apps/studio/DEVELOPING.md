@@ -210,8 +210,9 @@ while a project's run is opening) over queries of the typed client.
   its own controls (`controls`) and what the map says (`build` in
   `DistortionTab`, `SigmaTab`, `ResidualMapPanel`); `MapPanel` keeps the last
   plane of the camera while the next loads, so the viewer keeps its choices.
-  The pure rules, each tested, are `mapModel.ts` (domain: 99.5th percentile
-  rounded up to 1/2/5·10ⁿ; node geometry; readout; arrows; the significance
+  The pure rules, each tested, are `mapModel.ts` (domain: `lib/colorRange.ts`,
+  the data's largest value, or the 99.5th percentile when a few lie far above,
+  rounded up to two significant digits; node geometry; readout; arrows; the significance
   mask; peaks), `viewerModel.ts` (colour map: viridis, inferno over an image,
   blue-orange for a signed quantity; iso-line step; legend markers) and
   `mapText.ts` (the statements). A significance test the plane lacks (too few
@@ -286,8 +287,8 @@ dir, id }`); there is no "active export".
   in `_unresolved` and blocks a run), of a manifest file (referenced, never
   written), or a Quick Start sample (`fetch_sample` downloads it into the
   samples folder and makes that folder a project referencing its manifest).
-  A folder that already holds a project is opened instead. The Run
-  workspace still uses these; the Library and the project menu use the
+  A folder that already holds a project is opened instead. The Library and
+  the project menu use the
   dialogs below.
 
 **The Library and the project dialogs.** `screens/library/` is the Library:
@@ -350,9 +351,13 @@ image or features by their `world_xyz` within the library's micrometre; counts;
 notes). Overlay ids: a feature is its index in `detail.features`, a marker
 `m<n>`, an edge bit `e<n>`, a rejected candidate `r<n>`, a rejected marker
 `x<n>`. The stage is `StagePane` (`DetectionLayers` draws the accepted layer
-`acc-*`, the dimmed rejected layer `rej-*`, the excluded crosses and the ring
-covariance ellipses); `PickSurface` is the one press target (`useStageHitTest`:
-a press on an accepted feature picks it, `⇧`-drag boxes, anything else pans).
+`acc-*`, the dimmed rejected layer `rej-*`, and the ring covariance ellipses; an
+excluded feature is `excluded` and a PuzzleBoard corner off the master pattern
+`flagged` on the overlay's own features, which draws the dimming, the cross
+and the ring); `PickSurface` is the one press target (`useStageHitTest`: a
+press on an accepted feature picks it; any other press goes to `PointMarquee`,
+which boxes on a `⇧`-drag, adds with `⌘` as well and cancels on `Esc`, else
+pans).
 Picking is `usePicking.ts` (state keyed by image and shown detection, so
 another image starts clean without an effect). Every exclusion is one
 `save_project` through `useExclusions.ts` (`changeExclusions`, `undoExclusion`
@@ -661,8 +666,10 @@ no app-local component kit.
 - **Lint.** `.oxlintrc.json` turns on `vitavision/tokens-only` from
   `@vitavision/config-oxlint` for `src/`: no raw Tailwind palette classes
   (`bg-slate-500`) and no hex literals. The only exemptions are data-colour
-  files listed there with their reason (the residual colour ramp in
-  `lib/errorColors.ts`, the per-laser palette in `LaserTargetCuts.tsx`).
+  files listed there with their reason (the per-laser palette in
+  `LaserTargetCuts.tsx`). The frame overlay's colours are `lib/errorColors.ts`:
+  the charts package's colour map (the residual map's, `lib/colorRange.ts`) over
+  a range fitted to the run, with a `ColormapLegend` of that range.
 
 `components/FrameCanvas.tsx` is the 2D frame viewer: an `ImageStage` from
 [`@vitavision/stage2d`](https://github.com/VitalyVorobyev/lab-ui/tree/main/packages/stage2d)

@@ -300,7 +300,7 @@ export function LibraryScreen() {
                       {filtering ? "No project matches the search." : "No project here."}
                     </Empty>
                   ) : (
-                    <div className="shrink-0 overflow-hidden rounded-panel border border-line bg-surface">
+                    <div className="shrink-0 overflow-x-auto rounded-panel border border-line bg-surface">
                       <ProjectTable
                         rows={tableRows}
                         roots={roots}

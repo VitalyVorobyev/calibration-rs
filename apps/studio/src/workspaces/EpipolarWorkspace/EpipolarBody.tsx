@@ -193,7 +193,7 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
       <ViewerToolbar label="Epipolar display">
         {numPoses > 0 && (
-          <ToolbarGroup label="Pose">
+          <ToolbarGroup label="Target">
             <PoseStepper
               poseValues={poseIndices}
               selectedPose={selectedPose}

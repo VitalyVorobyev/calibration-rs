@@ -170,7 +170,7 @@ export function DepthWorkspace() {
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
       <ViewerToolbar label="Depth display">
-        <ToolbarGroup label="Pose">
+        <ToolbarGroup label="Target">
           <PoseStepper
             poseValues={poseValues}
             selectedPose={selectedPose}

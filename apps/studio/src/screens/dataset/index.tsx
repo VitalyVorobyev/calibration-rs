@@ -90,7 +90,7 @@ function DatasetBody({ project }: { project: ProjectView }) {
 
   return (
     <DensityProvider value="compact">
-      <div className="grid h-full min-h-0 grid-cols-[minmax(21rem,26rem)_minmax(0,1fr)_minmax(17rem,22rem)] gap-3">
+      <div className="grid h-full min-h-0 grid-cols-[minmax(19rem,26rem)_minmax(20rem,1fr)_minmax(16rem,22rem)] gap-3">
         <section
           aria-label="Description of the dataset"
           className="flex min-h-0 flex-col overflow-hidden rounded-panel border border-line bg-surface"

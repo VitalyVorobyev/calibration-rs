@@ -181,7 +181,7 @@ function DetectBody({ project }: { project: ProjectView }) {
 
   return (
     <DensityProvider value="compact">
-      <div className="grid h-full min-h-0 grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)_minmax(20rem,26rem)] gap-3">
+      <div className="grid h-full min-h-0 grid-cols-[minmax(15rem,22rem)_minmax(24rem,1fr)_minmax(18rem,24rem)] gap-3">
         <section
           aria-label="Images"
           className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-panel border border-line bg-surface p-3"

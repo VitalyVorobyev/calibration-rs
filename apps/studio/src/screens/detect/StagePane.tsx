@@ -11,7 +11,7 @@ import {
 import type { TargetHit, TargetId } from "@vitavision/overlays";
 import { Button, Callout, Empty, ErrorBox } from "@vitavision/ui";
 import { Ban, ScanSearch } from "lucide-react";
-import { useMemo, useState, type Ref } from "react";
+import { useMemo, useState, type ReactNode, type Ref } from "react";
 import { api } from "../../api";
 import type { DetectionDetail, DetectionOverview } from "../../api/generated/types";
 import { useImageSize } from "../../hooks/useImageSize";
@@ -21,6 +21,12 @@ import { DEFAULT_LAYERS, LAYER_MENU, type LayerState } from "./layers";
 import { PickSurface } from "./PickSurface";
 import type { Cell } from "./cell";
 import type { RejectedItem } from "./overlayModel";
+
+/** A callout over the stage: the stage is dark in both themes, so the
+ * callout's translucent tone sits on a surface of its own. */
+function StageNote({ children }: { children: ReactNode }) {
+  return <div className="rounded-panel bg-surface shadow-sm">{children}</div>;
+}
 
 /** The selected image in a zoomable stage with the detection over it, and
  * what to say when there is nothing to draw: no image, an image that does
@@ -124,38 +130,46 @@ export function StagePane({
   const banner = (
     <div className="flex max-w-[22rem] flex-col gap-2">
       {imageExcluded && (
-        <Callout tone="warning" title="Excluded from calibration">
-          <span className="inline-flex items-center gap-1.5">
-            <Ban aria-hidden className="size-3.5" />
-            This image is left out of every run. Its features stay drawn so they can be
-            found.
-          </span>
-        </Callout>
+        <StageNote>
+          <Callout tone="warning" title="Excluded from calibration">
+            <span className="inline-flex items-center gap-1.5">
+              <Ban aria-hidden className="size-3.5" />
+              This image is left out of every run. Its features stay drawn so they can be
+              found.
+            </span>
+          </Callout>
+        </StageNote>
       )}
       {needsDetect && (
-        <Callout
-          tone="info"
-          title="Not detected yet"
-          actions={
-            <Button size="sm" disabled={readOnly} onClick={onDetect}>
-              <ScanSearch aria-hidden className="size-3.5" />
-              Detect this image
-            </Button>
-          }
-        >
-          This image has no detection with the project's detector settings. Detecting it
-          stores the result with the others.
-        </Callout>
+        <StageNote>
+          <Callout
+            tone="info"
+            title="Not detected yet"
+            actions={
+              <Button size="sm" disabled={readOnly} onClick={onDetect}>
+                <ScanSearch aria-hidden className="size-3.5" />
+                Detect this image
+              </Button>
+            }
+          >
+            This image has no detection with the project's detector settings. Detecting it
+            stores the result with the others.
+          </Callout>
+        </StageNote>
       )}
       {detecting && detail.loading && shown === null && (
-        <Callout tone="info" title="Detecting…">
-          Reading the detection of this image.
-        </Callout>
+        <StageNote>
+          <Callout tone="info" title="Detecting…">
+            Reading the detection of this image.
+          </Callout>
+        </StageNote>
       )}
       {detail.error && shown === null && (
-        <Callout tone="error" title="The detection failed">
-          {detail.error.message}
-        </Callout>
+        <StageNote>
+          <Callout tone="error" title="The detection failed">
+            {detail.error.message}
+          </Callout>
+        </StageNote>
       )}
     </div>
   );

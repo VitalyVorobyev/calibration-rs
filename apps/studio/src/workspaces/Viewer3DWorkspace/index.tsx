@@ -91,7 +91,7 @@ export function Viewer3DWorkspace() {
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <ViewerToolbar label="Scene display">
         {numPoses > 0 && (
-          <ToolbarGroup label="Pose">
+          <ToolbarGroup label="Target">
             <PoseStepper
               poseValues={poseIndices}
               selectedPose={safePose}
