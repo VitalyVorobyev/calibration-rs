@@ -212,7 +212,11 @@ Each model follows AGENTS.md §10 (a camera model).
   `MinRelDecrease` (1e-5) before its minimum: restarted from its own
   result it moves 0.04-0.05 sigma in a camera parameter and most of a
   sigma in a mount, and keeps drifting on further restarts (0.039, 0.050,
-  0.053 sigma). Stated sigmas assume the minimum was reached. Measure what
+  0.053 sigma). The rig laser plane solve shows the same: restarted from
+  its own result on the joint synthetic scene, a plane's distance moves
+  1.56e-6, 0.89e-6, 0.50e-6, 0.29e-6 m (a ratio near 0.57 per restart,
+  about 3.6e-6 m in all, against 2.0e-5 m from the linear fit to the first
+  result). Stated sigmas assume the minimum was reached. Measure what
   a tighter rule costs in iterations on the suite, and whether the mount
   direction is a weak mode that needs scaling rather than more iterations.
   A change of the default moves numbers: opt-in until measured.
