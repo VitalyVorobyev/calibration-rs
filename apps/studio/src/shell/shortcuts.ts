@@ -24,6 +24,7 @@ export const GLOBAL_SHORTCUTS: readonly ShortcutGroup[] = [
     title: "Project",
     shortcuts: [
       { keys: ["⌘S"], description: "Save the project's unsaved edits" },
+      { keys: ["⌘↵"], description: "Calibrate: run with the editor's parameters" },
       { keys: ["?"], description: "This list" },
     ],
   },

@@ -54,7 +54,11 @@ describe("errorMessages", () => {
 describe("a failed calibration", () => {
   it("says where it stopped, from the last report", () => {
     expect(stageOf({ kind: "detection", done: 3, total: 9 })).toBe(
-      "while detecting the images",
+      "while detecting the images (3 of 9)",
+    );
+    // The last count reaching the total: what failed came after detection.
+    expect(stageOf({ kind: "detection", done: 9, total: 9 })).toBe(
+      "after detecting the images",
     );
     expect(stageOf({ kind: "iteration", iter: 12 })).toBe("while solving (iteration 12)");
     expect(stageOf({ kind: "step", name: "rig init" })).toBe('in the step "rig init"');

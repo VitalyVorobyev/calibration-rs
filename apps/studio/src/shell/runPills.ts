@@ -4,12 +4,8 @@
  * them. */
 import type { Tone } from "@vitavision/ui";
 import type { ProjectDigest, RunInfo, Verdict } from "../api/generated/types";
-import {
-  runStateName,
-  runVerdict,
-  staleParts,
-  type RunStateName,
-} from "../project/projectModel";
+import { runStateName, runVerdict, type RunStateName } from "../project/projectModel";
+import { staleSince } from "../project/runRows";
 
 export interface Pill {
   label: string;
@@ -47,13 +43,16 @@ const PART_WORD: Record<keyof ProjectDigest, string> = {
   quality: "quality thresholds",
 };
 
+/** The pills of ;  is the project's own configuration
+ * changes, so a run's settings of its own are not called stale. */
 export function runPills(
   run: RunInfo,
   current: ProjectDigest | null | undefined,
+  projectPatch?: unknown,
 ): RunPills {
   const name = runStateName(run);
   const verdict = runVerdict(run);
-  const parts = staleParts(run, current);
+  const parts = staleSince(run, current, projectPatch);
   const title = STATE_TITLE[name];
   return {
     state: {

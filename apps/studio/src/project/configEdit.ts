@@ -101,6 +101,11 @@ export function shortValue(value: unknown, limit = 28): string {
   else if (typeof value === "number" || typeof value === "boolean") text = String(value);
   else if (Array.isArray(value) && value.every((v) => typeof v === "string"))
     text = value.length === 0 ? "none" : value.join(" ");
+  else if (Array.isArray(value) && value.some((v) => typeof v === "object" && v !== null))
+    text =
+      value.length === 0
+        ? "none"
+        : `${value.length} item${value.length === 1 ? "" : "s"}`;
   else text = JSON.stringify(value) ?? "";
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }

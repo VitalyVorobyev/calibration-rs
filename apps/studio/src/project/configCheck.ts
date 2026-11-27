@@ -43,12 +43,25 @@ export function tidy(message: string): string {
  * report (`detection`, `step`, `iteration`); `null` when it sent none. */
 export function stageOf(event: unknown): string | null {
   if (typeof event !== "object" || event === null) return null;
-  const e = event as { kind?: unknown; name?: unknown; iter?: unknown };
+  const e = event as {
+    kind?: unknown;
+    name?: unknown;
+    iter?: unknown;
+    done?: unknown;
+    total?: unknown;
+  };
+  // The last count reaching the total means the stage had finished: what
+  // failed came after it (screening the detections, the first solve step).
+  const finished = e.done !== undefined && e.done === e.total;
   switch (e.kind) {
     case "detection":
-      return "while detecting the images";
+      return finished
+        ? "after detecting the images"
+        : `while detecting the images (${String(e.done)} of ${String(e.total)})`;
     case "laser_extraction":
-      return "while extracting the laser line";
+      return finished
+        ? "after extracting the laser line"
+        : "while extracting the laser line";
     case "step":
       return typeof e.name === "string" ? `in the step "${e.name}"` : null;
     case "iteration":
