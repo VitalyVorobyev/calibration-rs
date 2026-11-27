@@ -646,7 +646,9 @@ mod tests {
         // A fresh subscriber hears of the running job at once.
         let fresh = ctx.events.subscribe(None, || ctx.jobs.live_events());
         let first = fresh.events.recv().unwrap();
-        let EventBody::Job(event) = &first.body;
+        let EventBody::Job(event) = &first.body else {
+            panic!("a job event");
+        };
         assert_eq!(
             (event.id.as_str(), &event.state),
             (job.id.as_str(), &JobState::Running)
@@ -657,7 +659,9 @@ mod tests {
         let states: Vec<_> = rest
             .iter()
             .map(|e| {
-                let EventBody::Job(j) = &e.body;
+                let EventBody::Job(j) = &e.body else {
+                    panic!("a job event");
+                };
                 (j.state.clone(), j.event.clone())
             })
             .collect();

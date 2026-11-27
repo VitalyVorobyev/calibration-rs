@@ -1,6 +1,6 @@
 # Inspecting Results
 
-The four result workspaces work on the currently loaded export. Load one with **Open Export…** in the top bar (any `*Export.json` produced by a calibration session, with `diagnostics.image_manifest` populated), or arrive with one from a run. The viewer reads the export kind from its `kind` field (planar, rig hand-eye, rig plus laserline, ...) and shows the matching header label. It works for all seven export kinds, single-camera or rig, with or without a laser stage.
+The four result workspaces work on the run chosen in the open project's panel, or the one a calibration just wrote. An export calibrated elsewhere (any `*Export.json` produced by a calibration session, with `diagnostics.image_manifest` populated, or a `vcal run -o` folder) joins the project as a run with **Import Export…** in the top bar. The viewer reads the export kind from its `kind` field (planar, rig hand-eye, rig plus laserline, ...) and shows the matching header label. It works for all seven export kinds, single-camera or rig, with or without a laser stage.
 
 ## Diagnose
 
@@ -29,6 +29,6 @@ Click a frustum to select a camera and see its intrinsics and its pose relative 
 
 ## Walkthrough: Load an Export into Diagnose
 
-1. Click **Open Export…** in the top bar.
-2. Pick any `*Export.json` produced by a calibration session, from a Run or written by `session.export()` in your own code with `diagnostics.image_manifest` populated.
+1. Open the project the export belongs to, then click **Import Export…** in the top bar.
+2. Pick any `*Export.json` produced by a calibration session, written by `session.export()` in your own code with `diagnostics.image_manifest` populated, or the `calibration.json` of `vcal run -o`; it becomes the project's next run and opens.
 3. Diagnose infers the export kind from the JSON and shows the right header label. Step through frames with the arrow keys or the steppers.

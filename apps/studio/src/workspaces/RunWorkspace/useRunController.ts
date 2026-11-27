@@ -1,32 +1,24 @@
-/** Runs the current setup and follows it to a terminal state. A successful
- * run with a project open is saved into the project and reopened from its
- * `export.json`; without a project the export goes straight to the viewers.
- * Either way the app then routes to Diagnose. */
-import { toast } from "@vitavision/ui";
+/** Runs the open project as the back end's `calibrate` job and follows it
+ * to a terminal state. Unsaved edits are saved first (the project on disk
+ * is what runs); the run the job writes is listed with the project's runs,
+ * shown in the viewers, and the app routes to Diagnose. */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { isCancelled, type Job } from "../../api";
-import {
-  startRun,
-  type RunProgress,
-  type RunResponse,
-  type RunSuccess,
-} from "../../lib/runCalibration";
-import { runExportPath } from "../../project/projectApi";
+import { api, type Job } from "../../api";
+import type { Progress, RunInfo } from "../../api/generated/types";
+import { isDirty, useDraft } from "../../project/draftStore";
 import { useProject } from "../../project/projectStore";
-import { useStore } from "../../store";
-import { topologyOf, useRunSetup } from "../../store/runSetup";
-import { newRunId, statusFromResponse, withProgress, type RunStatus } from "./runStatus";
+import { newRunId, statusFromError, withProgress, type RunStatus } from "./runStatus";
 
 /** How long the success banner shows before the hand-off to Diagnose. */
 const HANDOFF_MS = 600;
 
 /** The run in flight, if any. Module-scoped so it survives the workspace
  * unmounting and remounting: a second run cannot start while the first is
- * still saving or loading its result. */
+ * still running or loading its result. */
 let activeRunId: string | null = null;
 /** Its job, once the back end has queued it. */
-let activeJob: Job<RunProgress, RunResponse> | null = null;
+let activeJob: Job<Progress, RunInfo> | null = null;
 /** Cancel was asked for before the job was queued. */
 let cancelWanted = false;
 
@@ -55,20 +47,11 @@ export function useRunController(): RunController {
 
   const run = async () => {
     if (activeRunId !== null) return;
-    const { manifest, config, manifestDir } = useRunSetup.getState();
-    if (!manifestDir) {
+    if (!useProject.getState().project) {
       setStatus({
         kind: "error",
-        category: "no_dir",
-        message: "Set a dataset folder first (pick a preset or use the folder button).",
-      });
-      return;
-    }
-    if (config === null) {
-      setStatus({
-        kind: "error",
-        category: "no_config",
-        message: "The calibration config has not loaded from the back end.",
+        category: "no_project",
+        message: "Open or create a project first: a calibration runs on a project.",
       });
       return;
     }
@@ -89,32 +72,40 @@ export function useRunController(): RunController {
       cancelRequested: false,
     });
     try {
-      const job = await startRun({ manifest, config, manifestDir });
+      // The project on disk runs: unsaved edits are saved first.
+      if (isDirty(useDraft.getState()) && !(await useDraft.getState().save())) {
+        setStatus({
+          kind: "error",
+          category: "save",
+          message:
+            useProject.getState().error?.message ?? "The project could not be saved.",
+        });
+        return;
+      }
+      const project = useProject.getState().project;
+      if (!project) return;
+      const job = await api.jobs.calibrate({ dir: project.dir });
       activeJob = job;
       if (cancelWanted) void job.cancel().catch(() => {});
-      job.onEvent((progress) =>
-        // Only advance the stage if this run is still the active one
-        // (a stale event must not resurrect a finished run).
+      job.onEvent((report) =>
+        // Only advance if this run is still the active one (a stale event
+        // must not resurrect a finished run).
         setStatus((prev) =>
           prev.kind === "running" && prev.runId === runId
-            ? withProgress(prev, progress)
+            ? withProgress(prev, report)
             : prev,
         ),
       );
-      let response: RunResponse;
+      let written: RunInfo;
       try {
-        response = await job.result;
+        written = await job.result;
       } catch (e) {
-        if (!isCancelled(e)) throw e;
-        setStatus({ kind: "cancelled" });
+        setStatus(statusFromError(e));
         return;
       }
-      if (response.kind !== "ok") {
-        setStatus(statusFromResponse(response));
-        return;
-      }
-      const savedAs = await deliver(response, { manifest, config, manifestDir });
-      setStatus(statusFromResponse(response, savedAs));
+      await useProject.getState().refreshRuns();
+      await useProject.getState().openRun(written.id);
+      setStatus({ kind: "ok", run: written });
       // The user left the Run workspace meanwhile: no hand-off.
       if (!mountedRef.current) return;
       handoffTimerRef.current = setTimeout(() => {
@@ -122,7 +113,7 @@ export function useRunController(): RunController {
         void navigate("/diagnose");
       }, HANDOFF_MS);
     } catch (e) {
-      setStatus({ kind: "error", category: "ipc", message: String(e) });
+      setStatus(statusFromError(e));
     } finally {
       if (activeRunId === runId) {
         activeRunId = null;
@@ -141,46 +132,9 @@ export function useRunController(): RunController {
       return;
     }
     void activeJob.cancel().catch(() => {
-      /* benign — the run may have finished between click and IPC */
+      /* benign — the run may have finished between click and the request */
     });
   };
 
   return { status, setStatus, run, cancel };
-}
-
-/** Hand a successful run's export to the viewers: saved into the open
- * project and reopened from disk, or held in memory without a project (or
- * when saving fails, which the project store reports). Returns the saved
- * run's name, if it was saved. */
-async function deliver(
-  response: RunSuccess,
-  setup: { manifest: unknown; config: unknown; manifestDir: string },
-): Promise<string | null> {
-  const project = useProject.getState().project;
-  if (project) {
-    const saved = await useProject.getState().saveRun({
-      manifest: setup.manifest,
-      config: setup.config,
-      export: response.export,
-      dataset_dir: setup.manifestDir,
-      diagnostics: {
-        topology: topologyOf(setup.manifest),
-        usable_views: response.usable_views,
-        total_views: response.total_views,
-        duration_ms: response.duration_ms,
-        cache_used: response.cache_used,
-      },
-    });
-    if (saved) {
-      await useStore.getState().loadExport(runExportPath(project.dir, saved.name));
-      return saved.name;
-    }
-    toast({
-      title: "The run was not saved",
-      description: "It is shown, but not in the project.",
-      tone: "warn",
-    });
-  }
-  useStore.getState().acceptLiveRunExport(response.export, setup.manifestDir);
-  return null;
 }

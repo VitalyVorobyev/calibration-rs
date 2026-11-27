@@ -119,7 +119,8 @@ export function DepthWorkspace() {
   const canCompute = frameA != null && frameB != null && cameraA !== cameraB && !loading;
 
   const compute = async () => {
-    if (!frameA?.abs_path || !frameB?.abs_path) return;
+    const named = useStore.getState().run;
+    if (!frameA?.abs_path || !frameB?.abs_path || named === null) return;
     const seq = ++requestSeqRef.current;
     const key = selectionKey;
     setLoading(true);
@@ -129,6 +130,7 @@ export function DepthWorkspace() {
         : { key, result: null, error: null },
     );
     const args = {
+      run: named,
       path_a: frameA.abs_path,
       path_b: frameB.abs_path,
       cam_a: cameraA,

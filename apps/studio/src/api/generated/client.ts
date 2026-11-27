@@ -17,20 +17,24 @@ export interface Commands {
   recent_projects: { args: T.RecentProjectsArgs; reply: T.RecentProjectsReply };
   forget_recent: { args: T.ForgetRecentArgs; reply: T.ForgetRecentReply };
   list_dir: { args: T.ListDirArgs; reply: T.DirListing };
-  create_project: { args: T.CreateProjectArgs; reply: T.ProjectInfo };
-  open_project: { args: T.OpenProjectArgs; reply: T.ProjectInfo };
-  save_project_manifest: {
-    args: T.SaveProjectManifestArgs;
-    reply: T.SaveProjectManifestReply;
-  };
-  save_project_run: { args: T.SaveProjectRunArgs; reply: T.RunSummary };
+  read_manifest: { args: T.ReadManifestArgs; reply: T.DatasetSpec };
+  sniff_folder: { args: T.SniffFolderArgs; reply: T.SniffedFolder };
   config_form: { args: T.ConfigFormArgs; reply: T.FormSchema };
   dataset_form: { args: T.DatasetFormArgs; reply: T.FormSchema };
   resolve_config: { args: T.ResolveConfigArgs; reply: T.ResolveConfigReply };
-  read_manifest: { args: T.ReadManifestArgs; reply: T.DatasetSpec };
-  sniff_folder: { args: T.SniffFolderArgs; reply: T.DatasetSpec };
-  load_export: { args: T.LoadExportArgs; reply: T.LoadExportResult };
-  set_active_export: { args: T.SetActiveExportArgs; reply: T.SetActiveExportReply };
+  config_patch: { args: T.ConfigPatchArgs; reply: T.ConfigPatch };
+  scan_library: { args: T.ScanLibraryArgs; reply: T.LibraryScan };
+  open_project: { args: T.OpenProjectArgs; reply: T.ProjectView };
+  create_project: { args: T.CreateProjectArgs; reply: T.ProjectView };
+  save_project: { args: T.SaveProjectArgs; reply: T.ProjectView };
+  project_views: { args: T.ProjectViewsArgs; reply: T.ProjectViews };
+  list_runs: { args: T.ListRunsArgs; reply: T.ListRunsReply };
+  set_run_notes: { args: T.SetRunNotesArgs; reply: T.RunInfo };
+  delete_run: { args: T.DeleteRunArgs; reply: T.DeleteRunReply };
+  import_export: { args: T.ImportExportArgs; reply: T.RunInfo };
+  run_info: { args: T.RunInfoArgs; reply: T.RunInfo };
+  run_export: { args: T.RunExportArgs; reply: T.RunExport };
+  run_quality: { args: T.RunQualityArgs; reply: T.QualityReport };
   undistort_points: { args: T.UndistortPointsArgs; reply: T.UndistortPointsReply };
   epipolar_overlay: { args: T.EpipolarOverlayArgs; reply: T.EpipolarOverlay };
   epipolar_overlay_undistorted: {
@@ -55,13 +59,9 @@ export interface Jobs {
   fetch_sample: {
     args: T.FetchSampleArgs;
     event: T.FetchSampleEvent;
-    output: T.FetchSampleOutput;
+    output: T.SampleProject;
   };
-  run_calibration: {
-    args: T.RunCalibrationArgs;
-    event: T.RunProgress;
-    output: T.RunResponse;
-  };
+  calibrate: { args: T.CalibrateArgs; event: T.Progress; output: T.RunInfo };
   disparity: {
     args: T.DisparityArgs;
     event: T.DisparityEvent;
@@ -74,6 +74,7 @@ export interface Resources {
   image: T.ImageQuery;
   undistorted_image: T.UndistortedImageQuery;
   blob: T.BlobQuery;
+  report: T.ReportQuery;
 }
 
 /** The back end's API over `t`; `hub` follows its jobs. */
@@ -120,33 +121,20 @@ export function createClient(t: Transport, hub: JobHub) {
     listDir: (args: T.ListDirArgs): Promise<T.DirListing> =>
       t.invoke("list_dir", args) as Promise<T.DirListing>,
     /**
-     * Make the folder `dir` a project for the dataset in `dataset_dir`,
-     * described by `manifest`. Fails with `project_exists` when `dir` already
-     * holds one, and with `forbidden_path` when the manifest names a path
-     * outside the roots.
+     * Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
+     * otherwise.
      */
-    createProject: (args: T.CreateProjectArgs): Promise<T.ProjectInfo> =>
-      t.invoke("create_project", args) as Promise<T.ProjectInfo>,
+    readManifest: (args: T.ReadManifestArgs): Promise<T.DatasetSpec> =>
+      t.invoke("read_manifest", args) as Promise<T.DatasetSpec>,
     /**
-     * Open the project in `dir`; `not_a_project` for any other folder,
-     * `forbidden_path` when its dataset lies outside the roots. It becomes
-     * the most recent project.
+     * Infer a draft dataset manifest from the folder `folder` (the same
+     * inference as `vcal project init`): images grouped into cameras, a
+     * robot-pose file, a guessed topology. What cannot be determined is left
+     * at a placeholder and listed in `unresolved`; a run refuses the manifest
+     * until each is set and cleared from its `_unresolved`.
      */
-    openProject: (args: T.OpenProjectArgs): Promise<T.ProjectInfo> =>
-      t.invoke("open_project", args) as Promise<T.ProjectInfo>,
-    /**
-     * Replace the project's dataset manifest (`dataset.json`); every path it
-     * names must lie inside a root.
-     */
-    saveProjectManifest: (
-      args: T.SaveProjectManifestArgs,
-    ): Promise<T.SaveProjectManifestReply> =>
-      t.invoke("save_project_manifest", args) as Promise<T.SaveProjectManifestReply>,
-    /**
-     * Save a run as `runs/<name>/`; `run_exists` rather than overwrite one.
-     */
-    saveProjectRun: (args: T.SaveProjectRunArgs): Promise<T.RunSummary> =>
-      t.invoke("save_project_run", args) as Promise<T.RunSummary>,
+    sniffFolder: (args: T.SniffFolderArgs): Promise<T.SniffedFolder> =>
+      t.invoke("sniff_folder", args) as Promise<T.SniffedFolder>,
     /**
      * The config form of the workflow `topology`: the schema of its config
      * (`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's
@@ -169,42 +157,108 @@ export function createClient(t: Transport, hub: JobHub) {
     resolveConfig: (args: T.ResolveConfigArgs): Promise<T.ResolveConfigReply> =>
       t.invoke("resolve_config", args) as Promise<T.ResolveConfigReply>,
     /**
-     * Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
-     * otherwise.
+     * The configuration changes that make `config` (the workflow `topology`'s
+     * config object, as a form edits it) from the library's defaults: the
+     * fewest that do, as a project file stores them. The inverse of
+     * `resolve_config`; an invalid config is a `config` error.
      */
-    readManifest: (args: T.ReadManifestArgs): Promise<T.DatasetSpec> =>
-      t.invoke("read_manifest", args) as Promise<T.DatasetSpec>,
+    configPatch: (args: T.ConfigPatchArgs): Promise<T.ConfigPatch> =>
+      t.invoke("config_patch", args) as Promise<T.ConfigPatch>,
     /**
-     * Infer a dataset manifest from the folder `folder`: images grouped into
-     * cameras, a robot-pose file, a guessed topology. What cannot be
-     * determined is left at a placeholder and listed in the manifest's
-     * `_unresolved` (the same inference as `vcal init`).
+     * Every project under the root folders, with its runs; a folder or
+     * project that cannot be read is listed as a failure, never an error.
      */
-    sniffFolder: (args: T.SniffFolderArgs): Promise<T.DatasetSpec> =>
-      t.invoke("sniff_folder", args) as Promise<T.DatasetSpec>,
+    scanLibrary: (args: T.ScanLibraryArgs = {}): Promise<T.LibraryScan> =>
+      t.invoke("scan_library", args) as Promise<T.LibraryScan>,
     /**
-     * Read and parse the calibration export at `path` and check its schema
-     * version. It does not become active: the frontend validates it first and
-     * then calls `set_active_export`. Its images are read through the `image`
-     * resource, so they too must lie inside a root.
+     * Open the project in `dir`: its definition, the resolved dataset and
+     * configuration, the digests of its inputs and its runs. A version 1
+     * project of the app's earlier format opens as it is (it is migrated when
+     * saved). `not_a_project` for a folder without a project file,
+     * `forbidden_path` when the project names a data folder or manifest
+     * outside the roots. It becomes the most recent project. Opening again is
+     * how a client reloads a project: the back end keeps none open.
      */
-    loadExport: (args: T.LoadExportArgs): Promise<T.LoadExportResult> =>
-      t.invoke("load_export", args) as Promise<T.LoadExportResult>,
+    openProject: (args: T.OpenProjectArgs): Promise<T.ProjectView> =>
+      t.invoke("open_project", args) as Promise<T.ProjectView>,
     /**
-     * Make `export` the active export, the one every viewer command reads.
+     * Make the folder `dir` (created when missing, inside a root) a project of
+     * `spec`, written as `calibration-project.toml`. Every path the spec names
+     * must lie inside a root; `project_exists` when the folder already holds a
+     * project. It becomes the most recent project.
      */
-    setActiveExport: (args: T.SetActiveExportArgs): Promise<T.SetActiveExportReply> =>
-      t.invoke("set_active_export", args) as Promise<T.SetActiveExportReply>,
+    createProject: (args: T.CreateProjectArgs): Promise<T.ProjectView> =>
+      t.invoke("create_project", args) as Promise<T.ProjectView>,
     /**
-     * Map raw (distorted) pixels of `camera` into its undistorted pixel frame;
-     * `null` where back-projection has no finite ray.
+     * Replace the project's definition with `spec` and write it, in its
+     * format (a version 1 project becomes version 2). `revision` is the one
+     * `open_project` answered: when the file changed on disk since, nothing is
+     * written and the answer is `changed_on_disk` (open it again and apply the
+     * edit). Every path the spec names must lie inside a root.
+     */
+    saveProject: (args: T.SaveProjectArgs): Promise<T.ProjectView> =>
+      t.invoke("save_project", args) as Promise<T.ProjectView>,
+    /**
+     * The views the project's images pair into, without reading an image, and
+     * what is wrong with the project as a run would find it before detection:
+     * of the saved project, or of the draft `spec` when given (nothing is
+     * written). Each problem is a message with the field it is about.
+     */
+    projectViews: (args: T.ProjectViewsArgs): Promise<T.ProjectViews> =>
+      t.invoke("project_views", args) as Promise<T.ProjectViews>,
+    /**
+     * The project's runs (as `open_project` lists them).
+     */
+    listRuns: (args: T.ListRunsArgs): Promise<T.ListRunsReply> =>
+      t.invoke("list_runs", args) as Promise<T.ListRunsReply>,
+    /**
+     * Replace the notes (label, notes, star) of run `id`; empty notes remove
+     * them. Answers the run as listed after.
+     */
+    setRunNotes: (args: T.SetRunNotesArgs): Promise<T.RunInfo> =>
+      t.invoke("set_run_notes", args) as Promise<T.RunInfo>,
+    /**
+     * Delete run `id` with every file in it. Answers the runs left.
+     */
+    deleteRun: (args: T.DeleteRunArgs): Promise<T.DeleteRunReply> =>
+      t.invoke("delete_run", args) as Promise<T.DeleteRunReply>,
+    /**
+     * Add an export calibrated elsewhere to the project as its next run: an
+     * export file, a `vcal run -o` folder (its `calibration.json`) or a run
+     * folder (its `export.json`). `import_mismatch` for another workflow or
+     * camera count than the project's; the export, and every image its image
+     * manifest names, must lie inside a root.
+     */
+    importExport: (args: T.ImportExportArgs): Promise<T.RunInfo> =>
+      t.invoke("import_export", args) as Promise<T.RunInfo>,
+    /**
+     * A run's listing entry: its state (with the record of a run this library
+     * wrote) and its notes.
+     */
+    runInfo: (args: T.RunInfoArgs): Promise<T.RunInfo> =>
+      t.invoke("run_info", args) as Promise<T.RunInfo>,
+    /**
+     * A run's export, with the folder its image manifest's frames resolve
+     * against.
+     */
+    runExport: (args: T.RunExportArgs): Promise<T.RunExport> =>
+      t.invoke("run_export", args) as Promise<T.RunExport>,
+    /**
+     * A run's quality report; `not found` (`io`) for an imported export whose
+     * quality could not be assessed.
+     */
+    runQuality: (args: T.RunQualityArgs): Promise<T.QualityReport> =>
+      t.invoke("run_quality", args) as Promise<T.QualityReport>,
+    /**
+     * Map raw (distorted) pixels of `camera` of the run into its undistorted
+     * pixel frame; `null` where back-projection has no finite ray.
      */
     undistortPoints: (args: T.UndistortPointsArgs): Promise<T.UndistortPointsReply> =>
       t.invoke("undistort_points", args) as Promise<T.UndistortPointsReply>,
     /**
      * The epipolar polyline and epipole in camera `cam_b` (distorted pixels)
      * of the pixel `point_px` of camera `cam_a`, through each camera's full
-     * model.
+     * model of the run.
      */
     epipolarOverlay: (args: T.EpipolarOverlayArgs): Promise<T.EpipolarOverlay> =>
       t.invoke("epipolar_overlay", args) as Promise<T.EpipolarOverlay>,
@@ -218,7 +272,7 @@ export function createClient(t: Transport, hub: JobHub) {
     ): Promise<T.EpipolarOverlay> =>
       t.invoke("epipolar_overlay_undistorted", args) as Promise<T.EpipolarOverlay>,
     /**
-     * The value of each labelled parameter of the active export that is a
+     * The value of each labelled parameter of the run's export that is a
      * camera parameter, aligned with `labels`; `null` for poses and planes.
      */
     cameraParameterValues: (
@@ -226,8 +280,8 @@ export function createClient(t: Transport, hub: JobHub) {
     ): Promise<T.CameraParameterValuesReply> =>
       t.invoke("camera_parameter_values", args) as Promise<T.CameraParameterValuesReply>,
     /**
-     * The projection uncertainty of `camera` of the active export over an
-     * image of `image_width` × `image_height` pixels.
+     * The projection uncertainty of `camera` of the run over an image of
+     * `image_width` × `image_height` pixels.
      */
     projectionUncertainty: (
       args: T.ProjectionUncertaintyArgs,
@@ -253,17 +307,17 @@ export function createClient(t: Transport, hub: JobHub) {
       t.invoke("cancel_job", args) as Promise<T.JobInfo>,
     jobs: {
       /**
-       * Make the sample dataset `id` (one of the library's sample catalogue)
-       * available locally and answer the absolute path of its manifest. The
-       * files are downloaded into the back end's samples folder (always one of
-       * its roots), checked against their SHA-256 and reused later, so the app
-       * carries no dataset. A back end built without samples answers
-       * `invalid` (`server_info.samples` is false).
+       * Make the sample dataset `id` (one of `server_info.samples`) available
+       * as a project and answer its folder: the files are downloaded into the
+       * back end's samples folder (always one of its roots), checked against
+       * their SHA-256 and reused later, and the folder becomes a project
+       * referencing the sample's manifest (once; an existing project is kept
+       * with its runs). A back end built without samples answers `invalid`.
        */
       fetchSample: (
         args: T.FetchSampleArgs,
-      ): Promise<Job<T.FetchSampleEvent, T.FetchSampleOutput>> =>
-        startJob<T.FetchSampleEvent, T.FetchSampleOutput>(
+      ): Promise<Job<T.FetchSampleEvent, T.SampleProject>> =>
+        startJob<T.FetchSampleEvent, T.SampleProject>(
           t,
           hub,
           control,
@@ -271,19 +325,20 @@ export function createClient(t: Transport, hub: JobHub) {
           args,
         ),
       /**
-       * Run a calibration end to end: detection (cached), the solve and the
-       * export, reporting each stage and the library's reports within it. The
-       * folder `manifest_dir` is what the manifest's relative paths resolve
-       * against; every path the manifest names must lie inside a root. A
-       * successful run's export becomes the active export.
+       * Calibrate the project as it is on disk and write the run as its next
+       * `runs/run-NNN/` (export, quality report, record, the HTML report, and
+       * `notes` when given). `config_patch` changes the configuration for this
+       * run only, over the project's, and is recorded with it; `redetect`
+       * detects every image again instead of reading the detection cache. Every
+       * file the project names must lie inside a root. Its events are the
+       * library's progress reports; a cancelled run writes nothing and ends the
+       * job `cancelled`.
        */
-      runCalibration: (
-        args: T.RunCalibrationArgs,
-      ): Promise<Job<T.RunProgress, T.RunResponse>> =>
-        startJob<T.RunProgress, T.RunResponse>(t, hub, control, "run_calibration", args),
+      calibrate: (args: T.CalibrateArgs): Promise<Job<T.Progress, T.RunInfo>> =>
+        startJob<T.Progress, T.RunInfo>(t, hub, control, "calibrate", args),
       /**
        * A disparity map of the stereo pair `path_a` (camera `cam_a`) and
-       * `path_b` (camera `cam_b`) at `pose`: rectified from the active export and
+       * `path_b` (camera `cam_b`) at `pose`: rectified from the run's export and
        * dense-matched. The output names its fields as blobs: a value plane of
        * disparity, depth and the rectified left image, the point cloud, and the
        * rectified pair. The same request again answers from the blob store while
@@ -308,7 +363,7 @@ export function createClient(t: Transport, hub: JobHub) {
       image: (query: T.ImageQuery): string => t.resourceUrl("image", query),
       /**
        * The image at `path` rendered into `camera`'s undistorted pixel frame of
-       * the active export (a PNG), cropped to `roi` when given.
+       * the run's export (a PNG), cropped to `roi` when given.
        */
       undistortedImage: (query: T.UndistortedImageQuery): string =>
         t.resourceUrl("undistorted_image", query),
@@ -317,6 +372,12 @@ export function createClient(t: Transport, hub: JobHub) {
        * `blob_expired` once the store has evicted it: run the command again.
        */
       blob: (query: T.BlobQuery): string => t.resourceUrl("blob", query),
+      /**
+       * The run's page, `report.html` (written with every calibration this app
+       * runs), served sandboxed: its scripts run without access to the app.
+       * `io` when the run has none.
+       */
+      report: (query: T.ReportQuery): string => t.resourceUrl("report", query),
     },
   };
 }

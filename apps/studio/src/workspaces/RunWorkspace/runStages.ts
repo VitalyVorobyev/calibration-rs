@@ -1,20 +1,31 @@
 /** Pure logic for the Run workspace's stage-progress checklist.
  *
- * The runner (`src-tauri/src/run.rs`) announces three stages —
- * `detect` → `solve` → `export` — over the progress channel, with the
- * library's reports within them (each image detected, each calibration
- * step, each solver iteration). The UI shows the stages as a checklist and
- * the latest report beside the active one; this module derives both
- * without any React or Tauri dependency, so it is unit-testable in a plain
- * Node environment. */
-import type { Progress, RunStage } from "../../lib/runCalibration";
+ * A calibration job's events are the library's progress reports (each
+ * image detected, each calibration step, each solver iteration). The UI
+ * shows three stages — `detect` → `solve` → `export` — as a checklist, the
+ * stage of a report being its kind, and the latest report beside the
+ * active one; this module derives both without any React or transport
+ * dependency, so it is unit-testable in a plain Node environment. */
+import type { Progress } from "../../api/generated/types";
+
+export type { Progress };
+
+/** A stage of a run as the checklist shows it. */
+export type RunStage = "detect" | "solve" | "export";
+
+/** The stage a report belongs to: images are detected, the rest solves. */
+export function stageOf(report: Progress): RunStage {
+  return report.kind === "detection" || report.kind === "laser_extraction"
+    ? "detect"
+    : "solve";
+}
 
 export interface RunStageInfo {
   id: RunStage;
   label: string;
 }
 
-/** Canonical ordered stage list, mirroring `run.rs`'s `RunStage`. The
+/** Canonical ordered stage list. The
  * order is load-bearing: a stage is `done` once a later stage becomes
  * active. */
 export const RUN_STAGES: readonly RunStageInfo[] = [

@@ -144,6 +144,9 @@ fn http_reply(reply: &ResourceReply) -> Result<Response<Vec<u8>>, StudioError> {
     if let Some(range) = &reply.content_range {
         builder = builder.header(header::CONTENT_RANGE, range);
     }
+    if let Some(policy) = reply.content_security_policy {
+        builder = builder.header(header::CONTENT_SECURITY_POLICY, policy);
+    }
     builder
         .body(body)
         .map_err(|e| StudioError::internal(format!("build the response: {e}")))

@@ -9,7 +9,192 @@
  * An absolute path on the back end's machine, inside one of its root folders. The back end refuses any other.
  */
 export type UserPath = string;
-export type CameraParameterValuesReply = (number | null)[];
+/**
+ * The configuration of one calibration, tagged by the manifest topology it
+ * applies to.
+ *
+ * In JSON the variant is the `topology` field and the problem's config is
+ * the `config` field:
+ * `{"topology": "planar_intrinsics", "config": {...}}`.
+ */
+export type CalibrationConfig =
+  | {
+      config: PlanarIntrinsicsConfig;
+      topology: "planar_intrinsics";
+    }
+  | {
+      config: SingleCamHandeyeConfig;
+      topology: "single_cam_handeye";
+    }
+  | {
+      config: LaserlineDeviceConfig;
+      topology: "laserline_device";
+    }
+  | {
+      config: RigExtrinsicsConfig;
+      topology: "rig_extrinsics";
+    }
+  | {
+      config: RigHandeyeConfig;
+      topology: "rig_handeye";
+    }
+  | {
+      config: RigLaserlineDeviceConfig;
+      topology: "rig_laserline_device";
+    }
+  | {
+      config: RigHandeyeLaserlineConfig;
+      topology: "rig_handeye_laserline";
+    };
+/**
+ * Which distortion model a camera carries.
+ *
+ * `dim() == 0` means the camera has no distortion parameter block.
+ */
+export type DistortionKind =
+  | "none"
+  | "brown_conrady5"
+  | "rational8"
+  | "thin_prism9"
+  | "division1"
+  | "kannala_brandt4";
+/**
+ * Which projection model a camera uses.
+ */
+export type ProjectionKind = "pinhole" | "equidistant";
+/**
+ * Which sensor model a camera uses.
+ */
+export type SensorKind = "identity" | "scheimpflug";
+/**
+ * Robust loss applied to a residual block.
+ *
+ * Each residual block has its own loss; per-point robustification is achieved
+ * by using one residual block per observation.
+ */
+export type RobustLoss =
+  | {
+      kind: "none";
+    }
+  | {
+      kind: "huber";
+      /**
+       * Transition residual norm, in residual units (pixels for
+       * reprojection).
+       */
+      scale: number;
+    }
+  | {
+      kind: "cauchy";
+      /**
+       * Residual norm where down-weighting sets in, in residual units.
+       */
+      scale: number;
+    }
+  | {
+      kind: "arctan";
+      /**
+       * Transition in squared-residual units: down-weighting sets in near
+       * `‖r‖ ≈ √scale`.
+       */
+      scale: number;
+    };
+/**
+ * Which engine linearizes the problem.
+ *
+ * Both run the same Levenberg–Marquardt loop over the same residual
+ * kernels and reach the same minimizer; they differ in how they build the
+ * Jacobian and how they fold in a robust loss.
+ */
+export type SolverBackend = "tiny_solver" | "factrs";
+/**
+ * Hand-eye calibration mode.
+ *
+ * Specifies the transform chain used for hand-eye calibration.
+ */
+export type HandeyeMode = "eye_in_hand" | "eye_to_hand";
+/**
+ * The closed-form solver of a hand-eye initialization.
+ *
+ * All four need robot rotations about at least two non-parallel axes; they
+ * differ in how they weigh the views and in what they estimate jointly.
+ */
+export type HandeyeMethod = "tsai_lenz" | "park_martin" | "daniilidis" | "shah";
+/**
+ * Robot-pose refinement options for hand-eye bundle adjustment.
+ *
+ * Shared by `SingleCamHandeyeConfig`, `HandeyeOptimizeConfig`, and the joint
+ * rig+hand-eye+laser BA config (`JointOptimizeConfig`).
+ *
+ * [`Refine`](Self::Refine) gives every view's measured robot pose an se(3)
+ * correction in the gripper frame, `base_se3_gripper · exp(δ)`, under a
+ * zero-mean prior (see [`RobotPosePrior`]). [`Exact`](Self::Exact) takes the
+ * robot poses as exact. Serialized as `{"kind": "exact"}` or
+ * `{"kind": "refine", "rot_sigma": …, "trans_sigma": …, "estimate_sigma": …}`.
+ * The default is `Refine` with the default prior: robot pose errors are
+ * rarely below the corner noise, and taking them as exact pushes them into
+ * the camera parameters.
+ */
+export type RobotPoseConfig =
+  | {
+      kind: "exact";
+    }
+  | {
+      /**
+       * With `estimate_sigma`, leave corner noise correlated within views out
+       * of the estimated robot error. Each correction carries the pose-like
+       * part of its view's corner noise; when the residuals are correlated
+       * within views (a significant view scatter), that part is larger than
+       * the independent-noise model says, and the plain estimate counts the
+       * excess as the robot's. With this option the excess is taken out at
+       * the view scatter's scale, measured on the shared parameters.
+       *
+       * It helps where the correlation shifts a view's corners in patches,
+       * as a detector bias over a tile of the board does: there the plain
+       * estimate can be several times the robot's error and the hand-eye
+       * leans on the corners more than it should. Where the corrections do
+       * not resolve the remaining robot error (by two standard errors over
+       * the views), the estimate stays at the largest robot error they
+       * cannot tell from none; where the noise would explain more than the
+       * corrections hold, nothing is taken out and the estimate is the plain
+       * one. `robot_refinement.unresolved` names the parts of the estimate
+       * that are such upper bounds.
+       *
+       * Off by default: the scale comes from the shared parameters, and how
+       * far it holds for the poses has been measured only on synthetic
+       * single-camera scenes. Requires `estimate_sigma`.
+       */
+      discount_view_scatter?: boolean;
+      /**
+       * Estimate the robot's error from the corrections, starting from
+       * `rot_sigma` and `trans_sigma`: each prior's variance factor is
+       * estimated from the corrections and their redundancy, and the solve
+       * repeats until it settles. The export reports the estimate
+       * (`robot_refinement.sigma`). On by default: the stated accuracy of an
+       * arm is rarely its error in one calibration, and a prior that is too
+       * loose or too tight misstates the hand-eye and target standard
+       * deviations. Off, `rot_sigma` and `trans_sigma` are taken as the
+       * robot's true accuracy.
+       */
+      estimate_sigma: boolean;
+      kind: "refine";
+      /**
+       * Standard deviation of the tool's orientation error about each gripper
+       * axis (radians, > 0). Default 0.5°, a loose bound for an industrial
+       * arm.
+       */
+      rot_sigma: number;
+      /**
+       * Standard deviation of the tool's position error along each gripper
+       * axis (metres, > 0). Default 1 mm, a loose bound for an industrial
+       * arm.
+       */
+      trans_sigma: number;
+    };
+/**
+ * Type of laser plane residual to use.
+ */
+export type LaserlineResidualType = "point_to_plane" | "line_dist_normalized";
 /**
  * Serializable distortion model parameters.
  */
@@ -157,44 +342,6 @@ export type DistortionParams =
       type: "kannala_brandt4";
     };
 /**
- * Serializable projection model parameters.
- */
-export type ProjectionParams =
-  | {
-      type: "pinhole";
-    }
-  | {
-      type: "equidistant";
-    };
-/**
- * Serializable sensor model parameters.
- */
-export type SensorParams =
-  | {
-      type: "identity";
-    }
-  | {
-      /**
-       * Row-major homography matrix mapping normalized to sensor coordinates.
-       *
-       * @minItems 3
-       * @maxItems 3
-       */
-      h: [[number, number, number], [number, number, number], [number, number, number]];
-      type: "homography";
-    }
-  | {
-      /**
-       * Tilt around X axis in radians (alias: tau_x).
-       */
-      tilt_x: number;
-      /**
-       * Tilt around Y axis in radians (alias: tau_y).
-       */
-      tilt_y: number;
-      type: "scheimpflug";
-    };
-/**
  * How image paths for a camera are listed.
  */
 export type ImagePattern =
@@ -229,27 +376,6 @@ export type ImageNoiseSpec =
  * of the detector's corner strategy (see [`DetectorSpec`]).
  */
 export type CornerStrategySpec = "chess" | "radon";
-/**
- * The calibration problem a dataset is for, and the kind of an export.
- *
- * One value per problem type, serialized as its snake_case name
- * (`"planar_intrinsics"`, …). A manifest names it in its `topology` field,
- * which selects the problem a run dispatches to; every export carries it in
- * its `kind` field, so a consumer narrows on one value instead of probing
- * which fields are present. The tag is required on deserialize.
- *
- * A problem kind describes the data (how many cameras, robot poses, laser
- * images), not the camera model: a tilted (Scheimpflug) single camera is a
- * `planar_intrinsics` dataset whose calibration config names the sensor.
- */
-export type ProblemKind =
-  | "planar_intrinsics"
-  | "single_cam_handeye"
-  | "laserline_device"
-  | "rig_extrinsics"
-  | "rig_handeye"
-  | "rig_handeye_laserline"
-  | "rig_laserline_device";
 /**
  * Laser scan direction.
  */
@@ -467,8 +593,120 @@ export type RinggridCodingSpec =
  * lattice, which has the same JSON spelling.
  */
 export type RinggridLatticeSpec = "hex" | "rect";
-export type EntryKind = "dir" | "file";
-export type DisparityEvent = null;
+/**
+ * The calibration problem a dataset is for, and the kind of an export.
+ *
+ * One value per problem type, serialized as its snake_case name
+ * (`"planar_intrinsics"`, …). A manifest names it in its `topology` field,
+ * which selects the problem a run dispatches to; every export carries it in
+ * its `kind` field, so a consumer narrows on one value instead of probing
+ * which fields are present. The tag is required on deserialize.
+ *
+ * A problem kind describes the data (how many cameras, robot poses, laser
+ * images), not the camera model: a tilted (Scheimpflug) single camera is a
+ * `planar_intrinsics` dataset whose calibration config names the sensor.
+ */
+export type ProblemKind =
+  | "planar_intrinsics"
+  | "single_cam_handeye"
+  | "laserline_device"
+  | "rig_extrinsics"
+  | "rig_handeye"
+  | "rig_handeye_laserline"
+  | "rig_laserline_device";
+/**
+ * How an exclusion names a view.
+ *
+ * A view has no index that survives an image added to the dataset; its
+ * pairing token and its images do. Serialized as `{ token = "0012" }` or
+ * `{ image = "cam0/0012.png" }`.
+ */
+export type ViewRef =
+  | {
+      token: string;
+    }
+  | {
+      image: string;
+    };
+/**
+ * Why the runner left a target detection out of the calibration input.
+ *
+ * Serialized in `snake_case` (`"too_few_features"`, `"excluded"`, ...).
+ */
+export type RejectReason =
+  | "too_few_features"
+  | "partial_chessboard"
+  | "turned_chessboard"
+  | "ambiguous_chessboard_turn"
+  | "excluded";
+export type CameraParameterValuesReply = (number | null)[];
+/**
+ * Serializable projection model parameters.
+ */
+export type ProjectionParams =
+  | {
+      type: "pinhole";
+    }
+  | {
+      type: "equidistant";
+    };
+/**
+ * Serializable sensor model parameters.
+ */
+export type SensorParams =
+  | {
+      type: "identity";
+    }
+  | {
+      /**
+       * Row-major homography matrix mapping normalized to sensor coordinates.
+       *
+       * @minItems 3
+       * @maxItems 3
+       */
+      h: [[number, number, number], [number, number, number], [number, number, number]];
+      type: "homography";
+    }
+  | {
+      /**
+       * Tilt around X axis in radians (alias: tau_x).
+       */
+      tilt_x: number;
+      /**
+       * Tilt around Y axis in radians (alias: tau_y).
+       */
+      tilt_y: number;
+      type: "scheimpflug";
+    };
+/**
+ * What a check examines; [`assess`] describes each check.
+ */
+export type CheckKind =
+  | "observability"
+  | "convergence"
+  | "variance_factor"
+  | "projection_sigma"
+  | "feature_coverage"
+  | "view_outliers"
+  | "parameter_correlation"
+  | "covariance_linearity"
+  | "parameter_conditioning";
+/**
+ * The outcome of one check.
+ */
+export type CheckStatus = "pass" | "warn" | "fail" | "not_applicable";
+/**
+ * A project's configuration as it resolves.
+ */
+export type ConfigState =
+  | {
+      config: unknown;
+      kind: "ok";
+    }
+  | {
+      error: StudioError;
+      kind: "invalid";
+    };
 /**
  * The kinds of [`StudioError`].
  */
@@ -484,22 +722,92 @@ export type ErrorKind =
   | "roots_fixed"
   | "internal"
   | "not_a_project"
+  | "ambiguous_project"
   | "project_exists"
   | "unsupported_version"
-  | "invalid_run_name"
-  | "run_exists"
+  | "changed_on_disk"
   | "io"
   | "parse"
   | "manifest"
   | "config"
+  | "exclusion"
+  | "run_not_found"
+  | "import_mismatch"
+  | "needs_input"
+  | "detection"
+  | "calibration"
   | "invalid"
   | "cancelled";
 /**
+ * A manifest file's path, or the manifest.
+ */
+export type DatasetManifest = string | DatasetSpec;
+/**
+ * A project's dataset manifest as it resolves.
+ */
+export type DatasetState =
+  | {
+      kind: "ok";
+      spec: DatasetSpec;
+    }
+  | {
+      error: StudioError;
+      kind: "unreadable";
+    };
+/**
+ * What a run's files say.
+ */
+export type RunState =
+  | (RunRecord & {
+      kind: "recorded";
+    })
+  | (UnrecordedRun & {
+      kind: "unrecorded";
+    })
+  | {
+      kind: "unreadable";
+      /**
+       * Why.
+       */
+      message: string;
+    };
+/**
+ * Where a run's export came from.
+ */
+export type RunSource =
+  | (CalibratedRun & {
+      kind: "calibrated";
+    })
+  | {
+      /**
+       * The imported file's name (not its path).
+       */
+      file_name: string;
+      kind: "imported";
+    };
+/**
+ * The judgment of a result, or of one check.
+ *
+ * Ordered by severity: `Pass < Warn < Fail`.
+ */
+export type Verdict = "pass" | "warn" | "fail";
+export type DeleteRunReply = RunInfo[];
+export type EntryKind = "dir" | "file";
+export type DisparityEvent = null;
+/**
  * What happened.
  */
-export type EventBody = JobEvent & {
-  kind: "job";
-};
+export type EventBody =
+  | (JobEvent & {
+      kind: "job";
+    })
+  | {
+      /**
+       * The project folder.
+       */
+      dir: string;
+      kind: "project_changed";
+    };
 /**
  * Where a job is in its life.
  */
@@ -534,7 +842,6 @@ export type JobState =
  */
 export type FrameKind = "target" | "laser";
 export type FetchSampleEvent = null;
-export type FetchSampleOutput = string;
 export type ForgetRecentReply = string[];
 /**
  * The solution of a rig hand-eye calibration: the hand-eye of its mode and
@@ -658,6 +965,11 @@ export type UncertaintyUnavailable =
  */
 export type Show = "all" | "dirs";
 export type ListJobsReply = JobInfo[];
+export type ListRunsReply = RunInfo[];
+/**
+ * The unit of a measured value.
+ */
+export type Unit = "pixel" | "fraction" | "ratio" | "sigma" | "correlation";
 /**
  * What a long-running call reports to its observer.
  *
@@ -717,56 +1029,6 @@ export type ResolveConfigReply = unknown;
  */
 export type RobotSigmaParts = "rotation" | "translation" | "both";
 /**
- * Pipeline stage a run is currently executing. Within a stage the
- * library's own reports ([`Progress`]: each image detected, each
- * calibration step, each solver iteration) ride along in
- * [`RunProgress::report`].
- */
-export type RunStage = "detect" | "solve" | "export";
-/**
- * Tagged response shape so the React layer can match on `kind` rather
- * than parsing free-form error strings.
- */
-export type RunResponse =
-  | (RunSuccess & {
-      kind: "ok";
-    })
-  | {
-      kind: "cancelled";
-    }
-  | {
-      /**
-       * Dotted field path the runtime needs help with.
-       */
-      field: string;
-      kind: "ask_user";
-      /**
-       * Human-friendly prompt copy for the modal.
-       */
-      prompt: string;
-      /**
-       * Optional preset suggestions (e.g. `["t_base_tcp", "t_tcp_base"]`).
-       */
-      suggestions: string[];
-    }
-  | {
-      kind: "validation_failed";
-      message: string;
-    }
-  | {
-      /**
-       * Stable kind tag for the frontend.
-       */
-      category: string;
-      kind: "failed";
-      /**
-       * Human-readable detail.
-       */
-      message: string;
-    };
-export type SaveProjectManifestReply = null;
-export type SetActiveExportReply = null;
-/**
  * The solution of a single-camera hand-eye calibration: the hand-eye of its
  * mode and the pose of the static target in the frame that mode fixes it in.
  *
@@ -811,21 +1073,40 @@ export interface StudioApiTypes {
   AddRootArgs?: AddRootArgs;
   BlobQuery?: BlobQuery;
   BlobRef?: BlobRef;
+  CalibrateArgs?: CalibrateArgs;
+  CalibratedRun?: CalibratedRun;
+  CalibrationConfig?: CalibrationConfig;
+  CameraConfig?: CameraConfig;
+  CameraFix?: CameraFix;
+  CameraModelSpec?: CameraModelSpec;
+  CameraOverride?: CameraOverride;
   CameraParameterValuesArgs?: CameraParameterValuesArgs;
   CameraParameterValuesReply?: CameraParameterValuesReply;
   CameraParams?: CameraParams;
   CameraSource?: CameraSource;
+  CameraSummary?: CameraSummary;
   CancelJobArgs?: CancelJobArgs;
+  CheckKind?: CheckKind;
+  CheckStatus?: CheckStatus;
   ChessCornersDetectorSpec?: ChessCornersDetectorSpec;
   CombinationTerm?: CombinationTerm;
   ConfigFormArgs?: ConfigFormArgs;
   ConfigPatch?: ConfigPatch;
+  ConfigPatchArgs?: ConfigPatchArgs;
+  ConfigState?: ConfigState;
   CornerCovarianceSpec?: CornerCovarianceSpec;
   CornerStrategySpec?: CornerStrategySpec;
   CreateProjectArgs?: CreateProjectArgs;
   DatasetFormArgs?: DatasetFormArgs;
+  DatasetManifest?: DatasetManifest;
+  DatasetSource?: DatasetSource;
   DatasetSpec?: DatasetSpec;
+  DatasetState?: DatasetState;
+  DeleteRunArgs?: DeleteRunArgs;
+  DeleteRunReply?: DeleteRunReply;
   DetectorSpec?: DetectorSpec;
+  DeviceIdentity?: DeviceIdentity;
+  DeviceOptimizeConfig?: DeviceOptimizeConfig;
   DirEntry?: DirEntry;
   DirListing?: DirListing;
   DisparityArgs?: DisparityArgs;
@@ -833,6 +1114,7 @@ export interface StudioApiTypes {
   DisparityMetrics?: DisparityMetrics;
   DisparityParams?: DisparityParams;
   DisparityResult?: DisparityResult;
+  DistortionKind?: DistortionKind;
   DistortionParams?: DistortionParams;
   EntryKind?: EntryKind;
   EpipolarOverlay?: EpipolarOverlay;
@@ -840,98 +1122,148 @@ export interface StudioApiTypes {
   EpipolarOverlayUndistortedArgs?: EpipolarOverlayUndistortedArgs;
   ErrorKind?: ErrorKind;
   EventBody?: EventBody;
+  Exclusions?: Exclusions;
   ExportDiagnostics?: ExportDiagnostics;
+  FeatureExclusion?: FeatureExclusion;
   FeatureResidualHistogram?: FeatureResidualHistogram;
   FetchSampleArgs?: FetchSampleArgs;
   FetchSampleEvent?: FetchSampleEvent;
-  FetchSampleOutput?: FetchSampleOutput;
   ForgetRecentArgs?: ForgetRecentArgs;
   ForgetRecentReply?: ForgetRecentReply;
   FormSchema?: FormSchema;
   FrameKind?: FrameKind;
   FrameRef?: FrameRef;
   FxFyCxCy?: FxFyCxCy;
+  HandeyeInitConfig?: HandeyeInitConfig;
+  HandeyeMethod?: HandeyeMethod;
+  HandeyeMode?: HandeyeMode;
+  HandeyeOptimizeConfig?: HandeyeOptimizeConfig;
   HandeyeSolution?: HandeyeSolution;
+  ImageExclusion?: ImageExclusion;
   ImageManifest?: ImageManifest;
   ImageNoiseSpec?: ImageNoiseSpec;
   ImagePattern?: ImagePattern;
   ImageQuery?: ImageQuery;
+  ImportExportArgs?: ImportExportArgs;
+  InputDigest?: InputDigest;
+  IntrinsicsInitConfig?: IntrinsicsInitConfig;
+  IntrinsicsOptimizeConfig?: IntrinsicsOptimizeConfig;
   Iso3Schema?: Iso3Schema;
   JobEvent?: JobEvent;
   JobInfo?: JobInfo;
   JobState?: JobState;
   JobStatusArgs?: JobStatusArgs;
+  JointOptimizeConfig?: JointOptimizeConfig;
   LaserExtractionSpec?: LaserExtractionSpec;
   LaserFeatureResidual?: LaserFeatureResidual;
   LaserLineTrace?: LaserLineTrace;
   LaserPlane?: LaserPlane;
   LaserScanAxis?: LaserScanAxis;
+  LaserlineDeviceConfig?: LaserlineDeviceConfig;
   LaserlineDeviceExport?: LaserlineDeviceExport;
+  LaserlineResidualType?: LaserlineResidualType;
   LaserlineStats?: LaserlineStats;
+  LeftOutImage?: LeftOutImage;
+  LibraryScan?: LibraryScan;
   ListDirArgs?: ListDirArgs;
   ListJobsArgs?: ListJobsArgs;
   ListJobsReply?: ListJobsReply;
-  LoadExportArgs?: LoadExportArgs;
-  LoadExportResult?: LoadExportResult;
+  ListRunsArgs?: ListRunsArgs;
+  ListRunsReply?: ListRunsReply;
+  Measurement?: Measurement;
   OpenProjectArgs?: OpenProjectArgs;
   ParameterCovariance?: ParameterCovariance;
   PerFeatureResiduals?: PerFeatureResiduals;
   PixelRect?: PixelRect;
+  PlanarIntrinsicsConfig?: PlanarIntrinsicsConfig;
   PlanarIntrinsicsExport?: PlanarIntrinsicsExport;
+  PlanarOptimizeConfig?: PlanarOptimizeConfig;
+  PlaneOptimizeConfig?: PlaneOptimizeConfig;
   PoseColumnMap?: PoseColumnMap;
   PoseConvention?: PoseConvention;
   PosePairing?: PosePairing;
   ProblemKind?: ProblemKind;
   Progress?: Progress;
-  ProjectInfo?: ProjectInfo;
+  ProjectDigest?: ProjectDigest;
+  ProjectEntry?: ProjectEntry;
+  ProjectSpec?: ProjectSpec;
+  ProjectView?: ProjectView;
+  ProjectViews?: ProjectViews;
+  ProjectViewsArgs?: ProjectViewsArgs;
+  ProjectionKind?: ProjectionKind;
   ProjectionParams?: ProjectionParams;
   ProjectionUncertainty?: ProjectionUncertainty;
   ProjectionUncertaintyArgs?: ProjectionUncertaintyArgs;
+  QualityCheck?: QualityCheck;
+  QualityReport?: QualityReport;
+  QualityThresholds?: QualityThresholds;
   ReadManifestArgs?: ReadManifestArgs;
   RecentProjectsArgs?: RecentProjectsArgs;
   RecentProjectsReply?: RecentProjectsReply;
+  RejectReason?: RejectReason;
   RemoveRootArgs?: RemoveRootArgs;
+  ReportQuery?: ReportQuery;
   ResidualKind?: ResidualKind;
   ResidualNoise?: ResidualNoise;
   ResolveConfigArgs?: ResolveConfigArgs;
   ResolveConfigReply?: ResolveConfigReply;
+  RigConfig?: RigConfig;
+  RigExtrinsicsConfig?: RigExtrinsicsConfig;
   RigExtrinsicsExport?: RigExtrinsicsExport;
+  RigHandeyeConfig?: RigHandeyeConfig;
   RigHandeyeExport?: RigHandeyeExport;
+  RigHandeyeLaserlineConfig?: RigHandeyeLaserlineConfig;
   RigHandeyeLaserlineExport?: RigHandeyeLaserlineExport;
   RigHandeyeLaserlinePerCamStats?: RigHandeyeLaserlinePerCamStats;
+  RigIntrinsicsManualInit?: RigIntrinsicsManualInit;
+  RigLaserlineDeviceConfig?: RigLaserlineDeviceConfig;
   RigLaserlineDeviceExport?: RigLaserlineDeviceExport;
   RinggridCenterSpec?: RinggridCenterSpec;
   RinggridCodingSpec?: RinggridCodingSpec;
   RinggridLatticeSpec?: RinggridLatticeSpec;
+  RobotPoseConfig?: RobotPoseConfig;
   RobotPoseFormat?: RobotPoseFormat;
   RobotPoseSigma?: RobotPoseSigma;
   RobotPoseSource?: RobotPoseSource;
   RobotRefinement?: RobotRefinement;
   RobotSigmaParts?: RobotSigmaParts;
+  RobustLoss?: RobustLoss;
   RootFolder?: RootFolder;
   RotationFormat?: RotationFormat;
-  RunCalibrationArgs?: RunCalibrationArgs;
-  RunDiagnostics?: RunDiagnostics;
-  RunProgress?: RunProgress;
+  RunExport?: RunExport;
+  RunExportArgs?: RunExportArgs;
+  RunInfo?: RunInfo;
+  RunInfoArgs?: RunInfoArgs;
+  RunInputs?: RunInputs;
+  RunNotes?: RunNotes;
+  RunQualityArgs?: RunQualityArgs;
   RunRecord?: RunRecord;
-  RunResponse?: RunResponse;
-  RunStage?: RunStage;
-  RunSuccess?: RunSuccess;
+  RunRef?: RunRef;
+  RunSource?: RunSource;
+  RunState?: RunState;
   RunSummary?: RunSummary;
-  SaveProjectManifestArgs?: SaveProjectManifestArgs;
-  SaveProjectManifestReply?: SaveProjectManifestReply;
-  SaveProjectRunArgs?: SaveProjectRunArgs;
+  SampleInfo?: SampleInfo;
+  SampleProject?: SampleProject;
+  SaveProjectArgs?: SaveProjectArgs;
+  ScanFailure?: ScanFailure;
+  ScanLibraryArgs?: ScanLibraryArgs;
+  ScheimpflugParams?: ScheimpflugParams;
   SecondOrderError?: SecondOrderError;
+  SensorKind?: SensorKind;
   SensorParams?: SensorParams;
   ServerEvent?: ServerEvent;
   ServerInfo?: ServerInfo;
   ServerInfoArgs?: ServerInfoArgs;
-  SetActiveExportArgs?: SetActiveExportArgs;
-  SetActiveExportReply?: SetActiveExportReply;
+  SetRunNotesArgs?: SetRunNotesArgs;
   Show?: Show;
+  SingleCamHandeyeConfig?: SingleCamHandeyeConfig;
   SingleCamHandeyeExport?: SingleCamHandeyeExport;
+  SingleCamHandeyeOptimizeConfig?: SingleCamHandeyeOptimizeConfig;
   SingleCamHandeyeSolution?: SingleCamHandeyeSolution;
   SniffFolderArgs?: SniffFolderArgs;
+  SniffedFolder?: SniffedFolder;
+  SolverBackend?: SolverBackend;
+  SolverConfig?: SolverConfig;
   StudioError?: StudioError;
   TargetFeatureResidual?: TargetFeatureResidual;
   TargetSpec?: TargetSpec;
@@ -942,8 +1274,14 @@ export interface StudioApiTypes {
   UndistortPointsArgs?: UndistortPointsArgs;
   UndistortPointsReply?: UndistortPointsReply;
   UndistortedImageQuery?: UndistortedImageQuery;
+  Unit?: Unit;
+  UnrecordedRun?: UnrecordedRun;
   UserPath?: UserPath;
+  Verdict?: Verdict;
   ViewCovariance?: ViewCovariance;
+  ViewExclusion?: ViewExclusion;
+  ViewRef?: ViewRef;
+  ViewRow?: ViewRow;
 }
 /**
  * Add the folder `path` to the root folders (the desktop: the folder the
@@ -976,184 +1314,23 @@ export interface BlobRef {
   media_type: string;
 }
 /**
- * The value of each labelled parameter of the active export that is a
- * camera parameter, aligned with `labels`; `null` for poses and planes.
+ * Calibrate the project as it is on disk and write the run as its next
+ * `runs/run-NNN/` (export, quality report, record, the HTML report, and
+ * `notes` when given). `config_patch` changes the configuration for this
+ * run only, over the project's, and is recorded with it; `redetect`
+ * detects every image again instead of reading the detection cache. Every
+ * file the project names must lie inside a root. Its events are the
+ * library's progress reports; a cancelled run writes nothing and ends the
+ * job `cancelled`.
  */
-export interface CameraParameterValuesArgs {
-  labels: string[];
-}
-/**
- * Serializable camera parameters for building a runtime model.
- */
-export interface CameraParams {
+export interface CalibrateArgs {
+  config_patch?: ConfigPatch;
   /**
-   * Distortion model parameters.
+   * The project folder.
    */
-  distortion: DistortionParams;
-  /**
-   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
-   */
-  intrinsics: FxFyCxCy;
-  /**
-   * Projection model parameters.
-   */
-  projection: ProjectionParams;
-  /**
-   * Sensor model parameters.
-   */
-  sensor: SensorParams;
-}
-/**
- * Standard pinhole intrinsics: focal lengths and principal point in pixels.
- *
- * The pixel grid is assumed orthogonal, so `K` carries no skew term.
- */
-export interface FxFyCxCy {
-  /**
-   * Principal point X coordinate in pixels.
-   */
-  cx: number;
-  /**
-   * Principal point Y coordinate in pixels.
-   */
-  cy: number;
-  /**
-   * Focal length in pixels along X.
-   */
-  fx: number;
-  /**
-   * Focal length in pixels along Y.
-   */
-  fy: number;
-}
-/**
- * Per-camera image source.
- */
-export interface CameraSource {
-  /**
-   * Stable camera identifier (e.g. `"cam0"`). Used as a key in
-   * pose pairings and downstream exports.
-   */
-  id: string;
-  /**
-   * Glob pattern (e.g. `"cam0/*.png"`) or explicit list of image
-   * paths, relative to the manifest's directory unless absolute.
-   */
-  images: ImagePattern;
-  /**
-   * Laser-frame image source for the laser topologies.
-   * One laser image per view, captured by the same sensor with the
-   * line projector on; `roi_xywh` applies to laser frames too.
-   * Laser images pair with target views through `pose_pairing`.
-   */
-  laser_images?: ImagePattern | null;
-  /**
-   * Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.
-   * When set, only the cropped region is fed to the detector and
-   * stored in the export's image manifest.
-   *
-   * @minItems 4
-   * @maxItems 4
-   */
-  roi_xywh?: [number, number, number, number] | null;
-}
-/**
- * Cancel the job `id`: a queued job at once, a running one at its next
- * image or solver iteration. A finished job is answered as it is.
- */
-export interface CancelJobArgs {
-  id: string;
-}
-/**
- * ChESS corner extractor overrides. The manifest's copy of the detector's
- * ChESS options (see [`DetectorSpec`]).
- */
-export interface ChessCornersDetectorSpec {
-  /**
-   * Attach the detector's per-corner position covariance to every
-   * observation. Absent (the default) = off.
-   *
-   * The covariance is the image noise propagated through the corner
-   * localizer, plus the localizer's systematic-error model. When present,
-   * a calibration weights each corner by it (whitened residuals) and its
-   * report gives the unit-weight scale factor σ̂₀ instead of an RMS in
-   * pixels.
-   *
-   * Off by default, and not recommended for calibration. On real
-   * chessboard and ChArUco images, weighting by it did not improve the
-   * accuracy on held-out views and made it slightly worse on some
-   * cameras; its stated uncertainty was no closer to the real scatter.
-   *
-   * Supported by the `chessboard` and `charuco` targets only: the
-   * PuzzleBoard detector runs on an upscaled image, for which no
-   * covariance is reported, and ring grids have none. A manifest that
-   * sets it for another target is an error.
-   */
-  covariance?: CornerCovarianceSpec | null;
-  /**
-   * Minimum corner strength for a detected corner to enter the grid
-   * builder. `None` keeps the detector default (`33.0`). The floor is on
-   * the strategy's response scale; under Radon the default never binds.
-   *
-   * The default drops weakly-firing corners, which is the right trade
-   * whenever corners are plentiful. Set `0.0` to disable it on small or
-   * soft image tiles, where the floor can remove a third of the board and
-   * the resulting sparse view conditions worse than the weak corners did.
-   */
-  min_corner_strength?: number | null;
-  /**
-   * Corner detector. `None` keeps ChESS.
-   */
-  strategy?: CornerStrategySpec | null;
-  /**
-   * Acceptance threshold on the corner response. `None` keeps the
-   * strategy's default.
-   *
-   * Under ChESS it is an absolute floor on the raw response: a corner is
-   * kept when its response exceeds it. Under Radon it is a fraction in
-   * `(0, 1]` of the frame's maximum response.
-   *
-   * A sibling `threshold_mode` key is rejected by `deny_unknown_fields`:
-   * the corner detector has no threshold mode.
-   */
-  threshold_value?: number | null;
-}
-/**
- * Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].
- * The manifest's copy of the detector's covariance options (see
- * [`DetectorSpec`]).
- */
-export interface CornerCovarianceSpec {
-  /**
-   * The image noise that the propagated covariance is expressed in.
-   * Defaults to `estimate`: the noise is estimated from each image, which
-   * is unreliable on JPEG or demosaiced images; give `stated` for those.
-   */
-  image_noise?: ImageNoiseSpec & string;
-}
-/**
- * One term of a combination of parameters: a parameter and its weight, in
- * units of the parameter's σ.
- */
-export interface CombinationTerm {
-  /**
-   * The parameter's label.
-   */
-  label: string;
-  /**
-   * The weight of `parameter / σ(parameter)` in the combination, in
-   * `[-1, 1]` with the largest term at +1. Terms of equal weight and
-   * opposite sign are a difference the combination measures.
-   */
-  weight: number;
-}
-/**
- * The config form of the workflow `topology`: the schema of its config
- * (`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's
- * default configuration.
- */
-export interface ConfigFormArgs {
-  topology: ProblemKind;
+  dir: UserPath;
+  notes?: RunNotes;
+  redetect?: boolean;
 }
 /**
  * Changes to a workflow's default configuration: what the patch names
@@ -1192,24 +1369,915 @@ export interface ConfigPatch {
   [k: string]: unknown;
 }
 /**
- * Make the folder `dir` a project for the dataset in `dataset_dir`,
- * described by `manifest`. Fails with `project_exists` when `dir` already
- * holds one, and with `forbidden_path` when the manifest names a path
- * outside the roots.
+ * What a person notes on a run, `notes.json`: the only file of a run that
+ * changes after it is written.
  */
-export interface CreateProjectArgs {
-  dataset_dir: UserPath;
-  dir: UserPath;
+export interface RunNotes {
   /**
-   * The dataset manifest (`DatasetSpec` JSON), stored as `dataset.json`.
+   * A short name for the run.
    */
-  manifest: unknown;
+  label?: string | null;
+  /**
+   * Free text.
+   */
+  notes?: string | null;
+  /**
+   * Whether the run is marked as one to keep.
+   */
+  starred?: boolean;
 }
 /**
- * The dataset manifest form: the schema of `DatasetSpec` and the manifest
- * a new setup starts from (one chessboard camera, planar intrinsics).
+ * A run the project calibrated: its inputs, their digest and what the
+ * detection kept.
  */
-export interface DatasetFormArgs {}
+export interface CalibratedRun {
+  /**
+   * The digest of the inputs.
+   */
+  digest: InputDigest;
+  /**
+   * How long the run took, milliseconds; for display only.
+   */
+  duration_ms: number;
+  /**
+   * What the run was given.
+   */
+  inputs: RunInputs;
+  /**
+   * The images left out, rejected by the screening or excluded.
+   */
+  left_out: LeftOutImage[];
+  /**
+   * Whether every image was detected again rather than read from the
+   * detection cache.
+   */
+  redetected: boolean;
+  /**
+   * Views the dataset's images formed before screening.
+   */
+  total_views: number;
+  /**
+   * Feature exclusions whose points matched no feature of the detection
+   * they were applied to, with those points only. An image left out
+   * before its features were screened is listed in `left_out` instead.
+   */
+  unmatched_exclusions?: FeatureExclusion[];
+  /**
+   * Views that entered the calibration.
+   */
+  usable_views: number;
+}
+/**
+ * The digest of a calibrated run's inputs: each `sha256:<hex>` of the
+ * canonical JSON (keys sorted) of what it covers.
+ *
+ * Two runs with equal `inputs` digests, by the same library version, have
+ * byte-identical `export.json` and `quality.json`. The data root's
+ * location is not part of any digest: a dataset moved whole keeps them.
+ */
+export interface InputDigest {
+  /**
+   * The resolved configuration.
+   */
+  config: string;
+  /**
+   * The manifest, and the content of the files it names other than
+   * images (the robot pose file, the upstream calibration).
+   */
+  dataset: string;
+  /**
+   * The sorted set of detection cache keys the run read or wrote: each
+   * image's content, its detector and detector configuration and the
+   * detector's version.
+   */
+  detections: string;
+  /**
+   * The exclusions, notes left out, each list sorted and without
+   * repeats.
+   */
+  exclusions: string;
+  /**
+   * Over the other five, in their order here.
+   */
+  inputs: string;
+  /**
+   * The quality thresholds.
+   */
+  quality: string;
+}
+/**
+ * What a calibrated run was given, resolved.
+ */
+export interface RunInputs {
+  /**
+   * The configuration they made.
+   */
+  config: CalibrationConfig;
+  /**
+   * The configuration changes: the project's, then the run's own.
+   */
+  config_patch: ConfigPatch;
+  /**
+   * The data root as the project stated it: the inline manifest's
+   * `root`, or the manifest file's path. For the reader only.
+   */
+  data_root: string;
+  /**
+   * The manifest as the run used it.
+   */
+  dataset: DatasetSpec;
+  /**
+   * The project's exclusions.
+   */
+  exclusions: Exclusions;
+  /**
+   * The thresholds the quality report was judged by.
+   */
+  quality: QualityThresholds;
+}
+/**
+ * Configuration for planar intrinsics calibration.
+ *
+ * Grouped by stage: the camera model with its fix lists in
+ * [`CameraConfig`], the linear initialization in [`IntrinsicsInitConfig`],
+ * the non-linear refinement in [`PlanarOptimizeConfig`], and the solver
+ * engine in [`SolverConfig`].
+ */
+export interface PlanarIntrinsicsConfig {
+  /**
+   * The camera model and its fixed parameters.
+   *
+   * Any distortion kind with an identity sensor; a Scheimpflug sensor
+   * needs a distortion model. A tilted sensor's solve without a tilt seed
+   * runs a multi-start tilt sweep (see `step_optimize`).
+   */
+  camera?: CameraConfig;
+  /**
+   * Linear-initialization stage settings (`step_init`). The linear stage
+   * fits only the distortion terms the camera's solves estimate.
+   */
+  intrinsics_init: IntrinsicsInitConfig;
+  /**
+   * Non-linear refinement stage settings (`step_optimize`).
+   */
+  optimize: PlanarOptimizeConfig;
+  /**
+   * Solver engine settings. `solver.max_iters` defaults to 120, sized for
+   * a tilted sensor's tilt valley; the solver stops at convergence, so
+   * the cap only bounds runs that do not converge.
+   */
+  solver: SolverConfig;
+}
+/**
+ * The camera model a workflow calibrates, and which of its parameters stay
+ * fixed.
+ *
+ * The model names one kind per slot — projection, distortion and sensor —
+ * so a tilted (Scheimpflug) sensor is a value of `model.sensor`, not a
+ * separate workflow. Behaviour that depends on the sensor (default fix
+ * lists, the linear stage's tangential terms, the tilt multi-start) follows
+ * from the model.
+ */
+export interface CameraConfig {
+  /**
+   * Parameters held fixed during the non-linear solve, named per slot
+   * (`{"intrinsics": ["cx", "cy"], "distortion": ["k3"], "sensor":
+   * ["tilt_y"]}`). A slot left out keeps the model's default: `k3` for
+   * Brown-Conrady, and everything but the low-order radial terms (`k1`,
+   * `k2`; the division model's `lambda`) under a Scheimpflug sensor,
+   * because tangential and higher-order terms trade off against the tilt.
+   * An unknown name is a configuration error.
+   */
+  fix?: CameraFix;
+  /**
+   * The camera model, one kind per slot. Default: pinhole projection,
+   * Brown-Conrady (`k1, k2, k3, p1, p2`) distortion and an identity
+   * (untilted) sensor — the model every workflow accepts.
+   */
+  model: CameraModelSpec;
+}
+/**
+ * Camera parameters held fixed during a solve, named per slot.
+ *
+ * Each list names parameters of the model in that slot (`fx`, `cy`, `k3`,
+ * `tilt_y`, …). `None` means the model's default
+ * ([`CameraModelSpec::default_fix`]); an empty list fixes nothing in that
+ * slot. Names are checked against the model by [`CameraFix::resolve`], before
+ * any work.
+ */
+export interface CameraFix {
+  /**
+   * Fixed distortion coefficients; default: `k3` for Brown-Conrady, and
+   * everything but the low-order radial terms under a Scheimpflug sensor.
+   */
+  distortion?: string[] | null;
+  /**
+   * Fixed intrinsics (`fx`, `fy`, `cx`, `cy`); default: none.
+   */
+  intrinsics?: string[] | null;
+  /**
+   * Fixed projection parameters; default: none.
+   */
+  projection?: string[] | null;
+  /**
+   * Fixed sensor parameters (`tilt_x`, `tilt_y`); default: none.
+   */
+  sensor?: string[] | null;
+}
+/**
+ * A camera model: the kind in each slot. The values live in
+ * [`CameraParams`](super::CameraParams); [`CameraParams::spec`](super::CameraParams::spec)
+ * recovers the spec from them.
+ */
+export interface CameraModelSpec {
+  /**
+   * Distortion slot.
+   */
+  distortion: DistortionKind;
+  /**
+   * Projection slot.
+   */
+  projection: ProjectionKind;
+  /**
+   * Sensor slot.
+   */
+  sensor: SensorKind;
+}
+/**
+ * Per-camera linear-initialization stage (Zhang's method + iterative
+ * Brown-Conrady distortion fit).
+ *
+ * Shared by every intrinsics-bearing problem's `intrinsics_init` config
+ * group.
+ */
+export interface IntrinsicsInitConfig {
+  /**
+   * Hold `k3` at zero in the linear stage even where the camera's
+   * non-linear solves estimate it (default `true`: a sixth-order term
+   * fitted linearly overfits typical data, and the solve that frees it
+   * starts it from zero).
+   *
+   * Which terms the linear stage fits otherwise follows the camera: a
+   * term the camera holds fixed, or its
+   * model lacks, stays at zero, and so do the tangential terms of a
+   * camera whose tilt is estimated.
+   */
+  fix_k3: boolean;
+  /**
+   * Number of iterations for iterative intrinsics estimation.
+   */
+  iterations: number;
+}
+/**
+ * The non-linear refinement stage of a planar intrinsics calibration
+ * (`step_optimize`).
+ */
+export interface PlanarOptimizeConfig {
+  /**
+   * Indices of poses to fix during optimization (e.g., \[0\] to fix first
+   * pose). Default: none — the board fixes the target frame, and a fixed
+   * pose makes the reported uncertainty conditional on it.
+   */
+  fix_poses: number[];
+  /**
+   * Robust loss on the target-corner reprojection residuals; its scale is
+   * in pixels. Default `none`: plain least squares, the
+   * maximum-likelihood estimate under Gaussian corner noise. A tilted
+   * sensor's tilt sweep runs plain least squares and applies this loss
+   * in its final solve.
+   */
+  reprojection_loss: RobustLoss;
+}
+/**
+ * The solver engine: iteration budget, verbosity and backend, shared by
+ * every problem's non-linear stages.
+ *
+ * It holds engine settings only. What a stage minimizes — its robust losses
+ * and weights — belongs to the stage's own group (`optimize`,
+ * `intrinsics_optimize`, `rig`, `handeye_optimize`, `joint_optimize`), named
+ * by the residual family it applies to (`reprojection_loss`,
+ * `laser_loss`).
+ *
+ * `max_iters` has no single workspace-wide default — problems override it
+ * per solve-stage cost. Documented per-problem defaults: 50 standard; 120
+ * for planar intrinsics (sized for a tilted sensor's tilt valley; the
+ * solver stops at convergence, so the cap only bounds runs that do not
+ * converge); 30 for a warm-started joint
+ * rig+hand-eye+laser polish; 200 for the rig-laserline frozen-geometry
+ * stage (cheap 1-DOF-per-view problem). This struct's own [`Default`] is
+ * 50 — the plain value used by problems with no reason to deviate.
+ */
+export interface SolverConfig {
+  /**
+   * Engine that linearizes the problem for the Levenberg–Marquardt loop.
+   * Both reach the same minimizer; see [`SolverBackend`].
+   */
+  backend?: SolverBackend & string;
+  /**
+   * Maximum iterations for the non-linear optimizer.
+   */
+  max_iters: number;
+  /**
+   * Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
+   */
+  verbosity: number;
+}
+/**
+ * Configuration for single-camera hand-eye calibration.
+ *
+ * Grouped by stage, in the order the steps run: the camera model, the
+ * intrinsics linear init and refinement, the hand-eye linear init and
+ * bundle adjustment, and the solver engine. Every group's own `Default` is
+ * the plain workspace default (no per-problem override is needed here,
+ * unlike `PlanarIntrinsicsConfig`'s iteration cap).
+ *
+ * Two stages solve the target corners, each with its own
+ * `reprojection_loss`: `intrinsics_optimize` and `handeye_optimize`. A
+ * robust calibration sets both; the final stage's loss is the estimator.
+ */
+export interface SingleCamHandeyeConfig {
+  /**
+   * The camera model and the parameters its solves (the intrinsics stage
+   * and the hand-eye bundle adjustment) hold fixed. Any distortion kind
+   * with an identity sensor; a Scheimpflug sensor needs a distortion
+   * model. A tilted sensor's intrinsics stage runs a multi-start tilt
+   * sweep; seed its tilt through the intrinsics manual init.
+   */
+  camera?: CameraConfig;
+  /**
+   * Hand-eye linear-initialization stage settings (`step_handeye_init`).
+   */
+  handeye_init: HandeyeInitConfig;
+  /**
+   * Hand-eye bundle-adjustment stage settings (`step_handeye_optimize`).
+   */
+  handeye_optimize: SingleCamHandeyeOptimizeConfig;
+  /**
+   * Linear-initialization stage settings (`step_intrinsics_init`). The
+   * linear stage fits only the distortion terms the camera's solves
+   * estimate.
+   */
+  intrinsics_init: IntrinsicsInitConfig;
+  /**
+   * Intrinsics refinement stage settings (`step_intrinsics_optimize`).
+   */
+  intrinsics_optimize: IntrinsicsOptimizeConfig;
+  /**
+   * Solver engine settings, for both non-linear stages.
+   */
+  solver: SolverConfig;
+}
+/**
+ * Hand-eye linear-initialization stage options.
+ *
+ * Shared by every hand-eye problem's `handeye_init` config group.
+ */
+export interface HandeyeInitConfig {
+  /**
+   * Hand-eye mode: `eye_in_hand` or `eye_to_hand`.
+   */
+  handeye_mode: HandeyeMode;
+  /**
+   * The closed-form solver of the initialization: `tsai_lenz` (default),
+   * `park_martin`, `daniilidis` or `shah`. They differ in the accuracy of
+   * the starting point, not in where the bundle adjustment ends: on
+   * synthetic captures with robot rotations down to ±2° it converged from
+   * each. `daniilidis` is the most accurate rotation when the robot
+   * rotates by only a few degrees; `shah` estimates the fixed target
+   * (eye-in-hand) or camera (eye-to-hand) pose over all views, where the
+   * others close it through the first view.
+   */
+  method?: HandeyeMethod & string;
+  /**
+   * Minimum rotation (degrees) between two views, in the robot and in the
+   * camera, for the pair to enter the linear solve; the pairs that clear
+   * it must rotate the robot about two non-parallel axes. Positive.
+   * Default 5°: smaller rotations amplify noise into the translation.
+   */
+  min_motion_angle_deg: number;
+}
+/**
+ * The hand-eye bundle adjustment of a single-camera hand-eye calibration
+ * (`step_handeye_optimize`): the camera, the hand-eye transform, the
+ * target pose and, by default, the robot poses refined together, the
+ * camera's `fix` lists held.
+ */
+export interface SingleCamHandeyeOptimizeConfig {
+  /**
+   * Robust loss on the target-corner reprojection residuals; its scale is
+   * in pixels. Default `none`.
+   */
+  reprojection_loss: RobustLoss;
+  /**
+   * Robot-pose refinement.
+   */
+  robot_poses: RobotPoseConfig;
+}
+/**
+ * The per-camera intrinsics refinement stage (`intrinsics_optimize`): each
+ * camera solved on its own views, before the joint stages.
+ *
+ * Shared by the single-camera hand-eye and the two rig problems. The
+ * stage's iteration budget and backend come from `solver`.
+ */
+export interface IntrinsicsOptimizeConfig {
+  /**
+   * Robust loss on the target-corner reprojection residuals of this
+   * stage; its scale is in pixels. Default `none`: plain least squares,
+   * the maximum-likelihood estimate under Gaussian corner noise. The
+   * later stages have their own: a redescending loss (`cauchy`,
+   * `arctan`) needs a good start, so a convex `huber` here and the
+   * redescending one in the final stage is a sound pairing.
+   */
+  reprojection_loss: RobustLoss;
+}
+/**
+ * Configuration for laserline device calibration.
+ *
+ * Settings are grouped by stage; the camera model and its fixed parameters
+ * live in [`CameraConfig`].
+ */
+export interface LaserlineDeviceConfig {
+  /**
+   * The camera model and the parameters the bundle adjustment holds
+   * fixed. Any distortion kind, and an identity or Scheimpflug sensor;
+   * the line-distance laser residual needs a projection that keeps lines
+   * straight. A Scheimpflug sensor's tilt is held by default at the
+   * manual-init `sensor` seed (zero when unseeded): a device's mount tilt
+   * is measured separately. An explicit `fix.sensor` list estimates it
+   * instead (`[]` refines both angles; unseeded, the tilt then comes from
+   * the linear tilt sweep and a staged multi-start).
+   */
+  camera?: CameraConfig;
+  /**
+   * Linear-initialization stage settings (`step_init`). The linear stage
+   * fits only the distortion terms the bundle adjustment estimates
+   * ([`Self::effective_fix`]). A Scheimpflug camera whose tilt is
+   * estimated and not seeded is solved alone by the staged tilt
+   * multi-start before the plane fit, in plain least squares.
+   */
+  intrinsics_init: IntrinsicsInitConfig;
+  /**
+   * Bundle-adjustment stage settings (`step_optimize`).
+   */
+  optimize: DeviceOptimizeConfig;
+  /**
+   * Solver engine settings.
+   */
+  solver: SolverConfig;
+}
+/**
+ * Bundle-adjustment options for laserline device calibration.
+ */
+export interface DeviceOptimizeConfig {
+  /**
+   * Fix laser plane parameters during optimization.
+   */
+  fix_plane: boolean;
+  /**
+   * Indices of target poses to hold fixed. None by default: each view's
+   * pose is measured by its own corners, so there is no gauge to fix. A
+   * held pose keeps its initial value, and the linear init is not robust
+   * to outlying corners: holding one keeps the solve off the minimum when
+   * some corners are outliers.
+   */
+  fix_poses: number[];
+  /**
+   * Robust loss on the laser residuals. Its scale is in the residual's
+   * unit: pixels for the line distance (the default residual), meters for
+   * point-to-plane.
+   */
+  laser_loss: RobustLoss;
+  /**
+   * Laser residual type.
+   */
+  laser_residual_type: LaserlineResidualType;
+  /**
+   * Weight of the laser residuals.
+   */
+  laser_weight: number;
+  /**
+   * Robust loss on the target-corner reprojection residuals; its scale is
+   * in pixels.
+   */
+  reprojection_loss: RobustLoss;
+  /**
+   * Weight of the reprojection residuals.
+   */
+  reprojection_weight: number;
+}
+/**
+ * Configuration for multi-camera rig extrinsics calibration.
+ *
+ * Grouped by stage. Every camera has the model of `camera` unless
+ * `camera_overrides` names it, so one rig can mix lenses and sensors.
+ *
+ * Two stages solve the target corners, each with its own
+ * `reprojection_loss`: `intrinsics_optimize` (each camera alone) and `rig`
+ * (the rig bundle adjustment). A robust calibration sets both; the final
+ * stage's loss is the estimator.
+ *
+ * The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
+ * the full 6-DOF rig gauge; an extra per-view pose constraint would be
+ * redundant and mildly pessimizing. View-0's rig-from-target pose is always free in the rig BA.
+ */
+export interface RigExtrinsicsConfig {
+  /**
+   * The camera model of every rig camera and the parameters its solves
+   * hold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a
+   * multi-start tilt sweep.
+   */
+  camera?: CameraConfig;
+  /**
+   * Cameras whose model differs from `camera`, at most one entry per
+   * camera index.
+   */
+  camera_overrides?: CameraOverride[];
+  /**
+   * Per-camera linear-initialization stage settings
+   * (`step_intrinsics_init_all`). The linear stage fits only the
+   * distortion terms each camera's solves estimate.
+   */
+  intrinsics_init: IntrinsicsInitConfig;
+  /**
+   * Per-camera refinement stage settings (`step_intrinsics_optimize_all`).
+   */
+  intrinsics_optimize: IntrinsicsOptimizeConfig;
+  /**
+   * Rig stage settings (`step_rig_init`, `step_rig_optimize`): the
+   * reference camera, and the scope and loss of the rig bundle
+   * adjustment.
+   */
+  rig: RigConfig;
+  /**
+   * Solver engine settings, for every non-linear stage.
+   */
+  solver: SolverConfig;
+}
+/**
+ * One camera of a rig whose model differs from the rig's `camera`, so a
+ * rig can mix lenses (a tilted laser camera beside a frontal one, a fisheye
+ * beside a narrow lens).
+ */
+export interface CameraOverride {
+  /**
+   * Index of the camera in the rig (`0..num_cameras`).
+   */
+  camera: number;
+  /**
+   * Parameters held fixed during the non-linear solves, named per slot;
+   * a slot left out keeps the model's default (see [`CameraConfig::fix`]).
+   */
+  fix?: CameraFix;
+  /**
+   * The camera's model, one kind per slot.
+   */
+  model: CameraModelSpec;
+}
+/**
+ * The rig stage: the reference-camera gauge, and the scope and loss of the
+ * rig bundle adjustment.
+ *
+ * The `rig` group of `RigExtrinsicsConfig` and `RigHandeyeConfig`.
+ */
+export interface RigConfig {
+  /**
+   * Reference camera index for the rig frame (identity extrinsics).
+   */
+  reference_camera_idx: number;
+  /**
+   * Refine per-camera intrinsics and distortion jointly with the rig in
+   * its bundle adjustment, holding the camera's `fix` lists. Default:
+   * `true`. Each camera's solve fits them from its own views only; the
+   * joint solve is the estimate that uses every view, and its covariance
+   * carries the intrinsics and their correlation with the extrinsics.
+   * Held fixed, the extrinsics' standard deviations are conditional on
+   * the intrinsics and understate the uncertainty (several-fold on real
+   * stereo rigs).
+   */
+  refine_intrinsics: boolean;
+  /**
+   * Refine the sensor tilt of each Scheimpflug camera in the rig bundle
+   * adjustment, holding its `fix.sensor` list. Default: `true`, for the
+   * reason given on `refine_intrinsics`: a camera's own views pin its
+   * tilt poorly (it trades with the principal point), the views of the
+   * whole rig pin it several times better, and a tilt held at the
+   * per-camera estimate leaves its error in the focal length and the
+   * principal point while the covariance, conditional on the held tilt,
+   * understates their standard deviations several-fold. `false` holds
+   * the tilt at the per-camera estimate; the covariance then lists it as
+   * fixed. Cameras with an untilted sensor have no tilt.
+   */
+  refine_sensor?: boolean;
+  /**
+   * Robust loss on the target-corner reprojection residuals of the rig
+   * bundle adjustment; its scale is in pixels. Default `none`.
+   */
+  reprojection_loss: RobustLoss;
+}
+/**
+ * Configuration for multi-camera rig hand-eye calibration.
+ *
+ * Grouped by stage. Every camera has the model of `camera` unless
+ * `camera_overrides` names it, so one rig can mix lenses and sensors.
+ *
+ * Three stages solve the target corners, each with its own
+ * `reprojection_loss`: `intrinsics_optimize` (each camera alone), `rig`
+ * (the rig bundle adjustment) and `handeye_optimize`. A robust calibration
+ * sets all three; the final stage's loss is the estimator.
+ *
+ * The reference-camera gauge fix (`rig.reference_camera_idx`) alone removes
+ * the full 6-DOF rig gauge; an extra per-view pose constraint would be
+ * redundant and mildly pessimizing (as for `RigExtrinsicsConfig`).
+ * View-0's rig-from-target pose is always free in the rig BA.
+ */
+export interface RigHandeyeConfig {
+  /**
+   * The camera model of every rig camera and the parameters its solves
+   * hold fixed. A tilted (Scheimpflug) sensor's per-camera solve runs a
+   * multi-start tilt sweep; seed its tilt through `manual_init`.
+   */
+  camera?: CameraConfig;
+  /**
+   * Cameras whose model differs from `camera`, at most one entry per
+   * camera index.
+   */
+  camera_overrides?: CameraOverride[];
+  /**
+   * Hand-eye linear-initialization stage settings (`step_handeye_init`).
+   */
+  handeye_init: HandeyeInitConfig;
+  /**
+   * Final hand-eye bundle-adjustment stage settings
+   * (`step_handeye_optimize`).
+   */
+  handeye_optimize: HandeyeOptimizeConfig;
+  /**
+   * Per-camera linear-initialization stage settings
+   * (`step_intrinsics_init_all`). The linear stage fits only the
+   * distortion terms each camera's solves estimate.
+   */
+  intrinsics_init: IntrinsicsInitConfig;
+  /**
+   * Per-camera refinement stage settings (`step_intrinsics_optimize_all`).
+   */
+  intrinsics_optimize: IntrinsicsOptimizeConfig;
+  /**
+   * Optional manual seeds for the per-camera intrinsics stage. They seed
+   * `step_intrinsics_init_all` and `run_calibration` alike;
+   * `step_intrinsics_init_all_with_seed` takes an explicit seed that
+   * overrides this one.
+   */
+  manual_init?: RigIntrinsicsManualInit | null;
+  /**
+   * Rig stage settings (`step_rig_init`, `step_rig_optimize`): the
+   * reference camera, and the scope and loss of the rig bundle
+   * adjustment.
+   */
+  rig: RigConfig;
+  /**
+   * Solver engine settings, for every non-linear stage.
+   */
+  solver: SolverConfig;
+}
+/**
+ * The final hand-eye bundle adjustment of a rig hand-eye calibration
+ * (`step_handeye_optimize`): its loss, robot-pose refinement and scope.
+ */
+export interface HandeyeOptimizeConfig {
+  /**
+   * Refine cam_se3_rig in hand-eye BA (default: false).
+   * When true, rig extrinsics are further refined during hand-eye optimization.
+   */
+  refine_cam_se3_rig: boolean;
+  /**
+   * Refine each camera's intrinsics and distortion in the hand-eye BA,
+   * holding the camera's `fix` lists. Default: `true`, for the reason
+   * given on `rig.refine_intrinsics`: the final solve's covariance then
+   * includes the intrinsics.
+   */
+  refine_intrinsics: boolean;
+  /**
+   * Refine the sensor tilt of each Scheimpflug camera in the hand-eye
+   * BA, holding its `fix.sensor` list. Default: `true`, for the reason
+   * given on `rig.refine_sensor`: the final solve's covariance then
+   * includes the tilts. Cameras with an untilted sensor have no tilt.
+   */
+  refine_sensor?: boolean;
+  /**
+   * Robust loss on the target-corner reprojection residuals; its scale is
+   * in pixels. Default `none`.
+   */
+  reprojection_loss: RobustLoss;
+  /**
+   * Robot-pose refinement settings for the final hand-eye BA.
+   */
+  robot_poses: RobotPoseConfig;
+}
+/**
+ * Manual seeds for the **per-camera intrinsics stage** of a rig
+ * calibration.
+ *
+ * All fields are `Option<T>`. When `per_cam_intrinsics` is `Some`, Zhang's
+ * auto-fit is skipped for *every* camera; per-camera target poses are then
+ * recovered from per-camera homographies using the seeded intrinsics. When
+ * `None`, each camera is auto-initialized.
+ *
+ * When intrinsics are seeded but distortion is not, distortion starts at
+ * zero; when intrinsics are auto-initialized, the fitted distortion is used
+ * unless distortion is seeded. Each distortion seed is a value in its
+ * camera's own distortion model: its kind must equal that camera's
+ * configured distortion kind (a typed error otherwise) and it is used as
+ * given.
+ *
+ * `per_cam_sensors` seeds the tilt of each camera with a Scheimpflug
+ * sensor (a seeded tilt skips the tilt sweep of the linear stage); a camera
+ * with an untilted sensor takes only a zero tilt.
+ *
+ * Per-camera vectors must have one entry per camera.
+ */
+export interface RigIntrinsicsManualInit {
+  /**
+   * Per-camera distortion seeds, each of the kind its camera's model names.
+   */
+  per_cam_distortion?: DistortionParams[] | null;
+  /**
+   * Per-camera intrinsics seeds. `None` runs Zhang's method per camera.
+   */
+  per_cam_intrinsics?: FxFyCxCy[] | null;
+  /**
+   * Per-camera sensor tilt seeds (Scheimpflug cameras; zero for the
+   * others).
+   */
+  per_cam_sensors?: ScheimpflugParams[] | null;
+}
+/**
+ * Standard pinhole intrinsics: focal lengths and principal point in pixels.
+ *
+ * The pixel grid is assumed orthogonal, so `K` carries no skew term.
+ */
+export interface FxFyCxCy {
+  /**
+   * Principal point X coordinate in pixels.
+   */
+  cx: number;
+  /**
+   * Principal point Y coordinate in pixels.
+   */
+  cy: number;
+  /**
+   * Focal length in pixels along X.
+   */
+  fx: number;
+  /**
+   * Focal length in pixels along Y.
+   */
+  fy: number;
+}
+/**
+ * Scheimpflug tilt parameters (OpenCV-compatible).
+ */
+export interface ScheimpflugParams {
+  /**
+   * Tilt around X axis in radians (alias: tau_x).
+   */
+  tilt_x: number;
+  /**
+   * Tilt around Y axis in radians (alias: tau_y).
+   */
+  tilt_y: number;
+}
+/**
+ * Configuration for rig laserline calibration.
+ *
+ * Grouped by stage. `solver.max_iters` defaults to 200: this stage
+ * refines only per-camera laser-plane parameters against an already-frozen
+ * rig geometry (three parameters per camera), so iterations are nearly
+ * free.
+ */
+export interface RigLaserlineDeviceConfig {
+  /**
+   * Laser-plane refinement stage settings (`step_optimize`).
+   */
+  optimize: PlaneOptimizeConfig;
+  /**
+   * Solver engine settings.
+   */
+  solver: SolverConfig;
+}
+/**
+ * The laser-plane refinement of a rig laserline calibration
+ * (`step_optimize`): each camera's plane fitted to its laser pixels, the
+ * cameras and the target poses held at the upstream calibration. The
+ * target corners only place the target; with everything they constrain
+ * held, they have no loss or weight here.
+ */
+export interface PlaneOptimizeConfig {
+  /**
+   * Robust loss on the laser residuals, its scale in the residual's unit:
+   * pixels for the line distance, meters for point-to-plane. Default
+   * Huber at 1, a pixel for the line distance; for point-to-plane a
+   * scale of 1 m is plain least squares in effect, so state one in
+   * meters to robustify it.
+   */
+  laser_loss: RobustLoss;
+  /**
+   * The laser residual: the line distance in pixels (the default) or the
+   * point-to-plane distance in meters.
+   */
+  laser_residual_type: LaserlineResidualType;
+}
+/**
+ * Configuration for joint rig hand-eye laserline calibration.
+ *
+ * The calibration runs two warm-start problems and then its own joint
+ * solve. Each warm start is configured by its problem's whole config —
+ * `handeye` a rig hand-eye calibration, `laserline_init` a rig laserline
+ * calibration of the planes against that frozen geometry — and every one
+ * of their fields applies to that stage. The joint bundle adjustment is
+ * configured by `joint_optimize` and `solver`, the same shape as a
+ * single-camera laserline device's `optimize` and `solver`.
+ */
+export interface RigHandeyeLaserlineConfig {
+  /**
+   * The warm-start rig hand-eye calibration: cameras, extrinsics,
+   * hand-eye transform and target reference pose. Its `rig`
+   * reference camera also fixes the rig gauge of the joint solve.
+   */
+  handeye: RigHandeyeConfig;
+  /**
+   * The joint bundle-adjustment stage.
+   */
+  joint_optimize: JointOptimizeConfig;
+  /**
+   * The warm-start laser-plane fit against the frozen hand-eye geometry.
+   */
+  laserline_init: RigLaserlineDeviceConfig;
+  /**
+   * Solver engine settings of the joint stage. `max_iters` defaults to
+   * 30: the stage starts from both warm starts and needs few iterations.
+   */
+  solver: SolverConfig;
+}
+/**
+ * Final joint BA options.
+ *
+ * The joint stage always pins the upstream rig's reference camera
+ * (`handeye.rig.reference_camera_idx`) — see `joint_fix_extrinsics`. Each
+ * camera's fixed parameters are named lists in that camera's model
+ * (`fix`).
+ */
+export interface JointOptimizeConfig {
+  /**
+   * Camera parameters held fixed in the joint stage, one entry per camera
+   * in camera order, each named per slot in that camera's model
+   * (`{"distortion": ["k3", "p1", "p2"], "sensor": ["tilt_x"]}`); a slot
+   * left out of an entry keeps the model's default. Empty (the default)
+   * gives every camera the stage default: intrinsics, the low-order
+   * radial terms (`k1`, `k2`; the division model's `lambda`) and the
+   * sensor tilt refined, the higher-order distortion terms held at their
+   * warm-start values — they trade off against the extrinsics and the
+   * laser planes in the joint solve. The tilt is refined like the
+   * intrinsics: held, the covariance would be conditional on it and
+   * understate the intrinsics' standard deviations. A name the camera's
+   * model does not have is a configuration error.
+   */
+  fix?: CameraFix[];
+  /**
+   * Fix the hand-eye transform during the joint stage.
+   */
+  fix_handeye: boolean;
+  /**
+   * Fix the target reference pose during the joint stage.
+   */
+  fix_target_ref: boolean;
+  /**
+   * Robust loss on the laser residuals, its scale in the residual's unit
+   * (meters for point-to-plane, pixels for the line distance).
+   */
+  laser_loss: RobustLoss;
+  /**
+   * Which laser residual drives the joint solve.
+   */
+  laser_residual_type: LaserlineResidualType;
+  /**
+   * Weight of the laser residuals.
+   */
+  laser_weight: number;
+  /**
+   * Robust loss on the target-corner reprojection residuals; its scale is
+   * in pixels.
+   */
+  reprojection_loss: RobustLoss;
+  /**
+   * Weight of the reprojection residuals.
+   */
+  reprojection_weight: number;
+  /**
+   * Robot-pose refinement settings for the joint stage.
+   */
+  robot_poses: RobotPoseConfig;
+}
 /**
  * Top-level dataset manifest. Authoritative description of where
  * the user's calibration data lives and how to interpret it.
@@ -1284,6 +2352,37 @@ export interface DatasetSpec {
   version: number;
 }
 /**
+ * Per-camera image source.
+ */
+export interface CameraSource {
+  /**
+   * Stable camera identifier (e.g. `"cam0"`). Used as a key in
+   * pose pairings and downstream exports.
+   */
+  id: string;
+  /**
+   * Glob pattern (e.g. `"cam0/*.png"`) or explicit list of image
+   * paths, relative to the manifest's directory unless absolute.
+   */
+  images: ImagePattern;
+  /**
+   * Laser-frame image source for the laser topologies.
+   * One laser image per view, captured by the same sensor with the
+   * line projector on; `roi_xywh` applies to laser frames too.
+   * Laser images pair with target views through `pose_pairing`.
+   */
+  laser_images?: ImagePattern | null;
+  /**
+   * Optional rectangular ROI in source-image pixels — `[x, y, w, h]`.
+   * When set, only the cropped region is fed to the detector and
+   * stored in the export's image manifest.
+   *
+   * @minItems 4
+   * @maxItems 4
+   */
+  roi_xywh?: [number, number, number, number] | null;
+}
+/**
  * Target-detector overrides. These options affect feature detection
  * only; they are hashed into the detection-cache key by the runner.
  *
@@ -1311,6 +2410,73 @@ export interface DetectorSpec {
    * runner already keeps only views that span the whole board.
    */
   min_features_per_view?: number | null;
+}
+/**
+ * ChESS corner extractor overrides. The manifest's copy of the detector's
+ * ChESS options (see [`DetectorSpec`]).
+ */
+export interface ChessCornersDetectorSpec {
+  /**
+   * Attach the detector's per-corner position covariance to every
+   * observation. Absent (the default) = off.
+   *
+   * The covariance is the image noise propagated through the corner
+   * localizer, plus the localizer's systematic-error model. When present,
+   * a calibration weights each corner by it (whitened residuals) and its
+   * report gives the unit-weight scale factor σ̂₀ instead of an RMS in
+   * pixels.
+   *
+   * Off by default, and not recommended for calibration. On real
+   * chessboard and ChArUco images, weighting by it did not improve the
+   * accuracy on held-out views and made it slightly worse on some
+   * cameras; its stated uncertainty was no closer to the real scatter.
+   *
+   * Supported by the `chessboard` and `charuco` targets only: the
+   * PuzzleBoard detector runs on an upscaled image, for which no
+   * covariance is reported, and ring grids have none. A manifest that
+   * sets it for another target is an error.
+   */
+  covariance?: CornerCovarianceSpec | null;
+  /**
+   * Minimum corner strength for a detected corner to enter the grid
+   * builder. `None` keeps the detector default (`33.0`). The floor is on
+   * the strategy's response scale; under Radon the default never binds.
+   *
+   * The default drops weakly-firing corners, which is the right trade
+   * whenever corners are plentiful. Set `0.0` to disable it on small or
+   * soft image tiles, where the floor can remove a third of the board and
+   * the resulting sparse view conditions worse than the weak corners did.
+   */
+  min_corner_strength?: number | null;
+  /**
+   * Corner detector. `None` keeps ChESS.
+   */
+  strategy?: CornerStrategySpec | null;
+  /**
+   * Acceptance threshold on the corner response. `None` keeps the
+   * strategy's default.
+   *
+   * Under ChESS it is an absolute floor on the raw response: a corner is
+   * kept when its response exceeds it. Under Radon it is a fraction in
+   * `(0, 1]` of the frame's maximum response.
+   *
+   * A sibling `threshold_mode` key is rejected by `deny_unknown_fields`:
+   * the corner detector has no threshold mode.
+   */
+  threshold_value?: number | null;
+}
+/**
+ * Per-corner covariance options; see [`ChessCornersDetectorSpec::covariance`].
+ * The manifest's copy of the detector's covariance options (see
+ * [`DetectorSpec`]).
+ */
+export interface CornerCovarianceSpec {
+  /**
+   * The image noise that the propagated covariance is expressed in.
+   * Defaults to `estimate`: the noise is estimated from each image, which
+   * is unreliable on JPEG or demosaiced images; give `stated` for those.
+   */
+  image_noise?: ImageNoiseSpec & string;
 }
 /**
  * Laser-line extraction parameters. Consumed by the
@@ -1427,6 +2593,558 @@ export interface PoseColumnMap {
   tz: string;
 }
 /**
+ * What a project leaves out of its dataset.
+ *
+ * Image paths are relative to the dataset's folder unless absolute, and
+ * `/`-separated; they match the images the manifest lists after both are
+ * made absolute and their `.` and `..` folded.
+ *
+ * In TOML:
+ *
+ * ```toml
+ * [exclude]
+ * views  = [{ view = { token = "0012" }, note = "robot pose glitch" }]
+ * images = [{ camera = "cam1", image = "cam1/0003.png" }]
+ * [[exclude.features]]
+ * camera = "cam0"
+ * image  = "cam0/0005.png"
+ * points = [[0.03, 0.06, 0.0]]
+ * ```
+ */
+export interface Exclusions {
+  /**
+   * Single features of one camera's detection in one image.
+   */
+  features?: FeatureExclusion[];
+  /**
+   * One camera's image of a view; the view keeps its other cameras.
+   */
+  images?: ImageExclusion[];
+  /**
+   * Whole views: every camera's image of the view, its robot pose and
+   * its laser frames.
+   */
+  views?: ViewExclusion[];
+}
+/**
+ * Features of one camera's detection in one image, left out.
+ *
+ * A feature is named by its target point as the detector labelled it,
+ * before a rig turns a plain chessboard's labels to agree with its other
+ * cameras: the detection a review shows. A point matches a feature within
+ * a micrometre in each coordinate. A point that matches no feature of the
+ * detection leaves nothing out and is not an error, since what the
+ * detector finds is known only once it has run.
+ */
+export interface FeatureExclusion {
+  /**
+   * The camera's id in the manifest.
+   */
+  camera: string;
+  /**
+   * The image, one of the camera's.
+   */
+  image: string;
+  /**
+   * Why, for the reader; the calibration does not read it.
+   */
+  note?: string | null;
+  /**
+   * The target points of the features to leave out, metres.
+   */
+  points: [number, number, number][];
+}
+/**
+ * One camera's image of a view, left out.
+ *
+ * The camera is named with the image because a tiled image holds several
+ * cameras' views.
+ */
+export interface ImageExclusion {
+  /**
+   * The camera's id in the manifest.
+   */
+  camera: string;
+  /**
+   * The image, one of the camera's.
+   */
+  image: string;
+  /**
+   * Why, for the reader; the calibration does not read it.
+   */
+  note?: string | null;
+}
+/**
+ * A view left out, with every camera's image of it.
+ */
+export interface ViewExclusion {
+  /**
+   * Why, for the reader; the calibration does not read it.
+   */
+  note?: string | null;
+  /**
+   * Which view.
+   */
+  view: ViewRef;
+}
+/**
+ * Thresholds of the quality checks.
+ *
+ * Every default is a limit a well-planned calibration of a perspective
+ * camera clears, and that a calibration with a known planning flaw (views
+ * bunched in one part of the image, near-identical board poses) does not.
+ * The expected feature noise has no default: it depends on the detector,
+ * the target and the optics.
+ */
+export interface QualityThresholds {
+  /**
+   * Share of the image's coverage cells, in `[0, 1]` and at most
+   * `coverage_warn_below`, below which the coverage check fails. Default
+   * `0.3`: the views reached little more than one quadrant of the image,
+   * so the rest of it, corners included, is extrapolated.
+   */
+  coverage_fail_below?: number;
+  /**
+   * Share of the image's coverage cells, in `[0, 1]`, below which the
+   * coverage check warns. Default `0.5`: features in fewer than half of
+   * the cells leave the distortion to be extrapolated over the rest.
+   */
+  coverage_warn_below?: number;
+  /**
+   * Expected noise of one feature coordinate, σ₀, in pixels per axis
+   * (> 0). `None` (the default) leaves the variance-factor check not
+   * applicable: there is no universal value, since it depends on the
+   * detector, the target and the image quality. State it to test whether
+   * the residuals are consistent with it.
+   */
+  expected_feature_noise_px?: number | null;
+  /**
+   * Largest acceptable absolute correlation of two parameters of one
+   * camera, in `(0, 1]`; a pair above it is named and the check warns.
+   * Default `0.99`: at that level the data determines the pair's sum or
+   * difference, not the two parameters, so each one's value is mostly the
+   * trade-off's choice. The two focal lengths `fx` and `fy` are left out:
+   * the board's distance scales both, so they correlate almost fully in
+   * every planar calibration, while their ratio is well determined.
+   */
+  max_parameter_correlation?: number;
+  /**
+   * Largest acceptable projection σ anywhere in the image, in pixels
+   * (> 0); above it the check warns. Default `1.0`: where the views
+   * covered the image, σ stays a fraction of a pixel; it exceeds a pixel
+   * where the distortion is extrapolated, typically in corners the board
+   * never reached. The map is conservative for uses that re-estimate the
+   * camera's pose, so the check warns rather than fails.
+   */
+  max_projection_sigma_px?: number;
+  /**
+   * Largest acceptable predicted scatter of the worst combination of the
+   * shared parameters over its stated σ, once the error's second-order
+   * term is counted (≥ 1); above it the covariance-linearity check warns,
+   * naming the combination. Default `1.2`: on synthetic stereo rigs and
+   * single cameras whose error the covariance describes the prediction
+   * stayed at or below 1.06, and every stereo capture predicted above 1.3
+   * scattered 1.4–3 times its σ along that combination.
+   */
+  max_second_order_scatter?: number;
+  /**
+   * Largest acceptable σ inflation `1/√(1 − R²)` of one camera parameter,
+   * R its multiple correlation with the camera's other parameters (≥ 1);
+   * above it the conditioning check warns, naming the parameter and the
+   * partners it trades off against. The other focal length is left out
+   * of a focal length's regressors, and the other radial coefficients out
+   * of a radial coefficient's. Default `7.0`: a pair at the correlation
+   * limit 0.99 inflates both by 7.09; well-determined sensor tilts
+   * measured 1.2–5, tilts the data cannot separate from the principal
+   * point or the tangential terms 14–2900.
+   */
+  max_sigma_inflation?: number;
+  /**
+   * Largest acceptable mean normalized residual of one view, in units of
+   * the noise level σ̂ (> 0); a view above it is named and the check warns.
+   * Default `3.0`: the mean of `|r| / σ̂` over Gaussian inliers is about
+   * 1.25, so a view at 3 has residuals well over twice the typical ones,
+   * as from a misdetection, motion blur or a wrong robot pose.
+   */
+  max_view_residual?: number;
+  /**
+   * Significance level α of the two-sided χ² variance-factor test, in
+   * `(0, 1)`. Default `0.01`: a result consistent with σ₀ fails the test
+   * once in a hundred calibrations.
+   */
+  variance_test_alpha?: number;
+}
+/**
+ * An image a run left out, with the reason.
+ */
+export interface LeftOutImage {
+  /**
+   * The camera's id in the manifest.
+   */
+  camera: string;
+  /**
+   * The image, relative to the data root (absolute when outside it),
+   * `/`-separated.
+   */
+  image: string;
+  /**
+   * Why it was left out.
+   */
+  reason: RejectReason;
+}
+/**
+ * The value of each labelled parameter of the run's export that is a
+ * camera parameter, aligned with `labels`; `null` for poses and planes.
+ */
+export interface CameraParameterValuesArgs {
+  labels: string[];
+  run: RunRef;
+}
+/**
+ * A run of a project: the project folder and the run's id (its folder
+ * under `runs/`).
+ */
+export interface RunRef {
+  /**
+   * The project folder.
+   */
+  dir: UserPath;
+  /**
+   * The run's id, as `run-007`.
+   */
+  id: string;
+}
+/**
+ * Serializable camera parameters for building a runtime model.
+ */
+export interface CameraParams {
+  /**
+   * Distortion model parameters.
+   */
+  distortion: DistortionParams;
+  /**
+   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
+   */
+  intrinsics: FxFyCxCy;
+  /**
+   * Projection model parameters.
+   */
+  projection: ProjectionParams;
+  /**
+   * Sensor model parameters.
+   */
+  sensor: SensorParams;
+}
+/**
+ * One camera of a [`RunSummary`].
+ */
+export interface CameraSummary {
+  /**
+   * Its features in the calibration.
+   */
+  features: number;
+  /**
+   * The camera's id in the manifest.
+   */
+  id: string;
+  /**
+   * The root-mean-square reprojection error of its features, pixels:
+   * √(mean of the squared error lengths); `None` without residuals.
+   */
+  rms_px?: number | null;
+  /**
+   * The views it saw.
+   */
+  views: number;
+}
+/**
+ * Cancel the job `id`: a queued job at once, a running one at its next
+ * image or solver iteration. A finished job is answered as it is.
+ */
+export interface CancelJobArgs {
+  id: string;
+}
+/**
+ * One term of a combination of parameters: a parameter and its weight, in
+ * units of the parameter's σ.
+ */
+export interface CombinationTerm {
+  /**
+   * The parameter's label.
+   */
+  label: string;
+  /**
+   * The weight of `parameter / σ(parameter)` in the combination, in
+   * `[-1, 1]` with the largest term at +1. Terms of equal weight and
+   * opposite sign are a difference the combination measures.
+   */
+  weight: number;
+}
+/**
+ * The config form of the workflow `topology`: the schema of its config
+ * (`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's
+ * default configuration.
+ */
+export interface ConfigFormArgs {
+  topology: ProblemKind;
+}
+/**
+ * The configuration changes that make `config` (the workflow `topology`'s
+ * config object, as a form edits it) from the library's defaults: the
+ * fewest that do, as a project file stores them. The inverse of
+ * `resolve_config`; an invalid config is a `config` error.
+ */
+export interface ConfigPatchArgs {
+  config: unknown;
+  topology: ProblemKind;
+}
+/**
+ * Why a command, job or resource failed.
+ */
+export interface StudioError {
+  /**
+   * The field it is about, as a dotted path into the project file or
+   * the manifest (`device.id`, `exclude.images[0]`, `pose_pairing`),
+   * when there is one.
+   */
+  field?: string | null;
+  /**
+   * What the UI branches on.
+   */
+  kind: ErrorKind;
+  /**
+   * What it shows.
+   */
+  message: string;
+  /**
+   * The path the failure is about, when there is one.
+   */
+  path?: string | null;
+  /**
+   * The values to offer for `field` (`needs_input`).
+   */
+  suggestions?: string[];
+}
+/**
+ * Make the folder `dir` (created when missing, inside a root) a project of
+ * `spec`, written as `calibration-project.toml`. Every path the spec names
+ * must lie inside a root; `project_exists` when the folder already holds a
+ * project. It becomes the most recent project.
+ */
+export interface CreateProjectArgs {
+  dir: UserPath;
+  spec: ProjectSpec;
+}
+/**
+ * A calibration project's definition: its dataset, the changes to its
+ * workflow's default configuration, the quality thresholds its runs are
+ * judged by and what it leaves out of the dataset.
+ *
+ * It is the content of `calibration-project.toml` (or of
+ * `calibration-project.json`). An unknown field is an error, so a misspelt
+ * section such as `[exlude]` never passes silently.
+ *
+ * ```toml
+ * version = 2
+ * name = "Bench camera"
+ *
+ * [device]
+ * product = "line scanner"
+ * id = "SN-0042"
+ *
+ * [dataset]
+ * manifest = "captures/dataset.toml"
+ *
+ * [config]
+ * solver.max_iters = 80
+ *
+ * [exclude]
+ * images = [{ camera = "cam0", image = "cam0/0003.png" }]
+ * ```
+ */
+export interface ProjectSpec {
+  /**
+   * Changes to the default configuration of the dataset's workflow.
+   */
+  config?: ConfigPatch;
+  /**
+   * The dataset: its manifest, written in the project file or kept in a
+   * file of its own.
+   */
+  dataset: DatasetSource;
+  /**
+   * What the project is about, for the reader.
+   */
+  description?: string | null;
+  /**
+   * The device the project calibrates: the key its runs are grouped by
+   * across projects.
+   */
+  device?: DeviceIdentity | null;
+  /**
+   * What the runs leave out of the dataset.
+   */
+  exclude?: Exclusions;
+  /**
+   * The project's name, for display; without one, the project's folder
+   * name is shown.
+   */
+  name?: string | null;
+  /**
+   * The thresholds the runs' quality is judged by; `None` for the
+   * defaults.
+   */
+  quality?: QualityThresholds | null;
+  /**
+   * The project file's format version, [`PROJECT_VERSION`].
+   */
+  version: number;
+}
+/**
+ * Where a project's dataset manifest is: `manifest` the path of a
+ * manifest file of its own, or the manifest itself, written in the project
+ * file, with `root` the folder its relative paths resolve against.
+ */
+export interface DatasetSource {
+  /**
+   * The manifest file's path (relative to the project folder unless
+   * absolute), or the manifest.
+   */
+  manifest: DatasetManifest;
+  /**
+   * For a manifest written in the project file: the folder its relative
+   * paths resolve against, relative to the project folder unless
+   * absolute. Default `.`. Not allowed beside a manifest file.
+   */
+  root?: string | null;
+}
+/**
+ * The device a project calibrates.
+ *
+ * Projects of one device, in any folder, form its calibration history:
+ * the library groups them by `product` and `id` together.
+ */
+export interface DeviceIdentity {
+  /**
+   * The device's own identifier: a serial number, a MAC address. Not
+   * empty, without leading or trailing white space, compared as written.
+   */
+  id: string;
+  /**
+   * A name for display.
+   */
+  label?: string | null;
+  /**
+   * The device type or product line it belongs to; `None` when the id
+   * alone names the device.
+   */
+  product?: string | null;
+}
+/**
+ * The dataset manifest form: the schema of `DatasetSpec` and the manifest
+ * a new setup starts from (one chessboard camera, planar intrinsics).
+ */
+export interface DatasetFormArgs {}
+/**
+ * Delete run `id` with every file in it. Answers the runs left.
+ */
+export interface DeleteRunArgs {
+  dir: UserPath;
+  id: string;
+}
+/**
+ * One run of a project, as a listing shows it.
+ */
+export interface RunInfo {
+  /**
+   * The run's folder, absolute.
+   */
+  dir: string;
+  /**
+   * The run's id: its folder's name under `runs/`.
+   */
+  id: string;
+  /**
+   * Its notes.
+   */
+  notes: RunNotes;
+  /**
+   * What its files say.
+   */
+  state: RunState;
+}
+/**
+ * The record of one run, `run.json`: what went in, a digest of it, and a
+ * summary of what came out. Written once with the run and never changed.
+ *
+ * `timestamp` and `CalibratedRun::duration_ms` are the only clock
+ * readings in a run's files; neither enters a digest, the export or the
+ * quality report.
+ */
+export interface RunRecord {
+  /**
+   * The version of this library that wrote the run.
+   */
+  library_version: string;
+  /**
+   * Where the run's export came from.
+   */
+  source: RunSource;
+  /**
+   * What came out, for listing without reading the export.
+   */
+  summary: RunSummary;
+  /**
+   * When the run was written, seconds since the Unix epoch; for display
+   * and ordering only.
+   */
+  timestamp: number;
+  /**
+   * The program that made the run, as it named itself (`vcal 1.1.0`).
+   */
+  tool: string;
+  /**
+   * The record's format version, [`RUN_RECORD_VERSION`](super::RUN_RECORD_VERSION).
+   */
+  version: number;
+}
+/**
+ * What a run produced, in brief: enough to list runs without reading
+ * their exports, and recomputable from the export.
+ */
+export interface RunSummary {
+  /**
+   * Each camera, in camera order.
+   */
+  cameras: CameraSummary[];
+  /**
+   * The workflow that produced the export.
+   */
+  kind: ProblemKind;
+  /**
+   * The quality report's verdict; `None` when the quality could not be
+   * assessed.
+   */
+  verdict?: Verdict | null;
+}
+/**
+ * A run of the desktop app's earlier format.
+ */
+export interface UnrecordedRun {
+  /**
+   * The summary of its export, when the export reads.
+   */
+  summary?: RunSummary | null;
+  /**
+   * Views attempted, from its `diagnostics.json`.
+   */
+  total_views?: number | null;
+  /**
+   * Views that entered the calibration, from its `diagnostics.json`.
+   */
+  usable_views?: number | null;
+}
+/**
  * One entry of a listing.
  */
 export interface DirEntry {
@@ -1469,7 +3187,7 @@ export interface DirListing {
 }
 /**
  * A disparity map of the stereo pair `path_a` (camera `cam_a`) and
- * `path_b` (camera `cam_b`) at `pose`: rectified from the active export and
+ * `path_b` (camera `cam_b`) at `pose`: rectified from the run's export and
  * dense-matched. The output names its fields as blobs: a value plane of
  * disparity, depth and the rectified left image, the point cloud, and the
  * rectified pair. The same request again answers from the blob store while
@@ -1482,6 +3200,7 @@ export interface DisparityArgs {
   path_a: UserPath;
   path_b: UserPath;
   pose: number;
+  run: RunRef;
 }
 /**
  * Frontend-supplied matching controls.
@@ -1597,7 +3316,7 @@ export interface EpipolarOverlay {
 /**
  * The epipolar polyline and epipole in camera `cam_b` (distorted pixels)
  * of the pixel `point_px` of camera `cam_a`, through each camera's full
- * model.
+ * model of the run.
  */
 export interface EpipolarOverlayArgs {
   cam_a: number;
@@ -1607,6 +3326,7 @@ export interface EpipolarOverlayArgs {
    * @maxItems 2
    */
   point_px: [number, number];
+  run: RunRef;
 }
 /**
  * A straight epipolar segment in camera `cam_b`'s undistorted frame,
@@ -1623,6 +3343,7 @@ export interface EpipolarOverlayUndistortedArgs {
    * @maxItems 2
    */
   point_px: [number, number];
+  run: RunRef;
 }
 /**
  * A job's state, and the progress report that came with it.
@@ -1642,23 +3363,6 @@ export interface JobEvent {
    */
   id: string;
   state: JobState;
-}
-/**
- * Why a command, job or resource failed.
- */
-export interface StudioError {
-  /**
-   * What the UI branches on.
-   */
-  kind: ErrorKind;
-  /**
-   * What it shows.
-   */
-  message: string;
-  /**
-   * The path the failure is about, when there is one.
-   */
-  path?: string | null;
 }
 /**
  * Evidence about how an export's result was reached: what a viewer or a
@@ -1939,12 +3643,12 @@ export interface TargetFeatureResidual {
   view: number;
 }
 /**
- * Make the sample dataset `id` (one of the library's sample catalogue)
- * available locally and answer the absolute path of its manifest. The
- * files are downloaded into the back end's samples folder (always one of
- * its roots), checked against their SHA-256 and reused later, so the app
- * carries no dataset. A back end built without samples answers
- * `invalid` (`server_info.samples` is false).
+ * Make the sample dataset `id` (one of `server_info.samples`) available
+ * as a project and answer its folder: the files are downloaded into the
+ * back end's samples folder (always one of its roots), checked against
+ * their SHA-256 and reused later, and the folder becomes a project
+ * referencing the sample's manifest (once; an existing project is kept
+ * with its runs). A back end built without samples answers `invalid`.
  */
 export interface FetchSampleArgs {
   id: string;
@@ -2007,6 +3711,18 @@ export interface Iso3Schema {
 export interface ImageQuery {
   max?: number | null;
   path: UserPath;
+}
+/**
+ * Add an export calibrated elsewhere to the project as its next run: an
+ * export file, a `vcal run -o` folder (its `calibration.json`) or a run
+ * folder (its `export.json`). `import_mismatch` for another workflow or
+ * camera count than the project's; the export, and every image its image
+ * manifest names, must lie inside a root.
+ */
+export interface ImportExportArgs {
+  dir: UserPath;
+  export: UserPath;
+  notes?: RunNotes;
 }
 /**
  * A job as the registry knows it.
@@ -2239,6 +3955,58 @@ export interface ViewCovariance {
   view: number;
 }
 /**
+ * What a scan found: the projects, and what it could not read.
+ */
+export interface LibraryScan {
+  /**
+   * The folders and projects that could not be read, sorted by path.
+   */
+  failures: ScanFailure[];
+  /**
+   * The projects, sorted by folder.
+   */
+  projects: ProjectEntry[];
+}
+/**
+ * A folder or project a scan could not read. A scan never fails on one.
+ */
+export interface ScanFailure {
+  /**
+   * Why it could not be read.
+   */
+  message: string;
+  /**
+   * The folder.
+   */
+  path: string;
+}
+/**
+ * One project a scan found.
+ */
+export interface ProjectEntry {
+  /**
+   * The device it calibrates.
+   */
+  device?: DeviceIdentity | null;
+  /**
+   * The project folder, absolute.
+   */
+  dir: string;
+  /**
+   * The project's name, or its folder's.
+   */
+  name: string;
+  /**
+   * Its runs, in listing order.
+   */
+  runs: RunInfo[];
+  /**
+   * Its dataset's workflow; `None` when a referenced manifest cannot be
+   * read.
+   */
+  topology?: ProblemKind | null;
+}
+/**
  * The folder `path`, or the root folders without one. Entries whose name
  * starts with a dot are left out, and so is a symbolic link that leads out
  * of the roots; past 5 000 entries the listing is `truncated`.
@@ -2253,32 +4021,38 @@ export interface ListDirArgs {
  */
 export interface ListJobsArgs {}
 /**
- * Read and parse the calibration export at `path` and check its schema
- * version. It does not become active: the frontend validates it first and
- * then calls `set_active_export`. Its images are read through the `image`
- * resource, so they too must lie inside a root.
+ * The project's runs (as `open_project` lists them).
  */
-export interface LoadExportArgs {
-  path: UserPath;
+export interface ListRunsArgs {
+  dir: UserPath;
 }
 /**
- * A loaded export.
+ * A check's measured value and the limit that decided its status.
  */
-export interface LoadExportResult {
+export interface Measurement {
   /**
-   * The parsed export JSON; the frontend narrows it by its `kind`.
+   * The limit it was compared to: the one it crossed, or, for a pass, the
+   * nearest one.
    */
-  export: unknown;
+  threshold: number;
   /**
-   * The folder holding the export (absolute, `/`-separated): its image
-   * manifest's `root` resolves against it.
+   * The unit of both.
    */
-  export_dir: string;
+  unit: Unit;
+  /**
+   * The measured value; for a check over several items (views, parameter
+   * pairs), the worst one.
+   */
+  value: number;
 }
 /**
- * Open the project in `dir`; `not_a_project` for any other folder,
- * `forbidden_path` when its dataset lies outside the roots. It becomes
- * the most recent project.
+ * Open the project in `dir`: its definition, the resolved dataset and
+ * configuration, the digests of its inputs and its runs. A version 1
+ * project of the app's earlier format opens as it is (it is migrated when
+ * saved). `not_a_project` for a folder without a project file,
+ * `forbidden_path` when the project names a data folder or manifest
+ * outside the roots. It becomes the most recent project. Opening again is
+ * how a client reloads a project: the back end keeps none open.
  */
 export interface OpenProjectArgs {
   dir: UserPath;
@@ -2326,64 +4100,131 @@ export interface PlanarIntrinsicsExport {
   uncertainty?: Uncertainty;
 }
 /**
- * An opened project, as the UI shows it.
+ * The digests of a project's inputs as they stand, for what is known
+ * before any image is read: each part of an [`InputDigest`] but the
+ * detections, computed as a run computes it. A calibrated run whose
+ * digest differs from its project's in one of these parts was made from
+ * other inputs than the project now states (a run's own configuration
+ * changes count as such a difference).
  */
-export interface ProjectInfo {
+export interface ProjectDigest {
   /**
-   * The folder the manifest's relative paths resolve against (absolute).
+   * As [`InputDigest::config`], of the project's configuration.
    */
-  dataset_dir: string;
+  config: string;
   /**
-   * The project folder (absolute).
+   * As [`InputDigest::dataset`].
+   */
+  dataset: string;
+  /**
+   * As [`InputDigest::exclusions`].
+   */
+  exclusions: string;
+  /**
+   * As [`InputDigest::quality`].
+   */
+  quality: string;
+}
+/**
+ * An open project: its definition as on disk, what it resolves to, and its
+ * runs.
+ */
+export interface ProjectView {
+  /**
+   * The workflow's configuration: its defaults with the project's
+   * changes, or why they do not make a valid one.
+   */
+  config: ConfigState;
+  /**
+   * The folder the manifest's relative paths resolve against.
+   */
+  data_root: string;
+  /**
+   * The dataset's manifest, or why it cannot be read: a broken
+   * referenced manifest still opens the project.
+   */
+  dataset: DatasetState;
+  /**
+   * Whether the manifest is the project file's (and edited with it); a
+   * referenced manifest file is never written.
+   */
+  dataset_editable: boolean;
+  /**
+   * The project folder.
    */
   dir: string;
   /**
-   * The dataset manifest (`dataset.json`), as stored.
+   * The project file's format version on disk: 1 for a project of the
+   * app's earlier format until it is saved (then 2).
    */
-  manifest: unknown;
+  file_version: number;
   /**
-   * The saved runs, sorted by name.
+   * The digests of the project's inputs as they stand (no image read),
+   * to compare with each run's: absent when the dataset or the
+   * configuration does not resolve.
    */
-  runs: RunSummary[];
-}
-/**
- * One saved run: its folder name and diagnostics.
- */
-export interface RunSummary {
+  input_digest?: ProjectDigest | null;
   /**
-   * `diagnostics.json`, or `None` when it is missing or does not parse
-   * (the run is still listed, so its export can be opened).
-   */
-  diagnostics?: RunDiagnostics | null;
-  /**
-   * The run's folder name under `runs/`.
+   * Its name, or its folder's.
    */
   name: string;
+  /**
+   * The project file's content revision as read: `save_project` sends it
+   * back, and is refused with `changed_on_disk` when the file changed
+   * since.
+   */
+  revision: string;
+  /**
+   * The runs: numbered runs by number, then others by name.
+   */
+  runs: RunInfo[];
+  /**
+   * The project file's definition.
+   */
+  spec: ProjectSpec;
 }
 /**
- * `diagnostics.json`: how a run went.
+ * The dataset's views and the project's problems.
  */
-export interface RunDiagnostics {
+export interface ProjectViews {
   /**
-   * Whether detections were served from the detection cache.
+   * The cameras' ids, in manifest order.
    */
-  cache_used: boolean;
+  cameras: string[];
   /**
-   * Detection and calibration time, in milliseconds.
+   * What a run would refuse, each with the field it is about when there
+   * is one; empty when the project would run.
    */
-  duration_ms: number;
+  messages: StudioError[];
   /**
-   * The manifest topology the run calibrated.
+   * The views, in pairing order; empty when the images cannot be
+   * listed or paired (a message says why).
    */
-  topology: string;
+  views: ViewRow[];
+}
+/**
+ * One view of the dataset.
+ */
+export interface ViewRow {
   /**
-   * Views attempted.
+   * Each camera's image, relative to the data folder (absolute outside
+   * it), `/`-separated; `null` where a camera has none.
    */
-  total_views: number;
+  images: (string | null)[];
   /**
-   * Views with enough detected features to use.
+   * Its pairing token (the view's index under index pairing).
    */
-  usable_views: number;
+  token: string;
+}
+/**
+ * The views the project's images pair into, without reading an image, and
+ * what is wrong with the project as a run would find it before detection:
+ * of the saved project, or of the draft `spec` when given (nothing is
+ * written). Each problem is a message with the field it is about.
+ */
+export interface ProjectViewsArgs {
+  dir: UserPath;
+  spec?: ProjectSpec | null;
 }
 /**
  * The projection uncertainty of one camera over its image.
@@ -2429,13 +4270,60 @@ export interface ProjectionUncertainty {
   sigma: (number | null)[];
 }
 /**
- * The projection uncertainty of `camera` of the active export over an
- * image of `image_width` × `image_height` pixels.
+ * The projection uncertainty of `camera` of the run over an image of
+ * `image_width` × `image_height` pixels.
  */
 export interface ProjectionUncertaintyArgs {
   camera: number;
   image_height: number;
   image_width: number;
+  run: RunRef;
+}
+/**
+ * One check of a [`QualityReport`].
+ */
+export interface QualityCheck {
+  /**
+   * The camera, for a check made per camera; `None` for one about the
+   * whole result.
+   */
+  camera?: number | null;
+  /**
+   * What the check examines.
+   */
+  kind: CheckKind;
+  /**
+   * The measured value; absent for a check not applicable, and for the
+   * observability and convergence checks, which read a status.
+   */
+  measurement?: Measurement | null;
+  /**
+   * One sentence on the outcome, or on why the check was not applicable.
+   */
+  message: string;
+  /**
+   * Its outcome.
+   */
+  status: CheckStatus;
+  /**
+   * What the check names: unobservable or at-bound parameter labels,
+   * correlated parameter pairs (`fx/cx`), or outlier views (`view 3`).
+   */
+  subjects?: string[];
+}
+/**
+ * The verdict on a calibration result and the checks behind it.
+ */
+export interface QualityReport {
+  /**
+   * Every check, the result-wide ones first, then each camera's.
+   */
+  checks: QualityCheck[];
+  /**
+   * The worst verdict of the assessed checks; `warn` when no check could
+   * be assessed, since then nothing vouches for the result.
+   */
+  verdict: Verdict;
 }
 /**
  * Read the dataset manifest at `path`: TOML for a `.toml` extension, JSON
@@ -2454,6 +4342,14 @@ export interface RecentProjectsArgs {}
  */
 export interface RemoveRootArgs {
   path: UserPath;
+}
+/**
+ * The run's page, `report.html` (written with every calibration this app
+ * runs), served sandboxed: its scripts run without access to the app.
+ * `io` when the run has none.
+ */
+export interface ReportQuery {
+  run: RunRef;
 }
 /**
  * The configuration of the workflow `topology` that `patch` makes from its
@@ -2818,103 +4714,89 @@ export interface RootFolder {
   samples: boolean;
 }
 /**
- * Run a calibration end to end: detection (cached), the solve and the
- * export, reporting each stage and the library's reports within it. The
- * folder `manifest_dir` is what the manifest's relative paths resolve
- * against; every path the manifest names must lie inside a root. A
- * successful run's export becomes the active export.
+ * A run's export.
  */
-export interface RunCalibrationArgs {
+export interface RunExport {
   /**
-   * The topology's `*Config` JSON.
-   */
-  config: unknown;
-  /**
-   * The dataset manifest (`DatasetSpec` JSON).
-   */
-  manifest: unknown;
-  manifest_dir: UserPath;
-}
-/**
- * A progress report of a calibration run: the `run_calibration` job's
- * event. One is sent as each `RunStage` begins (no `report`) and then for
- * the library's reports within it; the outcome is the job's output (a
- * `RunResponse`), or its `cancelled` state.
- */
-export interface RunProgress {
-  /**
-   * The library's report within the stage, absent when the stage
-   * begins.
-   */
-  report?: Progress | null;
-  /**
-   * The stage under way.
-   */
-  stage: RunStage;
-}
-/**
- * Everything a saved run records (`runs/<name>/*.json`).
- */
-export interface RunRecord {
-  config: unknown;
-  /**
-   * The folder the run resolved the manifest's paths against.
-   */
-  dataset_dir: UserPath;
-  diagnostics: RunDiagnostics;
-  /**
-   * The export as the runner returned it: its image manifest's `root` is
-   * relative to `dataset_dir`.
-   */
-  export: unknown;
-  manifest: unknown;
-}
-/**
- * Successful calibration run.
- */
-export interface RunSuccess {
-  /**
-   * Whether at least one detection was served from the cache.
-   * (Sanity check for "second run is faster"; precise per-image
-   * hit/miss counts are not surfaced yet.)
-   */
-  cache_used: boolean;
-  /**
-   * Total wall-clock time for detection + calibration.
-   */
-  duration_ms: number;
-  /**
-   * Final export JSON, ready to drop into the diagnose viewer.
+   * The export JSON; the frontend narrows it by its `kind`.
    */
   export: unknown;
   /**
-   * Total number of views attempted (images for single-camera
-   * topologies, paired rig views for rig topologies).
+   * The folder the image manifest's frame paths resolve against
+   * (absolute, `/`-separated): the project's data folder for a run it
+   * calibrated, else the manifest's root as the run folder states it.
+   * `null` without an image manifest.
    */
-  total_views: number;
+  image_root?: string | null;
+}
+/**
+ * A run's export, with the folder its image manifest's frames resolve
+ * against.
+ */
+export interface RunExportArgs {
+  run: RunRef;
+}
+/**
+ * A run's listing entry: its state (with the record of a run this library
+ * wrote) and its notes.
+ */
+export interface RunInfoArgs {
+  run: RunRef;
+}
+/**
+ * A run's quality report; `not found` (`io`) for an imported export whose
+ * quality could not be assessed.
+ */
+export interface RunQualityArgs {
+  run: RunRef;
+}
+/**
+ * One Quick Start sample.
+ */
+export interface SampleInfo {
   /**
-   * Number of usable views after detection. For single-camera
-   * topologies: views with >= 4 features. For rig topologies: views
-   * where at least one camera reached >= 4 features.
+   * What it holds: the workflow, the views, the target.
    */
-  usable_views: number;
+  description: string;
+  /**
+   * The id `fetch_sample` takes.
+   */
+  id: string;
+  /**
+   * Its licence (SPDX; `NOASSERTION` when the publisher states none).
+   */
+  licence: string;
+  /**
+   * Its workflow.
+   */
+  topology: ProblemKind;
 }
 /**
- * Replace the project's dataset manifest (`dataset.json`); every path it
- * names must lie inside a root.
+ * A Quick Start sample, ready to open.
  */
-export interface SaveProjectManifestArgs {
-  dir: UserPath;
-  manifest: unknown;
+export interface SampleProject {
+  /**
+   * The sample's project folder.
+   */
+  dir: string;
 }
 /**
- * Save a run as `runs/<name>/`; `run_exists` rather than overwrite one.
+ * Replace the project's definition with `spec` and write it, in its
+ * format (a version 1 project becomes version 2). `revision` is the one
+ * `open_project` answered: when the file changed on disk since, nothing is
+ * written and the answer is `changed_on_disk` (open it again and apply the
+ * edit). Every path the spec names must lie inside a root.
  */
-export interface SaveProjectRunArgs {
+export interface SaveProjectArgs {
   dir: UserPath;
-  name: string;
-  record: RunRecord;
+  revision: string;
+  spec: ProjectSpec;
 }
+/**
+ * Every project under the root folders, with its runs; a folder or
+ * project that cannot be read is listed as a failure, never an error.
+ */
+export interface ScanLibraryArgs {}
 /**
  * One numbered event.
  */
@@ -2941,9 +4823,11 @@ export interface ServerInfo {
    */
   roots_editable: boolean;
   /**
-   * Whether the Quick Start samples can be downloaded.
+   * The Quick Start samples `fetch_sample` makes into projects: the
+   * library's sample catalogue, empty when this back end was built
+   * without them.
    */
-  samples: boolean;
+  samples: SampleInfo[];
   /**
    * The shell: `desktop` or `server`.
    */
@@ -2959,10 +4843,13 @@ export interface ServerInfo {
  */
 export interface ServerInfoArgs {}
 /**
- * Make `export` the active export, the one every viewer command reads.
+ * Replace the notes (label, notes, star) of run `id`; empty notes remove
+ * them. Answers the run as listed after.
  */
-export interface SetActiveExportArgs {
-  export: unknown;
+export interface SetRunNotesArgs {
+  dir: UserPath;
+  id: string;
+  notes: RunNotes;
 }
 /**
  * Export format for single-camera hand-eye calibration.
@@ -3011,28 +4898,46 @@ export interface SingleCamHandeyeExport {
   uncertainty?: Uncertainty;
 }
 /**
- * Infer a dataset manifest from the folder `folder`: images grouped into
- * cameras, a robot-pose file, a guessed topology. What cannot be
- * determined is left at a placeholder and listed in the manifest's
- * `_unresolved` (the same inference as `vcal init`).
+ * Infer a draft dataset manifest from the folder `folder` (the same
+ * inference as `vcal project init`): images grouped into cameras, a
+ * robot-pose file, a guessed topology. What cannot be determined is left
+ * at a placeholder and listed in `unresolved`; a run refuses the manifest
+ * until each is set and cleared from its `_unresolved`.
  */
 export interface SniffFolderArgs {
   folder: UserPath;
 }
 /**
- * Map raw (distorted) pixels of `camera` into its undistorted pixel frame;
- * `null` where back-projection has no finite ray.
+ * A sniffed folder.
+ */
+export interface SniffedFolder {
+  /**
+   * The draft manifest, its relative paths against the folder.
+   */
+  spec: DatasetSpec;
+  /**
+   * The fields the sniffer could not determine, as dotted paths into the
+   * manifest (`target`, `topology`, `pose_pairing`, …): the draft's
+   * `_unresolved`.
+   */
+  unresolved: string[];
+}
+/**
+ * Map raw (distorted) pixels of `camera` of the run into its undistorted
+ * pixel frame; `null` where back-projection has no finite ray.
  */
 export interface UndistortPointsArgs {
   camera: number;
   points_px: [number, number][];
+  run: RunRef;
 }
 /**
  * The image at `path` rendered into `camera`'s undistorted pixel frame of
- * the active export (a PNG), cropped to `roi` when given.
+ * the run's export (a PNG), cropped to `roi` when given.
  */
 export interface UndistortedImageQuery {
   camera: number;
   path: UserPath;
   roi?: PixelRect | null;
+  run: RunRef;
 }

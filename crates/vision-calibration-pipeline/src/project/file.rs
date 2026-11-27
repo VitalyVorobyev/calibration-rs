@@ -9,8 +9,8 @@ use vision_calibration_dataset::DatasetSpec;
 
 use super::fs::{read, sha256, write_atomic};
 use super::{
-    DETECTIONS_DIR, DatasetSource, PROJECT_FILE, PROJECT_FILE_JSON, PROJECT_VERSION, ProjectError,
-    ProjectSpec, RUNS_DIR,
+    DETECTIONS_DIR, DatasetSource, PROJECT_FILE, PROJECT_FILE_JSON, PROJECT_VERSION, ProjectDigest,
+    ProjectError, ProjectSpec, RUNS_DIR,
 };
 use crate::dataset_runner::{CalibrationConfig, ConfigPatch, PairedViews, pair_dataset_views};
 
@@ -331,6 +331,32 @@ impl Project {
     /// exclusion.
     pub fn check(&self) -> Result<(), ProjectError> {
         self.prepare(&ConfigPatch::default()).map(drop)
+    }
+
+    /// The digests of the project's inputs as they stand, without reading
+    /// an image: the manifest (with the content of its robot pose file and
+    /// upstream calibration), the exclusions, the configuration and the
+    /// quality thresholds, each as a run records it in
+    /// [`InputDigest`](super::InputDigest). Compare them with a run's to
+    /// tell whether its inputs are still the project's.
+    ///
+    /// # Errors
+    ///
+    /// [`ProjectError::Manifest`] as [`dataset`](Self::dataset);
+    /// [`ProjectError::Config`] as [`config`](Self::config);
+    /// [`ProjectError::Io`] when the robot pose file or the upstream
+    /// calibration cannot be read.
+    pub fn input_digest(&self) -> Result<ProjectDigest, ProjectError> {
+        let dataset = self.dataset()?;
+        let config = CalibrationConfig::patched(dataset.topology, &self.spec.config)
+            .map_err(ProjectError::Config)?;
+        super::digest::project_digest(
+            &dataset,
+            &self.data_root()?,
+            &self.spec.exclude,
+            &config,
+            &self.spec.quality.unwrap_or_default(),
+        )
     }
 
     /// The project's detection cache, `.detections/` in its folder.

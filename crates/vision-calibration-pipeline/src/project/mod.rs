@@ -51,8 +51,8 @@ pub use library::{
     scan_library,
 };
 pub use record::{
-    CalibratedRun, CameraSummary, InputDigest, LeftOutImage, RunInfo, RunInputs, RunNotes,
-    RunRecord, RunSource, RunState, RunSummary, UnrecordedRun,
+    CalibratedRun, CameraSummary, InputDigest, LeftOutImage, ProjectDigest, RunInfo, RunInputs,
+    RunNotes, RunRecord, RunSource, RunState, RunSummary, UnrecordedRun,
 };
 pub use run::ProjectRunOptions;
 pub use spec::{DatasetSource, DeviceIdentity, ProjectSpec};

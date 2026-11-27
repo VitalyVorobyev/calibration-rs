@@ -127,6 +127,26 @@ pub struct InputDigest {
     pub detections: String,
 }
 
+/// The digests of a project's inputs as they stand, for what is known
+/// before any image is read: each part of an [`InputDigest`] but the
+/// detections, computed as a run computes it. A calibrated run whose
+/// digest differs from its project's in one of these parts was made from
+/// other inputs than the project now states (a run's own configuration
+/// changes count as such a difference).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct ProjectDigest {
+    /// As [`InputDigest::dataset`].
+    pub dataset: String,
+    /// As [`InputDigest::exclusions`].
+    pub exclusions: String,
+    /// As [`InputDigest::config`], of the project's configuration.
+    pub config: String,
+    /// As [`InputDigest::quality`].
+    pub quality: String,
+}
+
 /// An image a run left out, with the reason.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

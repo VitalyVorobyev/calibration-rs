@@ -131,6 +131,18 @@ mod tests {
                 .iter()
                 .any(|e| e["name"] == "runs")
         );
+        // A project through the library: the v1 fixture with its run.
+        let project = invoke(
+            &webview,
+            "open_project",
+            json!({ "dir": library.join("rig-demo") }),
+        )
+        .unwrap();
+        assert_eq!(project["file_version"], 1);
+        assert_eq!(project["runs"][0]["id"], "run-001");
+        let run = json!({ "dir": library.join("rig-demo"), "id": "run-001" });
+        let export = invoke(&webview, "run_export", json!({ "run": run })).unwrap();
+        assert_eq!(export["export"]["kind"], "rig_extrinsics");
         // The envelope comes back as the rejection.
         let refused =
             invoke(&webview, "list_dir", json!({ "path": library.join("..") })).unwrap_err();

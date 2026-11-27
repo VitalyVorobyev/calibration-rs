@@ -2,69 +2,67 @@ import { DensityProvider, Empty, Panel } from "@vitavision/ui";
 import { TreeView, type TreeNode } from "@vitavision/workbench";
 import { FlaskConical } from "lucide-react";
 import { useMemo } from "react";
-import { joinPath } from "../lib/paths";
-import { runExportPath, type ProjectInfo, type RunSummary } from "../project/projectApi";
-import { folderName } from "../project/projectModel";
+import type { ProjectView, RunInfo } from "../api/generated/types";
+import { runLabel, runMeta, staleParts } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
 import { useStore } from "../store";
+import { RunActions } from "./RunActions";
 
-/** The navigator of an open project: where it is, its dataset folder, and
- * its saved runs. Choosing a run loads its export into the viewers. */
-export function ProjectPanel({ project }: { project: ProjectInfo }) {
-  const exportPath = useStore((s) => s.exportPath);
+/** The navigator of an open project: its name, its data folder, and its
+ * runs. Choosing a run loads its export into the viewers; the chosen run's
+ * label, star, report and deletion are below the list. */
+export function ProjectPanel({ project }: { project: ProjectView }) {
+  const shown = useStore((s) => s.run);
   const openRun = useProject((s) => s.openRun);
 
-  const nodes = useMemo<TreeNode[]>(() => project.runs.map(runNode), [project.runs]);
-  // The run whose export is loaded, compared as `/`-separated paths.
-  const selectedId = useMemo(() => {
-    if (exportPath === null) return null;
-    const loaded = joinPath(exportPath);
-    return (
-      project.runs.find((r) => runExportPath(project.dir, r.name) === loaded)?.name ??
-      null
-    );
-  }, [exportPath, project]);
+  const nodes = useMemo<TreeNode[]>(
+    () => project.runs.map((run) => runNode(run, project)),
+    [project],
+  );
+  const selected =
+    shown !== null && shown.dir === project.dir
+      ? (project.runs.find((r) => r.id === shown.id) ?? null)
+      : null;
 
   return (
     <DensityProvider value="compact">
       <div className="flex flex-col gap-2.5 p-2.5">
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate text-xs font-semibold text-fg" title={project.dir}>
-            {folderName(project.dir)}
+            {project.name}
           </span>
           <span
             className="truncate font-mono text-[10px] text-fg-muted"
-            title={project.dataset_dir}
+            title={project.data_root}
           >
-            dataset {project.dataset_dir === project.dir ? "." : project.dataset_dir}
+            data {project.data_root === project.dir ? "." : project.data_root}
           </span>
         </div>
         <Panel title="Runs">
           {nodes.length === 0 ? (
-            <Empty>
-              No saved runs yet. A run that finishes while this project is open is saved
-              here.
-            </Empty>
+            <Empty>No runs yet. Run a calibration from the Run workspace.</Empty>
           ) : (
             <TreeView
               aria-label="Saved runs"
               nodes={nodes}
-              selectedId={selectedId}
+              selectedId={selected?.id ?? null}
               onSelect={(id) => void openRun(id)}
             />
           )}
         </Panel>
+        {selected && <RunActions key={selected.id} project={project} run={selected} />}
       </div>
     </DensityProvider>
   );
 }
 
-function runNode(run: RunSummary): TreeNode {
-  const d = run.diagnostics;
+function runNode(run: RunInfo, project: ProjectView): TreeNode {
+  const stale = staleParts(run, project.input_digest);
+  const meta = runMeta(run);
   return {
-    id: run.name,
-    label: run.name,
+    id: run.id,
+    label: runLabel(run),
     icon: <FlaskConical className="size-3.5" />,
-    meta: d ? `${d.usable_views}/${d.total_views} views` : undefined,
+    meta: stale && stale.length > 0 ? `${meta ?? ""} · stale` : meta,
   };
 }

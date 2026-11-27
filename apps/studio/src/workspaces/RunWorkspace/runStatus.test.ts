@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { newRunId, statusFromResponse, withProgress, type RunStatus } from "./runStatus";
+import { StudioError } from "../../api";
+import type { RunInfo } from "../../api/generated/types";
+import {
+  newRunId,
+  runSummaryLine,
+  statusFromError,
+  withProgress,
+  type RunStatus,
+} from "./runStatus";
 import {
   configSummary,
   manifestSummary,
@@ -8,50 +16,69 @@ import {
   targetKindOf,
 } from "./setupSummary";
 
-describe("statusFromResponse", () => {
-  it("maps a success, with the project run it was saved as", () => {
-    const ok = {
-      kind: "ok" as const,
-      export: {},
-      duration_ms: 42,
-      usable_views: 9,
-      total_views: 10,
-      cache_used: true,
-    };
-    expect(statusFromResponse(ok)).toEqual({
-      kind: "ok",
-      durationMs: 42,
-      usable: 9,
-      total: 10,
-      cacheUsed: true,
-      savedAs: null,
+describe("statusFromError", () => {
+  it("asks for an open choice with its field and suggestions", () => {
+    const e = new StudioError({
+      kind: "needs_input",
+      message: "How are views paired?",
+      field: "pose_pairing",
+      suggestions: ["by_index"],
     });
-    expect(statusFromResponse(ok, "run-003")).toMatchObject({ savedAs: "run-003" });
+    expect(statusFromError(e)).toEqual({
+      kind: "ask_user",
+      field: "pose_pairing",
+      prompt: "How are views paired?",
+      suggestions: ["by_index"],
+    });
   });
 
-  it("maps every terminal failure to its banner", () => {
-    expect(statusFromResponse({ kind: "cancelled" })).toEqual({ kind: "cancelled" });
-    expect(statusFromResponse({ kind: "validation_failed", message: "m" })).toEqual({
-      kind: "validation",
-      message: "m",
-    });
-    expect(statusFromResponse({ kind: "failed", category: "io", message: "m" })).toEqual({
-      kind: "error",
-      category: "io",
-      message: "m",
-    });
+  it("maps a cancellation and every other failure to its banner", () => {
+    expect(statusFromError(new StudioError({ kind: "cancelled", message: "c" }))).toEqual(
+      { kind: "cancelled" },
+    );
     expect(
-      statusFromResponse({
-        kind: "ask_user",
-        field: "f",
-        prompt: "p",
-        suggestions: ["a"],
-      }),
-    ).toEqual({ kind: "ask_user", field: "f", prompt: "p", suggestions: ["a"] });
+      statusFromError({ kind: "manifest", message: "unresolved", field: "target" }),
+    ).toEqual({ kind: "error", category: "manifest", message: "unresolved (target)" });
+    expect(statusFromError(new Error("ipc down"))).toEqual({
+      kind: "error",
+      category: "internal",
+      message: "ipc down",
+    });
   });
 
   it("issues distinct run ids", () => {
     expect(newRunId()).not.toBe(newRunId());
+  });
+});
+
+describe("runSummaryLine", () => {
+  it("says what a calibrated run kept and where it went", () => {
+    const run = {
+      id: "run-003",
+      dir: "/p/runs/run-003",
+      notes: {},
+      state: {
+        kind: "recorded",
+        version: 1,
+        timestamp: 1,
+        tool: "t",
+        library_version: "1",
+        summary: { kind: "planar_intrinsics", verdict: "warn", cameras: [] },
+        source: {
+          kind: "calibrated",
+          usable_views: 9,
+          total_views: 10,
+          duration_ms: 42,
+          left_out: [],
+          redetected: false,
+          digest: {} as never,
+          inputs: {} as never,
+        },
+      },
+    } satisfies RunInfo;
+    expect(runSummaryLine(run)).toBe(
+      "42 ms · 9/10 usable views · saved as runs/run-003 · verdict warn",
+    );
   });
 });
 
@@ -81,29 +108,19 @@ describe("setup summaries", () => {
   });
 
   it("says why Run is blocked, most fundamental reason first", () => {
-    const base = {
-      supported: true,
-      unresolved: 0,
-      manifestDir: "/d",
-      configLoaded: true,
-    };
+    const base = { supported: true, unresolved: 0, hasProject: true, configLoaded: true };
     expect(runBlockReason(base)).toBeUndefined();
-    expect(runBlockReason({ ...base, manifestDir: null })).toBe(
-      "Set a dataset folder first",
+    expect(runBlockReason({ ...base, hasProject: false, unresolved: 2 })).toBe(
+      "Open or create a project first",
     );
     expect(runBlockReason({ ...base, configLoaded: false })).toBe(
       "The calibration config has not loaded",
     );
-    expect(runBlockReason({ ...base, unresolved: 2, manifestDir: null })).toBe(
+    expect(runBlockReason({ ...base, unresolved: 2 })).toBe(
       "Resolve 2 unresolved manifest fields first",
     );
     expect(
-      runBlockReason({
-        ...base,
-        supported: false,
-        unsupportedReason: "unknown",
-        unresolved: 1,
-      }),
+      runBlockReason({ ...base, supported: false, unsupportedReason: "unknown" }),
     ).toBe("unknown");
   });
 });
@@ -120,13 +137,12 @@ describe("withProgress", () => {
   };
 
   it("keeps the step for the iterations that follow it", () => {
-    const stepped = withProgress(running, {
-      stage: "solve",
-      report: { kind: "step", name: "optimize" },
-    });
+    const stepped = withProgress(running, { kind: "step", name: "optimize" });
     const iterated = withProgress(stepped, {
-      stage: "solve",
-      report: { kind: "iteration", iter: 2, max_iters: 50, cost: 1.5 },
+      kind: "iteration",
+      iter: 2,
+      max_iters: 50,
+      cost: 1.5,
     });
     expect(iterated).toMatchObject({ stage: "solve", step: "optimize" });
     expect(iterated.report).toEqual({
@@ -137,14 +153,13 @@ describe("withProgress", () => {
     });
   });
 
-  it("clears the report when a stage begins", () => {
-    const detecting = withProgress(running, {
-      stage: "detect",
-      report: { kind: "detection", done: 1, total: 2 },
-    });
-    expect(withProgress(detecting, { stage: "solve" })).toMatchObject({
-      stage: "solve",
-      report: null,
-    });
+  it("takes the stage from the report's kind", () => {
+    expect(withProgress(running, { kind: "detection", done: 1, total: 2 }).stage).toBe(
+      "detect",
+    );
+    expect(
+      withProgress(running, { kind: "laser_extraction", done: 1, total: 2 }).stage,
+    ).toBe("detect");
+    expect(withProgress(running, { kind: "step", name: "init" }).stage).toBe("solve");
   });
 });

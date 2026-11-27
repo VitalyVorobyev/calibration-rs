@@ -1,49 +1,52 @@
-/** The open project, the recent-projects list (the back end's: the desktop's,
- * or a server's shared by its clients) and the last project error.
+/** The open project (the back end's `ProjectView`, re-read after every
+ * change), the recent-projects list (the back end's) and the last project
+ * error.
  *
- * Opening a project loads its manifest into the Run setup (the dataset
- * folder is the project's `dataset_dir`); saving writes the setup's
- * manifest back; a run saved into the project is reopened from its
- * `export.json`, so what Diagnose shows is what is on disk. */
+ * The back end keeps nothing open: every command names the project by its
+ * folder, a save sends back the revision the project was opened at (a
+ * newer file on disk is `changed_on_disk`), and a run is named by the
+ * project folder and its id. Choosing a run loads its export into the
+ * viewers (`useStore.loadRun`). */
 import { create } from "zustand";
 import { api } from "../api";
+import type { ProjectSpec, ProjectView, RunInfo, RunNotes } from "../api/generated/types";
 import { useStore } from "../store";
-import { useRunSetup } from "../store/runSetup";
-import {
-  asProjectError,
-  createProject,
-  openProject,
-  projectManifestPath,
-  runExportPath,
-  saveProjectManifest,
-  saveProjectRun,
-  type ProjectError,
-  type ProjectInfo,
-  type RunRecord,
-  type RunSummary,
-} from "./projectApi";
-import { nextRunName } from "./projectModel";
+import { asProjectError, type ProjectError } from "./projectModel";
+
+export type { ProjectError } from "./projectModel";
 
 export interface ProjectState {
-  project: ProjectInfo | null;
+  project: ProjectView | null;
   recent: string[];
   /** The last failed project command, shown by the shell until dismissed. */
   error: ProjectError | null;
   /** Read the recent projects from the back end. */
   refreshRecent: () => Promise<void>;
-  /** Open the project in `dir` and load its manifest into the Run setup. */
+  /** Open the project in `dir`. */
   open: (dir: string) => Promise<boolean>;
-  /** Make `dir` a project for the current Run setup's dataset. */
-  create: (dir: string) => Promise<boolean>;
-  /** Write the Run setup's manifest to the project's `dataset.json`. */
-  saveManifest: () => Promise<boolean>;
-  /** Save a run under the next free `run-NNN` name. */
-  saveRun: (record: RunRecord) => Promise<RunSummary | null>;
-  /** Load a saved run's export into the viewer workspaces. */
-  openRun: (name: string) => Promise<void>;
+  /** Read the open project again (another tab or program changed it). */
+  reload: () => Promise<boolean>;
+  /** Make `dir` a project of `spec` and open it. */
+  create: (dir: string, spec: ProjectSpec) => Promise<boolean>;
+  /** Write `spec` to the open project, over the revision it was opened at. */
+  save: (spec: ProjectSpec) => Promise<boolean>;
+  /** Read the open project's runs again. */
+  refreshRuns: () => Promise<void>;
+  /** Load run `id` of the open project into the viewers. */
+  openRun: (id: string) => Promise<void>;
+  /** Replace the notes of run `id`. */
+  setNotes: (id: string, notes: RunNotes) => Promise<boolean>;
+  /** Delete run `id`. */
+  deleteRun: (id: string) => Promise<boolean>;
+  /** Add the export at `path` as the next run, and show it. */
+  importExport: (path: string) => Promise<boolean>;
   close: () => void;
   clearError: () => void;
 }
+
+/** Bumped by every open, so a slower answer for an earlier project never
+ * replaces a newer one. */
+let openSeq = 0;
 
 export const useProject = create<ProjectState>()((set, get) => {
   const fail = (e: unknown) => {
@@ -59,16 +62,21 @@ export const useProject = create<ProjectState>()((set, get) => {
     }
   };
 
-  const adopt = async (info: ProjectInfo) => {
-    // The back end put it first among the recent projects.
-    set({ project: info, error: null });
-    void refreshRecent();
-    await useRunSetup.getState().loadSetup({
-      manifest: info.manifest,
-      manifestDir: info.dataset_dir,
-      manifestPath: projectManifestPath(info.dir),
-      presetId: null,
-    });
+  /** Show `view` as the open project; the viewers drop a run of another. */
+  const adopt = (view: ProjectView) => {
+    set({ project: view, error: null });
+    const shown = useStore.getState().run;
+    if (shown !== null && shown.dir !== view.dir) useStore.getState().resetExport();
+  };
+
+  /** Replace the open project's runs (when it is still `dir`). */
+  const setRuns = (dir: string, runs: RunInfo[]) => {
+    const current = get().project;
+    if (current?.dir === dir) set({ project: { ...current, runs } });
+    const shown = useStore.getState().run;
+    if (shown?.dir === dir && !runs.some((r) => r.id === shown.id)) {
+      useStore.getState().resetExport();
+    }
   };
 
   return {
@@ -78,8 +86,13 @@ export const useProject = create<ProjectState>()((set, get) => {
     refreshRecent,
 
     open: async (dir) => {
+      const seq = ++openSeq;
       try {
-        await adopt(await openProject(dir));
+        const view = await api.openProject({ dir });
+        if (seq !== openSeq) return false;
+        adopt(view);
+        // The back end put it first among the recent projects.
+        void refreshRecent();
         return true;
       } catch (e) {
         const error = asProjectError(e);
@@ -100,67 +113,95 @@ export const useProject = create<ProjectState>()((set, get) => {
       }
     },
 
-    create: async (dir) => {
-      const { manifest, manifestDir } = useRunSetup.getState();
-      if (manifestDir === null) {
-        return fail({
-          kind: "io",
-          message: "Choose a dataset first (a preset, a sniffed folder or a manifest).",
-        });
-      }
-      try {
-        await adopt(await createProject(dir, manifestDir, manifest));
-        return true;
-      } catch (e) {
-        return fail(e);
-      }
-    },
-
-    saveManifest: async () => {
+    reload: async () => {
       const project = get().project;
       if (!project) return false;
-      const manifest = useRunSetup.getState().manifest;
+      return get().open(project.dir);
+    },
+
+    create: async (dir, spec) => {
       try {
-        await saveProjectManifest(project.dir, manifest);
-        // Stored as written.
-        set({
-          project: { ...project, manifest },
-          error: null,
-        });
+        adopt(await api.createProject({ dir, spec }));
+        void refreshRecent();
         return true;
       } catch (e) {
         return fail(e);
       }
     },
 
-    saveRun: async (record) => {
+    save: async (spec) => {
       const project = get().project;
-      if (!project) return null;
-      const name = nextRunName(project.runs.map((r) => r.name));
+      if (!project) return false;
       try {
-        const summary = await saveProjectRun(project.dir, name, record);
-        // Re-read the project from the store: it may have changed while saving.
-        const current = get().project;
-        if (current?.dir === project.dir) {
-          const runs = [...current.runs, summary].sort((a, b) =>
-            a.name.localeCompare(b.name),
-          );
-          set({ project: { ...current, runs }, error: null });
-        }
-        return summary;
+        adopt(
+          await api.saveProject({ dir: project.dir, revision: project.revision, spec }),
+        );
+        return true;
       } catch (e) {
-        fail(e);
-        return null;
+        return fail(e);
       }
     },
 
-    openRun: async (name) => {
+    refreshRuns: async () => {
       const project = get().project;
       if (!project) return;
-      await useStore.getState().loadExport(runExportPath(project.dir, name));
+      try {
+        setRuns(project.dir, await api.listRuns({ dir: project.dir }));
+      } catch (e) {
+        fail(e);
+      }
     },
 
-    close: () => set({ project: null, error: null }),
+    openRun: async (id) => {
+      const project = get().project;
+      if (!project) return;
+      await useStore.getState().loadRun({ dir: project.dir, id });
+    },
+
+    setNotes: async (id, notes) => {
+      const project = get().project;
+      if (!project) return false;
+      try {
+        const run = await api.setRunNotes({ dir: project.dir, id, notes });
+        setRuns(
+          project.dir,
+          project.runs.map((r) => (r.id === id ? run : r)),
+        );
+        return true;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+
+    deleteRun: async (id) => {
+      const project = get().project;
+      if (!project) return false;
+      try {
+        setRuns(project.dir, await api.deleteRun({ dir: project.dir, id }));
+        return true;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+
+    importExport: async (path) => {
+      const project = get().project;
+      if (!project) return false;
+      try {
+        const run = await api.importExport({ dir: project.dir, export: path });
+        await get().refreshRuns();
+        await get().openRun(run.id);
+        return true;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+
+    close: () => {
+      openSeq++;
+      set({ project: null, error: null });
+      useStore.getState().resetExport();
+    },
 
     clearError: () => set({ error: null }),
   };

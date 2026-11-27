@@ -32,41 +32,34 @@ It serves only the folders given with `--root` (or a project folder given alone,
 ## Mental Model
 
 - **Five workspaces**, reachable from the left rail (hotkeys `⌘1` to `⌘5`): Diagnose, 3D viewer, Epipolar, Depth and Run calibration.
-- **One shared store** holds the currently loaded `*Export` JSON plus derived pose and camera indices. Every workspace except Run reads from it; they all react to the same loaded export, the selected pose and the selected camera.
-- **Three ways to fill the store.** The top bar's **Open Export…** button loads a `*Export.json` file directly. Running a calibration from the **Run** workspace hands off to **Diagnose** automatically on success. With a project open, choosing one of its saved runs loads that run's export.
+- **One run at a time.** The viewers show one run of the open [project](projects.md): its export plus derived pose and camera indices. Every workspace except Run reads it; they all react to the same run, the selected pose and the selected camera.
+- **Three ways to a run.** Choose one of the project's runs in the panel on the left. Running a calibration from the **Run** workspace writes the project's next run and hands off to **Diagnose** with it. **Import Export…** in the top bar adds an export calibrated elsewhere (a `*Export.json`, or a `vcal run -o` folder) to the open project as its next run.
 - **The export needs `diagnostics.image_manifest` to render anything visual.** An export with residual numbers but no manifest produces an error banner ("This export has no image_manifest field") instead of a blank viewer. Runs launched from the Run workspace fill it in, as do `vcal run` and the library's `calibrate_dataset`; a hand-written export may not have one.
 
 ## What Is Where
 
 | Workspace | Hotkey | Use it to |
 |---|---|---|
-| **Run** | `⌘5` | configure and launch a calibration from a dataset folder ([Running Calibrations](app_run.md)) |
+| **Run** | `⌘5` | set up and run a calibration of the open project ([Running Calibrations](app_run.md)) |
 | **Diagnose** | `⌘1` | look at per-corner residuals on the source images, per-pose statistics and the parameter uncertainty ([Inspecting Results](app_inspect.md)) |
 | **3D viewer** | `⌘2` | see the calibrated rig: camera frustums, target boards, laser planes |
 | **Epipolar** | `⌘3` | click a point in one image, see its epipolar line in another |
 | **Depth** | `⌘4` | rectify a stereo pair and compute disparity, depth and a point cloud |
 
-The Run workspace is the entry point for a new dataset; the other four work on any export, whether produced by the app or by `session.export()` in your own code.
+The Run workspace is the entry point for a new dataset; the other four work on any run of a project, calibrated by the app, by `vcal run` or imported.
 
 ## Projects
 
-A project is a folder that keeps a dataset's manifest and the runs calibrated from it, so the work survives closing the app:
+The app works on [projects](projects.md), the same folders `vcal` and the Python package read and write: a dataset (its manifest in the project file, or a manifest file of its own), the changes to its workflow's configuration, and the runs calibrated from it in `runs/run-NNN/`. A project of the app's earlier format (`calibration-project.json` with a `dataset.json`) opens as it is and is written in the current format when it is first saved; its runs are listed as they are.
 
-```text
-my-project/
-  calibration-project.json   marks the folder as a project; names the dataset folder
-  dataset.json               the dataset manifest
-  runs/run-001/              manifest.json, config.json, export.json, diagnostics.json, report.html
-```
+The **Project** menu in the top bar:
 
-The **Project** menu in the top bar does four things:
+- **Open project…** opens a folder browser over the folders the app may read (the same one on the desktop and in a browser) and lists the project's runs in a panel on the left; choosing a run loads it into the viewers. A folder without a project file is reported as "not a project folder"; the app never guesses one from a folder's contents.
+- **New project from a dataset folder…** makes the folder a project whose manifest the [folder sniffer](manifest.md#the-folder-sniffer) drafts; **New project from a manifest…** makes the manifest's folder a project referencing that file, which the app shows but never rewrites.
+- **Save project** writes the Run workspace's edits to the project file. If the file changed on disk since it was opened (another program, another browser tab), nothing is written and the app asks you to reload it.
+- **Import an export as a run…** is the menu's twin of the top bar's **Import Export…**; **Reload project** reads it again; **Recent** reopens one of the last projects opened (in a browser: the server's list, shared by everyone using it).
 
-- **New project from this dataset…** makes a chosen folder a project for the dataset the Run workspace has loaded, whether from a preset, a sniffed folder or a manifest file. The images stay where they are: the project records the dataset folder, relative to the project when it is inside it and absolute otherwise. A `dataset.toml` you wrote by hand is read once and never rewritten; the project keeps its own `dataset.json`.
-- **Open project…** opens a folder browser over the folders the app may read (the same one on the desktop and in a browser), then loads the project's manifest into the Run workspace and lists its runs in a panel on the left; choosing a run loads its export into the viewers. A folder without `calibration-project.json` is reported as "not a project folder"; the app never guesses one from a folder's contents.
-- **Save manifest** writes the Run workspace's edited manifest back to `dataset.json`.
-- **Recent** reopens one of the last projects opened (in a browser: the server's list, shared by everyone using it).
-
-While a project is open, every successful run is saved as the next `runs/run-NNN/` folder: the manifest and configuration it ran with, the export, its diagnostics (views used, run time) and `report.html`, the run as one page to read or share ([The Calibration Report](report.md)). A saved run is never overwritten. Its `export.json` points back at the dataset's images, so it also opens on its own with **Open Export…**.
+The panel on the left lists the runs with their views and verdict, a ★ on starred ones and "stale" on a run made from other inputs (dataset, exclusions, configuration or quality thresholds) than the project states now. Below it, the chosen run takes a label and a star, opens its `report.html` ([The Calibration Report](report.md)), and can be deleted.
 
 The app reads and writes only inside its root folders: a project whose dataset, or a manifest whose images or pose file, lie elsewhere is refused with an error instead of being read silently.
 

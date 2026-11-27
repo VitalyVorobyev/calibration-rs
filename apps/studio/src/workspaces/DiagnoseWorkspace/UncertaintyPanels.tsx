@@ -1,6 +1,7 @@
 import { ColormapLegend, colormapValue } from "@vitavision/charts";
 import { Callout, ErrorBox, Panel, Table, type Column } from "@vitavision/ui";
 import { api } from "../../api";
+import { useStore } from "../../store";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   correlationMatrix,
@@ -105,10 +106,12 @@ function ParametersPanel({ cov }: { cov: ParameterCovariance }) {
     values: (number | null)[];
   } | null>(null);
   const labels = cov.labels;
+  const run = useStore((s) => s.run);
   useEffect(() => {
+    if (run === null) return;
     let cancelled = false;
     api
-      .cameraParameterValues({ labels })
+      .cameraParameterValues({ run, labels })
       .then((values) => {
         if (!cancelled) setFetched({ labels, values });
       })
@@ -120,7 +123,7 @@ function ParametersPanel({ cov }: { cov: ParameterCovariance }) {
     return () => {
       cancelled = true;
     };
-  }, [labels]);
+  }, [run, labels]);
   const values = fetched?.labels === labels ? fetched.values : NO_VALUES;
   const rows = useMemo(() => parameterRows(cov, values), [cov, values]);
   const fixed = cov.fixed ?? [];
@@ -239,12 +242,13 @@ function ProjectionPanel({ cov, camera, imageSize }: ProjectionPanelProps) {
     result: ProjectionResult;
   } | null>(null);
   const [width, height] = imageSize ?? [0, 0];
+  const run = useStore((s) => s.run);
   useEffect(() => {
-    if (width === 0 || height === 0) return;
+    if (width === 0 || height === 0 || run === null) return;
     let cancelled = false;
     const request = { cov, camera, width, height };
     api
-      .projectionUncertainty({ camera, image_width: width, image_height: height })
+      .projectionUncertainty({ run, camera, image_width: width, image_height: height })
       .then((map) => {
         if (!cancelled) setFetched({ request, result: { status: "ready", map } });
       })
@@ -255,7 +259,7 @@ function ProjectionPanel({ cov, camera, imageSize }: ProjectionPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [cov, camera, width, height]);
+  }, [run, cov, camera, width, height]);
   const current =
     fetched &&
     fetched.request.cov === cov &&

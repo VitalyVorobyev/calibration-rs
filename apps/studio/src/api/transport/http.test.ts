@@ -88,7 +88,7 @@ describe("the HTTP transport", () => {
     const body: ServerEvent["body"] = {
       kind: "job",
       id: "1-ab",
-      command: "run_calibration",
+      command: "calibrate",
       state: { kind: "running" },
     };
     sources[0]!.send({ seq: 4, body });

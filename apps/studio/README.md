@@ -7,12 +7,13 @@ the results without leaving a GUI. It calls the same solvers as the
 
 ## What it does
 
-Five workspaces (left rail, `⌘1` to `⌘5`) share the loaded export and the
+Five workspaces (left rail, `⌘1` to `⌘5`) share the run shown and the
 selected pose and camera: **Run** (configure and launch any of the seven
-problem types from a dataset folder or preset), **Diagnose** (residual
+problem types on a project), **Diagnose** (residual
 overlays, per-pose statistics, parameter uncertainty), **3D** (rig frustums,
 target poses, laser planes), **Epipolar** and **Depth**. A **project** folder
-keeps a dataset's manifest and every run calibrated from it, so the work can be
+keeps a dataset, its settings and every run calibrated from it (the library's
+projects, which `vcal` and Python read and write too), so the work can be
 closed and reopened. The
 [app chapters of the book](https://vitalyvorobyev.github.io/calibration-rs/app.html)
 describe each workspace and the project layout.

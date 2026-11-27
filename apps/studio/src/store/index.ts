@@ -3,7 +3,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { api } from "../api";
 import { joinPath } from "../lib/paths";
 import type { FrameKey } from "../types";
-import type { LoadExportResult } from "../api/generated/types";
+import type { RunExport, RunRef } from "../api/generated/types";
 import type { AnyExport, ExportKind } from "./types";
 import { detectExportKind } from "./exportKind";
 
@@ -55,14 +55,16 @@ function framesFromResiduals(residuals: { view: number; camera: number }[]): Fra
 
 function materializeExport(
   data: AnyExport,
-  exportDir: string,
+  imageRoot: string | null,
 ): { ok: true; value: MaterializedExport } | { ok: false; error: string } {
   // Optional chaining: a hand-written export may lack the group.
   const manifest = data.diagnostics?.image_manifest;
   let frames: FrameKey[];
   let laserFrames: FrameKey[];
   if (manifest) {
-    const root = joinPath(exportDir, manifest.root);
+    // The back end says where the frames resolve (the project's data
+    // folder for a run it calibrated); the manifest's own root otherwise.
+    const root = imageRoot ?? manifest.root;
     const toKey = (f: (typeof manifest.frames)[number]): FrameKey => ({
       pose: f.view,
       camera: f.camera,
@@ -132,8 +134,9 @@ function materializeExport(
 }
 
 export interface ExportSlice {
-  exportPath: string | null;
-  exportDir: string | null;
+  /** The run the viewers show (its project folder and id): what every
+   * viewer command names. There is no "active export" on the back end. */
+  run: RunRef | null;
   data: AnyExport | null;
   kind: ExportKind | null;
   frames: FrameKey[];
@@ -144,8 +147,10 @@ export interface ExportSlice {
   posesByCamera: Map<number, number[]>;
   camerasByPose: Map<number, number[]>;
   loadError: string | null;
-  loadExport: (path: string) => Promise<void>;
-  acceptLiveRunExport: (exportValue: unknown, exportDir: string) => void;
+  /** Read `run`'s export from the back end and show it. */
+  loadRun: (run: RunRef) => Promise<void>;
+  /** Show `run` from its export as already read (`run_export`'s reply). */
+  showRun: (run: RunRef, reply: RunExport) => void;
   resetExport: () => void;
   setLoadError: (msg: string | null) => void;
 }
@@ -181,8 +186,7 @@ let loadRequestSeq = 0;
 export const useStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
     // --- Export slice ---
-    exportPath: null,
-    exportDir: null,
+    run: null,
     data: null,
     kind: null,
     frames: [],
@@ -193,75 +197,32 @@ export const useStore = create<AppState>()(
     camerasByPose: new Map(),
     loadError: null,
 
-    loadExport: async (path: string) => {
+    loadRun: async (run) => {
       const seq = ++loadRequestSeq;
-      let result: LoadExportResult;
+      let reply: RunExport;
       try {
-        result = await api.loadExport({ path });
+        reply = await api.runExport({ run });
       } catch (e) {
         if (seq === loadRequestSeq) {
-          set({ loadError: `Could not load export: ${String(e)}` });
+          set({ loadError: `Could not load run ${run.id}: ${String(e)}` });
         }
         return;
       }
       if (seq !== loadRequestSeq) return;
-      // The frontend validates the export before anything reads it.
-      const data = result.export as AnyExport;
-      const materialized = materializeExport(data, result.export_dir);
-      if (!materialized.ok) {
-        set({ loadError: materialized.error });
-        return;
-      }
-
-      // Promote the validated export into the backend cache *before*
-      // updating the frontend state, so `epipolar_overlay` and
-      // any future math command sees the same dataset the user is
-      // about to interact with. If the commit fails the frontend
-      // surfaces the error and stays on the previous export.
-      try {
-        await api.setActiveExport({ export: data });
-      } catch (e) {
-        if (seq === loadRequestSeq) {
-          set({
-            loadError: `Could not commit export to backend cache: ${String(e)}`,
-          });
-        }
-        return;
-      }
-      if (seq !== loadRequestSeq) return;
-
-      set({
-        exportPath: path,
-        exportDir: result.export_dir,
-        data,
-        kind: detectExportKind(data),
-        frames: materialized.value.frames,
-        laserFrames: materialized.value.laserFrames,
-        poseValues: materialized.value.poseValues,
-        cameraValues: materialized.value.cameraValues,
-        posesByCamera: materialized.value.posesByCamera,
-        camerasByPose: materialized.value.camerasByPose,
-        loadError: null,
-        selectedPose: materialized.value.first.pose,
-        selectedPoseB: materialized.value.second.pose,
-        cameraA: materialized.value.first.camera,
-        cameraB: materialized.value.second.camera,
-        selectedFeature: null,
-        hoverFeature: null,
-      });
+      get().showRun(run, reply);
     },
 
-    acceptLiveRunExport: (exportValue, exportDir) => {
+    showRun: (run, reply) => {
       loadRequestSeq += 1;
-      const data = exportValue as AnyExport;
-      const materialized = materializeExport(data, exportDir);
+      // The frontend validates the export before anything reads it.
+      const data = reply.export as AnyExport;
+      const materialized = materializeExport(data, reply.image_root ?? null);
       if (!materialized.ok) {
         set({ loadError: materialized.error });
         return;
       }
       set({
-        exportPath: "<live-run>",
-        exportDir,
+        run,
         data,
         kind: detectExportKind(data),
         frames: materialized.value.frames,
@@ -283,8 +244,7 @@ export const useStore = create<AppState>()(
     resetExport: () => {
       loadRequestSeq += 1;
       set({
-        exportPath: null,
-        exportDir: null,
+        run: null,
         data: null,
         kind: null,
         frames: [],

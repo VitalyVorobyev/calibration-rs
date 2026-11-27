@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { Outlet } from "react-router";
 import { PathPickerHost } from "../components/PathPicker/PathPicker";
 import type { ErrorKind } from "../api/generated/types";
-import { folderName } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
 import { useStore } from "../store";
 import { ProjectPanel } from "./ProjectPanel";
@@ -56,9 +55,16 @@ function MainSurface() {
           title={PROJECT_ERROR_TITLE[projectError.kind] ?? "Project error"}
           className="mb-2"
           actions={
-            <Button size="sm" variant="ghost" onClick={clearProjectError}>
-              Dismiss
-            </Button>
+            <>
+              {projectError.kind === "changed_on_disk" && (
+                <Button size="sm" onClick={() => void useProject.getState().reload()}>
+                  Reload
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={clearProjectError}>
+                Dismiss
+              </Button>
+            </>
           }
         >
           {projectError.message}
@@ -79,8 +85,13 @@ const PROJECT_ERROR_TITLE: Partial<Record<ErrorKind, string>> = {
   not_a_project: "Not a project folder",
   project_exists: "That folder already holds a project",
   unsupported_version: "Unsupported project version",
-  invalid_run_name: "Invalid run name",
-  run_exists: "A run of that name is already saved",
+  ambiguous_project: "Two project files in one folder",
+  changed_on_disk: "The project changed on disk: reload it and apply the edit again",
+  run_not_found: "The project has no such run",
+  import_mismatch: "The export does not belong to this project",
+  exclusion: "An exclusion names something the dataset does not have",
+  manifest: "The manifest is not valid",
+  config: "The configuration is not valid",
   io: "Project error",
   parse: "A project file does not parse",
   forbidden_path: "Outside the folders this back end serves",
@@ -96,7 +107,7 @@ function ShellStatusBar() {
   return (
     <StatusBar
       start={[
-        { label: "project", value: project ? folderName(project.dir) : "none" },
+        { label: "project", value: project ? project.name : "none" },
         { label: "runs", value: project ? project.runs.length : undefined },
       ]}
       end={[

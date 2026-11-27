@@ -25,8 +25,8 @@ pub use resource::{Body, Conditions, Resource, ResourceReply};
 pub use table::{CommandSpec, Kind, job, plain, resource, table};
 
 use crate::blobs::BlobStore;
-use crate::export_cache::ExportCache;
 use crate::images::ImageCache;
+use crate::runs::RunCache;
 use crate::scope::RootScope;
 use crate::settings::SettingsStore;
 use table::Handler;
@@ -103,8 +103,8 @@ pub struct Ctx {
     pub dirs: Dirs,
     /// The shell, for `server_info`.
     pub shell: &'static str,
-    /// The export the viewers show.
-    pub exports: ExportCache,
+    /// The runs' exports, parsed, most recently used kept.
+    pub runs: RunCache,
     /// Derived images, on disk.
     pub images: ImageCache,
     /// Derived blobs, in memory.
@@ -127,7 +127,7 @@ impl Ctx {
             images: ImageCache::new(&setup.dirs.cache),
             dirs: setup.dirs,
             shell: setup.shell,
-            exports: ExportCache::new(),
+            runs: RunCache::new(),
             blobs: BlobStore::default(),
             jobs,
             events,

@@ -165,6 +165,11 @@ async fn resource(
     if let Some(range) = &reply.content_range {
         set(header::CONTENT_RANGE, range);
     }
+    // A sandboxed page (a run's report) carries its own policy; the
+    // guard adds the app's only where none is set.
+    if let Some(policy) = reply.content_security_policy {
+        set(header::CONTENT_SECURITY_POLICY, policy);
+    }
     response
 }
 

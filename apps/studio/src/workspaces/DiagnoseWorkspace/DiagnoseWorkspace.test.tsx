@@ -58,10 +58,13 @@ afterEach(() => {
   useStore.getState().resetExport();
 });
 
+/** The run the fixtures stand for. */
+const RUN = { dir: "/fake", id: "run-001" };
+
 describe("DiagnoseWorkspace", () => {
   it("renders the empty state when no export is loaded", () => {
     render(<DiagnoseWorkspace />);
-    expect(screen.getByText(/Open an/)).toBeTruthy();
+    expect(screen.getByText(/Open a project/)).toBeTruthy();
   });
 
   it("renders a target-manifest export (planar_intrinsics)", () => {
@@ -69,7 +72,9 @@ describe("DiagnoseWorkspace", () => {
     // classifier the store uses.
     expect(detectExportKind(TARGET_MANIFEST_EXPORT)).toBe("planar_intrinsics");
 
-    useStore.getState().acceptLiveRunExport(TARGET_MANIFEST_EXPORT, "/fake/export/dir");
+    useStore
+      .getState()
+      .showRun(RUN, { export: TARGET_MANIFEST_EXPORT, image_root: "/fake/export/dir" });
     expect(useStore.getState().loadError).toBeNull();
 
     const { container } = render(<DiagnoseWorkspace />);
@@ -82,9 +87,10 @@ describe("DiagnoseWorkspace", () => {
     const diagnostics = {
       per_feature_residuals: PLANAR_EXPORT_FIXTURE.diagnostics.per_feature_residuals,
     };
-    useStore
-      .getState()
-      .acceptLiveRunExport({ ...PLANAR_EXPORT_FIXTURE, diagnostics }, "/fake/export/dir");
+    useStore.getState().showRun(RUN, {
+      export: { ...PLANAR_EXPORT_FIXTURE, diagnostics },
+      image_root: null,
+    });
     const state = useStore.getState();
     expect(state.loadError).toBeNull();
     expect(state.frames).toEqual([
@@ -102,7 +108,9 @@ describe("DiagnoseWorkspace", () => {
   it("renders a laser-manifest export (laserline_device)", () => {
     expect(detectExportKind(LASER_MANIFEST_EXPORT)).toBe("laserline_device");
 
-    useStore.getState().acceptLiveRunExport(LASER_MANIFEST_EXPORT, "/fake/export/dir");
+    useStore
+      .getState()
+      .showRun(RUN, { export: LASER_MANIFEST_EXPORT, image_root: "/fake/export/dir" });
     expect(useStore.getState().loadError).toBeNull();
 
     const { container } = render(<DiagnoseWorkspace />);

@@ -6,37 +6,37 @@ import {
   MenuSeparator,
   toast,
 } from "@vitavision/ui";
-import { ChevronDown, FolderOpen, FolderPlus, Save, X } from "lucide-react";
-import { useProject } from "../project/projectStore";
+import {
+  ChevronDown,
+  FileInput,
+  FolderOpen,
+  FolderPlus,
+  RefreshCw,
+  Save,
+  X,
+} from "lucide-react";
+import { isDirty, useDraft } from "../project/draftStore";
+import {
+  importExport,
+  newProjectFromFolder,
+  newProjectFromManifest,
+  openProject,
+} from "../project/projectActions";
 import { folderName } from "../project/projectModel";
-import { useRunSetup } from "../store/runSetup";
-import { pickFolder, pickProject } from "./dialogs";
+import { useProject } from "../project/projectStore";
 
-/** The header's project commands: new, open, save, close, and reopen a
- * recent project (the back end's list). A failure lands in the project
- * store's `error`, which the shell shows. */
+/** The header's project commands: new (from a dataset folder or a
+ * manifest), open, save the unsaved edits, reload, import an export as a
+ * run, close, and reopen a recent project (the back end's list). A failure
+ * lands in the project store's `error`, which the shell shows. */
 export function ProjectMenu() {
   const project = useProject((s) => s.project);
   const recent = useProject((s) => s.recent);
-  const hasDataset = useRunSetup((s) => s.manifestDir !== null);
-
-  const handleNew = async () => {
-    const dir = await pickFolder("Choose the folder for the new project");
-    if (dir === null) return;
-    if (await useProject.getState().create(dir)) {
-      toast({ title: "Project created", description: dir, tone: "success" });
-    }
-  };
-
-  const handleOpen = async (dir?: string) => {
-    const chosen = dir ?? (await pickProject());
-    if (chosen === null) return;
-    await useProject.getState().open(chosen);
-  };
+  const dirty = useDraft(isDirty);
 
   const handleSave = async () => {
-    if (await useProject.getState().saveManifest()) {
-      toast({ title: "Manifest saved", tone: "success" });
+    if (await useDraft.getState().save()) {
+      toast({ title: "Project saved", tone: "success" });
     }
   };
 
@@ -46,24 +46,43 @@ export function ProjectMenu() {
       trigger={
         <Button size="sm" title={project?.dir ?? "No project open"}>
           <span className="max-w-[14rem] truncate">
-            {project ? folderName(project.dir) : "Project"}
+            {project ? project.name : "Project"}
+            {dirty ? " •" : ""}
           </span>
           <ChevronDown aria-hidden className="size-3.5" />
         </Button>
       }
     >
-      <MenuItem
-        icon={<FolderPlus />}
-        disabled={!hasDataset}
-        onSelect={() => void handleNew()}
-      >
-        New project from this dataset…
-      </MenuItem>
-      <MenuItem icon={<FolderOpen />} onSelect={() => void handleOpen()}>
+      <MenuItem icon={<FolderOpen />} onSelect={() => void openProject()}>
         Open project…
       </MenuItem>
-      <MenuItem icon={<Save />} disabled={!project} onSelect={() => void handleSave()}>
-        Save manifest
+      <MenuItem icon={<FolderPlus />} onSelect={() => void newProjectFromFolder()}>
+        New project from a dataset folder…
+      </MenuItem>
+      <MenuItem icon={<FolderPlus />} onSelect={() => void newProjectFromManifest()}>
+        New project from a manifest…
+      </MenuItem>
+      <MenuSeparator />
+      <MenuItem
+        icon={<Save />}
+        disabled={!project || !dirty}
+        onSelect={() => void handleSave()}
+      >
+        Save project
+      </MenuItem>
+      <MenuItem
+        icon={<RefreshCw />}
+        disabled={!project}
+        onSelect={() => void useProject.getState().reload()}
+      >
+        Reload project
+      </MenuItem>
+      <MenuItem
+        icon={<FileInput />}
+        disabled={!project}
+        onSelect={() => void importExport()}
+      >
+        Import an export as a run…
       </MenuItem>
       <MenuItem
         icon={<X />}
@@ -77,7 +96,7 @@ export function ProjectMenu() {
           <MenuSeparator />
           <MenuLabel>Recent</MenuLabel>
           {recent.map((dir) => (
-            <MenuItem key={dir} onSelect={() => void handleOpen(dir)}>
+            <MenuItem key={dir} onSelect={() => void openProject(dir)}>
               <span className="flex flex-col">
                 <span>{folderName(dir)}</span>
                 <span className="font-mono text-[10px] text-fg-muted">{dir}</span>

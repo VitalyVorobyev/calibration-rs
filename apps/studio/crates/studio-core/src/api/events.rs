@@ -30,6 +30,21 @@ pub struct ServerEvent {
 pub enum EventBody {
     /// A job changed state or reported progress.
     Job(JobEvent),
+    /// A project's file or runs changed (a save, a run written, imported or
+    /// deleted, its notes): who shows it reads it again.
+    ProjectChanged {
+        /// The project folder.
+        dir: String,
+    },
+}
+
+impl EventBus {
+    /// Tell every subscriber that the project in `dir` changed.
+    pub fn project_changed(&self, dir: &std::path::Path) {
+        self.publish(EventBody::ProjectChanged {
+            dir: dir.to_string_lossy().replace('\\', "/"),
+        });
+    }
 }
 
 /// A job's state, and the progress report that came with it.

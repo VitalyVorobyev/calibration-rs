@@ -89,6 +89,24 @@ pub fn resolve_config(_: &Ctx, args: ResolveConfigArgs) -> Result<ResolvedConfig
     config_fields(&config)
 }
 
+/// The configuration changes that make `config` (the workflow `topology`'s
+/// config object, as a form edits it) from the library's defaults: the
+/// fewest that do, as a project file stores them. The inverse of
+/// `resolve_config`; an invalid config is a `config` error.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigPatchArgs {
+    pub topology: ProblemKind,
+    pub config: serde_json::Value,
+}
+
+pub fn config_patch(_: &Ctx, args: ConfigPatchArgs) -> Result<ConfigPatch, StudioError> {
+    let tagged = serde_json::json!({ "topology": args.topology, "config": args.config });
+    let config: CalibrationConfig = serde_json::from_value(tagged)
+        .map_err(|e| StudioError::new(ErrorKind::Config, e.to_string()).on_field("config"))?;
+    Ok(ConfigPatch::from_config(&config))
+}
+
 /// The schema of `topology`'s config type, as the library emits it.
 fn config_schema(topology: ProblemKind) -> Result<Schema, StudioError> {
     Ok(match topology {
@@ -108,7 +126,7 @@ fn config_schema(topology: ProblemKind) -> Result<Schema, StudioError> {
 }
 
 /// The problem config's own fields: the `config` of the tagged form.
-fn config_fields(config: &CalibrationConfig) -> Result<serde_json::Value, StudioError> {
+pub(crate) fn config_fields(config: &CalibrationConfig) -> Result<serde_json::Value, StudioError> {
     let tagged = serde_json::to_value(config)
         .map_err(|e| StudioError::internal(format!("serialize the config: {e}")))?;
     match tagged {

@@ -279,6 +279,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dataset_runner::input_files` lists every file a run of a manifest reads
   (images, laser frames, the robot pose file, the upstream calibration)
   without reading any. Python: `dataset_runner.input_files`.
+- `Project::input_digest` (`ProjectDigest`; Python
+  `Project.input_digest()`) gives the digests of a project's dataset,
+  exclusions, configuration and quality thresholds as they stand, as a run
+  records them, without reading an image: a run whose digest differs in one
+  of them was made from other inputs than the project now states.
 
 ### Changed
 
@@ -307,6 +312,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HttpOnly session cookie), answers only its own Host and page, and sends no
   cross-origin headers. It replaces the single-run browser viewer
   (`calib-viewer`). Recent projects are the back end's.
+- Calibration Studio works on the library's calibration projects, the same
+  folders `vcal` and Python use: a run always belongs to a project and is
+  written by the library (record, export, quality report, report page), the
+  Run workspace edits and saves the project's manifest and configuration
+  (refusing to overwrite a project file changed on disk since it was opened),
+  and every viewer names the run it shows. Runs take a label and a star, open
+  their report, can be deleted, and say when they were made from other
+  inputs than the project now states. Quick Start samples open as projects
+  of their own; a dataset folder (its manifest drafted from its files) or a
+  manifest file becomes a project from the Project menu; an export
+  calibrated elsewhere is imported into a project as its next run; projects
+  of the app's earlier format open and are written in the current format
+  when first saved. The built-in preset list is gone.
 - Calibration Studio reads and writes only inside its root folders. The
   desktop app starts with none and asks you to add one (Settings lists and
   removes them); a project or manifest that names a path outside them is

@@ -44,24 +44,28 @@ one the page says no back end answers.
   inside `apps/studio/`; `cargo test --workspace` at the repo root does not
   cover it.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: header, project
-  menu, workspace rail, project navigator, status line; the session with the
-  back end, `session.ts`; Settings), `project/` (the project model: typed
-  commands, store, run names), `workspaces/` (one folder per workspace),
+  menu, workspace rail, project navigator with the chosen run's actions,
+  status line; the session with the back end, `session.ts`; Settings),
+  `project/` (the open project, `projectStore.ts`; its unsaved edits,
+  `draftStore.ts`; the ways to a project, `projectActions.ts`; pure rules,
+  `projectModel.ts`), `workspaces/` (one folder per workspace),
   `components/` (among them `PathPicker/`), `hooks/`, `lib/`, `store/` (the
-  loaded export and selection, `index.ts`; the Run setup, `runSetup.ts`),
-  `api/` (the back end: see "The back end and its client"). The Run
-  workspace's forms carry no schema: `config_form`, `dataset_form` and
-  `resolve_config` serve the library's schemas, its defaults and its merge
+  run the viewers show and the selection, `index.ts`), `api/` (the back
+  end: see "The back end and its client"). The Run workspace's forms carry
+  no schema: `config_form`, `dataset_form`, `resolve_config` and
+  `config_patch` serve the library's schemas, its defaults and its merge
   rule (see "Forms" below).
 - Back end (`apps/studio/crates/studio-core/src/`): `api/` (the command
   table, `Ctx`, the error envelope, jobs, events, resources and the API
-  schema; its `commands/` hold the command functions), `project.rs` (project
-  folders), `ops.rs` (the viewer commands' bodies), `run.rs` (calibration
-  runner), `disparity.rs`, `epipolar.rs`, `uncertainty.rs`, `laser.rs`,
-  `export_cache.rs`, `images.rs`, `blobs.rs`, `planes.rs` (see "Images and
-  resources"), `scope.rs` (the file scope: `RootScope`, `UserPath`,
-  `check_manifest`), `settings.rs` (the desktop's roots, the recent
-  projects), `bin/studio_schema.rs` (writes `schema/studio-api.json`).
+  schema; its `commands/` hold the command functions), `runs.rs` (a run as
+  commands name it, `RunRef`, and `RunCache`, the parsed exports),
+  `disparity.rs`, `epipolar.rs`, `uncertainty.rs`, `laser.rs`, `images.rs`,
+  `blobs.rs`, `planes.rs` (see "Images and resources"), `scope.rs` (the file
+  scope: `RootScope`, `UserPath`, and the checks of what a project and its
+  manifest name), `settings.rs` (the desktop's roots, the recent projects),
+  `bin/studio_schema.rs` (writes `schema/studio-api.json`). Projects and
+  runs are the library's (`vision_calibration::project`): the app has no
+  project format, runner or run writer of its own.
   Desktop shell (`apps/studio/src-tauri/src/`): `commands.rs` (the Tauri
   transport of the table), `scheme.rs` (the `studio:` URI scheme). Server
   (`apps/studio/crates/studio-server/src/`): see "The server".
@@ -72,33 +76,60 @@ one the page says no back end answers.
 ## Shell and projects
 
 `shell/Shell.tsx` is `@vitavision/workbench`'s `AppShell`: `ShellHeader`
-(project menu, Open Export…, Settings, theme), `WorkspaceRail` (a `NavRail` of router
-links; `⌘1`…`⌘5` from `shell/workspaces.ts`), `ProjectPanel` in the left
-slot while a project is open (its runs as a `TreeView`), the routed
-workspace, and a `StatusBar`. The workbench has no router; the rail items
-render react-router `Link`s through `asChild`.
+(project menu, the run shown, Import Export…, Settings, theme),
+`WorkspaceRail` (a `NavRail` of router links; `⌘1`…`⌘5` from
+`shell/workspaces.ts`), `ProjectPanel` in the left slot while a project is
+open (its runs as a `TreeView`, and `RunActions` for the chosen run: its
+label and star, its report page, whether it is stale, its deletion), the
+routed workspace, and a `StatusBar`. The workbench has no router; the rail
+items render react-router `Link`s through `asChild`.
 
-A project folder holds `calibration-project.json` (`{"version": 1,
-"dataset": "<dir>"}`), `dataset.json` and `runs/<name>/`
-(`manifest.json`, `config.json`, `export.json`, `diagnostics.json`, and
-`report.html` from the library's `analysis::html_report`). The
-back-end commands are `create_project`, `open_project`,
-`save_project_manifest` and `save_project_run`; each rejects with the
-error envelope (`StudioError { kind, message }`). `project/projectStore.ts`
-drives them: opening a project loads its manifest and dataset folder into
-the Run setup (`store/runSetup.ts`), a successful run with a project open is
-saved as the next `run-NNN` and reopened from its `export.json`, and a
-failure is shown by the shell until dismissed. A run name that exists is a
-`run_exists` error (runs are never overwritten), and the saved export's
-image root is rebased onto the run folder so it also opens on its own
-through Open Export…. Recent projects are the back end's list
-(`recent_projects`, `forget_recent`; the desktop's, or a server's shared by
-its clients), put first by `open_project` and `create_project`; a folder
-that no longer opens drops off it. The dataset path
-in `calibration-project.json` is relative to the project when the dataset
-is inside it (`"."` beside the project file), absolute otherwise. Rust
-tests for the project rules are in studio-core's `project.rs` (temporary
-folders); the store is tested against a mock transport in
+**Projects are the library's** (`vision_calibration::project`, the book's
+Projects chapter): `calibration-project.toml` (or `.json`) with the
+dataset's manifest in it or referenced, the configuration's changes,
+exclusions, a device; `runs/run-NNN/` with `run.json`, `export.json`,
+`quality.json`, `notes.json` and `report.html`; `.detections/`, the
+detection cache. A project of the app's earlier format (version 1:
+`calibration-project.json` + `dataset.json`, runs without `run.json`) opens
+as it is, its runs listed as `unrecorded`, and becomes version 2 on its
+first save. The back end keeps nothing open: every command names the
+project by its folder (`dir`) and a run by its folder and id (`RunRef {
+dir, id }`); there is no "active export".
+
+- **The project commands**: `scan_library` (every project under the
+  roots, with its runs), `open_project` (a `ProjectView`: the spec, the
+  revision, the data folder, the dataset and configuration as they resolve
+  or why not, whether the manifest is the file's, the digests of the
+  inputs as they stand, the runs; opening again is how a client reloads),
+  `create_project`, `save_project` (with the revision `open_project`
+  answered: a file that changed since is `changed_on_disk`, 409),
+  `project_views` (the views the images pair into, of the saved project or
+  of a draft spec, with what a run would refuse as messages carrying their
+  field), `list_runs`, `set_run_notes`, `delete_run`, `import_export`
+  (an export file or a `vcal run -o` folder as the next run), and the
+  `calibrate` job (`Project::calibrate`; its events are the library's
+  `Progress`, its output the written run's `RunInfo`). A change publishes
+  `project_changed { dir }` on the event stream.
+- **The store** (`project/projectStore.ts`) holds the open `ProjectView`
+  and replaces it from every answer; `draftStore.ts` holds the Run
+  workspace's unsaved edits (the manifest when the file holds it, the
+  configuration) and saves them through `save_project`, the configuration
+  as its changes from the defaults (`config_patch`). A run is stale when one
+  of its four input digests (`dataset`, `exclusions`, `config`, `quality`)
+  differs from the project's `input_digest` (`projectModel.staleParts`).
+- **New projects** (`projectActions.ts`): of a dataset folder (the sniffer
+  drafts the manifest, written into the project; what it leaves open stays
+  in `_unresolved` and blocks a run), of a manifest file (referenced, never
+  written), or a Quick Start sample (`fetch_sample` downloads it into the
+  samples folder and makes that folder a project referencing its manifest).
+  A folder that already holds a project is opened instead.
+
+Recent projects are the back end's list (`recent_projects`,
+`forget_recent`; the desktop's, or a server's shared by its clients), put
+first by `open_project` and `create_project`; a folder that no longer opens
+drops off it. Rust tests for the commands are in studio-core
+(`api/commands/project_tests.rs`, on a synthetic project whose detections
+the cache holds); the store against a mock transport in
 `project/projectStore.test.tsx`.
 
 **Session, roots and the path picker.** `shell/session.ts` starts once:
@@ -123,15 +154,18 @@ first, projects marked, never outside a root.
 Commands never return bytes. Images and dense results are **resources**:
 the frontend asks `api.urls.<resource>(query)` for a URL and loads it in an
 `<img>`, a `fetch` or `fetchPlane` (`src/api/resources.ts`); nothing outside
-`src/api/` builds a URL. Four resources:
+`src/api/` builds a URL. Five resources:
 
 - `image { path, max? }` — a source frame. JPEG, PNG (8 or 16-bit), WebP,
   GIF and BMP are the file itself; TIFF, PNM and the other formats the back
   end reads become an 8-bit PNG (16-bit reduced as the detectors reduce it,
   so the view is what was detected). With `max`, a JPEG thumbnail (quality
   80) whose longest side is the next of 160, 320, 640, 1280.
-- `undistorted_image { path, camera, roi? }` — a frame rendered into a
-  camera's undistorted pixel frame of the active export (a PNG).
+- `undistorted_image { run, path, camera, roi? }` — a frame rendered into a
+  camera's undistorted pixel frame of the run's export (a PNG).
+- `report { run }` — the run's `report.html`, served under its own
+  `Content-Security-Policy: sandbox allow-scripts …`: its scripts run in an
+  opaque origin with no access to the app, its cookie or its API.
 - `blob { id }` — a derived blob a command made, by its id (a `BlobRef`).
   The `disparity` job answers its output as blobs: a `VAM1` value plane
   (disparity, metric depth and the rectified left image), the point cloud
@@ -243,11 +277,11 @@ calibration-studio-server token [--rotate] [--state-dir DIR]
   it (`CALIBRATION_STUDIO_URL` overrides the target), so log in once with
   the printed token.
 
-**Sample projects.** `cargo test -p studio-core write_viewer_sample_runs --
---ignored --nocapture` calibrates `data/kuka_1` and, when present locally,
-`data/stereo_charuco` (`CALIB_VIEWER_DATA` points elsewhere) and saves each
-as an app project under `apps/studio/.tmp-runs/` (git-ignored), ready for
-`bun run serve -- .tmp-runs/kuka_1 --open`.
+**Sample projects.** The repository's datasets are projects
+(`data/kuka_1`, `data/DS8`, `data/opencv_stereo`, `data/stereo/{left,right,rig}`):
+`bun run serve -- ../../data/kuka_1 --open` serves one, and its Run
+workspace calibrates it into `data/kuka_1/runs/` (git-ignored, as `vcal run
+data/kuka_1` does). A studio-core test opens every one of them.
 
 ## 3D scene primitives
 
@@ -331,48 +365,53 @@ cluster that drives it from outside the stage.
 
 ## Run progress and cancellation
 
-A calibration is the `run_calibration` job (`src/lib/runCalibration.ts`,
-`api.jobs.runCalibration`). studio-core's `run.rs` announces three stages,
-`detect` -> `solve` -> `export` (`RunStage`), and forwards the library's
-reports within them as `RunProgress.report` (a `Progress`: each image
-detected, each calibration step, each solver iteration; iterations are
-throttled to one per 50 ms); each is one of the job's events. The job's
-output is the runner's `RunResponse`. Cancelling the job (`cancel_job`, the
-library `CancelToken` of the job) stops the library at its next image or
-solver iteration, and the job ends `cancelled`. The UI shows the latest
-report beside the active stage and a distinct "Run cancelled" state; the
-checklist logic is `src/workspaces/RunWorkspace/runStages.ts`.
+A calibration is the `calibrate { dir, notes?, config_patch?, redetect? }`
+job (`api.jobs.calibrate`, driven by `RunWorkspace/useRunController.ts`):
+the library's `Project::calibrate` on the project as it is on disk (the Run
+workspace saves its edits first), with the HTML report. Its events are the
+library's `Progress` reports (each image detected, each calibration step,
+each solver iteration; iterations are throttled to one per 50 ms); the
+checklist (`RunWorkspace/runStages.ts`) takes its stage, `detect` ->
+`solve` -> `export`, from each report's kind. Its output is the written
+run's `RunInfo`, which the workspace lists and shows before it hands off to
+Diagnose. A failure is the job's `StudioError`: `needs_input` (a choice the
+manifest leaves open, with its `field` and `suggestions`) opens the
+ask-user dialog, which writes the choice into the draft manifest.
+Cancelling the job (`cancel_job`, the job's `CancelToken`) stops the
+library at its next image or solver iteration, nothing is written, and the
+job ends `cancelled`.
 
 ## Forms
 
 The Run workspace's manifest and config forms (`SchemaValueForm` from
 `@vitavision/forms`) render the schemas the back end serves:
-`dataset_form` (the `DatasetSpec` schema and the manifest a fresh session
-starts from) and `config_form { topology }` (the workflow's `*Config` schema
-and the library's default), fetched by `RunWorkspace/useForms.ts`. A preset's
-`configOverrides` become a config through `resolve_config { topology, patch
-}`, the library's `ConfigPatch` rule (tables merge key by key, anything else
-replaces; a field the workflow lacks is a `config` error). The Run setup
-store (`store/runSetup.ts`) starts empty and fills from these, so the
+`dataset_form` (the `DatasetSpec` schema and a starting manifest) and
+`config_form { topology }` (the workflow's `*Config` schema and the
+library's default), fetched by `RunWorkspace/useForms.ts`. The values are the
+open project's: its manifest and its configuration as `open_project`
+resolves it (the defaults with the project's changes). A saved
+configuration goes back as its changes from the defaults, `config_patch {
+topology, config }` (the library's `ConfigPatch::from_config`), the inverse
+of `resolve_config { topology, patch }` (tables merge key by key, anything
+else replaces; a field the workflow lacks is a `config` error). The
 frontend holds no copy of a Rust default and cannot lag the back end. A
 studio-core test compares the served schemas and defaults with the ones
 `cargo xtask emit-schemas` publishes in the repository's `schemas/`, which
 the form round-trip tests (`configRoundTrip.test.tsx`,
 `configForms.test.tsx`) render.
 
-## Built-in presets
+## Quick Start samples
 
-Quick Start presets (`src/workspaces/RunWorkspace/presets.ts`) name a sample of
-the library's catalogue (`vision_calibration::dataset::samples`) in
-`source: { sample: "<id>" }`. `setupActions.ts`'s `applyPreset` runs the
-`fetch_sample` job, which downloads the sample into the platform cache
-(`VISION_CALIBRATION_DATA` overrides it), verifies its SHA-256 and returns the
-manifest path, which `read_manifest` reads; later calls reuse the cache. The installer bundles no data and
-nothing resolves a source checkout at runtime (no `CARGO_MANIFEST_DIR` outside
-tests). Presets for local-only data go in an untracked `presets.local.ts` next
-to it, exporting `LOCAL_PRESETS: Preset[]` with
-`source: { manifestPath: "<absolute path>" }`; `PRESETS` appends them when the
-file exists.
+The Quick Start cards are `server_info.samples`: the library's sample
+catalogue (`vision_calibration::dataset::samples`; empty in a build without
+the `samples` feature). Using one runs the `fetch_sample { id }` job, which
+downloads the sample into the samples folder (`VISION_CALIBRATION_DATA`
+overrides it on the desktop), verifies its SHA-256, makes that folder a
+project referencing the sample's `dataset.toml` (once; it keeps its runs
+afterwards) and answers the project's folder, which the app opens. The
+installer bundles no data and nothing resolves a source checkout at runtime
+(no `CARGO_MANIFEST_DIR` outside tests). A local dataset is a project too:
+open it, or make one of its folder or manifest.
 
 ## Testing
 
@@ -390,27 +429,39 @@ file exists.
   calls). `src/test/setupTests.ts` stubs `ResizeObserver`.
 - **Playwright (`bun run test:e2e`)** — `e2e/server/` against the real
   back end: `scripts/e2e-server.mjs` copies the committed fixture library
-  (`e2e/fixtures/library/`: `rig-demo/`, a project with a two-camera
-  `rig_extrinsics` dataset of 160×120 rendered chessboard views and a saved
-  `runs/run-001`; `vcal-run/`, a bare export) to a temporary root and runs
-  the debug `calibration-studio-server` on 127.0.0.1:1431 with a token,
-  serving `dist/` (it builds both when missing). The specs: 401 without the
-  token, the token field and the fragment login (no token left in the URL,
-  an HttpOnly cookie), the path picker opening the project and its run with
-  its images, recent projects, refused paths, and a calibration job with its
-  progress over SSE to its typed end. Install the browser once with
+  (`e2e/fixtures/library/`: `planar-demo/`, a version 2 project of six
+  320×240 rendered chessboard views, written by studio-core's ignored
+  `write_planar_demo` and calibrated by a normal test; `rig-demo/`, a
+  project of the app's earlier format with a two-camera `rig_extrinsics`
+  dataset of 160×120 views and its run `runs/run-001`; `vcal-run/`, a bare
+  export) to a temporary root and runs the debug
+  `calibration-studio-server` on 127.0.0.1:1431 with a token, serving
+  `dist/` (it builds both when missing). The specs: 401 without the token,
+  the token field and the fragment login (no token left in the URL, an
+  HttpOnly cookie), the path picker opening the earlier-format project and
+  its run with its images, recent projects, refused paths, and
+  `planar-demo` opened through the picker, run as the `calibrate` job with
+  its progress over SSE, its run listed, labelled and deleted (and the
+  earlier-format project's run failing as the library says). Install the
+  browser once with
   `bunx playwright install chromium --with-deps`.
 - **Smoke (`bun run test:e2e:smoke`)** — `e2e/smoke.spec.ts` on the plain
   Vite dev server with its `/api` proxy pointing nowhere (no Rust
   toolchain): every workspace mounts, says no back end answers, and logs no
   error of its own.
-- **Rust.** studio-core's tests cover the commands, the scope (including
-  symlinks and manifests that name paths outside the roots), the resources
-  and the settings; studio-server's (`tests/http.rs`, in process) the
-  routes: 401s, login and cookie flags, bearer, Host/Origin/content-type,
-  no CORS, body and query limits, path escapes, the frontend's files, ranges
-  and revalidation, SSE and its resume; src-tauri's a mock-runtime test of
-  the IPC commands and the `studio:` scheme. Real desktop behaviour (the
+- **Rust.** studio-core's tests cover the commands (the project commands
+  on a synthetic project: open, create, save and a stale revision, the
+  views of a draft, a calibration job and its run read, noted and deleted,
+  a cancelled one writing nothing, `needs_input`, the earlier format's
+  migration and an import, the library scan, the repository's sample
+  projects), the scope (including symlinks and projects and manifests that
+  name paths outside the roots), the resources and the settings;
+  studio-server's (`tests/http.rs`, in process) the routes: 401s, login
+  and cookie flags, bearer, Host/Origin/content-type, no CORS, body and
+  query limits, path escapes, the frontend's files, ranges and
+  revalidation, SSE and its resume, a stale save as 409 and the report's
+  sandbox policy; src-tauri's a mock-runtime test of the IPC commands (a
+  project and a run's export among them) and the `studio:` scheme. Real desktop behaviour (the
   webview, its CSP and `tauri://` origin, the native dialog) is exercised
   manually: `bun run tauri build --debug --no-bundle`, then run
   `target/debug/calibration-studio`.
@@ -430,8 +481,10 @@ file or bytes behind a URL, see "Images and resources"). Both transports
 dispatch through it: the Tauri shell's `studio_invoke`, `studio_subscribe`
 and `studio_unsubscribe` and its `studio:` scheme, and the server's HTTP
 routes. Every command runs against a `Ctx` (the `RootScope`, the settings,
-the active export, the image cache, the blob store, the jobs, the event
-bus), and every failure is one `StudioError { kind, message, path? }`. A
+the run cache, the image cache, the blob store, the jobs, the event bus),
+and every failure is one `StudioError { kind, message, path?, field?,
+suggestions? }`: each library error (`ProjectError`, the dataset runner's)
+maps to its own kind, with the path and the field it names. A
 shell sets the API up with a `Setup`: its folders (`Dirs`: cache, state,
 samples) and, on the server, its fixed roots.
 
@@ -440,13 +493,17 @@ samples) and, on the server, its fixed roots.
   symbolic links out of a root, sibling-prefix names and relative paths are
   `forbidden_path`. Opening something never grants it: the roots change
   only through `add_root`/`remove_root` (the desktop). Paths a file names
-  are judged too: a project's dataset folder on open, and every path a
-  manifest names (image globs and lists by their base, laser frames, the
-  pose file, the upstream calibration; `scope::check_manifest`) before a run
-  or a save. A table test refuses a
-  path-named argument (`path`, `dir`, `*_path`, `*_dir`, …) that is not a
-  `UserPath`, an argument object that accepts unknown fields, and a name
-  that is not snake_case.
+  are judged too, before the library follows them: a project's data folder
+  and referenced manifest on every open (`RootScope::check_project_paths`),
+  and every file its manifest names — the glob bases lexically, then each
+  file the library's `dataset_runner::input_files` lists, through the scope
+  — before its dataset is shown, viewed, saved or run
+  (`RootScope::check_dataset`, `check_project`); an imported export's
+  image manifest is judged before the import reads its images. A table test
+  refuses a path-named argument (`path`, `dir`, `*_path`, `*_dir`, …) that is
+  not a `UserPath` (a `ProjectSpec` or `DatasetSpec` argument is a file's
+  contents, judged as above), an argument object that accepts unknown
+  fields, and a name that is not snake_case.
 - **Jobs.** Starting a job answers its `JobInfo` (`<counter>-<hex>` id) at
   once; its states (`queued` with a position, `running`, `done`, `failed`,
   `cancelled`) and events go out on the event stream. One worker per lane
@@ -471,11 +528,11 @@ bun run generate:api:ts         # stage 2 (bun): schema -> src/api/generated/{ty
 
 `schema/studio-api.json` holds every command with its argument, reply,
 event and output types, the event and error types, and the wire types the
-frontend reads that no command names (the exports, the viewer session), in
+frontend reads that no command names (the exports), in
 one `definitions` block. `generated/types.ts` is every type;
 `generated/client.ts` is `createClient`, one typed function per command
-(`api.openProject({ dir })`), job (`api.jobs.runCalibration(…)`) and
-resource (`api.resources.undistortedImage(…)`), and the only file that
+(`api.openProject({ dir })`), job (`api.jobs.calibrate(…)`) and
+resource URL (`api.urls.undistortedImage(…)`), and the only file that
 names commands. Both outputs are committed. CI enforces sync:
 `app-src-tauri` runs `studio-schema --check` and `app-frontend`
 regenerates the TS and `git diff --exit-code`s it. `src/api/generated/` is

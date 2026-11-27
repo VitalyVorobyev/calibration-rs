@@ -12,6 +12,7 @@ import { setTransport, StudioError } from "../api";
 import type { ServerInfo } from "../api/generated/types";
 import { createMockTransport, type MockOptions } from "../api/transport/mock";
 import { useProject } from "../project/projectStore";
+import { calibratedRun, projectView } from "../test/projectFixtures";
 import { useSession } from "./session";
 import { Shell } from "./Shell";
 
@@ -20,7 +21,7 @@ const SERVER: ServerInfo = {
   shell: "server",
   roots: [{ path: "/data", samples: false }],
   roots_editable: false,
-  samples: true,
+  samples: [],
 };
 
 function backend(info: ServerInfo = SERVER, options: MockOptions = {}) {
@@ -84,28 +85,12 @@ describe("Shell", () => {
     renderShell();
     act(() =>
       useProject.setState({
-        project: {
-          dir: "/work/cell-a",
-          dataset_dir: "/work/cell-a",
-          manifest: {},
-          runs: [
-            {
-              name: "run-001",
-              diagnostics: {
-                topology: "planar_intrinsics",
-                usable_views: 9,
-                total_views: 10,
-                duration_ms: 1,
-                cache_used: false,
-              },
-            },
-          ],
-        },
+        project: projectView("/work/cell-a", [calibratedRun("/work/cell-a", "run-001")]),
       }),
     );
     expect(screen.getByRole("tree", { name: "Saved runs" })).toBeTruthy();
     expect(screen.getByRole("treeitem", { name: /run-001/ })).toBeTruthy();
-    expect(screen.getByText("9/10 views")).toBeTruthy();
+    expect(screen.getByText("9/10 views · pass")).toBeTruthy();
     // The header's project menu names the project.
     expect(screen.getAllByText("cell-a").length).toBeGreaterThan(0);
   });
@@ -134,7 +119,7 @@ describe("Shell", () => {
     ]) {
       expect(screen.getByRole("link", { name })).toBeTruthy();
     }
-    expect(screen.getByRole("button", { name: "Open Export…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Import Export…" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
   });
 

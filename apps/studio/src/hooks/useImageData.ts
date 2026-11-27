@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useStore } from "../store";
 import { decodeImage, type ImageData } from "../lib/imagePixels";
 import type { FrameKey } from "../types";
 
@@ -61,17 +62,18 @@ export function useUndistortedImageData(
   const roiY = frame?.roi?.y;
   const roiW = frame?.roi?.w;
   const roiH = frame?.roi?.h;
-  const key = `${path}|${camera}|${roiX},${roiY},${roiW},${roiH}`;
+  const run = useStore((s) => s.run);
+  const key = `${run?.dir}|${run?.id}|${path}|${camera}|${roiX},${roiY},${roiW},${roiH}`;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
-    if (path === null) return;
+    if (path === null || run === null) return;
     const roi =
       roiX === undefined || roiY === undefined || roiW === undefined || roiH === undefined
         ? null
         : { x: roiX, y: roiY, w: roiW, h: roiH };
     let cancelled = false;
-    decodeImage(api.urls.undistortedImage({ path, camera, roi }))
+    decodeImage(api.urls.undistortedImage({ run, path, camera, roi }))
       .then((data) => {
         if (!cancelled) setLoaded({ key, data });
       })
@@ -81,7 +83,7 @@ export function useUndistortedImageData(
     return () => {
       cancelled = true;
     };
-  }, [path, roiX, roiY, roiW, roiH, camera, key, onError]);
+  }, [run, path, roiX, roiY, roiW, roiH, camera, key, onError]);
 
   return path !== null && loaded?.key === key ? loaded.data : null;
 }

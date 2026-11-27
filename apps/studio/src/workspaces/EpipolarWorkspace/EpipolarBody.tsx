@@ -120,8 +120,11 @@ export function EpipolarBody({ data, kind }: { data: AnyExport; kind: ExportKind
         );
         return;
       }
+      const run = useStore.getState().run;
+      if (run === null) return;
       try {
         const result = await api.epipolarOverlayUndistorted({
+          run,
           cam_a: cameraA,
           cam_b: cameraB,
           point_px: snapped.px,

@@ -7,6 +7,12 @@ pub mod forms;
 pub mod jobs;
 pub mod project;
 pub mod resources;
+pub mod runs;
 pub mod session;
 pub mod setup;
 pub mod viewer;
+
+#[cfg(test)]
+mod fixture_tests;
+#[cfg(test)]
+mod project_tests;

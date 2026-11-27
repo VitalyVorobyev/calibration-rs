@@ -1,4 +1,5 @@
 import { api } from "../../api";
+import { useStore } from "../../store";
 import { imageBorderPixels } from "@vitavision/three";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -29,13 +30,15 @@ export function useBorderRays(
     null,
   );
 
+  const run = useStore((s) => s.run);
   useEffect(() => {
+    if (run === null) return;
     let cancelled = false;
     const px = imageBorderPixels(width, height, BORDER_SAMPLES_PER_EDGE);
     const pointsPx: [number, number][] = [];
     for (let i = 0; i < px.length; i += 2) pointsPx.push([px[i]!, px[i + 1]!]);
     api
-      .undistortPoints({ camera: cameraIndex, points_px: pointsPx })
+      .undistortPoints({ run, camera: cameraIndex, points_px: pointsPx })
       .then((out) => {
         if (cancelled || !Array.isArray(out) || out.length !== pointsPx.length) return;
         const flat: number[] = [];
@@ -51,7 +54,7 @@ export function useBorderRays(
     return () => {
       cancelled = true;
     };
-  }, [cameraIndex, k, width, height, pinhole]);
+  }, [run, cameraIndex, k, width, height, pinhole]);
 
   return exact?.for === pinhole ? exact.rays : pinhole;
 }
