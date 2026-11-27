@@ -5,7 +5,7 @@ import { Button } from "@vitavision/ui";
 import { FolderPlus } from "lucide-react";
 import { useState } from "react";
 import { api, hasNativeFolderDialog, pickNativeFolder } from "../api";
-import { useSession } from "./session";
+import { useSession } from "../session/session";
 
 export function AddRootButton({ onAdded }: { onAdded?: () => void }) {
   const editable = useSession(

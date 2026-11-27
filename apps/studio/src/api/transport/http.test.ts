@@ -5,7 +5,7 @@
  * after the last event seen. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerEvent } from "../generated/types";
-import { StudioError } from "../transport";
+import { isNetworkError, StudioError } from "../transport";
 import { httpTransport, resourceUrl } from "./http";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -100,5 +100,72 @@ describe("the HTTP transport", () => {
 
     httpTransport.subscribe(() => {}, 5);
     expect(sources[1]!.url).toBe("/api/events?after=5");
+  });
+
+  it("reports the stream's drops and returns, and reopens one the browser gave up", () => {
+    vi.useFakeTimers();
+    const sources: FakeEventSource[] = [];
+    class FakeEventSource {
+      onmessage: ((m: MessageEvent<string>) => void) | null = null;
+      readyState = 0;
+      private readonly handlers = new Map<string, (() => void)[]>();
+      constructor(readonly url: string) {
+        sources.push(this);
+      }
+      addEventListener(type: string, handler: () => void) {
+        this.handlers.set(type, [...(this.handlers.get(type) ?? []), handler]);
+      }
+      fire(type: string) {
+        for (const handler of this.handlers.get(type) ?? []) handler();
+      }
+      close() {
+        this.readyState = 2;
+      }
+      send(event: ServerEvent) {
+        this.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>);
+      }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const status: boolean[] = [];
+    const body: ServerEvent["body"] = { kind: "project_changed", dir: "/p" };
+    const subscription = httpTransport.subscribe(
+      () => {},
+      undefined,
+      (open) => status.push(open),
+    );
+    sources[0]!.fire("open");
+    sources[0]!.send({ seq: 7, body });
+    // A dropped connection: the browser retries it (still connecting).
+    sources[0]!.fire("error");
+    sources[0]!.fire("open");
+    expect(status).toEqual([true, false, true]);
+    expect(sources).toHaveLength(1);
+    // An answer that is not a stream closes the source: a new one, after
+    // the last event, once the delay has passed.
+    sources[0]!.readyState = 2;
+    sources[0]!.fire("error");
+    expect(sources).toHaveLength(1);
+    vi.advanceTimersByTime(2000);
+    expect(sources).toHaveLength(2);
+    expect(sources[1]!.url).toBe("/api/events?after=7");
+    // Closing stops the retries.
+    sources[1]!.readyState = 2;
+    sources[1]!.fire("error");
+    subscription.close();
+    vi.advanceTimersByTime(10_000);
+    expect(sources).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
+  it("marks a failure to reach the server as a network error", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
+    const error = await httpTransport.invoke("server_info", {}).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(StudioError);
+    expect(isNetworkError(error)).toBe(true);
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(jsonResponse({ kind: "io", message: "disk" }, 500)),
+    );
+    const answered = await httpTransport.invoke("x", {}).catch((e: unknown) => e);
+    expect(isNetworkError(answered)).toBe(false);
   });
 });

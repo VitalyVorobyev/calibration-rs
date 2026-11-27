@@ -1,30 +1,58 @@
-import { createHashRouter, Navigate } from "react-router";
-import { RouteErrorFallback } from "./components/ErrorBoundary";
+import { createHashRouter, type RouteObject } from "react-router";
+import { RouteErrorFallback, ScreenErrorFallback } from "./components/ErrorBoundary";
+import { CalibrateScreen } from "./screens/calibrate";
+import { InspectScreen } from "./screens/inspect";
+import { LibraryScreen } from "./screens/library";
+import { Redirect, Unbuilt } from "./screens/Redirect";
 import { Shell } from "./shell/Shell";
-import { DepthWorkspace } from "./workspaces/DepthWorkspace";
-import { DiagnoseWorkspace } from "./workspaces/DiagnoseWorkspace";
-import { EpipolarWorkspace } from "./workspaces/EpipolarWorkspace";
-import { RunWorkspace } from "./workspaces/RunWorkspace";
-import { LazyViewer3DWorkspace } from "./workspaces/Viewer3DWorkspace/LazyViewer3DWorkspace";
+import { SCREENS } from "./shell/screens";
+
+const UNBUILT = SCREENS.filter((s) => !s.built);
+
+/** The addresses of the screens before the redesign, kept so a saved link
+ * still opens: each goes to where that workspace lives now. */
+const LEGACY: [string, string][] = [
+  ["diagnose", "/inspect/frames"],
+  ["viewer3d", "/inspect/scene"],
+  ["epipolar", "/inspect/epipolar"],
+  ["depth", "/inspect/depth"],
+  ["run", "/calibrate"],
+];
+
+const screen: Pick<RouteObject, "errorElement"> = {
+  errorElement: <ScreenErrorFallback />,
+};
 
 /** Hash router (not BrowserRouter): survives `tauri build`'s static-asset
- * paths cleanly. Routes intentionally have no params — workspace state
- * lives in the Zustand store and is shared across panels. */
+ * paths cleanly. The address is `#/<screen>[/<tab>]?project=<dir>&run=<id>`
+ * (`shell/screens.ts`); the project and run are the query, kept in step with
+ * the open project by `useUrlSync`, so a link reopens the same place. */
 export const router = createHashRouter([
   {
     path: "/",
     element: <Shell />,
     errorElement: <RouteErrorFallback />,
     children: [
-      { index: true, element: <Navigate to="/diagnose" replace /> },
-      { path: "diagnose", element: <DiagnoseWorkspace /> },
+      { index: true, element: <Redirect to="/library" /> },
+      { path: "library", element: <LibraryScreen />, ...screen },
+      { path: "calibrate", element: <CalibrateScreen />, ...screen },
       {
-        path: "viewer3d",
-        element: <LazyViewer3DWorkspace />,
+        path: "inspect",
+        children: [
+          { index: true, element: <Redirect to="/inspect/frames" /> },
+          { path: ":tab", element: <InspectScreen />, ...screen },
+        ],
       },
-      { path: "epipolar", element: <EpipolarWorkspace /> },
-      { path: "depth", element: <DepthWorkspace /> },
-      { path: "run", element: <RunWorkspace /> },
+      ...UNBUILT.map((s) => ({
+        path: s.path.slice(1),
+        element: <Unbuilt id={s.id} />,
+        ...screen,
+      })),
+      ...LEGACY.map(([from, to]) => ({
+        path: from,
+        element: <Redirect to={to} />,
+      })),
+      { path: "*", element: <Redirect to="/library" /> },
     ],
   },
 ]);

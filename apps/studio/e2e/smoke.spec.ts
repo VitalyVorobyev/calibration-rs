@@ -2,10 +2,9 @@ import { expect, type Page, test } from "@playwright/test";
 
 /** The bun-only smoke run: the app boots with no back end answering (a
  * plain `bun run dev` tab, its `/api` proxy pointing nowhere), says so, and
- * every workspace mounts via the rail without throwing or logging a console
- * error of its own. Each workspace's empty state must render on its own with
- * nothing loaded. The browser's own report of the failed `/api` requests is
- * the scenario, not an error of the app's. */
+ * every screen's address mounts without throwing or logging a console error
+ * of its own. The browser's own report of the failed `/api` requests is the
+ * scenario, not an error of the app's. */
 
 function trackConsoleErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -23,46 +22,35 @@ test("app boots, the shell renders and says there is no back end", async ({ page
 
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "calibration-rs" })).toBeVisible();
-  // The index route redirects to /diagnose (router.tsx).
-  await expect(page).toHaveURL(/#\/diagnose$/);
+  await expect(page.getByRole("navigation", { name: "Screens" })).toBeVisible();
+  // The index route redirects to the Library (router.tsx).
+  await expect(page).toHaveURL(/#\/library$/);
   await expect(page.getByText("No back end answers")).toBeVisible();
-  // Empty-state copy, before any export is loaded.
-  await expect(page.getByText(/Open a project and choose/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Library" })).toBeVisible();
 
   expect(errors).toEqual([]);
 });
 
-const WORKSPACES: { rail: string; hash: string; marker: RegExp }[] = [
-  { rail: "Diagnose", hash: "#/diagnose", marker: /Open a project and choose/ },
-  {
-    rail: "3D viewer",
-    hash: "#/viewer3d",
-    marker: /Load a rig export to see cameras and target poses in 3D\./,
-  },
-  {
-    rail: "Epipolar",
-    hash: "#/epipolar",
-    marker: /Load a rig export to inspect epipolar geometry between cameras\./,
-  },
-  {
-    rail: "Depth (dense stereo)",
-    hash: "#/depth",
-    marker:
-      /Load a rig export \(two cameras \+ extrinsics\) to compute dense disparity\./,
-  },
-  { rail: "Run calibration", hash: "#/run", marker: /Run calibration/ },
+const ADDRESSES: { hash: string; marker: RegExp }[] = [
+  { hash: "#/library", marker: /^Library$/ },
+  // Screens that work on a project say so while none is open.
+  { hash: "#/calibrate", marker: /Calibrate works on a project/ },
+  { hash: "#/inspect/frames", marker: /Inspect works on a project/ },
+  // Screens that are not built say so instead of breaking.
+  { hash: "#/dataset", marker: /Coming in a later release/ },
+  { hash: "#/compare", marker: /Coming in a later release/ },
+  // The addresses of the screens before the redesign still open.
+  { hash: "#/diagnose", marker: /Inspect works on a project/ },
+  { hash: "#/run", marker: /Calibrate works on a project/ },
 ];
 
-for (const ws of WORKSPACES) {
-  test(`mounts the "${ws.rail}" workspace without console errors`, async ({ page }) => {
+for (const address of ADDRESSES) {
+  test(`mounts ${address.hash} without console errors`, async ({ page }) => {
     const errors = trackConsoleErrors(page);
 
-    await page.goto("/");
-    await page.getByRole("link", { name: ws.rail }).click();
+    await page.goto(`/${address.hash}`);
 
-    await expect(page).toHaveURL(new RegExp(`${ws.hash}$`));
-    await expect(page.getByText(ws.marker).first()).toBeVisible();
+    await expect(page.getByText(address.marker).first()).toBeVisible();
     await expect(page.getByText("No back end answers")).toBeVisible();
 
     expect(errors).toEqual([]);

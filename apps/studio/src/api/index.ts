@@ -11,11 +11,11 @@ import { createClient } from "./generated/client";
 import { JobHub } from "./jobs";
 import { httpTransport } from "./transport/http";
 import { isTauri, tauriTransport } from "./transport/tauri";
-import { StudioError, type Transport } from "./transport";
+import { isNetworkError, StudioError, type Transport } from "./transport";
 
-export type { Job } from "./jobs";
+export type { Connection, Job } from "./jobs";
 export type { Transport } from "./transport";
-export { asStudioError, isCancelled, StudioError } from "./transport";
+export { asStudioError, isCancelled, isNetworkError, StudioError } from "./transport";
 export { fetchBytes, fetchPlane } from "./resources";
 
 /** The transport this page has. */
@@ -25,14 +25,24 @@ export function selectTransport(): Transport {
 
 let override: Transport | null = null;
 
+/** Who hears of a command that never reached the back end. */
+const unreachable = new Set<() => void>();
+
 function current(): Transport {
   return override ?? selectTransport();
 }
 
 /** The page's transport, whichever it is at the time of each call. */
 const transport: Transport = {
-  invoke: (name, args) => current().invoke(name, args),
-  subscribe: (onEvent, after) => current().subscribe(onEvent, after),
+  invoke: async (name, args) => {
+    try {
+      return await current().invoke(name, args);
+    } catch (e) {
+      if (isNetworkError(e)) for (const listener of [...unreachable]) listener();
+      throw e;
+    }
+  },
+  subscribe: (onEvent, after, onStatus) => current().subscribe(onEvent, after, onStatus),
   resourceUrl: (name, query) => current().resourceUrl(name, query),
 };
 
@@ -40,6 +50,24 @@ const hub = new JobHub(transport);
 
 /** The back end's API. */
 export const api = createClient(transport, hub);
+
+/** The back end's event stream, watched for good: every event (a job's
+ * progress, a project that changed), and whether the stream is up. Jobs
+ * started through `api.jobs` share the same stream. */
+export const events = {
+  connect: (): Promise<void> => hub.connect(),
+  disconnect: (): void => hub.disconnect(),
+  listen: (listener: Parameters<JobHub["listen"]>[0]): (() => void) =>
+    hub.listen(listener),
+  onConnection: (listener: Parameters<JobHub["onConnection"]>[0]): (() => void) =>
+    hub.onConnection(listener),
+  /** Hear each command that failed to reach the back end at all (the
+   * network, not an answer). Returns the unsubscribe function. */
+  onUnreachable: (listener: () => void): (() => void) => {
+    unreachable.add(listener);
+    return () => unreachable.delete(listener);
+  },
+};
 
 /** Replace the page's transport (tests); `null` restores it. */
 export function setTransport(next: Transport | null): void {

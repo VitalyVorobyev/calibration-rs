@@ -1,16 +1,17 @@
 /** Runs the open project as the back end's `calibrate` job and follows it
  * to a terminal state. Unsaved edits are saved first (the project on disk
  * is what runs); the run the job writes is listed with the project's runs,
- * shown in the viewers, and the app routes to Diagnose. */
+ * shown in the viewers, and the app routes to Inspect. */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { api, type Job } from "../../api";
 import type { Progress, RunInfo } from "../../api/generated/types";
 import { isDirty, useDraft } from "../../project/draftStore";
 import { useProject } from "../../project/projectStore";
+import { placePath } from "../../shell/screens";
 import { newRunId, statusFromError, withProgress, type RunStatus } from "./runStatus";
 
-/** How long the success banner shows before the hand-off to Diagnose. */
+/** How long the success banner shows before the hand-off to Inspect. */
 const HANDOFF_MS = 600;
 
 /** The run in flight, if any. Module-scoped so it survives the workspace
@@ -110,7 +111,14 @@ export function useRunController(): RunController {
       if (!mountedRef.current) return;
       handoffTimerRef.current = setTimeout(() => {
         handoffTimerRef.current = null;
-        void navigate("/diagnose");
+        void navigate(
+          placePath({
+            screen: "inspect",
+            tab: "frames",
+            project: useProject.getState().project?.dir ?? null,
+            run: written.id,
+          }),
+        );
       }, HANDOFF_MS);
     } catch (e) {
       setStatus(statusFromError(e));

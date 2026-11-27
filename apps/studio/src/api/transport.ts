@@ -31,8 +31,14 @@ export interface Transport {
   /** Run a command; rejects with a `StudioError`. */
   invoke(command: string, args: unknown): Promise<unknown>;
   /** The event stream, from after event `after` (from each live job's
-   * latest state without it). */
-  subscribe(onEvent: (event: ServerEvent) => void, after?: number): Subscription;
+   * latest state without it). `onStatus` hears the stream open (`true`,
+   * again after each reconnect) and drop (`false`); a stream that cannot
+   * tell never calls it. */
+  subscribe(
+    onEvent: (event: ServerEvent) => void,
+    after?: number,
+    onStatus?: (open: boolean) => void,
+  ): Subscription;
   /** The URL of resource `resource` for `query`: the `studio:` scheme in
    * the desktop app, `/api/r/…` in the browser. A failed load answers the
    * `StudioError` envelope with a 4xx/5xx status. */
@@ -56,6 +62,10 @@ export class StudioError extends Error implements StudioErrorBody {
   readonly field?: string | null;
   /** The values to offer for `field` (`needs_input`). */
   readonly suggestions?: string[];
+  /** The call never reached the back end (the browser's `fetch` failed:
+   * the server is gone, the network is down), as opposed to an answer
+   * that is an error. */
+  network = false;
 
   constructor(body: StudioErrorBody) {
     super(body.message);
@@ -93,6 +103,11 @@ export function asStudioError(e: unknown): StudioError {
   }
   const message = e instanceof Error ? e.message : String(e);
   return new StudioError({ kind: "internal", message });
+}
+
+/** Whether `e` is a failure to reach the back end at all. */
+export function isNetworkError(e: unknown): boolean {
+  return e instanceof StudioError && e.network;
 }
 
 /** Whether `e` is a cancelled job's rejection. */

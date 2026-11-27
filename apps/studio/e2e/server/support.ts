@@ -18,7 +18,7 @@ export function trackErrors(page: Page): string[] {
 /** Open the app logged in, as the address the server prints does. */
 export async function openLoggedIn(page: Page, extra = ""): Promise<void> {
   await page.goto(`/#token=${E2E_TOKEN}${extra}`);
-  await expect(page.getByRole("heading", { name: "calibration-rs" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Screens" })).toBeVisible();
   await expect(page.getByLabel("Token")).toHaveCount(0);
 }
 

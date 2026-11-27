@@ -26,7 +26,7 @@ async function call<T>(command: string, args: Record<string, unknown>): Promise<
 export const tauriTransport: Transport = {
   invoke: (name, args) => call("studio_invoke", { name, args: args ?? {} }),
 
-  subscribe(onEvent, after) {
+  subscribe(onEvent, after, onStatus) {
     const channel = new Channel<ServerEvent>();
     channel.onmessage = onEvent;
     let closed = false;
@@ -35,7 +35,10 @@ export const tauriTransport: Transport = {
       onEvent: channel,
     });
     return {
-      ready: id.then(() => undefined),
+      // The IPC channel does not drop while the window lives.
+      ready: id.then(() => {
+        onStatus?.(true);
+      }),
       close() {
         if (closed) return;
         closed = true;

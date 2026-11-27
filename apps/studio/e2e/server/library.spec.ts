@@ -23,15 +23,18 @@ test("opens a project through the path picker and shows its run", async ({
   await picker.getByRole("button", { name: "Choose", exact: true }).click();
   await expect(picker).toHaveCount(0);
 
+  // The project's one run is the current one: Inspect shows it.
+  await page.getByRole("link", { name: "Inspect" }).click();
   const runs = page.getByRole("tree", { name: "Saved runs" });
   await expect(runs).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Run" })).toContainText("run-001");
   await runs.getByText("run-001").click();
   await expect(page.getByText("Rig extrinsics")).toBeVisible();
   await expect(page.getByText("features 20")).toBeVisible();
   expect(await imageWidth(page, '[aria-label="Frame viewer"]')).toBe(160);
 
   // The epipolar pair: undistorted images from the server.
-  await page.getByRole("link", { name: "Epipolar" }).click();
+  await page.getByRole("tab", { name: "Epipolar" }).click();
   expect(await imageWidth(page, "section", 0)).toBe(160);
   expect(errors).toEqual([]);
 });

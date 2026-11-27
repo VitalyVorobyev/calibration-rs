@@ -8,6 +8,8 @@ import type {
   ProjectDigest,
   ProjectSpec,
   RunInfo,
+  RunSummary,
+  Verdict,
 } from "../api/generated/types";
 
 /** The last path segment, for labels. */
@@ -100,4 +102,54 @@ export function inlineSpec(manifest: DatasetSpec): ProjectSpec {
 /** A new project's spec referencing the manifest file `name` beside it. */
 export function referencedSpec(name: string): ProjectSpec {
   return { version: 2, dataset: { manifest: name } };
+}
+
+/** The runs, newest first (by id: `run-010` is after `run-009`). */
+export function runsNewestFirst(runs: readonly RunInfo[]): RunInfo[] {
+  return [...runs].sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));
+}
+
+/** The run a project opens on: its newest that reads. */
+export function defaultRun(runs: readonly RunInfo[]): RunInfo | null {
+  return runsNewestFirst(runs).find((r) => r.state.kind !== "unreadable") ?? null;
+}
+
+/** What a run's files are: made here (`Recorded`), brought in from a file
+ * (`Imported`), of the app's earlier format (`Legacy`), or not readable. */
+export type RunStateName = "Recorded" | "Imported" | "Legacy" | "Unreadable";
+
+export function runStateName(run: RunInfo): RunStateName {
+  switch (run.state.kind) {
+    case "recorded":
+      return run.state.source.kind === "imported" ? "Imported" : "Recorded";
+    case "unrecorded":
+      return "Legacy";
+    case "unreadable":
+      return "Unreadable";
+  }
+}
+
+/** The run's summary, when its files carry one. */
+export function runSummary(run: RunInfo): RunSummary | null {
+  return run.state.kind === "unreadable" ? null : (run.state.summary ?? null);
+}
+
+/** The run's verdict, when it has one. */
+export function runVerdict(run: RunInfo): Verdict | null {
+  return runSummary(run)?.verdict ?? null;
+}
+
+/** The reprojection RMS over all the run's cameras, pixels: the cameras'
+ * own RMS pooled by their feature counts (the RMS of every error length at
+ * once); `null` when no camera has one. */
+export function runRms(run: RunInfo): number | null {
+  const cameras = runSummary(run)?.cameras ?? [];
+  let squares = 0;
+  let features = 0;
+  for (const camera of cameras) {
+    if (camera.rms_px == null || camera.features <= 0) continue;
+    squares += camera.features * camera.rms_px * camera.rms_px;
+    features += camera.features;
+  }
+  return features > 0 ? Math.sqrt(squares / features) : null;
 }

@@ -25,7 +25,7 @@ import {
 } from "../../api/transport/mock";
 import { useDraft } from "../../project/draftStore";
 import { useProject } from "../../project/projectStore";
-import { useSession } from "../../shell/session";
+import { useSession } from "../../session/session";
 import { useStore } from "../../store";
 import { calibratedRun, MANIFEST, projectView } from "../../test/projectFixtures";
 import { RunWorkspace } from "./index";

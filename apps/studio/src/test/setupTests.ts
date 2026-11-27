@@ -25,6 +25,12 @@ if (typeof window !== "undefined") {
     window.ResizeObserver = StubResizeObserver;
   }
 
+  // jsdom does not scroll: `scrollIntoView` (the command palette keeps its
+  // active option in view) is a no-op there.
+  if (typeof Element.prototype.scrollIntoView !== "function") {
+    Element.prototype.scrollIntoView = () => {};
+  }
+
   // Every test unmounts its own tree; DOM tests would otherwise leak
   // between `it()` blocks since `globals: true` isn't set.
   afterEach(() => {

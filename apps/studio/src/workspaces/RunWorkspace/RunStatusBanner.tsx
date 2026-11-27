@@ -45,7 +45,7 @@ export function RunStatusBanner({ status, onCancel }: RunStatusBannerProps) {
         <Callout tone="success" title="Solve completed">
           <span className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs">{runSummaryLine(status.run)}</span>
-            <span className="ml-auto text-xs">Routing to /diagnose…</span>
+            <span className="ml-auto text-xs">Opening it in Inspect…</span>
           </span>
         </Callout>
       );

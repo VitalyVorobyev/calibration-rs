@@ -6,7 +6,7 @@ import { create } from "zustand";
 import { api, login, StudioError } from "../api";
 import type { ServerInfo } from "../api/generated/types";
 import { useProject } from "../project/projectStore";
-import { startFragment } from "./fragment";
+import { startFragment } from "../shell/fragment";
 
 export type SessionStatus =
   | { kind: "connecting" }
