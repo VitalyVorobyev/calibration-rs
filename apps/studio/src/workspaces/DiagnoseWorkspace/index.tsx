@@ -322,8 +322,8 @@ export function DiagnoseWorkspace() {
             </div>
           ) : (
             <div className="m-auto text-[13px] text-fg-muted">
-              Open a project and choose one of its runs. Use ← / → for pose,
-              ↑ / ↓ for camera; toggle Compare to view two frames side by side.
+              Open a project and choose one of its runs. Use ← / → for pose, ↑ / ↓ for
+              camera; toggle Compare to view two frames side by side.
             </div>
           )}
         </div>

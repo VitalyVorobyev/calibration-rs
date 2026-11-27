@@ -29,7 +29,9 @@ test("runs a project as a job, lists the run, notes it and deletes it", async ({
   await expect(run).toBeEnabled();
   await run.click();
   await expect(page.getByText("Solve completed")).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByText(/6\/6 usable views · saved as runs\/run-001/)).toBeVisible();
+  await expect(
+    page.getByText(/6\/6 usable views · saved as runs\/run-001/),
+  ).toBeVisible();
 
   // The run is listed, and shown in Diagnose (the hand-off).
   const runs = page.getByRole("tree", { name: "Saved runs" });
@@ -54,7 +56,10 @@ test("runs a project as a job, lists the run, notes it and deletes it", async ({
   await label.press("Enter");
   await expect(runs.getByText("run-001 · first light")).toBeVisible();
   const listed = await command(request, "list_runs", { dir: `${root}/planar-demo` });
-  const listedRuns = listed.body as unknown as { id: string; notes: { label?: string } }[];
+  const listedRuns = listed.body as unknown as {
+    id: string;
+    notes: { label?: string };
+  }[];
   expect(listedRuns[0]?.notes.label).toBe("first light");
 
   // Deleted, after the confirmation.
