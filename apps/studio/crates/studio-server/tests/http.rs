@@ -635,3 +635,74 @@ async fn projects_answer_a_stale_save_with_409_and_reports_are_sandboxed() {
     let missing = send(&f.app, bearer(get(&missing)).body(Body::empty()).unwrap()).await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn a_map_answers_json_and_its_plane_as_an_immutable_blob() {
+    let f = fixture(Some(TOKEN));
+    let project = f.root.join("rig-demo");
+    copy_dir(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../e2e/fixtures/library/rig-demo"),
+        &project,
+    );
+    let run = serde_json::json!({"dir": project, "id": "run-001"});
+    let reply = send(
+        &f.app,
+        bearer(post("/api/cmd/residual_map"))
+            .body(json(
+                serde_json::json!({"run": run, "camera": 1, "columns": 32}),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let map = reply.json();
+    assert_eq!(map["grid"]["columns"], 32);
+    assert_eq!(map["grid"]["image_size"], serde_json::json!([160, 120]));
+    let id = map["plane"]["blob"]["id"].as_str().unwrap().to_owned();
+    let url = format!("/api/r/blob?q={}", query(serde_json::json!({ "id": id })));
+
+    let whole = send(&f.app, bearer(get(&url)).body(Body::empty()).unwrap()).await;
+    assert_eq!(whole.status, StatusCode::OK);
+    assert_eq!(whole.headers[header::CONTENT_TYPE], "application/x-vam1");
+    assert_eq!(
+        whole.headers[header::CACHE_CONTROL],
+        "private, max-age=31536000, immutable"
+    );
+    assert_eq!(&whole.body[..4], b"VAM1");
+    assert_eq!(
+        whole.body.len() as u64,
+        map["plane"]["blob"]["len"].as_u64().unwrap()
+    );
+    let etag = whole.headers[header::ETAG].to_str().unwrap().to_owned();
+    assert_eq!(etag, format!("\"{id}\""));
+    let same = send(
+        &f.app,
+        bearer(get(&url))
+            .header(header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(same.status, StatusCode::NOT_MODIFIED);
+    // A blob is held in memory and small: a range request gets it whole.
+    let ranged = send(
+        &f.app,
+        bearer(get(&url))
+            .header(header::RANGE, "bytes=0-3")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(ranged.status, StatusCode::OK);
+    assert_eq!(ranged.body, whole.body);
+
+    // A blob the store does not hold is `blob_expired`: run the command
+    // again.
+    let gone = format!(
+        "/api/r/blob?q={}",
+        query(serde_json::json!({ "id": "0".repeat(64) }))
+    );
+    let gone = send(&f.app, bearer(get(&gone)).body(Body::empty()).unwrap()).await;
+    assert_eq!(gone.status, StatusCode::NOT_FOUND);
+    assert_eq!(gone.json()["kind"], "blob_expired");
+}

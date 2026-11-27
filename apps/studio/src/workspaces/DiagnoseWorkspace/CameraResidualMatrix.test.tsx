@@ -1,27 +1,28 @@
 // @vitest-environment jsdom
 /** Component test for the cross-camera residual matrix: renders a
- * cameras × poses grid for multi-camera exports, jumps to (pose, camera)
- * on cell click, and renders nothing for single-camera exports. The
- * aggregation is covered by `lib/residualStats.test.ts`. */
+ * cameras × poses grid of the back end's per-(camera, pose) statistics
+ * (`residual_stats`' `cells`), jumps to (pose, camera) on cell click, and
+ * renders nothing for single-camera exports. */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TargetFeatureResidual } from "../../types";
+import type { CellStats, ResidualStats } from "../../api/generated/types";
 import { CameraResidualMatrix } from "./CameraResidualMatrix";
 
-function res(pose: number, camera: number, error_px: number): TargetFeatureResidual {
+function cell(pose: number, camera: number, mean: number): CellStats {
   return {
     view: pose,
     camera,
-    feature: 0,
-    target_xyz_m: [0, 0, 0],
-    observed_px: [0, 0],
-    projected_px: [0, 0],
-    error_px,
+    stats: { count: 1, mean, rms: mean, max: mean },
+    unprojected: 0,
   };
 }
 
+function stats(cells: CellStats[]): ResidualStats {
+  return { cameras: [], views: [], cells };
+}
+
 // Two cameras, two poses.
-const RESIDUALS = [res(0, 0, 1), res(1, 0, 4), res(0, 1, 2), res(1, 1, 8)];
+const RESIDUALS = stats([cell(0, 0, 1), cell(1, 0, 4), cell(0, 1, 2), cell(1, 1, 8)]);
 
 afterEach(cleanup);
 
@@ -29,7 +30,7 @@ describe("CameraResidualMatrix", () => {
   it("renders a cell per observed (camera, pose) slot with the mean px", () => {
     const { container } = render(
       <CameraResidualMatrix
-        residuals={RESIDUALS}
+        stats={RESIDUALS}
         selectedPose={0}
         selectedCamera={0}
         onSelect={() => {}}
@@ -46,7 +47,7 @@ describe("CameraResidualMatrix", () => {
     const onSelect = vi.fn();
     render(
       <CameraResidualMatrix
-        residuals={RESIDUALS}
+        stats={RESIDUALS}
         selectedPose={0}
         selectedCamera={0}
         onSelect={onSelect}
@@ -57,10 +58,10 @@ describe("CameraResidualMatrix", () => {
   });
 
   it("renders nothing for a single-camera export", () => {
-    const single = [res(0, 0, 1), res(1, 0, 2)];
+    const single = stats([cell(0, 0, 1), cell(1, 0, 2)]);
     const { container } = render(
       <CameraResidualMatrix
-        residuals={single}
+        stats={single}
         selectedPose={0}
         selectedCamera={0}
         onSelect={() => {}}
