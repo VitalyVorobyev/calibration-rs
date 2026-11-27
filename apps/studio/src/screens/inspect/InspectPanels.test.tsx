@@ -69,6 +69,43 @@ describe("Parameters", () => {
     expect(screen.getByText("This run was written without uncertainty.")).toBeTruthy();
   });
 
+  it("lists the hand-eye and the camera's laser plane with their values", async () => {
+    const unlisted = {
+      kind: "unavailable" as const,
+      reason: { kind: "not_listed" as const },
+    };
+    backend({
+      camera_parameter_values: () => ({
+        ...PARAMETERS,
+        poses: [
+          {
+            label: "gripper_se3_cam",
+            camera: null,
+            translation_m: [0.01, 0.02, 0.3],
+            rotation_deg: [0, 0, 90],
+            sigma: Array.from({ length: 6 }, () => unlisted),
+          },
+        ],
+        planes: [
+          {
+            label: "plane",
+            camera: 0,
+            normal: [0, 0, 1],
+            distance_m: 0.25,
+            sigma: Array.from({ length: 4 }, () => unlisted),
+          },
+        ],
+      }),
+    });
+    show();
+    mount(<ParametersTab />);
+    expect((await screen.findByTestId("pose-gripper_se3_cam")).textContent).toBe(
+      "10.000, 20.000, 300.000",
+    );
+    const plane = screen.getByRole("region", { name: "Laser plane" });
+    expect(within(plane).getByText("250 ·")).toBeTruthy();
+  });
+
   it("copies the camera's parameters as JSON", async () => {
     backend();
     show();

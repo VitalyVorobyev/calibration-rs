@@ -222,13 +222,16 @@ while a project's run is opening) over queries of the typed client.
   `views`), then the map, `ResidualRecords` (`ScatterChart` and a windowed
   `Table` of `residual_records`, worst first; a point or row selects camera,
   view and feature in `session/selection.ts`) and `ResidualStatsTable`
-  (`residual_stats`). `components/FrameCanvas` rings the selected feature;
+  (`residual_stats`; the Frames tab's legend reads the same reply's camera
+  and view cell). `components/FrameCanvas` rings the selected feature;
   the arrows are anchored at the observed corner and run along
   `observed − projected`, which the legend says.
 - **Parameters and Quality.** `parameterModel.ts` groups
   `camera_parameter_values`, writes value ± σ with `lib/format.ts` (radians
-  as degrees), the reason there is no σ, and the JSON for the clipboard; pose
-  parameters are the covariance's labels no camera owns, by σ only
+  as degrees), the reason there is no σ, and the JSON for the clipboard; the
+  reply's poses and laser planes are `PoseValues.tsx`'s tables (a pose's
+  value and the σ of its perturbation); the covariance's other labels no
+  camera owns (a target's pose) are listed by σ only
   (`lib/uncertainty.ts`). `qualityModel.ts` holds the words of each check and
   the measured value and limit; verdict colour is on the `Badge` there only.
 - **Tests.** Vitest per pure module, `maps/MapViewer.test.tsx` (legend,
@@ -263,7 +266,10 @@ dir, id }`); there is no "active export".
   answered: a file that changed since is `changed_on_disk`, 409),
   `project_views` (the views the images pair into, of the saved project or
   of a draft spec, with what a run would refuse as messages carrying their
-  field), `list_runs`, `set_run_notes`, `delete_run`, `import_export`
+  field; each view's robot pose row and laser frames, and the rows and
+  frames that pair with no view, from `Project::view_poses` and
+  `view_laser_frames`, a listing that fails being one more message beside
+  the views; `api/commands/views.rs`), `list_runs`, `set_run_notes`, `delete_run`, `import_export`
   (an export file or a `vcal run -o` folder as the next run), and the
   `calibrate` job (`Project::calibrate`; its events are the library's
   `Progress`, its output the written run's `RunInfo`). A change publishes
@@ -314,18 +320,18 @@ back on the disk's version, a field changed in both keeps mine and is marked
 changed; `keepEditing` overwrites; `revert` drops them). `useProjectViews`
 asks `project_views` for the draft spec 400 ms after the last edit; the
 library's messages are placed on the form's fields (`datasetModel.ts`:
-`placeMessages`, which reads the field out of a message that names none; the
-app's own warning for a pattern that matched nothing; counts), the rail's
+`placeMessages`, by the field the library names, a camera named by its id
+turned into its position; the app's own warning for a pattern that matched
+nothing; counts), the rail's
 badge reads the error count (`project/problems.ts`) and `⌘S` is refused while
 there are errors. `DatasetForm` is `SchemaValueForm` with `baseline`,
 `messages` and the groups of `datasetUi`; the cameras are `CamerasEditor`
 (`renderField`, since the schema's control for a list of structures is a JSON
 box), each pattern an `ImagePatternField` with what it matches. The matrix is
 `components/ViewMatrix` in `MatrixPane` (filters), the selection the app's
-(`session/selection.ts`), the selected image `ViewDetail` on stage2d. The
-per-view robot pose and laser frame the spec shows as matrix columns are not
-in `project_views` (the library pairs only the cameras' images), so the screen
-lists what the manifest declares instead.
+(`session/selection.ts`), the selected image `ViewDetail` on stage2d, with the
+robot pose row and the camera's laser frame `project_views` pairs the view
+with (the matrix has no columns for them).
 
 **The Detect screen** (`screens/detect/`) reads the detection cache and
 writes the project's `[exclude]`. `useDetectData.ts` holds its reads:
@@ -476,18 +482,25 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   export's uncertainty, name, group, value, unit, σ or why there is none:
   `no_covariance` with the library's reason, `fixed`, `not_listed`,
   `unsupported_model`; `at_bound`). The bounds' values are not in the
-  export. `residual_records { run, camera, view? }` answers the records as
+  export. It also lists the run's `poses` (each camera's `cam<i>.cam_se3_rig`
+  in a rig of several, the hand-eye: translation in metres, axis-angle
+  rotation in degrees, and the σ of the right perturbation `[rx … tz]` the
+  covariance is over, which is not the σ of those components) and
+  `planes` (each camera's laser plane: normal and distance with their σ);
+  `pose_values.rs`. `residual_records { run, camera, view? }` answers the records as
   columns (`index` into `per_feature_residuals.target`, `view`, `feature`,
   `target_xyz_m`, `observed_px`, `projected_px`, `residual_px`);
-  `residual_stats { run }` the library's mean, RMS, max and count per
-  camera, per view and per camera and view, with the diverged records.
+  `residual_stats { run }` the library's `ReprojectionStats` (count, mean,
+  RMS, median, p95, max) per camera, per view and per camera and view, with
+  the diverged records.
 - **Detections** (`api/commands/detection.rs`, `detections.rs`), each over
   a project `dir`; an image is named as `project_views` lists it (relative
   to the data folder). `detection_overview { dir, run? }` reads the
   project's detection cache for every view and camera (features, the
   detector's outcome, or `not_detected`; the expected count of a complete
-  board; why the latest calibrated run, or `run`, left an image out). It
-  decodes nothing, but reads every image to find its cache entry.
+  board; why the latest calibrated run, or `run`, left an image out),
+  through the library's `cached_detection`. It decodes nothing, but reads
+  every image to find its cache entry.
   `detection_detail { dir, camera, image }` is the library's
   `DetectionDetail` from the cache, detected and cached when missing (in
   the camera's region-of-interest pixels; exclude a feature by its
@@ -783,7 +796,8 @@ routes. Every command runs against a `Ctx` (the `RootScope`, the settings,
 the run cache, the image cache, the blob store, the jobs, the event bus),
 and every failure is one `StudioError { kind, message, path?, field?,
 suggestions? }`: each library error (`ProjectError`, the dataset runner's)
-maps to its own kind, with the path and the field it names. A
+maps to its own kind, with the path it names and the field its `field()`
+names. A
 shell sets the API up with a `Setup`: its folders (`Dirs`: cache, state,
 samples) and, on the server, its fixed roots.
 

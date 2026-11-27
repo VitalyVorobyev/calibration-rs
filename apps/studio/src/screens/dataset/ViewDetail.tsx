@@ -2,7 +2,7 @@ import { Empty, StatusDot } from "@vitavision/ui";
 import { ImageLayer, ImageStage, type StageView } from "@vitavision/stage2d";
 import { useState } from "react";
 import { api } from "../../api";
-import type { DatasetSpec, ViewRow } from "../../api/generated/types";
+import type { DatasetSpec, PoseRef, ViewRow } from "../../api/generated/types";
 import { imagePath } from "../../components/ViewMatrix/matrixModel";
 import { useImageSize, type ImageSize } from "../../hooks/useImageSize";
 
@@ -23,15 +23,24 @@ function Viewer({ url, size, label }: { url: string; size: ImageSize; label: str
   );
 }
 
+/** A pose row as the detail names it: `row 3 · id 0012`. */
+function poseText(pose: PoseRef): string {
+  return pose.id != null ? `row ${pose.index} · id ${pose.id}` : `row ${pose.index}`;
+}
+
 /** The selected cell of the matrix: its image in a zoomable stage with its
- * path and size, and the other cameras' images of the same view to move
- * across to. A cell with no image says which camera lacks it. */
+ * path and size, the robot pose and laser frame the view pairs with (when
+ * the reply pairs them: `pairsPoses`, `pairsLaser`), and the other cameras'
+ * images of the same view to move across to. A cell with no image says
+ * which camera lacks it. */
 export function ViewDetail({
   view,
   cameraIndex,
   cameras,
   dataRoot,
   manifest,
+  pairsPoses,
+  pairsLaser,
   onCamera,
 }: {
   view: ViewRow | null;
@@ -39,6 +48,8 @@ export function ViewDetail({
   cameras: readonly string[];
   dataRoot: string;
   manifest: DatasetSpec | null;
+  pairsPoses: boolean;
+  pairsLaser: boolean;
   onCamera: (camera: number) => void;
 }) {
   const rel = view && cameraIndex !== null ? (view.images[cameraIndex] ?? null) : null;
@@ -99,8 +110,28 @@ export function ViewDetail({
         {manifest?.robot_poses && (
           <>
             <dt className="text-fg-subtle">Robot pose</dt>
-            <dd className="truncate font-mono text-fg" title={manifest.robot_poses.path}>
-              {manifest.robot_poses.path}
+            <dd
+              className="truncate font-mono text-fg"
+              title={manifest.robot_poses.path}
+              data-testid="view-pose"
+            >
+              {!pairsPoses ? (
+                manifest.robot_poses.path
+              ) : view.pose ? (
+                `${poseText(view.pose)} of ${manifest.robot_poses.path}`
+              ) : (
+                <span className="text-defect">no pose pairs with this view</span>
+              )}
+            </dd>
+          </>
+        )}
+        {pairsLaser && (
+          <>
+            <dt className="text-fg-subtle">Laser frame</dt>
+            <dd className="truncate font-mono text-fg" data-testid="view-laser">
+              {view.laser_frames?.[cameraIndex] ?? (
+                <span className="text-fg-muted">none for {camera}</span>
+              )}
             </dd>
           </>
         )}

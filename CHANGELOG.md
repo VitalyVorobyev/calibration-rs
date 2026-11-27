@@ -86,6 +86,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project**, and exclusions of features (click or box), of one camera's image
   or of a whole view, written to the project's `[exclude]` with undo.
 
+- Calibration Studio shows a rig's and a hand-eye's poses and the laser
+  planes with their values: Inspect → Parameters lists each camera's pose in
+  the rig and the hand-eye (translation, axis-angle rotation, and the σ of the
+  small rotation and translation the covariance is over) and the camera's
+  laser plane (normal and distance with their σ), where before they had a σ
+  and no value. The Dataset screen names the robot pose row and the laser
+  frame each view pairs with, and a view no pose pairs with. The residual
+  statistics table adds the median and the 95th percentile. A problem with
+  the dataset is placed on the field the library names for it.
+
 - Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
   returns a `DetectionDetail` with the features `detect` returns (bit for
   bit), the image's outcome (detected; not found, with the detector's

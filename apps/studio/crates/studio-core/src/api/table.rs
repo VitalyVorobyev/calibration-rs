@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 
 use super::Ctx;
 use super::commands::{
-    detection, files, forms, jobs, maps, project, resources, runs, session, setup, viewer,
+    detection, files, forms, jobs, maps, project, resources, runs, session, setup, viewer, views,
 };
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
@@ -173,7 +173,7 @@ pub fn table() -> Vec<CommandSpec> {
         plain("open_project", project::open_project),
         plain("create_project", project::create_project),
         plain("save_project", project::save_project),
-        plain("project_views", project::project_views),
+        plain("project_views", views::project_views),
         plain("list_runs", project::list_runs),
         plain("set_run_notes", project::set_run_notes),
         plain("delete_run", project::delete_run),

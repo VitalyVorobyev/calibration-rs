@@ -105,6 +105,8 @@ test("a rig run: choose the camera, then its parameters and maps", async ({
   await page.getByRole("option", { name: "Camera 1" }).click();
   await expect(page.getByTestId("value-cam1.fx")).toContainText("±");
   await expect(page.getByTestId("value-cam0.fx")).toHaveCount(0);
+  // Its pose in the rig, with a value: the baseline in millimetres.
+  await expect(page.getByTestId("pose-cam1.cam_se3_rig")).toContainText(",");
 
   // The map tabs open for the camera chosen, a run without images included.
   await page.getByRole("tab", { name: "Residuals" }).click();

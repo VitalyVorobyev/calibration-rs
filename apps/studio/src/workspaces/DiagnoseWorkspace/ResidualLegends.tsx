@@ -1,10 +1,12 @@
+import { api } from "../../api";
+import type { RunRef } from "../../api/generated/types";
 import { ARROW_GAIN } from "../../components/frameOverlayPaths";
 import { colorForError, colorForLaserError } from "../../lib/errorColors";
+import { useQuery } from "../../session/query";
 import type {
   CursorReadout,
   FeatureResidualHistogram,
   LaserFeatureResidual,
-  TargetFeatureResidual,
 } from "../../types";
 
 /** The cursor's image position and luminance. */
@@ -24,20 +26,28 @@ export function CursorChip({ cursor }: { cursor: CursorReadout | null }) {
   );
 }
 
-/** The frame's target residual statistics and the colour ramp key. */
-export function ResidualLegend({ residuals }: { residuals: TargetFeatureResidual[] }) {
-  const errs = residuals
-    .map((r) => r.error_px)
-    .filter((e): e is number => typeof e === "number");
-  const mean = errs.length > 0 ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
-  const max = errs.length > 0 ? Math.max(...errs) : 0;
-  const diverged = residuals.length - errs.length;
+/** The frame's target residual statistics (the back end's, of camera
+ * `camera` in view `view` of `run`) and the colour ramp key. */
+export function ResidualLegend({
+  run,
+  camera,
+  view,
+}: {
+  run: RunRef;
+  camera: number;
+  view: number;
+}) {
+  const q = useQuery("residual_stats", { run }, () => api.residualStats({ run }));
+  const cell = q.data?.cells.find((c) => c.camera === camera && c.view === view);
+  const px = (v: number | undefined) => (v === undefined ? "–" : `${v.toFixed(3)} px`);
+  // A frame without records has none in the statistics.
+  const empty = q.data !== undefined && cell === undefined;
   return (
     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-fg-muted">
-      <span>features {residuals.length}</span>
-      <span>diverged {diverged}</span>
-      <span>mean {mean.toFixed(3)} px</span>
-      <span>max {max.toFixed(3)} px</span>
+      <span>features {cell ? cell.stats.count + cell.unprojected : empty ? 0 : "–"}</span>
+      <span>diverged {cell ? cell.unprojected : empty ? 0 : "–"}</span>
+      <span>mean {px(cell?.stats.mean)}</span>
+      <span>max {px(cell?.stats.max)}</span>
       <span>arrows: observed − projected, from the observed corner, ×{ARROW_GAIN}</span>
       <span className="flex items-center gap-2">
         <Swatch color={colorForError(0.5)} label="<1" />

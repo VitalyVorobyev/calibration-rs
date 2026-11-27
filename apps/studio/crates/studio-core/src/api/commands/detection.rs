@@ -21,7 +21,7 @@ use vision_calibration::project::Project;
 
 use crate::api::{Ctx, JobCx, StudioError};
 use crate::detections::{
-    DetectionOverview, ImageDetectionState, Images, for_each_parallel, left_out, probe_all,
+    DetectionOverview, ImageDetectionState, Images, cache_states, for_each_parallel, left_out,
     state_of,
 };
 use crate::runs::open_project;
@@ -64,7 +64,7 @@ pub fn detection_overview(
     let project = checked_project(ctx, &args.dir)?;
     let images = Images::of(&project)?;
     let cache = FsDetectionCache::new(project.detection_cache_dir());
-    let states = probe_all(&images, &cache);
+    let states = cache_states(&images, &cache);
     Ok(images.overview(states, left_out(&project, args.run.as_deref())?))
 }
 

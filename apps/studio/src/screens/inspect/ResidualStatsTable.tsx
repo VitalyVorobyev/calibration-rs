@@ -32,12 +32,27 @@ const COLUMNS: Column<StatsRow>[] = [
     cell: (r) => fixed(r.mean, 3),
   },
   {
+    key: "median",
+    header: "Median (px)",
+    numeric: true,
+    sortValue: (r) => r.median ?? -1,
+    cell: (r) => (r.median === null ? "–" : fixed(r.median, 3)),
+  },
+  {
     key: "rms",
     header: "RMS (px)",
     numeric: true,
     firstSort: "descending",
     sortValue: (r) => r.rms,
     cell: (r) => fixed(r.rms, 3),
+  },
+  {
+    key: "p95",
+    header: "P95 (px)",
+    numeric: true,
+    firstSort: "descending",
+    sortValue: (r) => r.p95 ?? -1,
+    cell: (r) => (r.p95 === null ? "–" : fixed(r.p95, 3)),
   },
   {
     key: "max",

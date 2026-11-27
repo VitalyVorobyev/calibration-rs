@@ -2,6 +2,7 @@
 //! uncertainty, from the library's [`CalibratedCameras`] view of the
 //! export: every camera model's parameters come from the library's own
 //! list (`optim::camera_parameters`), so no camera model needs code here.
+//! The run's poses and laser planes are [`crate::pose_values`]'s.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,8 @@ use vision_calibration::core::{
     UncertaintyUnavailable,
 };
 use vision_calibration::optim::{ProjectionUncertainty, camera_parameters};
+
+use crate::pose_values::{PlaneParameter, PoseParameter, plane_parameters_of, pose_parameters_of};
 
 /// Which stage of the camera model a parameter belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -88,16 +91,24 @@ pub struct CameraParameterSet {
     pub unsupported: Option<String>,
 }
 
-/// Every camera's parameters, in camera order.
+/// Every camera's parameters, in camera order, and the poses and laser
+/// planes the run estimates besides them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct CameraParameters {
     pub cameras: Vec<CameraParameterSet>,
+    /// Each camera's pose in a rig of several cameras, then the hand-eye;
+    /// absent for one camera without a robot.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub poses: Vec<PoseParameter>,
+    /// Each camera's laser plane; absent for a run without a laser.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planes: Vec<PlaneParameter>,
 }
 
 /// The prefix of camera `camera`'s labels in the export's uncertainty:
 /// `cam<i>.` in a multi-camera result, none in a one-camera one (the
 /// library's rule).
-fn label_prefix(uncertainty: &Uncertainty, cameras: usize, camera: usize) -> String {
+pub(crate) fn label_prefix(uncertainty: &Uncertainty, cameras: usize, camera: usize) -> String {
     let prefixed = format!("cam{camera}.");
     let bare = match uncertainty.covariance() {
         Some(cov) => {
@@ -129,7 +140,7 @@ fn group(params: &CameraParams, name: &str) -> ParameterGroup {
     }
 }
 
-fn sigma(uncertainty: &Uncertainty, label: &str) -> ParameterSigma {
+pub(crate) fn sigma(uncertainty: &Uncertainty, label: &str) -> ParameterSigma {
     let unavailable = |reason| ParameterSigma::Unavailable { reason };
     match uncertainty {
         Uncertainty::Available(cov) => match cov.std_dev(label) {
@@ -152,7 +163,8 @@ fn at_bound(uncertainty: &Uncertainty, label: &str) -> bool {
     )
 }
 
-/// Every camera's parameters with their σ.
+/// Every camera's parameters with their σ, and the run's poses and laser
+/// planes with theirs.
 pub fn camera_parameters_of(cameras: &dyn CalibratedCameras) -> CameraParameters {
     let all = cameras.camera_params();
     let uncertainty = cameras.parameter_uncertainty();
@@ -197,7 +209,11 @@ pub fn camera_parameters_of(cameras: &dyn CalibratedCameras) -> CameraParameters
             }
         })
         .collect();
-    CameraParameters { cameras: sets }
+    CameraParameters {
+        cameras: sets,
+        poses: pose_parameters_of(cameras),
+        planes: plane_parameters_of(cameras),
+    }
 }
 
 /// Why camera `camera` has no projection σ, if it has none: no covariance,

@@ -88,7 +88,7 @@ describe("statistics rows", () => {
     cameras: [
       {
         camera: 0,
-        stats: { count: 9, mean: 0.1, rms: 0.2, max: 0.5 },
+        stats: { count: 9, mean: 0.1, rms: 0.2, max: 0.5, median: 0.08, p95: 0.4 },
         unprojected: 1,
         views: 2,
       },
@@ -111,12 +111,17 @@ describe("statistics rows", () => {
       camera: 0,
       view: null,
       rms: 0.2,
+      median: 0.08,
+      p95: 0.4,
       unprojected: 1,
     });
     expect(statsRows(stats, "view")[0]).toMatchObject({
       label: "view 1",
       camera: null,
       view: 1,
+      // Statistics without percentiles have none.
+      median: null,
+      p95: null,
     });
     expect(statsRows(stats, "cell")[0]).toMatchObject({
       label: "camera 0 · view 1",

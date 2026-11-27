@@ -13,6 +13,7 @@ pub mod runs;
 pub mod session;
 pub mod setup;
 pub mod viewer;
+pub mod views;
 
 #[cfg(test)]
 mod detection_tests;
@@ -24,3 +25,5 @@ mod maps_tests;
 mod project_tests;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod views_tests;

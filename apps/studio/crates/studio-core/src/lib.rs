@@ -9,8 +9,8 @@
 //!   (`vision_calibration::project`); the commands only judge their paths.
 //! - [`runs`] — runs as commands name them (project folder and run id) and
 //!   the cache of their parsed exports.
-//! - [`epipolar`], [`uncertainty`], [`disparity`] — the math behind the
-//!   viewers' commands; [`maps`] — a run's diagnostic maps as value planes
+//! - [`epipolar`], [`uncertainty`], [`pose_values`], [`disparity`] — the
+//!   math behind the viewers' commands; [`maps`] — a run's diagnostic maps as value planes
 //!   and its per-feature residuals; [`detections`] — what a project's
 //!   detection cache knows of its images.
 //! - [`laser`] — the laser-line extractor the laser topologies use.
@@ -32,6 +32,7 @@ pub mod images;
 pub mod laser;
 pub mod maps;
 pub mod planes;
+pub mod pose_values;
 pub mod runs;
 pub mod scope;
 pub mod settings;

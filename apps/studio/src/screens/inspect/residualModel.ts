@@ -116,6 +116,9 @@ export interface StatsRow {
   mean: number;
   rms: number;
   max: number;
+  /** `null` when the back end gives none (no error lengths). */
+  median: number | null;
+  p95: number | null;
   unprojected: number;
 }
 
@@ -136,6 +139,8 @@ function row(
     mean: stats.mean,
     rms: stats.rms,
     max: stats.max,
+    median: stats.median ?? null,
+    p95: stats.p95 ?? null,
     unprojected,
   };
 }

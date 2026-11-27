@@ -5,7 +5,6 @@ import {
   datasetUi,
   derivedWarnings,
   formMessages,
-  inferField,
   isManifestPath,
   patternMatch,
   placeMessages,
@@ -31,44 +30,20 @@ const err = (message: string, field?: string, suggestions?: string[]): StudioErr
 });
 
 describe("placing the library's messages", () => {
-  it("turns the library's indexed paths into the form's, and knows the manifest's", () => {
-    expect(toFormPath("cameras[1].images")).toBe("cameras.1.images");
-    expect(toFormPath("pose_convention.transform")).toBe("pose_convention.transform");
+  it("turns the library's paths into the form's, and knows the manifest's", () => {
+    const cams = manifest.cameras;
+    // A camera is named by its id; a list entry by its index.
+    expect(toFormPath("cameras[cam1].images", cams)).toBe("cameras.1.images");
+    expect(toFormPath("cameras[cam0].roi_xywh", cams)).toBe("cameras.0.roi_xywh");
+    expect(toFormPath("cameras[1].images", cams)).toBe("cameras.1.images");
+    expect(toFormPath("cameras[gone].images", cams)).toBe("cameras");
+    expect(toFormPath("exclude.images[0]", cams)).toBe("exclude.images.0");
+    expect(toFormPath("pose_convention.transform", cams)).toBe(
+      "pose_convention.transform",
+    );
     expect(isManifestPath("cameras.1.id")).toBe(true);
     expect(isManifestPath("device.id")).toBe(false);
     expect(isManifestPath("exclude.images.0")).toBe(false);
-  });
-
-  it("reads the field of a message that names none from its words", () => {
-    const cams = manifest.cameras;
-    expect(
-      inferField(
-        "manifest validation failed: invalid target: chessboard requires rows >= 2",
-        cams,
-      ),
-    ).toBe("target");
-    expect(
-      inferField('manifest validation failed: duplicate camera id "cam0"', cams),
-    ).toBe("cameras");
-    expect(
-      inferField(
-        "manifest validation failed: topology RigExtrinsics expects 2..=18 camera(s), got 1",
-        cams,
-      ),
-    ).toBe("cameras");
-    expect(
-      inferField(
-        'manifest validation failed: camera "cam1" has degenerate ROI [0, 0, 0, 0]',
-        cams,
-      ),
-    ).toBe("cameras.1.roi_xywh");
-    expect(
-      inferField('pose pairing regex "((" failed to compile: unclosed group', cams),
-    ).toBe("pose_pairing.regex");
-    expect(inferField('regex has no named capture group "nope"', cams)).toBe(
-      "pose_pairing.group",
-    );
-    expect(inferField("something else entirely", cams)).toBeNull();
   });
 
   it("places a message on its field, and lists one about the project's own fields", () => {
@@ -79,6 +54,7 @@ describe("placing the library's messages", () => {
         ]),
         err("device.id: is empty", "device.id"),
         err("odd one"),
+        err('camera "cam1" has degenerate ROI', "cameras[cam1].roi_xywh"),
       ],
       manifest,
     );
@@ -89,6 +65,7 @@ describe("placing the library's messages", () => {
     });
     expect(placed[1]!.path).toBeNull();
     expect(placed[2]!.path).toBeNull();
+    expect(placed[3]!.path).toBe("cameras.1.roi_xywh");
   });
 
   it("gives the form one message a field, an error never hidden by a warning", () => {

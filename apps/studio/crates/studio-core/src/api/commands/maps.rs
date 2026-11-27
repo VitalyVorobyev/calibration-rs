@@ -379,7 +379,11 @@ pub fn projection_sigma_map(
 /// Every parameter of every camera of the run, whatever its model: its
 /// label in the export's uncertainty, name, group, value and unit, its σ
 /// or why it has none (no covariance and the library's reason, held fixed,
-/// not listed), and whether the solve ended with it on a bound.
+/// not listed), and whether the solve ended with it on a bound. Also the
+/// poses the run estimates (each camera's pose in a rig of several, the
+/// hand-eye: translation in metres, axis-angle rotation in degrees, the σ
+/// of the perturbation the covariance is over) and its laser planes (normal
+/// and distance with their σ).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CameraParameterValuesArgs {
