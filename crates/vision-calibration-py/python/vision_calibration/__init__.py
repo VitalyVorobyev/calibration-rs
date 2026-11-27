@@ -166,7 +166,7 @@ from .common import (
 )
 from .dataset import SniffError, sniff_folder
 from .dataset_runner import AskUserError, RunError, calibrate_dataset, detect_target
-from .detect import CacheKey, Features, FsDetectionCache, reject_ambiguous_detection
+from .detect import CacheKey, DetectionDetail, Features, FsDetectionCache, reject_ambiguous_detection
 from .laserline_device import DeviceInitOptions, DeviceOptimizeOptions, LaserlineDeviceSession
 from .planar_intrinsics import IntrinsicsFilterOptions, PlanarIntrinsicsSession
 from .residuals import (
@@ -347,6 +347,7 @@ __all__ = [
     "AskUserError",
     "SniffError",
     "Features",
+    "DetectionDetail",
     "FsDetectionCache",
     "CacheKey",
     "reject_ambiguous_detection",

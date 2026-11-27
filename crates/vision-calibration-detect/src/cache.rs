@@ -18,13 +18,17 @@
 //! The default [`FsDetectionCache`] persists entries as JSON files
 //! under `<root>/<key>.json`. Tests can use it with a `tempfile::tempdir()`
 //! root; production code points it at `~/.cache/calibration-rs/<dataset_id>/`.
+//!
+//! A detection's [`DetectionDetail`] is a separate entry under the same key
+//! ([`DetectionCache::get_detail`], `<root>/<key>.detail.json`), so a
+//! calibration, which reads only the features, never parses it.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-use crate::{DetectorConfig, Feature};
+use crate::{DetectionDetail, DetectorConfig, Feature};
 
 /// Errors raised by [`DetectionCache`] implementations.
 #[derive(Debug, Error)]
@@ -116,6 +120,17 @@ impl CacheKey {
             self.config_hash
         )
     }
+
+    /// The file name of the key's detection detail entry
+    /// (`<image>-<detector>-<config>.detail.json`), beside its features entry.
+    fn detail_file_name(&self) -> String {
+        format!(
+            "{:016x}-{}-{:016x}.detail.json",
+            self.image_hash,
+            sanitize_detector(&self.detector),
+            self.config_hash
+        )
+    }
 }
 
 /// Replace any character that is not alphanumeric, `_`, `-`, or `.`
@@ -197,6 +212,25 @@ pub trait DetectionCache: Send + Sync {
 
     /// Store a cache entry.
     fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError>;
+
+    /// The detection detail stored under `key`
+    /// ([`DetectorConfig::detect_detailed`]), apart from the features entry
+    /// of the same key; `Ok(None)` on a miss. A calibration never reads it.
+    ///
+    /// The default stores no detail, so this is always a miss.
+    fn get_detail(&self, key: &CacheKey) -> Result<Option<DetectionDetail>, CacheError> {
+        let _ = key;
+        Ok(None)
+    }
+
+    /// Store the detail of the detection whose features are stored under
+    /// `key`.
+    ///
+    /// The default stores nothing.
+    fn put_detail(&self, key: &CacheKey, detail: &DetectionDetail) -> Result<(), CacheError> {
+        let _ = (key, detail);
+        Ok(())
+    }
 }
 
 /// Filesystem-backed cache writing one JSON file per entry under
@@ -221,10 +255,13 @@ impl FsDetectionCache {
     }
 }
 
-impl DetectionCache for FsDetectionCache {
-    fn get(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
-        let path = self.root.join(key.file_name());
-        match std::fs::read(&path) {
+impl FsDetectionCache {
+    /// The entry `file_name` under the root, parsed; `None` when absent.
+    fn read<T: serde::de::DeserializeOwned>(
+        &self,
+        file_name: &str,
+    ) -> Result<Option<T>, CacheError> {
+        match std::fs::read(self.root.join(file_name)) {
             Ok(bytes) => Ok(Some(
                 serde_json::from_slice(&bytes).map_err(|e| CacheError::Serde(e.to_string()))?,
             )),
@@ -233,20 +270,19 @@ impl DetectionCache for FsDetectionCache {
         }
     }
 
-    fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError> {
+    /// Write `bytes` as the entry `file_name`: to a temporary file, then
+    /// renamed over the entry, so a reader sees the old entry or the new one
+    /// whole.
+    fn write(&self, file_name: &str, bytes: &[u8]) -> Result<(), CacheError> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT_TMP_ID: AtomicU64 = AtomicU64::new(1);
 
         std::fs::create_dir_all(&self.root)?;
-        let final_path = self.root.join(key.file_name());
+        let final_path = self.root.join(file_name);
         let tmp_id = NEXT_TMP_ID.fetch_add(1, Ordering::Relaxed);
-        let tmp_path = self.root.join(format!(
-            "{}.{}.{tmp_id}.tmp",
-            key.file_name(),
-            std::process::id()
-        ));
-        let bytes =
-            serde_json::to_vec_pretty(value).map_err(|e| CacheError::Serde(e.to_string()))?;
+        let tmp_path = self
+            .root
+            .join(format!("{file_name}.{}.{tmp_id}.tmp", std::process::id()));
         if let Err(err) = std::fs::write(&tmp_path, bytes) {
             let _ = std::fs::remove_file(&tmp_path);
             return Err(err.into());
@@ -256,6 +292,30 @@ impl DetectionCache for FsDetectionCache {
             return Err(err.into());
         }
         Ok(())
+    }
+}
+
+impl DetectionCache for FsDetectionCache {
+    fn get(&self, key: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
+        self.read(&key.file_name())
+    }
+
+    fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError> {
+        let bytes =
+            serde_json::to_vec_pretty(value).map_err(|e| CacheError::Serde(e.to_string()))?;
+        self.write(&key.file_name(), &bytes)
+    }
+
+    /// Reads `<image>-<detector>-<config>.detail.json` under the root.
+    fn get_detail(&self, key: &CacheKey) -> Result<Option<DetectionDetail>, CacheError> {
+        self.read(&key.detail_file_name())
+    }
+
+    /// Writes `<image>-<detector>-<config>.detail.json` under the root, as
+    /// compact JSON, the same atomic way as [`put`](DetectionCache::put).
+    fn put_detail(&self, key: &CacheKey, detail: &DetectionDetail) -> Result<(), CacheError> {
+        let bytes = serde_json::to_vec(detail).map_err(|e| CacheError::Serde(e.to_string()))?;
+        self.write(&key.detail_file_name(), &bytes)
     }
 }
 
@@ -572,5 +632,89 @@ mod tests {
             leftover_tmps.is_empty(),
             "leftover temp files: {leftover_tmps:?}"
         );
+    }
+
+    fn a_detail() -> DetectionDetail {
+        serde_json::from_value(json!({
+            "features": [{ "image_xy": [12.5, 24.5], "world_xyz": [0.02, 0.04, 0.0] }],
+            "outcome": { "status": "detected" },
+            "target": {
+                "kind": "chessboard",
+                "corners": [{ "grid": [1, 2], "score": 0.25 }],
+                "quality": { "local_residual_count": 0 },
+            },
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn fs_cache_keeps_the_detail_beside_the_features() {
+        let dir = tempdir().unwrap();
+        let cache = FsDetectionCache::new(dir.path());
+        let key = CacheKey::from_inputs(b"img", "chessboard", &json!({"n": 1}));
+        assert!(cache.get_detail(&key).unwrap().is_none(), "a miss");
+
+        let detail = a_detail();
+        cache.put_detail(&key, &detail).unwrap();
+        assert_eq!(cache.get_detail(&key).unwrap(), Some(detail.clone()));
+        // The features entry is its own: still a miss, and a hit once
+        // stored, without touching the detail.
+        assert!(cache.get(&key).unwrap().is_none());
+        cache
+            .put(&key, &CachedFeatures::new(detail.features.clone()))
+            .unwrap();
+        assert_eq!(cache.get(&key).unwrap().unwrap().features, detail.features);
+        assert_eq!(cache.get_detail(&key).unwrap(), Some(detail));
+        let mut names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        let stem = key.file_name().trim_end_matches(".json").to_string();
+        assert_eq!(
+            names,
+            [format!("{stem}.detail.json"), format!("{stem}.json")]
+        );
+    }
+
+    #[test]
+    fn concurrent_detail_puts_are_atomic_and_clean() {
+        let dir = tempdir().unwrap();
+        let cache = FsDetectionCache::new(dir.path());
+        let key = CacheKey::from_inputs(b"shared", "chessboard", &json!({"n": 1}));
+        let detail = a_detail();
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    for _ in 0..10 {
+                        cache.put_detail(&key, &detail).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(cache.get_detail(&key).unwrap(), Some(detail));
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no temp files left"
+        );
+    }
+
+    /// A cache written before the detail methods existed keeps compiling
+    /// and stores no detail.
+    #[test]
+    fn a_cache_without_the_detail_methods_stores_no_detail() {
+        struct FeaturesOnly;
+        impl DetectionCache for FeaturesOnly {
+            fn get(&self, _: &CacheKey) -> Result<Option<CachedFeatures>, CacheError> {
+                Ok(None)
+            }
+            fn put(&self, _: &CacheKey, _: &CachedFeatures) -> Result<(), CacheError> {
+                Ok(())
+            }
+        }
+        let key = CacheKey::from_inputs(b"img", "chessboard", &json!({}));
+        FeaturesOnly.put_detail(&key, &a_detail()).unwrap();
+        assert_eq!(FeaturesOnly.get_detail(&key).unwrap(), None);
     }
 }

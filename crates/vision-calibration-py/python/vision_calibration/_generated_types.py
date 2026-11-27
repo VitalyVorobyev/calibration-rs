@@ -343,6 +343,29 @@ class CandidateGrid(TypedDict):
     """
 
 
+class _CharucoDetailRequired(TypedDict):
+    """The keys of `CharucoDetail` that every payload has."""
+
+    corners: list[CornerDetail]
+    """One per feature, in feature order."""
+
+    markers: list[MarkerDetail]
+    """The markers the board alignment kept."""
+
+    quality: CornerQuality
+    """How well the corners are localized."""
+
+
+class CharucoDetail(_CharucoDetailRequired, total=False):
+    """A ChArUco board's overlay data."""
+
+    rejected_markers: list[RejectedMarker]
+    """Marker cells, of the board the detection was built from, whose bits
+    match another marker of the board better than the one the chosen
+    alignment places there: a misread or wrongly placed marker.
+    """
+
+
 CheckKind: TypeAlias = Literal[
     "observability",
     "convergence",
@@ -435,6 +458,25 @@ class ChessCornersDetectorSpec(TypedDict, total=False):
     """
 
 
+class _ChessboardDetailRequired(TypedDict):
+    """The keys of `ChessboardDetail` that every payload has."""
+
+    corners: list[CornerDetail]
+    """One per feature, in feature order."""
+
+    quality: CornerQuality
+    """How well the corners are localized."""
+
+
+class ChessboardDetail(_ChessboardDetailRequired, total=False):
+    """A chessboard's overlay data."""
+
+    cell_size_px: float | None
+    """The board's cell size in pixels (median labelled edge length);
+    `None` when no board was detected.
+    """
+
+
 class CombinationTerm(TypedDict):
     """One term of a combination of parameters: a parameter and its weight, in
     units of the parameter's σ.
@@ -495,6 +537,71 @@ class CornerCovarianceSpec(TypedDict, total=False):
     """The image noise that the propagated covariance is expressed in.
     Defaults to `estimate`: the noise is estimated from each image, which
     is unreliable on JPEG or demosaiced images; give `stated` for those.
+    """
+
+
+class _CornerDetailRequired(TypedDict):
+    """The keys of `CornerDetail` that every payload has."""
+
+    grid: tuple[int, int] | list[int]
+    """The detector's lattice label `[u, v]`: `u` along the board's +x, `v`
+    along its +y. A plain chessboard labels each view from its own
+    top-left corner; a ChArUco board and a PuzzleBoard label it on the
+    board (the PuzzleBoard on its master pattern).
+    """
+
+    score: float
+    """The detector's corner score: higher is better, not comparable across
+    detectors.
+    """
+
+
+class CornerDetail(_CornerDetailRequired, total=False):
+    """One labelled board corner, aligned with a `Feature`."""
+
+    axes_rad: tuple[float, float] | list[float] | None
+    """Directions of the two grid lines through the corner, radians in
+    `[0, 2π)`, as the corner stage measured them. Present on a chessboard
+    corner whose corner stage fitted at least one axis; `None` on ChArUco
+    and PuzzleBoard corners, whose detectors do not report them.
+    """
+
+    id: int | None
+    """The ChArUco corner id, or the PuzzleBoard master corner id; `None`
+    on a chessboard.
+    """
+
+
+class _CornerQualityRequired(TypedDict):
+    """The keys of `CornerQuality` that every payload has."""
+
+    local_residual_count: int
+    """Number of corners with enough labelled neighbours (six of the eight)
+    for the leave-one-out check: each such corner's position is
+    predicted from its neighbours.
+    """
+
+
+class CornerQuality(_CornerQualityRequired, total=False):
+    """How well a detection's corners are localized, as the detector measured
+    it on the corners it returned.
+    """
+
+    local_residual_rms_px: float | None
+    """RMS length of the leave-one-out residuals (observed minus predicted
+    position) over those corners, px; `None` when no corner qualifies.
+    The detectors report this aggregate only, not each corner's residual.
+    """
+
+    median_sigma_px: float | None
+    """Median over the corners of their 1σ position uncertainty along the
+    least certain direction, px; `None` when no corner carries a
+    covariance.
+    """
+
+    noise_sigma: float | None
+    """The image noise level, gray levels (1σ), the corner covariances were
+    computed with; `None` when no covariance was computed.
     """
 
 
@@ -731,6 +838,89 @@ class DepthOfField(TypedDict):
 
     near_plane_inv_m: tuple[float, float, float] | list[float]
     """The near limit `π + ε·n`, 1/m, camera frame."""
+
+
+class _DetectionDetailRequired(TypedDict):
+    """The keys of `DetectionDetail` that every payload has."""
+
+    features: list[Feature]
+    """The features, equal bit for bit to what
+    `DetectorConfig::detect` returns for
+    the same image and config.
+    """
+
+    outcome: DetectionOutcome
+    """The image-level outcome."""
+
+    target: TargetDetail
+    """Target-specific overlay data. Its per-feature vector (`corners` or
+    `rings`) holds one entry per feature, in the order of
+    `features`.
+    """
+
+
+class DetectionDetail(_DetectionDetailRequired, total=False):
+    """What a detector found in one image: the correspondences
+    `DetectorConfig::detect` returns, and
+    what an overlay needs to judge them.
+    """
+
+    rejected: list[RejectedPoint]
+    """Point candidates the detector or this crate saw and did not keep,
+    each with its reason. Empty when there were none, and on an
+    `DetectionOutcome::Ambiguous` image (its dropped points are not
+    listed).
+    """
+
+
+class DetectionOutcome_Ambiguous(TypedDict):
+    """The detection repeated an image point or a target point, so its
+    labels are not trustworthy and it was dropped whole
+    (`reject_ambiguous_detection`).
+    """
+
+    repeated_pixels: int
+    """Features whose pixel repeats an earlier feature's."""
+
+    repeated_points: int
+    """Features whose target point repeats an earlier feature's."""
+
+    status: Literal["ambiguous"]
+
+
+class DetectionOutcome_Detected(TypedDict):
+    """The target was found and `DetectionDetail::features` is not empty."""
+
+    status: Literal["detected"]
+
+
+class DetectionOutcome_Filtered(TypedDict):
+    """A target was detected, but this crate's filters removed every
+    feature: see `DetectionDetail::rejected`.
+    """
+
+    status: Literal["filtered"]
+
+
+class DetectionOutcome_NotFound(TypedDict):
+    """The detector found no target; `reason` is its own account (for a
+    ChArUco board, with each grid component's rejection by the marker
+    matcher).
+    """
+
+    reason: str
+    """The detector's reason, for a reader."""
+
+    status: Literal["not_found"]
+
+
+DetectionOutcome: TypeAlias = (
+    DetectionOutcome_Detected
+    | DetectionOutcome_NotFound
+    | DetectionOutcome_Ambiguous
+    | DetectionOutcome_Filtered
+)
+"""The outcome of one image's detection."""
 
 
 class DetectorSpec(TypedDict, total=False):
@@ -986,6 +1176,39 @@ DistortionParams: TypeAlias = (
 """Serializable distortion model parameters."""
 
 
+class EdgeBitDetail(TypedDict):
+    """One code bit read on a PuzzleBoard edge."""
+
+    bit: int
+    """The bit read: the dot on the edge is black (`0`) or white (`1`)."""
+
+    confidence: float
+    """The read's confidence, in `[0, 1]`."""
+
+    endpoints_px: tuple[tuple[float, float] | list[float], tuple[float, float] | list[float]] | list[tuple[float, float] | list[float]]
+    """The two corners the edge joins, image pixels. An edge is listed only
+    when both are features.
+    """
+
+    matches_master: bool
+    """Whether the bit equals the master pattern's bit at this edge under
+    the decoded alignment.
+    """
+
+
+class EllipseDetail(TypedDict):
+    """An ellipse in image pixels."""
+
+    angle_rad: float
+    """The direction of the major axis, radians."""
+
+    center_px: tuple[float, float] | list[float]
+    """The centre, px."""
+
+    semi_axes_px: tuple[float, float] | list[float]
+    """The semi-axes `[a, b]`, `a ≥ b`, px."""
+
+
 class Exclusions(TypedDict, total=False):
     """What a project leaves out of its dataset.
 
@@ -1041,6 +1264,83 @@ class ExportDiagnostics(_ExportDiagnosticsRequired, total=False):
     """Where each view's source images are, for a viewer that overlays the
     residuals on them. The calibration never reads it; `None` means no
     images were recorded (the dataset runner and the desktop app fill it).
+    """
+
+
+class _FeatureRequired(TypedDict):
+    """The keys of `Feature` that every payload has."""
+
+    image_xy: tuple[float, float] | list[float]
+    """Pixel coordinates `[x, y]` (column, row)."""
+
+    world_xyz: tuple[float, float, float] | list[float]
+    """World coordinates `[x, y, z]` in metres in the target frame."""
+
+
+class Feature(_FeatureRequired, total=False):
+    """Single 2D-3D feature correspondence in canonical units.
+
+    `image_xy` is in source-image pixels (pre-ROI-crop if a ROI is
+    declared in the manifest, the converter adjusts as needed).
+    `world_xyz` is in metres, expressed in the calibration target's
+    own frame (target origin at `(0, 0, 0)`, target plane at `z = 0`).
+    """
+
+    blur: FeatureBlur | None
+    """The blur the detector measured at this feature, with its covariance
+    (`FeatureBlur`). Present when the detector was asked to measure one
+    (`measure_blur` on the chessboard and PuzzleBoard configs) and the
+    estimate at this corner was not declined; `None` otherwise.
+
+    A measurement only: no calibration reads it.
+    """
+
+    cov_px: tuple[float, float, float] | list[float] | None
+    """Covariance of `image_xy` as `[xx, xy, yy]` in px², in the image
+    frame of `image_xy`. Present only when the detector was asked for it
+    (`ChessCornersConfig::covariance`) and measured one; `None` otherwise.
+    """
+
+
+class FeatureBlur(TypedDict):
+    """The blur a detector measured at one feature: the Gaussian point-spread
+    function (PSF) that best explains the blurred print around the feature,
+    and the covariance of that estimate.
+
+    **`psf_px`** is the PSF's covariance matrix `Σ = [[xx, xy], [xy, yy]]`
+    in px², stored as `[xx, xy, yy]` (the layout of
+    `Feature::cov_px`), in the image frame of `image_xy`. Its principal
+    axes are the directions of least and most blur, and `√(tr Σ / 2) =
+    √((xx + yy) / 2)` is the PSF's width σ in pixels.
+
+    `Σ` is the blur **as the image shows it, including the pixel's area
+    integration**: for a Gaussian optical PSF of covariance `Σ_o` seen by
+    square pixels, `Σ = Σ_o + I/12`, so a perfectly focused camera has
+    `Σ = I/12`. A model of the optics that predicts `Σ_o` adds `I/12` to its
+    prediction before comparing it with `psf_px`. The constant is not
+    subtracted here: it is what the detector measured, its covariance is
+    unchanged by a constant shift, and on a sharp feature `Σ − I/12` is
+    within the estimate's error of zero and need not be positive definite.
+
+    **`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴, row-major. How
+    far it can be trusted is the detector's statement. For chessboard and
+    PuzzleBoard corners it allows for residuals correlated between
+    neighbouring pixels, and a combination of `Σ` the print around the
+    corner constrains weakly (with one edge direction, the width along that
+    edge) shows as a large variance.
+
+    Under a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the covariance
+    of the Gaussian that blurs the print most like the lens does, not the
+    PSF's second moment; it then depends on the cell size and the pattern,
+    so compare values measured on the same board.
+    """
+
+    cov: tuple[tuple[float, float, float] | list[float], tuple[float, float, float] | list[float], tuple[float, float, float] | list[float]] | list[tuple[float, float, float] | list[float]]
+    """The covariance of `psf_px`, px⁴, row-major."""
+
+    psf_px: tuple[float, float, float] | list[float]
+    """The PSF covariance `[xx, xy, yy]`, px², including the pixel's area
+    integration.
     """
 
 
@@ -2365,6 +2665,33 @@ class LibraryScan(TypedDict):
     """The projects, sorted by folder."""
 
 
+class MarkerDetail(TypedDict):
+    """One decoded ArUco marker of a ChArUco board."""
+
+    cell: tuple[int, int] | list[int]
+    """The board square it sits in, `[column, row]`."""
+
+    hamming: int
+    """Bits read in the image that differ from the marker's code."""
+
+    id: int
+    """The marker's dictionary id."""
+
+    quad_px: tuple[tuple[float, float] | list[float], tuple[float, float] | list[float], tuple[float, float] | list[float], tuple[float, float] | list[float]] | list[tuple[float, float] | list[float]]
+    """The square's corners in image pixels, in the board's order: the
+    square's top-left on the board (the marker's own top-left) first,
+    then clockwise on the board.
+    """
+
+    rotation: int
+    """The rotation, in quarter turns, that aligns the bits read in the
+    image with the dictionary's code.
+    """
+
+    score: float
+    """The decoding's confidence, in `[0, 1]`."""
+
+
 class Measurement(TypedDict):
     """A check's measured value and the limit that decided its status."""
 
@@ -2812,6 +3139,56 @@ class PointCovariance(TypedDict):
     """Variance along the image `v` axis, px²."""
 
 
+class PointRejection_OutsideBoard(TypedDict):
+    """Labelled outside the declared board."""
+
+    kind: Literal["outside_board"]
+
+
+class PointRejection_Unanchored(TypedDict):
+    """A ring marker with no board position: a view the detector could not
+    place on the board, or a marker off it.
+    """
+
+    confidence: float
+    """The detector's confidence in the centre, in `[0, 1]`."""
+
+    kind: Literal["unanchored"]
+
+
+class PointRejection_UncorrectedCenter(TypedDict):
+    """A ring marker whose photometric fit fell back to an ellipse centre,
+    with photometric centres requested.
+    """
+
+    confidence: float
+    """The detector's confidence in the centre, in `[0, 1]`."""
+
+    kind: Literal["uncorrected_center"]
+
+
+class PointRejection_Unlabelled(TypedDict):
+    """A chessboard corner candidate no labelled grid took. Listed within
+    the labelled corners' bounding box widened by two cells, or, when
+    nothing was labelled, the strongest 1 000. ChArUco and PuzzleBoard
+    details list none: their detectors do not say which candidates they
+    took.
+    """
+
+    kind: Literal["unlabelled"]
+    strength: float
+    """The corner detector's response."""
+
+
+PointRejection: TypeAlias = (
+    PointRejection_Unlabelled
+    | PointRejection_OutsideBoard
+    | PointRejection_Unanchored
+    | PointRejection_UncorrectedCenter
+)
+"""Why a point candidate was left out."""
+
+
 class _PoseColumnMapRequired(TypedDict):
     """The keys of `PoseColumnMap` that every payload has."""
 
@@ -3192,6 +3569,54 @@ class ProjectionUncertainty(TypedDict):
     """
 
 
+class PuzzleboardDecode(TypedDict):
+    """How a PuzzleBoard decoded."""
+
+    bit_error_rate: float
+    """Fraction of the read bits that disagree with the master pattern."""
+
+    dot_dissent_rate: float
+    """Fraction of the read confidence that lost its majority vote; high
+    means noisy dots or a mislabelled grid.
+    """
+
+    edges_matched: int
+    """Edges whose bit matched the master pattern after alignment."""
+
+    edges_observed: int
+    """Edges whose bit was read."""
+
+    logical_bit_error_rate: float
+    """The same, over the distinct master bits the view reads, after the
+    repeated reads of each were majority-voted.
+    """
+
+    master_origin: tuple[int, int] | list[int]
+    """Where the view's local corner `(0, 0)` lies on the master pattern,
+    `[row, column]`.
+    """
+
+
+class _PuzzleboardDetailRequired(TypedDict):
+    """The keys of `PuzzleboardDetail` that every payload has."""
+
+    corners: list[CornerDetail]
+    """One per feature, in feature order."""
+
+    quality: CornerQuality
+    """How well the corners are localized."""
+
+
+class PuzzleboardDetail(_PuzzleboardDetailRequired, total=False):
+    """A PuzzleBoard's overlay data."""
+
+    decode: PuzzleboardDecode | None
+    """The decode summary; `None` when no board was decoded."""
+
+    edge_bits: list[EdgeBitDetail]
+    """The code bits read on the edges between two kept corners."""
+
+
 class _QualityCheckRequired(TypedDict):
     """The keys of `QualityCheck` that every payload has."""
 
@@ -3408,6 +3833,55 @@ Serialized in `snake_case` (`"too_few_features"`, `"excluded"`, ...).
 - ``"excluded"``: The run was told to leave the image out (an exclusion of the image
   or of its whole view); it was not read.
 """
+
+
+class RejectedMarker(TypedDict):
+    """A ChArUco marker cell whose bits match another marker of the board
+    better than the one the board places there.
+    """
+
+    decoded_id: int
+    """The board marker the cell's bits match best, over every marker of the
+    board and every rotation.
+    """
+
+    expected_id: int
+    """The marker the board places in this cell under the chosen alignment."""
+
+    quad_px: tuple[tuple[float, float] | list[float], tuple[float, float] | list[float], tuple[float, float] | list[float], tuple[float, float] | list[float]] | list[tuple[float, float] | list[float]]
+    """The cell's corners in image pixels, in the board's order (as
+    `MarkerDetail::quad_px`).
+    """
+
+    score: float
+    """The matcher's log-likelihood of the cell's bits under the decoded
+    marker: higher is better, comparable within one image.
+    """
+
+
+class _RejectedPointRequired(TypedDict):
+    """The keys of `RejectedPoint` that every payload has."""
+
+    image_xy: tuple[float, float] | list[float]
+    """Its position, image pixels."""
+
+    reason: PointRejection
+    """Why it was left out."""
+
+
+class RejectedPoint(_RejectedPointRequired, total=False):
+    """A point candidate the detector or this crate saw and did not keep."""
+
+    grid: tuple[int, int] | list[int] | None
+    """Its lattice label, when it had one."""
+
+    id: int | None
+    """Its id (a ring's codebook id, a PuzzleBoard master corner id), when
+    it had one.
+    """
+
+    world_xyz: tuple[float, float, float] | list[float] | None
+    """The target point it would have had, metres, when it had a label."""
 
 
 class ReprojectionStats(TypedDict):
@@ -4163,6 +4637,47 @@ class RigViewObs(TypedDict):
     """Per-camera observation; None if camera didn't observe in this view."""
 
 
+RingCenter: TypeAlias = Literal["outer_ellipse", "projective", "photometric"]
+"""Which estimator produced a ring marker's centre.
+
+- ``"outer_ellipse"``: The centre of the fitted outer ellipse.
+- ``"projective"``: The projective centre recovered from the inner and outer ellipses.
+- ``"photometric"``: A photometric fit of the blurred marker pattern.
+"""
+
+
+class _RingDetailRequired(TypedDict):
+    """The keys of `RingDetail` that every payload has."""
+
+    center: RingCenter
+    """Which estimator produced the feature's position."""
+
+    confidence: float
+    """The detector's confidence in the centre, in `[0, 1]`."""
+
+
+class RingDetail(_RingDetailRequired, total=False):
+    """One ring marker, aligned with a `Feature`."""
+
+    center_cov_px: tuple[float, float, float] | list[float] | None
+    """The covariance of the centre as the detector stated it, `[xx, xy,
+    yy]` px²: photometric centres only. The calibration does not read it
+    (`Feature::cov_px` stays `None` for ring markers).
+    """
+
+    grid: tuple[int, int] | list[int] | None
+    """The lattice cell `[u, v]` (axial coordinates on a hex lattice)."""
+
+    id: int | None
+    """The decoded codebook id (coded boards); `None` on a plain board."""
+
+    inner: EllipseDetail | None
+    """The fitted inner ellipse."""
+
+    outer: EllipseDetail | None
+    """The fitted outer ellipse."""
+
+
 RinggridCenterSpec: TypeAlias = Literal["ellipse", "photometric"]
 """The ring-grid centre estimator: the manifest's own copy of the detector's
 centre method, which has the same JSON spelling.
@@ -4207,6 +4722,35 @@ class RinggridCodingSpec_Plain_plain(TypedDict, total=False):
     features. `false`, a plain board without dots, is not supported:
     its views have no board coordinates, and a manifest that sets it
     is rejected before detection.
+    """
+
+
+class _RinggridDetailRequired(TypedDict):
+    """The keys of `RinggridDetail` that every payload has."""
+
+    anchored: bool
+    """Whether the labels are absolute board positions: always for a coded
+    board that was labelled, for a plain one when its origin dots placed
+    the view on the board.
+    """
+
+    rings: list[RingDetail]
+    """One per feature, in feature order."""
+
+
+class RinggridDetail(_RinggridDetailRequired, total=False):
+    """A ring grid's overlay data."""
+
+    board_complete: bool | None
+    """Whether every marker of the board was detected; `None` when nothing
+    was labelled.
+    """
+
+    origin_dots_px: list[tuple[float, float] | list[float]]
+    """The origin dots of a plain board, predicted through the board-to-image
+    homography (no lens model), image pixels. The detector does not
+    report the dots it found, so these are where the board places them.
+    Empty for a coded board and for a view not placed on the board.
     """
 
 
@@ -5058,6 +5602,110 @@ class SolverConfig(_SolverConfigRequired, total=False):
     """
 
 
+class _TargetDetail_CharucoRequired(TypedDict):
+    """The keys of `TargetDetail_Charuco` that every payload has."""
+
+    corners: list[CornerDetail]
+    """One per feature, in feature order."""
+
+    kind: Literal["charuco"]
+    markers: list[MarkerDetail]
+    """The markers the board alignment kept."""
+
+    quality: CornerQuality
+    """How well the corners are localized."""
+
+
+class TargetDetail_Charuco(_TargetDetail_CharucoRequired, total=False):
+    """A ChArUco board."""
+
+    rejected_markers: list[RejectedMarker]
+    """Marker cells, of the board the detection was built from, whose bits
+    match another marker of the board better than the one the chosen
+    alignment places there: a misread or wrongly placed marker.
+    """
+
+
+class _TargetDetail_ChessboardRequired(TypedDict):
+    """The keys of `TargetDetail_Chessboard` that every payload has."""
+
+    corners: list[CornerDetail]
+    """One per feature, in feature order."""
+
+    kind: Literal["chessboard"]
+    quality: CornerQuality
+    """How well the corners are localized."""
+
+
+class TargetDetail_Chessboard(_TargetDetail_ChessboardRequired, total=False):
+    """A plain chessboard."""
+
+    cell_size_px: float | None
+    """The board's cell size in pixels (median labelled edge length);
+    `None` when no board was detected.
+    """
+
+
+class _TargetDetail_PuzzleboardRequired(TypedDict):
+    """The keys of `TargetDetail_Puzzleboard` that every payload has."""
+
+    corners: list[CornerDetail]
+    """One per feature, in feature order."""
+
+    kind: Literal["puzzleboard"]
+    quality: CornerQuality
+    """How well the corners are localized."""
+
+
+class TargetDetail_Puzzleboard(_TargetDetail_PuzzleboardRequired, total=False):
+    """A PuzzleBoard."""
+
+    decode: PuzzleboardDecode | None
+    """The decode summary; `None` when no board was decoded."""
+
+    edge_bits: list[EdgeBitDetail]
+    """The code bits read on the edges between two kept corners."""
+
+
+class _TargetDetail_RinggridRequired(TypedDict):
+    """The keys of `TargetDetail_Ringgrid` that every payload has."""
+
+    anchored: bool
+    """Whether the labels are absolute board positions: always for a coded
+    board that was labelled, for a plain one when its origin dots placed
+    the view on the board.
+    """
+
+    kind: Literal["ringgrid"]
+    rings: list[RingDetail]
+    """One per feature, in feature order."""
+
+
+class TargetDetail_Ringgrid(_TargetDetail_RinggridRequired, total=False):
+    """A ring grid, coded or plain, on a hex or rect lattice."""
+
+    board_complete: bool | None
+    """Whether every marker of the board was detected; `None` when nothing
+    was labelled.
+    """
+
+    origin_dots_px: list[tuple[float, float] | list[float]]
+    """The origin dots of a plain board, predicted through the board-to-image
+    homography (no lens model), image pixels. The detector does not
+    report the dots it found, so these are where the board places them.
+    Empty for a coded board and for a view not placed on the board.
+    """
+
+
+TargetDetail: TypeAlias = (
+    TargetDetail_Chessboard
+    | TargetDetail_Charuco
+    | TargetDetail_Puzzleboard
+    | TargetDetail_Ringgrid
+)
+"""Overlay data of one target kind."""
+
+
 class _TargetFeatureResidualRequired(TypedDict):
     """The keys of `TargetFeatureResidual` that every payload has."""
 
@@ -5526,12 +6174,16 @@ __all__ = [
     "CameraSummary",
     "CandidateCameraConfig",
     "CandidateGrid",
+    "CharucoDetail",
     "CheckKind",
     "CheckStatus",
     "ChessCornersDetectorSpec",
+    "ChessboardDetail",
     "CombinationTerm",
     "ConfigPatch",
     "CornerCovarianceSpec",
+    "CornerDetail",
+    "CornerQuality",
     "CornerStrategySpec",
     "CorrespondenceView",
     "CrossValidationOptions",
@@ -5539,6 +6191,12 @@ __all__ = [
     "DatasetSource",
     "DatasetSpec",
     "DepthOfField",
+    "DetectionDetail",
+    "DetectionOutcome",
+    "DetectionOutcome_Ambiguous",
+    "DetectionOutcome_Detected",
+    "DetectionOutcome_Filtered",
+    "DetectionOutcome_NotFound",
     "DetectorSpec",
     "DeviceIdentity",
     "DeviceOptimizeConfig",
@@ -5550,8 +6208,12 @@ __all__ = [
     "DistortionParams_None",
     "DistortionParams_Rational",
     "DistortionParams_ThinPrism",
+    "EdgeBitDetail",
+    "EllipseDetail",
     "Exclusions",
     "ExportDiagnostics",
+    "Feature",
+    "FeatureBlur",
     "FeatureExclusion",
     "FeatureResidualHistogram",
     "FocusDiagnostic",
@@ -5607,6 +6269,7 @@ __all__ = [
     "LaserlineView",
     "LeftOutImage",
     "LibraryScan",
+    "MarkerDetail",
     "Measurement",
     "ModelComparison",
     "ModelOutcome",
@@ -5625,6 +6288,11 @@ __all__ = [
     "PlaneOptimizeConfig",
     "PointBlur",
     "PointCovariance",
+    "PointRejection",
+    "PointRejection_OutsideBoard",
+    "PointRejection_Unanchored",
+    "PointRejection_UncorrectedCenter",
+    "PointRejection_Unlabelled",
     "PoseColumnMap",
     "PoseConvention",
     "PosePairing",
@@ -5645,12 +6313,16 @@ __all__ = [
     "ProjectionParams_Equidistant",
     "ProjectionParams_Pinhole",
     "ProjectionUncertainty",
+    "PuzzleboardDecode",
+    "PuzzleboardDetail",
     "QualityCheck",
     "QualityReport",
     "QualityThresholds",
     "RankedCandidate",
     "RankedRobotPose",
     "RejectReason",
+    "RejectedMarker",
+    "RejectedPoint",
     "ReprojectionStats",
     "ResidualKind",
     "ResidualKind_Custom",
@@ -5677,10 +6349,13 @@ __all__ = [
     "RigLaserlineView",
     "RigUpstreamCalibration",
     "RigViewObs",
+    "RingCenter",
+    "RingDetail",
     "RinggridCenterSpec",
     "RinggridCodingSpec",
     "RinggridCodingSpec_Plain",
     "RinggridCodingSpec_Plain_plain",
+    "RinggridDetail",
     "RinggridLatticeSpec",
     "RobotPoseConfig",
     "RobotPoseConfig_Exact",
@@ -5728,6 +6403,11 @@ __all__ = [
     "SolveTermination",
     "SolverBackend",
     "SolverConfig",
+    "TargetDetail",
+    "TargetDetail_Charuco",
+    "TargetDetail_Chessboard",
+    "TargetDetail_Puzzleboard",
+    "TargetDetail_Ringgrid",
     "TargetFeatureResidual",
     "TargetSpec",
     "TargetSpec_Charuco",

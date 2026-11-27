@@ -145,6 +145,8 @@ pub(crate) fn run_error_kind(err: &RustRunError) -> &'static str {
         RustRunError::UpstreamCalibration { .. } => "upstream_calibration",
         RustRunError::UpstreamViewMatch { .. } => "upstream_view_match",
         RustRunError::Cancelled => "cancelled",
+        RustRunError::ImageNotInDataset { .. } => "image_not_in_dataset",
+        RustRunError::DetailMismatch { .. } => "detail_mismatch",
         _ => "unknown",
     }
 }

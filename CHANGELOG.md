@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
+  returns a `DetectionDetail` with the features `detect` returns (bit for
+  bit), the image's outcome (detected; not found, with the detector's
+  reason; dropped as ambiguous; or every feature filtered out), the overlay
+  data of each feature for every target kind (corner labels, ids, scores
+  and grid-line directions; ChArUco markers and the marker cells that read
+  as another marker; PuzzleBoard code bits with whether each matches the
+  master pattern, and the decode summary; ring-grid ellipses, centre
+  estimators and photometric centre covariances, and a plain board's
+  predicted origin dots) and the candidates left out with their reasons.
+  `dataset_runner::detect_target_detail` runs it from a manifest target and
+  `dataset_runner::detection_detail` returns the detail of a manifest run's
+  detection of one image, through the run's cache key and region of
+  interest; `FsDetectionCache` stores it beside the features as
+  `<key>.detail.json` (`DetectionCache::get_detail`/`put_detail`, defaulted,
+  so an existing cache keeps compiling), and a calibration never reads it.
+  `RunError::ImageNotInDataset` and `RunError::DetailMismatch` are its
+  errors. Published schema `schemas/detection_detail.json`; Python
+  `dataset_runner.detect_target_detail`, `dataset_runner.detection_detail`
+  and `DetectionDetail`. Enabling it turns on `calib-targets`' `diagnostics`
+  feature under the `charuco` and `puzzleboard` features; detection results
+  and speed are unchanged.
+
 - Facade re-exports under `vision_calibration`:
   `core::{CameraProject, DistortionModel, IntrinsicsModel, NoDistortion, ProjectionModel}`,
   `dataset::validate`, `mvg::refine`, and `mvg::solvers::essential_linear`.

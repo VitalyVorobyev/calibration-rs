@@ -36,6 +36,7 @@ use vision_calibration_bench::suite::compare::ExternalResult;
 use vision_calibration_bench::suite::{ObservationSet, Truth};
 use vision_calibration_core::Progress;
 use vision_calibration_dataset::{DatasetSpec, DeviceSpec};
+use vision_calibration_detect::DetectionDetail;
 use vision_calibration_optim::{ProjectionUncertainty, SolveTermination};
 use vision_calibration_pipeline::analysis::{
     CandidateGrid, CrossValidationOptions, FocusDiagnostic, FocusOptions, ModelComparison,
@@ -218,6 +219,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         reads::<RunNotes>("run_notes", "RunNotes", &[]),
         reads::<RunInfo>("run_info", "RunInfo", &[]),
         reads::<LibraryScan>("library_scan", "LibraryScan", &[]),
+        writes::<DetectionDetail>("detection_detail", "DetectionDetail"),
         plain("device_spec", schema_value::<DeviceSpec>()),
     ];
     let suite = vec![

@@ -13,7 +13,10 @@ detects in an 8-bit grayscale `GrayImageView`. Each detector is gated by its
 own cargo feature (all on by `default`): `chessboard` and `charuco` (via
 `chess-corners` + `calib-targets`), `puzzleboard` (via `calib-targets`), and
 `ringgrid` (via the `ringgrid` crate). Neither `image` nor `serde_json`
-appears in this crate's signatures.
+appears in this crate's signatures. `detect_detailed` returns the same
+features with what an overlay needs to judge them (`DetectionDetail`: the
+per-feature target detail, the rejected candidates with their reasons and
+the image's outcome), which the cache stores beside the features.
 
 The dataset runner in `vision-calibration-pipeline` picks the detector from a
 dataset manifest and runs it through the cache; call a detector or the cache

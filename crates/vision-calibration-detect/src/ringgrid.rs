@@ -15,14 +15,18 @@
 //! mode auto-selects scale tiers rather than relying on a hand-tuned prior.
 
 use ringgrid::{
-    CenterSource, CircleRefinementMethod, Detector as RinggridDetectorImpl, OriginDots,
-    TargetLayout,
+    BoardFrame, CenterSource, CircleRefinementMethod, DetectedMarker,
+    Detector as RinggridDetectorImpl, Ellipse, OriginDots, TargetLayout,
 };
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "schemars")]
 use schemars::JsonSchema;
 
+use crate::detail::{
+    DetectionDetail, EllipseDetail, PointRejection, RejectedPoint, RingCenter, RingDetail,
+    RinggridDetail, TargetDetail,
+};
 use crate::{DetectError, Feature};
 
 /// How a ring marker's centre is estimated; see [`RinggridConfig::center_method`].
@@ -279,8 +283,19 @@ pub(crate) fn detect(
     cfg: &RinggridConfig,
     luma: &image::GrayImage,
 ) -> Result<Vec<Feature>, DetectError> {
+    detect_detailed(cfg, luma).map(|detail| detail.features)
+}
+
+/// [`detect`], with the detection's detail.
+pub(crate) fn detect_detailed(
+    cfg: &RinggridConfig,
+    luma: &image::GrayImage,
+) -> Result<DetectionDetail, DetectError> {
     let board = cfg.board_layout()?;
     let floor = cfg.confidence_floor()?;
+    // Where the board prints its origin dots (none on a coded board), for
+    // the overlay.
+    let dots_mm: Vec<[f32; 2]> = board.fiducial_dots_mm().to_vec();
     let mut detector = RinggridDetectorImpl::new(board);
     if cfg.center_method == RinggridCenterMethod::Photometric {
         detector.config_mut().circle_refinement = CircleRefinementMethod::Photometric;
@@ -310,21 +325,101 @@ pub(crate) fn detect(
     // photometric centres, only markers whose centre the fit produced are
     // kept. `center` is always raw image pixels. `board_xy_mm` is in
     // millimetres → convert to metres.
-    Ok(crate::reject_ambiguous_detection(
-        result
-            .detected_markers
-            .into_iter()
-            .filter(|marker| {
-                cfg.center_method != RinggridCenterMethod::Photometric
-                    || marker.center_source == CenterSource::Photometric
-            })
-            .filter_map(|marker| {
-                marker.board_xy_mm.map(|xy_mm| {
-                    Feature::new(marker.center, [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0])
-                })
-            })
+    let mut features = Vec::new();
+    let mut rings = Vec::new();
+    let mut rejected = Vec::new();
+    for marker in &result.detected_markers {
+        let world_xyz = marker
+            .board_xy_mm
+            .map(|xy_mm| [xy_mm[0] * 1.0e-3, xy_mm[1] * 1.0e-3, 0.0]);
+        let confidence = f64::from(marker.confidence);
+        let reason = if cfg.center_method == RinggridCenterMethod::Photometric
+            && marker.center_source != CenterSource::Photometric
+        {
+            Some(PointRejection::UncorrectedCenter { confidence })
+        } else if world_xyz.is_none() {
+            Some(PointRejection::Unanchored { confidence })
+        } else {
+            None
+        };
+        let id = marker.id.and_then(|id| u32::try_from(id).ok());
+        match (reason, world_xyz) {
+            (None, Some(world_xyz)) => {
+                features.push(Feature::new(marker.center, world_xyz));
+                rings.push(ring_detail(marker));
+            }
+            (reason, _) => rejected.push(RejectedPoint {
+                image_xy: marker.center,
+                reason: reason.unwrap_or(PointRejection::Unanchored { confidence }),
+                world_xyz,
+                grid: marker.grid_coord,
+                id,
+            }),
+        }
+    }
+    let anchored = result.board_frame == Some(BoardFrame::Absolute);
+    let origin_dots_px = match (anchored, result.homography) {
+        (true, Some(h)) => dots_mm
+            .iter()
+            .filter_map(|&[x, y]| apply_homography(&h, [f64::from(x), f64::from(y)]))
             .collect(),
+        _ => Vec::new(),
+    };
+    let board_complete = result.board_complete;
+    let not_found = result
+        .detected_markers
+        .is_empty()
+        .then(|| "no ring marker was detected in the image".to_string());
+    Ok(DetectionDetail::finish(
+        features,
+        rings,
+        rejected,
+        not_found,
+        |rings| {
+            TargetDetail::Ringgrid(RinggridDetail {
+                rings,
+                origin_dots_px,
+                anchored,
+                board_complete,
+            })
+        },
     ))
+}
+
+/// The overlay entry of a kept marker.
+fn ring_detail(marker: &DetectedMarker) -> RingDetail {
+    let ellipse = |e: &Ellipse| EllipseDetail {
+        center_px: [e.cx, e.cy],
+        semi_axes_px: [e.a, e.b],
+        angle_rad: e.angle,
+    };
+    RingDetail {
+        id: marker.id.and_then(|id| u32::try_from(id).ok()),
+        grid: marker.grid_coord,
+        confidence: f64::from(marker.confidence),
+        outer: marker.ellipse_outer.as_ref().map(ellipse),
+        inner: marker.ellipse_inner.as_ref().map(ellipse),
+        center: match marker.center_source {
+            CenterSource::ProjectiveCenter => RingCenter::Projective,
+            CenterSource::Photometric => RingCenter::Photometric,
+            // `OuterEllipse`, and any estimator a later `ringgrid` adds: the
+            // pinned release has exactly these three.
+            _ => RingCenter::OuterEllipse,
+        },
+        center_cov_px: marker.center_cov.map(|[[xx, xy], [_, yy]]| [xx, xy, yy]),
+    }
+}
+
+/// The image of board point `p` (mm) under the row-major board-to-image
+/// homography `h`; `None` at the line at infinity.
+fn apply_homography(h: &[[f64; 3]; 3], [x, y]: [f64; 2]) -> Option<[f64; 2]> {
+    let w = h[2][0] * x + h[2][1] * y + h[2][2];
+    (w.abs() > f64::EPSILON).then(|| {
+        [
+            (h[0][0] * x + h[0][1] * y + h[0][2]) / w,
+            (h[1][0] * x + h[1][1] * y + h[1][2]) / w,
+        ]
+    })
 }
 
 #[cfg(test)]
@@ -886,6 +981,128 @@ mod tests {
         assert_board_frame(&cfg, &photo, frame, 27, RMS_PX);
         let (rb, rp) = (affine_fit(&base).1, affine_fit(&photo).1);
         assert!(rp < 0.5 * rb, "photometric {rp} px vs default {rb} px");
+    }
+
+    // ── Detail ───────────────────────────────────────────────────────────────
+
+    /// On every lattice × coding × centre method: the detail's features are
+    /// `detect`'s, one ring per feature with its label, the origin dots of a
+    /// plain board where the render drew them, and a JSON round trip.
+    #[test]
+    fn detail_matches_detect_on_every_variant() {
+        let variants = [
+            (RinggridLattice::Hex, RinggridCoding::Coded, (PITCH_M, 5, 5)),
+            (
+                RinggridLattice::Rect,
+                RinggridCoding::Coded,
+                (PITCH_M, 4, 5),
+            ),
+            (RinggridLattice::Hex, DOTS, (PITCH_M, 5, 5)),
+            (RinggridLattice::Rect, DOTS, (PITCH_M, 6, 7)),
+        ];
+        for (lattice, coding, geometry) in variants {
+            for method in [
+                RinggridCenterMethod::Ellipse,
+                RinggridCenterMethod::Photometric,
+            ] {
+                let mut cfg = config_with(lattice, coding, geometry, MARKER);
+                cfg.center_method = method;
+                let blur = if method == RinggridCenterMethod::Photometric {
+                    2.0
+                } else {
+                    1.0
+                };
+                let (img, px_per_m) = render(&cfg, DPI, blur);
+                let detail = detect_detailed(&cfg, &img).unwrap();
+                let label = format!("{lattice:?} {coding:?} {method:?}");
+                assert_eq!(detail.features, detect(&cfg, &img).unwrap(), "{label}");
+                assert_eq!(detail.outcome, crate::DetectionOutcome::Detected, "{label}");
+                let TargetDetail::Ringgrid(rings) = &detail.target else {
+                    panic!("{label}: a ring-grid detail");
+                };
+                assert_eq!(rings.rings.len(), detail.features.len(), "{label}");
+                assert!(rings.anchored, "{label}");
+                let coded = coding == RinggridCoding::Coded;
+                for ring in &rings.rings {
+                    assert_eq!(ring.id.is_some(), coded, "{label}");
+                    assert!(ring.grid.is_some() && ring.outer.is_some(), "{label}");
+                    assert!((0.0..=1.0).contains(&ring.confidence), "{label}");
+                    if method == RinggridCenterMethod::Photometric {
+                        assert_eq!(ring.center, RingCenter::Photometric, "{label}");
+                        assert!(ring.center_cov_px.is_some(), "{label}");
+                    } else {
+                        assert_eq!(ring.center, RingCenter::Projective, "{label}");
+                    }
+                }
+                // Photometric fall-backs are rejected with their reason; with
+                // ellipse centres nothing is.
+                for r in &detail.rejected {
+                    assert!(
+                        method == RinggridCenterMethod::Photometric
+                            && matches!(r.reason, PointRejection::UncorrectedCenter { .. }),
+                        "{label}: {r:?}"
+                    );
+                }
+                let layout = cfg.board_layout().unwrap();
+                assert_eq!(
+                    rings.origin_dots_px.len(),
+                    layout.fiducial_dots_mm().len(),
+                    "{label}"
+                );
+                for (dot_px, dot_mm) in rings.origin_dots_px.iter().zip(layout.fiducial_dots_mm()) {
+                    let xy_m = [f64::from(dot_mm[0]) * 1e-3, f64::from(dot_mm[1]) * 1e-3];
+                    let want = rendered_px(&cfg, img.width(), px_per_m, [0, 0], xy_m);
+                    let err = (dot_px[0] - want[0]).hypot(dot_px[1] - want[1]);
+                    assert!(err < 1.0, "{label}: an origin dot {err} px off");
+                }
+                let json = serde_json::to_string(&detail).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<DetectionDetail>(&json).unwrap(),
+                    detail
+                );
+            }
+        }
+    }
+
+    /// A plain view without its origin dots: markers found, none placed on
+    /// the board, each listed as unanchored.
+    #[test]
+    fn an_unanchored_view_is_filtered_with_its_markers_listed() {
+        let cfg = config_with(
+            RinggridLattice::Rect,
+            DOTS,
+            (0.002, 18, 16),
+            (0.0008, 0.0004),
+        );
+        let (full, px_per_m) = render(&cfg, 300.0, 0.0);
+        let side = (6.0 * cfg.pitch_m * px_per_m) as u32;
+        let corner = image::imageops::crop_imm(&full, 0, 0, side, side).to_image();
+        let detail = detect_detailed(&cfg, &corner).unwrap();
+        assert!(detail.features.is_empty());
+        assert_eq!(detail.outcome, crate::DetectionOutcome::Filtered);
+        assert!(!detail.rejected.is_empty());
+        for r in &detail.rejected {
+            assert!(
+                matches!(r.reason, PointRejection::Unanchored { .. }),
+                "{r:?}"
+            );
+            assert_eq!(r.world_xyz, None);
+        }
+        let TargetDetail::Ringgrid(rings) = &detail.target else {
+            unreachable!()
+        };
+        assert!(!rings.anchored && rings.origin_dots_px.is_empty());
+    }
+
+    #[test]
+    fn a_blank_image_is_not_found() {
+        let cfg: RinggridConfig = serde_json::from_value(board_config()).unwrap();
+        let detail = detect_detailed(&cfg, &image::GrayImage::new(64, 64)).unwrap();
+        assert!(
+            matches!(detail.outcome, crate::DetectionOutcome::NotFound { .. }),
+            "{:?}",
+            detail.outcome
+        );
     }
 
     #[test]

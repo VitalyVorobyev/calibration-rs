@@ -27,6 +27,8 @@
 //! ```
 //!
 //! Each [`Feature`] pairs a pixel with its point on the target, in metres.
+//! [`DetectorConfig::detect_detailed`] returns the same features with what an
+//! overlay needs to judge them ([`DetectionDetail`]).
 //! Cached features are keyed on the image content, the detector and its
 //! configuration ([`CacheKey::for_detection`]), so re-running with the same
 //! images and parameters is a filesystem read, and changing a parameter
@@ -36,6 +38,7 @@
 #![warn(missing_docs)]
 
 mod cache;
+mod detail;
 mod error;
 mod feature;
 
@@ -53,6 +56,12 @@ mod puzzleboard;
 mod ringgrid;
 
 pub use cache::{CacheError, CacheKey, CachedFeatures, DetectionCache, FsDetectionCache};
+pub use detail::{
+    CharucoDetail, ChessboardDetail, CornerDetail, CornerQuality, DetectionDetail,
+    DetectionOutcome, EdgeBitDetail, EllipseDetail, MarkerDetail, PointRejection,
+    PuzzleboardDecode, PuzzleboardDetail, RejectedMarker, RejectedPoint, RingCenter, RingDetail,
+    RinggridDetail, TargetDetail,
+};
 pub use error::DetectError;
 pub use feature::{Feature, FeatureBlur, reject_ambiguous_detection};
 
@@ -139,6 +148,32 @@ impl DetectorConfig {
             Self::Puzzleboard(cfg) => puzzleboard::detect(cfg, &luma),
             #[cfg(feature = "ringgrid")]
             Self::Ringgrid(cfg) => ringgrid::detect(cfg, &luma),
+        }
+    }
+
+    /// [`detect`](Self::detect), with what an overlay needs to judge the
+    /// detection: the target-specific detail of each feature, the point
+    /// candidates left out with their reasons, and the image's outcome
+    /// ([`DetectionDetail`]). `detail.features` equals `self.detect(image)?`
+    /// bit for bit.
+    ///
+    /// # Errors
+    ///
+    /// As [`detect`](Self::detect).
+    pub fn detect_detailed(
+        &self,
+        image: GrayImageView<'_>,
+    ) -> Result<DetectionDetail, DetectError> {
+        let luma = image.to_gray_image();
+        match self {
+            #[cfg(feature = "chessboard")]
+            Self::Chessboard(cfg) => chessboard::detect_detailed(cfg, &luma),
+            #[cfg(feature = "charuco")]
+            Self::Charuco(cfg) => charuco::detect_detailed(cfg, &luma),
+            #[cfg(feature = "puzzleboard")]
+            Self::Puzzleboard(cfg) => puzzleboard::detect_detailed(cfg, &luma),
+            #[cfg(feature = "ringgrid")]
+            Self::Ringgrid(cfg) => ringgrid::detect_detailed(cfg, &luma),
         }
     }
 

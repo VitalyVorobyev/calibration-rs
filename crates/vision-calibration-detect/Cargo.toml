@@ -21,8 +21,11 @@ features = ["schemars"]
 [features]
 default = ["chessboard", "charuco", "puzzleboard", "ringgrid"]
 chessboard = ["dep:calib-targets"]
-charuco = ["dep:calib-targets"]
-puzzleboard = ["dep:calib-targets", "dep:chess-corners"]
+# `diagnostics`: the ChArUco and PuzzleBoard detection detail reads the
+# detectors' diagnostics (rejected marker cells, edge bits). Measured to
+# leave `detect`'s features bit-identical and its time unchanged.
+charuco = ["dep:calib-targets", "calib-targets/diagnostics"]
+puzzleboard = ["dep:calib-targets", "dep:chess-corners", "calib-targets/diagnostics"]
 ringgrid = ["dep:ringgrid"]
 schemars = ["dep:schemars"]
 

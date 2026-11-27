@@ -23,4 +23,5 @@ vision-calibration-core = { workspace = true, features = ["schemars"] }
 vision-calibration-pipeline = { workspace = true, features = ["schemars"] }
 vision-calibration-optim = { workspace = true, features = ["schemars"] }
 vision-calibration-dataset = { workspace = true, features = ["schemars"] }
+vision-calibration-detect = { workspace = true, features = ["schemars"] }
 vision-calibration-bench = { workspace = true, features = ["schema"] }

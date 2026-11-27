@@ -121,6 +121,7 @@ enum Bump {
     Manifest,
     Project,
     RunRecord,
+    DetectionDetail,
 }
 
 impl Bump {
@@ -136,6 +137,10 @@ impl Bump {
             Self::Manifest => "bump `DATASET_SPEC_VERSION` (the manifest's `version`)".to_string(),
             Self::Project => "bump `PROJECT_VERSION` (the project file's `version`)".to_string(),
             Self::RunRecord => "bump `RUN_RECORD_VERSION` (the run record's `version`)".to_string(),
+            Self::DetectionDetail => "the detection detail carries no version (a cache entry \
+                 is keyed on the release): an added optional field is a minor change, any \
+                 other one a major release"
+                .to_string(),
         }
     }
 }
@@ -504,4 +509,119 @@ fn run_record() {
     );
     check_reads_back::<RunRecord>("run.record.imported.json", &golden);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A detection detail of every target kind and outcome, with every optional
+/// field set: the shape the desktop app draws overlays from.
+#[test]
+fn detection_detail() {
+    use serde_json::json;
+    use vision_calibration::detect::DetectionDetail;
+
+    let quad = json!([[0.5, 0.5], [10.5, 0.5], [10.5, 10.5], [0.5, 10.5]]);
+    let corner = json!({ "grid": [1, 2], "id": 7, "score": 0.5, "axes_rad": [0.1, 1.7] });
+    let quality = json!({
+        "noise_sigma": 1.5,
+        "median_sigma_px": 0.03,
+        "local_residual_count": 12,
+        "local_residual_rms_px": 0.04,
+    });
+    let ellipse = json!({ "center_px": [5.0, 6.0], "semi_axes_px": [4.0, 3.5], "angle_rad": -0.3 });
+    let feature = json!({
+        "image_xy": [10.25, 20.5],
+        "world_xyz": [0.02, 0.0, 0.0],
+        "cov_px": [0.01, 0.0, 0.02],
+        "blur": {
+            "psf_px": [1.0, 0.0, 1.0],
+            "cov": [[1e-3, 0.0, 0.0], [0.0, 1e-3, 0.0], [0.0, 0.0, 1e-3]],
+        },
+    });
+    let rejected = json!([
+        { "image_xy": [1.0, 2.0], "reason": { "kind": "unlabelled", "strength": 30.0 } },
+        {
+            "image_xy": [3.0, 4.0],
+            "reason": { "kind": "outside_board" },
+            "world_xyz": [0.1, 0.2, 0.0],
+            "grid": [5, 10],
+            "id": 3,
+        },
+        { "image_xy": [5.0, 6.0], "reason": { "kind": "unanchored", "confidence": 0.4 } },
+        { "image_xy": [7.0, 8.0], "reason": { "kind": "uncorrected_center", "confidence": 0.2 } },
+    ]);
+    let targets = [
+        json!({ "kind": "chessboard", "corners": [corner], "cell_size_px": 20.0, "quality": quality }),
+        json!({
+            "kind": "charuco",
+            "corners": [corner],
+            "quality": quality,
+            "markers": [{
+                "id": 4, "cell": [1, 2], "quad_px": quad, "rotation": 1, "hamming": 0, "score": 0.99,
+            }],
+            "rejected_markers": [{
+                "quad_px": quad, "decoded_id": 9, "expected_id": 5, "score": -12.5,
+            }],
+        }),
+        json!({
+            "kind": "puzzleboard",
+            "corners": [corner],
+            "quality": quality,
+            "edge_bits": [{
+                "endpoints_px": [[1.0, 2.0], [3.0, 4.0]],
+                "bit": 1,
+                "confidence": 0.9,
+                "matches_master": false,
+            }],
+            "decode": {
+                "edges_observed": 40,
+                "edges_matched": 39,
+                "bit_error_rate": 0.025,
+                "logical_bit_error_rate": 0.0,
+                "dot_dissent_rate": 0.01,
+                "master_origin": [100, 200],
+            },
+        }),
+        json!({
+            "kind": "ringgrid",
+            "anchored": true,
+            "board_complete": false,
+            "origin_dots_px": [[1.0, 1.0]],
+            "rings": [{
+                "id": 3,
+                "grid": [0, 0],
+                "confidence": 0.8,
+                "outer": ellipse,
+                "inner": ellipse,
+                "center": "photometric",
+                "center_cov_px": [1e-4, 0.0, 2e-4],
+            }],
+        }),
+    ];
+    let mut details: Vec<Value> = targets
+        .iter()
+        .map(|target| {
+            json!({
+                "features": [feature],
+                "outcome": { "status": "detected" },
+                "target": target,
+                "rejected": rejected,
+            })
+        })
+        .collect();
+    for outcome in [
+        json!({ "status": "not_found", "reason": "no board" }),
+        json!({ "status": "ambiguous", "repeated_pixels": 2, "repeated_points": 0 }),
+        json!({ "status": "filtered" }),
+    ] {
+        details.push(json!({
+            "features": [],
+            "outcome": outcome,
+            "target": { "kind": "chessboard", "corners": [], "quality": { "local_residual_count": 0 } },
+            "rejected": rejected,
+        }));
+    }
+    // Through the Rust type: the fixture holds what it writes.
+    let typed: Vec<DetectionDetail> = serde_json::from_value(Value::Array(details)).unwrap();
+    let value = serde_json::to_value(&typed).unwrap();
+    let golden = check("detection.detail.json", &value, Bump::DetectionDetail);
+    check_reads_back::<Vec<DetectionDetail>>("detection.detail.json", &golden);
 }

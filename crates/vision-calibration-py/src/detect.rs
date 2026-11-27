@@ -16,8 +16,8 @@ use pyo3::prelude::*;
 use vision_calibration::core::PointBlur;
 use vision_calibration::dataset::{DetectorSpec, TargetSpec};
 use vision_calibration::detect::{
-    CacheKey, CachedFeatures, DetectionCache, Feature, FeatureBlur, FsDetectionCache,
-    GrayImageView, reject_ambiguous_detection as rust_reject,
+    CacheKey, CachedFeatures, DetectionCache, DetectionDetail, Feature, FeatureBlur,
+    FsDetectionCache, GrayImageView, reject_ambiguous_detection as rust_reject,
 };
 
 use crate::errors::run_err;
@@ -212,6 +212,52 @@ pub(crate) fn detect_target<'py>(
     to_arrays(py, &features)
 }
 
+/// A detection's detail as its features' arrays and the rest of the
+/// `DetectionDetail` payload (`outcome`, `target`, `rejected`).
+pub(crate) type DetailParts<'py> = (FeatureArrays<'py>, Py<PyAny>);
+
+/// Split `detail` into its features' arrays and the rest of its payload.
+pub(crate) fn detail_parts<'py>(
+    py: Python<'py>,
+    detail: &DetectionDetail,
+) -> PyResult<DetailParts<'py>> {
+    let mut payload = serde_json::to_value(detail)
+        .map_err(|err| PyRuntimeError::new_err(format!("detail serialization failed: {err}")))?;
+    if let Some(map) = payload.as_object_mut() {
+        map.remove("features");
+    }
+    Ok((to_arrays(py, &detail.features)?, to_py(py, &payload)?))
+}
+
+/// [`detect_target`], with the detection's detail.
+#[pyfunction]
+#[pyo3(signature = (image, target, detector=None))]
+pub(crate) fn detect_target_detail<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray2<'py, u8>,
+    target: &Bound<'py, PyAny>,
+    detector: Option<&Bound<'py, PyAny>>,
+) -> PyResult<DetailParts<'py>> {
+    let target: TargetSpec = parse_checked(target, "target")?;
+    let detector: Option<DetectorSpec> = parse_optional_checked(detector, "detector")?;
+    let shape = image.shape();
+    let (h, w) = (shape[0], shape[1]);
+    let width = u32::try_from(w).map_err(|_| value_err("image is too wide"))?;
+    let height = u32::try_from(h).map_err(|_| value_err("image is too tall"))?;
+    let pixels = image.as_slice()?.to_vec();
+    let view = GrayImageView::new(width, height, &pixels).map_err(|e| value_err(e.to_string()))?;
+    let detail = py
+        .detach(|| {
+            vision_calibration::dataset_runner::detect_target_detail(
+                view,
+                &target,
+                detector.as_ref(),
+            )
+        })
+        .map_err(|err| run_err(py, err))?;
+    detail_parts(py, &detail)
+}
+
 /// Drop a detection whose image points are not distinct (all or nothing).
 #[pyfunction]
 #[pyo3(signature = (image_xy, world_xyz, cov_px=None, blur_psf_px=None, blur_cov=None))]
@@ -324,6 +370,7 @@ impl PyFsDetectionCache {
 /// Register the detection functions and the cache class.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(detect_target, m)?)?;
+    m.add_function(wrap_pyfunction!(detect_target_detail, m)?)?;
     m.add_function(wrap_pyfunction!(reject_ambiguous_detection, m)?)?;
     m.add_function(wrap_pyfunction!(cache_key_from_inputs, m)?)?;
     m.add_function(wrap_pyfunction!(cache_key_file_name, m)?)?;

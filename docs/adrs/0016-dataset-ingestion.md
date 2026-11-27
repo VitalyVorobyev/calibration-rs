@@ -72,6 +72,25 @@ next to its manifest; content-addressed keys make the two safe to share
 when the project folder is the manifest's. A project run also records the
 sorted set of keys it read, which its input digest covers.
 
+A detection's detail (`DetectionDetail`: the features with the per-kind
+overlay data, the rejected candidates with their reasons and the image's
+outcome; `DetectorConfig::detect_detailed`) is a second entry under the
+same key, `<key>.detail.json`, through two defaulted `DetectionCache`
+methods (`get_detail`, `put_detail`), so an existing cache implementation
+keeps compiling and stores no detail. It is not a field of the features
+entry: a calibration would parse two to three times more JSON per image to
+ignore it. Only `dataset_runner::detection_detail` reads or writes it,
+never a calibration, and it is outside a project run's key digest (it
+cannot change a result). The same key ties the overlay to the detection the
+run used; `detection_detail` checks the detail's features against the
+cached ones and returns `RunError::DetailMismatch` rather than show a
+detection the run did not read. The key carries the release, so the
+detail's shape needs no version of its own. The detail of the ChArUco and
+PuzzleBoard detectors reads `calib-targets`' `diagnostics` feature, which
+the `charuco` and `puzzleboard` features enable: measured on real images of
+every target kind, it leaves `detect`'s features bit-identical and its time
+within 1 %.
+
 ### Laser extraction is injected
 
 The laser-pixel extractor lives in a crate that is not on crates.io, so no

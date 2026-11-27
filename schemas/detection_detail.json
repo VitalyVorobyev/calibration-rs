@@ -1,0 +1,962 @@
+{
+  "$defs": {
+    "CharucoDetail": {
+      "description": "A ChArUco board's overlay data.",
+      "properties": {
+        "corners": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/$defs/CornerDetail"
+          },
+          "type": "array"
+        },
+        "markers": {
+          "description": "The markers the board alignment kept.",
+          "items": {
+            "$ref": "#/$defs/MarkerDetail"
+          },
+          "type": "array"
+        },
+        "quality": {
+          "$ref": "#/$defs/CornerQuality",
+          "description": "How well the corners are localized."
+        },
+        "rejected_markers": {
+          "description": "Marker cells, of the board the detection was built from, whose bits\nmatch another marker of the board better than the one the chosen\nalignment places there: a misread or wrongly placed marker.",
+          "items": {
+            "$ref": "#/$defs/RejectedMarker"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "corners",
+        "markers",
+        "quality"
+      ],
+      "type": "object"
+    },
+    "ChessboardDetail": {
+      "description": "A chessboard's overlay data.",
+      "properties": {
+        "cell_size_px": {
+          "description": "The board's cell size in pixels (median labelled edge length);\n`None` when no board was detected.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "corners": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/$defs/CornerDetail"
+          },
+          "type": "array"
+        },
+        "quality": {
+          "$ref": "#/$defs/CornerQuality",
+          "description": "How well the corners are localized."
+        }
+      },
+      "required": [
+        "corners",
+        "quality"
+      ],
+      "type": "object"
+    },
+    "CornerDetail": {
+      "description": "One labelled board corner, aligned with a [`Feature`].",
+      "properties": {
+        "axes_rad": {
+          "description": "Directions of the two grid lines through the corner, radians in\n`[0, 2π)`, as the corner stage measured them. Present on a chessboard\ncorner whose corner stage fitted at least one axis; `None` on ChArUco\nand PuzzleBoard corners, whose detectors do not report them.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "grid": {
+          "description": "The detector's lattice label `[u, v]`: `u` along the board's +x, `v`\nalong its +y. A plain chessboard labels each view from its own\ntop-left corner; a ChArUco board and a PuzzleBoard label it on the\nboard (the PuzzleBoard on its master pattern).",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "id": {
+          "description": "The ChArUco corner id, or the PuzzleBoard master corner id; `None`\non a chessboard.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "score": {
+          "description": "The detector's corner score: higher is better, not comparable across\ndetectors.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "grid",
+        "score"
+      ],
+      "type": "object"
+    },
+    "CornerQuality": {
+      "description": "How well a detection's corners are localized, as the detector measured\nit on the corners it returned.",
+      "properties": {
+        "local_residual_count": {
+          "description": "Number of corners with enough labelled neighbours (six of the eight)\nfor the leave-one-out check: each such corner's position is\npredicted from its neighbours.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "local_residual_rms_px": {
+          "description": "RMS length of the leave-one-out residuals (observed minus predicted\nposition) over those corners, px; `None` when no corner qualifies.\nThe detectors report this aggregate only, not each corner's residual.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "median_sigma_px": {
+          "description": "Median over the corners of their 1σ position uncertainty along the\nleast certain direction, px; `None` when no corner carries a\ncovariance.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "noise_sigma": {
+          "description": "The image noise level, gray levels (1σ), the corner covariances were\ncomputed with; `None` when no covariance was computed.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "local_residual_count"
+      ],
+      "type": "object"
+    },
+    "DetectionOutcome": {
+      "description": "The outcome of one image's detection.",
+      "oneOf": [
+        {
+          "description": "The target was found and [`DetectionDetail::features`] is not empty.",
+          "properties": {
+            "status": {
+              "const": "detected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The detector found no target; `reason` is its own account (for a\nChArUco board, with each grid component's rejection by the marker\nmatcher).",
+          "properties": {
+            "reason": {
+              "description": "The detector's reason, for a reader.",
+              "type": "string"
+            },
+            "status": {
+              "const": "not_found",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The detection repeated an image point or a target point, so its\nlabels are not trustworthy and it was dropped whole\n([`reject_ambiguous_detection`](crate::reject_ambiguous_detection)).",
+          "properties": {
+            "repeated_pixels": {
+              "description": "Features whose pixel repeats an earlier feature's.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "repeated_points": {
+              "description": "Features whose target point repeats an earlier feature's.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "const": "ambiguous",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "repeated_pixels",
+            "repeated_points"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A target was detected, but this crate's filters removed every\nfeature: see [`DetectionDetail::rejected`].",
+          "properties": {
+            "status": {
+              "const": "filtered",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EdgeBitDetail": {
+      "description": "One code bit read on a PuzzleBoard edge.",
+      "properties": {
+        "bit": {
+          "description": "The bit read: the dot on the edge is black (`0`) or white (`1`).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "confidence": {
+          "description": "The read's confidence, in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "endpoints_px": {
+          "description": "The two corners the edge joins, image pixels. An edge is listed only\nwhen both are features.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "matches_master": {
+          "description": "Whether the bit equals the master pattern's bit at this edge under\nthe decoded alignment.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "endpoints_px",
+        "bit",
+        "confidence",
+        "matches_master"
+      ],
+      "type": "object"
+    },
+    "EllipseDetail": {
+      "description": "An ellipse in image pixels.",
+      "properties": {
+        "angle_rad": {
+          "description": "The direction of the major axis, radians.",
+          "format": "double",
+          "type": "number"
+        },
+        "center_px": {
+          "description": "The centre, px.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "semi_axes_px": {
+          "description": "The semi-axes `[a, b]`, `a ≥ b`, px.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "center_px",
+        "semi_axes_px",
+        "angle_rad"
+      ],
+      "type": "object"
+    },
+    "Feature": {
+      "description": "Single 2D-3D feature correspondence in canonical units.\n\n`image_xy` is in source-image pixels (pre-ROI-crop if a ROI is\ndeclared in the manifest, the converter adjusts as needed).\n`world_xyz` is in metres, expressed in the calibration target's\nown frame (target origin at `(0, 0, 0)`, target plane at `z = 0`).",
+      "properties": {
+        "blur": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FeatureBlur"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The blur the detector measured at this feature, with its covariance\n([`FeatureBlur`]). Present when the detector was asked to measure one\n(`measure_blur` on the chessboard and PuzzleBoard configs) and the\nestimate at this corner was not declined; `None` otherwise.\n\nA measurement only: no calibration reads it."
+        },
+        "cov_px": {
+          "description": "Covariance of `image_xy` as `[xx, xy, yy]` in px², in the image\nframe of `image_xy`. Present only when the detector was asked for it\n(`ChessCornersConfig::covariance`) and measured one; `None` otherwise.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "image_xy": {
+          "description": "Pixel coordinates `[x, y]` (column, row).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "world_xyz": {
+          "description": "World coordinates `[x, y, z]` in metres in the target frame.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "image_xy",
+        "world_xyz"
+      ],
+      "type": "object"
+    },
+    "FeatureBlur": {
+      "description": "The blur a detector measured at one feature: the Gaussian point-spread\nfunction (PSF) that best explains the blurred print around the feature,\nand the covariance of that estimate.\n\n**`psf_px`** is the PSF's covariance matrix `Σ = [[xx, xy], [xy, yy]]`\nin px², stored as `[xx, xy, yy]` (the layout of\n[`Feature::cov_px`]), in the image frame of `image_xy`. Its principal\naxes are the directions of least and most blur, and `√(tr Σ / 2) =\n√((xx + yy) / 2)` is the PSF's width σ in pixels.\n\n`Σ` is the blur **as the image shows it, including the pixel's area\nintegration**: for a Gaussian optical PSF of covariance `Σ_o` seen by\nsquare pixels, `Σ = Σ_o + I/12`, so a perfectly focused camera has\n`Σ = I/12`. A model of the optics that predicts `Σ_o` adds `I/12` to its\nprediction before comparing it with `psf_px`. The constant is not\nsubtracted here: it is what the detector measured, its covariance is\nunchanged by a constant shift, and on a sharp feature `Σ − I/12` is\nwithin the estimate's error of zero and need not be positive definite.\n\n**`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴, row-major. How\nfar it can be trusted is the detector's statement. For chessboard and\nPuzzleBoard corners it allows for residuals correlated between\nneighbouring pixels, and a combination of `Σ` the print around the\ncorner constrains weakly (with one edge direction, the width along that\nedge) shows as a large variance.\n\nUnder a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the covariance\nof the Gaussian that blurs the print most like the lens does, not the\nPSF's second moment; it then depends on the cell size and the pattern,\nso compare values measured on the same board.",
+      "properties": {
+        "cov": {
+          "description": "The covariance of `psf_px`, px⁴, row-major.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "psf_px": {
+          "description": "The PSF covariance `[xx, xy, yy]`, px², including the pixel's area\nintegration.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "psf_px",
+        "cov"
+      ],
+      "type": "object"
+    },
+    "MarkerDetail": {
+      "description": "One decoded ArUco marker of a ChArUco board.",
+      "properties": {
+        "cell": {
+          "description": "The board square it sits in, `[column, row]`.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "hamming": {
+          "description": "Bits read in the image that differ from the marker's code.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "The marker's dictionary id.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quad_px": {
+          "description": "The square's corners in image pixels, in the board's order: the\nsquare's top-left on the board (the marker's own top-left) first,\nthen clockwise on the board.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "rotation": {
+          "description": "The rotation, in quarter turns, that aligns the bits read in the\nimage with the dictionary's code.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "score": {
+          "description": "The decoding's confidence, in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "quad_px",
+        "rotation",
+        "hamming",
+        "score"
+      ],
+      "type": "object"
+    },
+    "PointRejection": {
+      "description": "Why a point candidate was left out.",
+      "oneOf": [
+        {
+          "description": "A chessboard corner candidate no labelled grid took. Listed within\nthe labelled corners' bounding box widened by two cells, or, when\nnothing was labelled, the strongest 1 000. ChArUco and PuzzleBoard\ndetails list none: their detectors do not say which candidates they\ntook.",
+          "properties": {
+            "kind": {
+              "const": "unlabelled",
+              "type": "string"
+            },
+            "strength": {
+              "description": "The corner detector's response.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "strength"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Labelled outside the declared board.",
+          "properties": {
+            "kind": {
+              "const": "outside_board",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A ring marker with no board position: a view the detector could not\nplace on the board, or a marker off it.",
+          "properties": {
+            "confidence": {
+              "description": "The detector's confidence in the centre, in `[0, 1]`.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "unanchored",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "confidence"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A ring marker whose photometric fit fell back to an ellipse centre,\nwith photometric centres requested.",
+          "properties": {
+            "confidence": {
+              "description": "The detector's confidence in the centre, in `[0, 1]`.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "uncorrected_center",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "confidence"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PuzzleboardDecode": {
+      "description": "How a PuzzleBoard decoded.",
+      "properties": {
+        "bit_error_rate": {
+          "description": "Fraction of the read bits that disagree with the master pattern.",
+          "format": "double",
+          "type": "number"
+        },
+        "dot_dissent_rate": {
+          "description": "Fraction of the read confidence that lost its majority vote; high\nmeans noisy dots or a mislabelled grid.",
+          "format": "double",
+          "type": "number"
+        },
+        "edges_matched": {
+          "description": "Edges whose bit matched the master pattern after alignment.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges_observed": {
+          "description": "Edges whose bit was read.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "logical_bit_error_rate": {
+          "description": "The same, over the distinct master bits the view reads, after the\nrepeated reads of each were majority-voted.",
+          "format": "double",
+          "type": "number"
+        },
+        "master_origin": {
+          "description": "Where the view's local corner `(0, 0)` lies on the master pattern,\n`[row, column]`.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "edges_observed",
+        "edges_matched",
+        "bit_error_rate",
+        "logical_bit_error_rate",
+        "dot_dissent_rate",
+        "master_origin"
+      ],
+      "type": "object"
+    },
+    "PuzzleboardDetail": {
+      "description": "A PuzzleBoard's overlay data.",
+      "properties": {
+        "corners": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/$defs/CornerDetail"
+          },
+          "type": "array"
+        },
+        "decode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PuzzleboardDecode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The decode summary; `None` when no board was decoded."
+        },
+        "edge_bits": {
+          "description": "The code bits read on the edges between two kept corners.",
+          "items": {
+            "$ref": "#/$defs/EdgeBitDetail"
+          },
+          "type": "array"
+        },
+        "quality": {
+          "$ref": "#/$defs/CornerQuality",
+          "description": "How well the corners are localized."
+        }
+      },
+      "required": [
+        "corners",
+        "quality"
+      ],
+      "type": "object"
+    },
+    "RejectedMarker": {
+      "description": "A ChArUco marker cell whose bits match another marker of the board\nbetter than the one the board places there.",
+      "properties": {
+        "decoded_id": {
+          "description": "The board marker the cell's bits match best, over every marker of the\nboard and every rotation.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_id": {
+          "description": "The marker the board places in this cell under the chosen alignment.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quad_px": {
+          "description": "The cell's corners in image pixels, in the board's order (as\n[`MarkerDetail::quad_px`]).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "score": {
+          "description": "The matcher's log-likelihood of the cell's bits under the decoded\nmarker: higher is better, comparable within one image.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "quad_px",
+        "decoded_id",
+        "expected_id",
+        "score"
+      ],
+      "type": "object"
+    },
+    "RejectedPoint": {
+      "description": "A point candidate the detector or this crate saw and did not keep.",
+      "properties": {
+        "grid": {
+          "description": "Its lattice label, when it had one.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Its id (a ring's codebook id, a PuzzleBoard master corner id), when\nit had one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "image_xy": {
+          "description": "Its position, image pixels.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "reason": {
+          "$ref": "#/$defs/PointRejection",
+          "description": "Why it was left out."
+        },
+        "world_xyz": {
+          "description": "The target point it would have had, metres, when it had a label.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "image_xy",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "RingCenter": {
+      "description": "Which estimator produced a ring marker's centre.",
+      "oneOf": [
+        {
+          "const": "outer_ellipse",
+          "description": "The centre of the fitted outer ellipse.",
+          "type": "string"
+        },
+        {
+          "const": "projective",
+          "description": "The projective centre recovered from the inner and outer ellipses.",
+          "type": "string"
+        },
+        {
+          "const": "photometric",
+          "description": "A photometric fit of the blurred marker pattern.",
+          "type": "string"
+        }
+      ]
+    },
+    "RingDetail": {
+      "description": "One ring marker, aligned with a [`Feature`].",
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/RingCenter",
+          "description": "Which estimator produced the feature's position."
+        },
+        "center_cov_px": {
+          "description": "The covariance of the centre as the detector stated it, `[xx, xy,\nyy]` px²: photometric centres only. The calibration does not read it\n([`Feature::cov_px`] stays `None` for ring markers).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "confidence": {
+          "description": "The detector's confidence in the centre, in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "grid": {
+          "description": "The lattice cell `[u, v]` (axial coordinates on a hex lattice).",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "The decoded codebook id (coded boards); `None` on a plain board.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "inner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EllipseDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fitted inner ellipse."
+        },
+        "outer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EllipseDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fitted outer ellipse."
+        }
+      },
+      "required": [
+        "confidence",
+        "center"
+      ],
+      "type": "object"
+    },
+    "RinggridDetail": {
+      "description": "A ring grid's overlay data.",
+      "properties": {
+        "anchored": {
+          "description": "Whether the labels are absolute board positions: always for a coded\nboard that was labelled, for a plain one when its origin dots placed\nthe view on the board.",
+          "type": "boolean"
+        },
+        "board_complete": {
+          "description": "Whether every marker of the board was detected; `None` when nothing\nwas labelled.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "origin_dots_px": {
+          "description": "The origin dots of a plain board, predicted through the board-to-image\nhomography (no lens model), image pixels. The detector does not\nreport the dots it found, so these are where the board places them.\nEmpty for a coded board and for a view not placed on the board.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "rings": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/$defs/RingDetail"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rings",
+        "anchored"
+      ],
+      "type": "object"
+    },
+    "TargetDetail": {
+      "description": "Overlay data of one target kind.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ChessboardDetail",
+          "description": "A plain chessboard.",
+          "properties": {
+            "kind": {
+              "const": "chessboard",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/CharucoDetail",
+          "description": "A ChArUco board.",
+          "properties": {
+            "kind": {
+              "const": "charuco",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/PuzzleboardDetail",
+          "description": "A PuzzleBoard.",
+          "properties": {
+            "kind": {
+              "const": "puzzleboard",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/RinggridDetail",
+          "description": "A ring grid, coded or plain, on a hex or rect lattice.",
+          "properties": {
+            "kind": {
+              "const": "ringgrid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What a detector found in one image: the correspondences\n[`DetectorConfig::detect`](crate::DetectorConfig::detect) returns, and\nwhat an overlay needs to judge them.",
+  "properties": {
+    "features": {
+      "description": "The features, equal bit for bit to what\n[`DetectorConfig::detect`](crate::DetectorConfig::detect) returns for\nthe same image and config.",
+      "items": {
+        "$ref": "#/$defs/Feature"
+      },
+      "type": "array"
+    },
+    "outcome": {
+      "$ref": "#/$defs/DetectionOutcome",
+      "description": "The image-level outcome."
+    },
+    "rejected": {
+      "description": "Point candidates the detector or this crate saw and did not keep,\neach with its reason. Empty when there were none, and on an\n[`DetectionOutcome::Ambiguous`] image (its dropped points are not\nlisted).",
+      "items": {
+        "$ref": "#/$defs/RejectedPoint"
+      },
+      "type": "array"
+    },
+    "target": {
+      "$ref": "#/$defs/TargetDetail",
+      "description": "Target-specific overlay data. Its per-feature vector (`corners` or\n`rings`) holds one entry per feature, in the order of\n[`features`](Self::features)."
+    }
+  },
+  "required": [
+    "features",
+    "outcome",
+    "target"
+  ],
+  "title": "DetectionDetail",
+  "type": "object"
+}

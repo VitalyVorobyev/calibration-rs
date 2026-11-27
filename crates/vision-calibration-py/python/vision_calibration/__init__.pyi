@@ -146,6 +146,7 @@ from .dataset_runner import (
 )
 from .detect import (
     CacheKey as CacheKey,
+    DetectionDetail as DetectionDetail,
     Features as Features,
     FsDetectionCache as FsDetectionCache,
     reject_ambiguous_detection as reject_ambiguous_detection,

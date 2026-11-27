@@ -13,9 +13,19 @@
 //! board dimensions are known from the manifest, so we never search for an
 //! unknown sub-board).
 
+use std::collections::HashMap;
+
 use calib_targets::blur::puzzleboard_blur;
+use calib_targets::core::{Coord, GridAlignment};
 use calib_targets::detect;
-use calib_targets::puzzleboard::{PuzzleBoardParams, PuzzleBoardSearchMode, PuzzleBoardSpec};
+use calib_targets::puzzleboard::code_maps::{
+    EdgeOrientation, horizontal_edge_bit, vertical_edge_bit,
+};
+use calib_targets::puzzleboard::diagnostics::PuzzleBoardObservedEdge;
+use calib_targets::puzzleboard::{
+    MASTER_COLS, MASTER_ROWS, PuzzleBoardDetector, PuzzleBoardParams, PuzzleBoardSearchMode,
+    PuzzleBoardSpec,
+};
 use chess_corners::UpscaleConfig;
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +33,10 @@ use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
 use crate::corner_blur::feature_blurs;
+use crate::detail::{
+    CornerDetail, CornerQuality, DetectionDetail, EdgeBitDetail, PointRejection, PuzzleboardDecode,
+    PuzzleboardDetail, RejectedPoint, TargetDetail,
+};
 use crate::{DetectError, Feature};
 
 /// Factor of the corner detector's upscale stage. Saddle detection degrades
@@ -89,6 +103,14 @@ pub(crate) fn detect(
     cfg: &PuzzleboardConfig,
     luma: &image::GrayImage,
 ) -> Result<Vec<Feature>, DetectError> {
+    detect_detailed(cfg, luma).map(|detail| detail.features)
+}
+
+/// [`detect`], with the detection's detail.
+pub(crate) fn detect_detailed(
+    cfg: &PuzzleboardConfig,
+    luma: &image::GrayImage,
+) -> Result<DetectionDetail, DetectError> {
     if cfg.rows < 2 || cfg.cols < 2 || cfg.rows > i32::MAX as u32 || cfg.cols > i32::MAX as u32 {
         return Err(DetectError::InvalidConfig(format!(
             "puzzleboard rows={} cols={} must be in 2..={}",
@@ -116,17 +138,37 @@ pub(crate) fn detect(
         .chess
         .with_upscale(UpscaleConfig::fixed(DETECT_UPSCALE));
 
+    // `detect::detect_puzzleboard` through the detector's diagnosing path:
+    // the same detection (both run one decode, which records its evidence
+    // either way), with the edge bits it read.
+    let backend = |message: String| DetectError::Backend {
+        detector: "puzzleboard",
+        message,
+    };
+    let detector = PuzzleBoardDetector::new(params).map_err(|e| backend(e.to_string()))?;
+    let (result, diagnostics) = detector.diagnose(&detect::gray_view(luma));
+    let target = |corners, edge_bits, decode, quality| {
+        TargetDetail::Puzzleboard(PuzzleboardDetail {
+            corners,
+            edge_bits,
+            decode,
+            quality,
+        })
+    };
     // No board in frame is "no features", not an error — same
     // semantics as the chessboard/charuco detectors on a blank image.
-    let detection = match detect::detect_puzzleboard(luma, &params) {
+    let detection = match result {
         Ok(detection) => detection,
-        Err(err) if err.is_not_found() => return Ok(Vec::new()),
-        Err(err) => {
-            return Err(DetectError::Backend {
-                detector: "puzzleboard",
-                message: err.to_string(),
-            });
+        Err(err) if err.is_not_found() => {
+            return Ok(DetectionDetail::finish(
+                Vec::new(),
+                Vec::<CornerDetail>::new(),
+                Vec::new(),
+                Some(err.to_string()),
+                |corners| target(corners, Vec::new(), None, CornerQuality::default()),
+            ));
         }
+        Err(err) => return Err(backend(err.to_string())),
     };
 
     // Decoded saddles outside the printed board are spurious; bound them to
@@ -147,18 +189,109 @@ pub(crate) fn detect(
     blurs.resize(detection.corners.len(), None);
 
     let mut features = Vec::with_capacity(detection.corners.len());
+    let mut corners = Vec::with_capacity(detection.corners.len());
+    let mut rejected = Vec::new();
+    // Master corner → image position of the kept corners, for the edge bits.
+    let mut kept: HashMap<[i32; 2], [f64; 2]> = HashMap::new();
     for (corner, blur) in detection.corners.iter().zip(blurs) {
         let x_mm = corner.target_position.x as f64;
         let y_mm = corner.target_position.y as f64;
+        let image_xy = [f64::from(corner.position.x), f64::from(corner.position.y)];
+        let world_xyz = [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0];
+        let grid = [corner.grid.u, corner.grid.v];
         if !(-tol_mm..=max_x_mm + tol_mm).contains(&x_mm)
             || !(-tol_mm..=max_y_mm + tol_mm).contains(&y_mm)
         {
+            rejected.push(RejectedPoint {
+                image_xy,
+                reason: PointRejection::OutsideBoard,
+                world_xyz: Some(world_xyz),
+                grid: Some(grid),
+                id: Some(corner.id),
+            });
             continue;
         }
-        let image_xy = [f64::from(corner.position.x), f64::from(corner.position.y)];
-        features.push(Feature::new(image_xy, [x_mm * 1.0e-3, y_mm * 1.0e-3, 0.0]).with_blur(blur));
+        features.push(Feature::new(image_xy, world_xyz).with_blur(blur));
+        corners.push(CornerDetail {
+            grid,
+            id: Some(corner.id),
+            score: f64::from(corner.score),
+            axes_rad: None,
+        });
+        kept.insert(master_key(grid), image_xy);
     }
-    Ok(crate::reject_ambiguous_detection(features))
+    let edge_bits = edge_bits(&diagnostics.observed_edges, detection.alignment, &kept);
+    let d = &detection.decode;
+    let decode = PuzzleboardDecode {
+        edges_observed: d.edges_observed,
+        edges_matched: d.edges_matched,
+        bit_error_rate: f64::from(d.bit_error_rate),
+        logical_bit_error_rate: f64::from(d.logical_bit_error_rate),
+        dot_dissent_rate: f64::from(d.dot_dissent_rate),
+        master_origin: [d.master_origin_row, d.master_origin_col],
+    };
+    let quality = CornerQuality::from_calib_targets(&detection.quality);
+    Ok(DetectionDetail::finish(
+        features,
+        corners,
+        rejected,
+        None,
+        |corners| target(corners, edge_bits, Some(decode), quality),
+    ))
+}
+
+/// A master corner `[u, v]` reduced to the master pattern's period, so that
+/// labels equal modulo the period meet.
+fn master_key([u, v]: [i32; 2]) -> [i32; 2] {
+    [
+        u.rem_euclid(MASTER_COLS as i32),
+        v.rem_euclid(MASTER_ROWS as i32),
+    ]
+}
+
+/// The edge bits the decoder read, on the edges whose two corners were kept.
+///
+/// An observation is recorded in the view's local grid at corner `(c, r)`:
+/// a horizontal edge joins local corners `(c, r)` and `(c + 1, r)`, a
+/// vertical one `(c, r)` and `(c, r + 1)`. `alignment` carries local corners
+/// to the master pattern, where the expected bit of the edge between master
+/// corners `(C, R)` and `(C + 1, R)` is `horizontal_edge_bit(R - 1, C)`, and
+/// between `(C, R)` and `(C, R + 1)` is `vertical_edge_bit(R, C - 1)`
+/// (`calib-targets`' edge convention, the decoder's own).
+fn edge_bits(
+    observed: &[PuzzleBoardObservedEdge],
+    alignment: GridAlignment,
+    kept: &HashMap<[i32; 2], [f64; 2]>,
+) -> Vec<EdgeBitDetail> {
+    let master = |u: i32, v: i32| {
+        let c = alignment.apply(Coord::new(u, v));
+        [c.u, c.v]
+    };
+    observed
+        .iter()
+        .filter_map(|edge| {
+            let (c, r) = (edge.col, edge.row);
+            let a = master(c, r);
+            let b = match edge.orientation {
+                EdgeOrientation::Horizontal => master(c + 1, r),
+                EdgeOrientation::Vertical => master(c, r + 1),
+                // The two orientations of a square grid.
+                _ => return None,
+            };
+            let endpoints_px = [*kept.get(&master_key(a))?, *kept.get(&master_key(b))?];
+            let expected = if a[1] == b[1] {
+                horizontal_edge_bit(a[1] - 1, a[0].min(b[0]))
+            } else {
+                vertical_edge_bit(a[1].min(b[1]), a[0] - 1)
+            };
+            Some(EdgeBitDetail {
+                endpoints_px,
+                bit: edge.bit,
+                confidence: f64::from(edge.confidence),
+                matches_master: edge.bit == expected,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -390,6 +523,143 @@ mod tests {
         let cfg = PuzzleboardConfig::new(12, 12, 0.0083);
         let features = detect(&cfg, &img.to_luma8()).unwrap();
         assert_eq!(features.len(), 11 * 11, "all 121 interior saddles kept");
+    }
+
+    // ── Detail ───────────────────────────────────────────────────────────────
+
+    fn puzzle_detail(detail: &DetectionDetail) -> &PuzzleboardDetail {
+        match &detail.target {
+            TargetDetail::Puzzleboard(board) => board,
+            other => panic!("a PuzzleBoard detail: {other:?}"),
+        }
+    }
+
+    fn rendered() -> image::GrayImage {
+        synthetic_board_image().to_luma8()
+    }
+
+    fn turned(img: &image::GrayImage, quarter_turns: u32) -> image::GrayImage {
+        match quarter_turns % 4 {
+            0 => img.clone(),
+            1 => image::imageops::rotate90(img),
+            2 => image::imageops::rotate180(img),
+            _ => image::imageops::rotate270(img),
+        }
+    }
+
+    /// However the board is turned, the detail's features are `detect`'s,
+    /// and on a clean render every edge bit read between two kept corners
+    /// matches the master pattern: the edges are mapped onto the master
+    /// pattern as the decoder maps them.
+    #[test]
+    fn detail_matches_detect_and_every_clean_edge_matches_the_master() {
+        let cfg: PuzzleboardConfig = serde_json::from_value(board_config()).unwrap();
+        let upright = rendered();
+        for quarter_turns in 0..4 {
+            let img = turned(&upright, quarter_turns);
+            let detail = detect_detailed(&cfg, &img).unwrap();
+            assert_eq!(detail.features, detect(&cfg, &img).unwrap());
+            assert_eq!(detail.outcome, crate::DetectionOutcome::Detected);
+            let board = puzzle_detail(&detail);
+            assert_eq!(board.corners.len(), detail.features.len());
+            assert!(board.corners.iter().all(|c| c.id.is_some()));
+            let decode = board.decode.as_ref().expect("a decoded board");
+            assert!(decode.edges_observed > 0);
+            // Each interior edge joins two kept corners.
+            assert!(
+                board.edge_bits.len() >= 100,
+                "turn {quarter_turns}: {} edge bits",
+                board.edge_bits.len()
+            );
+            let wrong = board.edge_bits.iter().filter(|e| !e.matches_master).count();
+            assert_eq!(wrong, 0, "turn {quarter_turns}: {wrong} edges mismatch");
+            // Every endpoint is a feature's pixel.
+            for edge in &board.edge_bits {
+                for p in edge.endpoints_px {
+                    assert!(detail.features.iter().any(|f| f.image_xy == p));
+                }
+            }
+            let json = serde_json::to_string(&detail).unwrap();
+            assert_eq!(
+                serde_json::from_str::<DetectionDetail>(&json).unwrap(),
+                detail
+            );
+        }
+    }
+
+    /// One edge's dot painted over in the other colour: the board still
+    /// decodes, and that edge's bit no longer matches the master pattern.
+    #[test]
+    fn a_corrupted_edge_does_not_match_the_master() {
+        let cfg: PuzzleboardConfig = serde_json::from_value(board_config()).unwrap();
+        let mut img = rendered();
+        let clean = detect_detailed(&cfg, &img).unwrap();
+        let edges = &puzzle_detail(&clean).edge_bits;
+        // An edge near the middle of the view, read with confidence.
+        let centre = {
+            let n = clean.features.len() as f64;
+            let sum = clean.features.iter().fold([0.0, 0.0], |s, f| {
+                [s[0] + f.image_xy[0], s[1] + f.image_xy[1]]
+            });
+            [sum[0] / n, sum[1] / n]
+        };
+        let mid = |e: &EdgeBitDetail| {
+            let [a, b] = e.endpoints_px;
+            [0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])]
+        };
+        let edge = edges
+            .iter()
+            .filter(|e| e.confidence > 0.8)
+            .min_by(|a, b| {
+                let d = |e: &EdgeBitDetail| {
+                    let m = mid(e);
+                    (m[0] - centre[0]).hypot(m[1] - centre[1])
+                };
+                d(a).total_cmp(&d(b))
+            })
+            .expect("a confident edge")
+            .clone();
+        let [a, b] = edge.endpoints_px;
+        let length = (b[0] - a[0]).hypot(b[1] - a[1]);
+        let m = mid(&edge);
+        // The dot is black for bit 0 and white for bit 1: paint the other.
+        let paint = if edge.bit == 0 { 255 } else { 0 };
+        let radius = 0.2 * length;
+        for y in (m[1] - radius) as u32..=(m[1] + radius) as u32 {
+            for x in (m[0] - radius) as u32..=(m[0] + radius) as u32 {
+                if (f64::from(x) - m[0]).hypot(f64::from(y) - m[1]) <= radius {
+                    img.put_pixel(x, y, image::Luma([paint]));
+                }
+            }
+        }
+
+        let detail = detect_detailed(&cfg, &img).unwrap();
+        assert_eq!(detail.features, clean.features, "one dot moves no saddle");
+        let corrupted = puzzle_detail(&detail)
+            .edge_bits
+            .iter()
+            .find(|e| e.endpoints_px == edge.endpoints_px)
+            .expect("the edge is still read");
+        assert_ne!(corrupted.bit, edge.bit);
+        assert!(!corrupted.matches_master);
+        let wrong = puzzle_detail(&detail)
+            .edge_bits
+            .iter()
+            .filter(|e| !e.matches_master)
+            .count();
+        assert_eq!(wrong, 1);
+    }
+
+    #[test]
+    fn a_blank_image_is_not_found() {
+        let cfg: PuzzleboardConfig = serde_json::from_value(board_config()).unwrap();
+        let detail = detect_detailed(&cfg, &image::GrayImage::new(64, 64)).unwrap();
+        assert!(
+            matches!(&detail.outcome, crate::DetectionOutcome::NotFound { reason } if !reason.is_empty()),
+            "{:?}",
+            detail.outcome
+        );
+        assert!(puzzle_detail(&detail).decode.is_none());
     }
 
     #[test]

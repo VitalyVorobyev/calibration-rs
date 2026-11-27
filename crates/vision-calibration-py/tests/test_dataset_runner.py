@@ -42,6 +42,24 @@ class DetectTargetTest(unittest.TestCase):
         self.assertTrue((features.image_xy >= 0).all())
         self.assertTrue((features.image_xy[:, 0] < _images.WIDTH).all())
 
+    def test_the_detail_carries_detect_target_s_features_and_one_corner_each(self) -> None:
+        r, t = _images.board_poses(1)[0]
+        image = _images.render_board(r, t)
+        features = vc.detect_target(image, _images.TARGET)
+        detail = dataset_runner.detect_target_detail(image, _images.TARGET)
+        self.assertIsInstance(detail, vc.DetectionDetail)
+        np.testing.assert_array_equal(detail.features.image_xy, features.image_xy)
+        np.testing.assert_array_equal(detail.features.world_xyz, features.world_xyz)
+        self.assertEqual(detail.outcome, {"status": "detected"})
+        self.assertEqual(detail.target["kind"], "chessboard")
+        corners = detail.target["corners"]  # type: ignore[typeddict-item]
+        self.assertEqual(len(corners), len(features))
+        self.assertTrue(all(len(c["grid"]) == 2 for c in corners))
+
+        blank = dataset_runner.detect_target_detail(np.full((120, 160), 128, np.uint8), _images.TARGET)
+        self.assertEqual(len(blank.features), 0)
+        self.assertEqual(blank.outcome["status"], "not_found")
+
     def test_a_blank_image_has_no_features(self) -> None:
         features = vc.detect_target(np.full((120, 160), 128, np.uint8), _images.TARGET)
         self.assertEqual(len(features), 0)
@@ -311,6 +329,27 @@ class ManifestRunTest(unittest.TestCase):
             left_out = run.rejected[0]
             self.assertEqual((left_out.camera, left_out.path.name), (0, "view_99.png"))
             self.assertEqual(left_out.reason, "too_few_features")
+
+    def test_the_detail_of_a_run_image_comes_through_the_run_s_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spec = _images.write_planar_dataset(root, views=3)
+            cache = vc.FsDetectionCache(root / "cache")
+            run = dataset_runner.build_planar_input(spec, base_dir=root, cache=cache)
+            self.assertEqual(run.usable_views, 3)
+            self.assertEqual(list((root / "cache").glob("*.detail.json")), [])
+
+            detail = dataset_runner.detection_detail(spec, 0, "view_01.png", base_dir=root, cache=cache)
+            r, t = _images.board_poses(3)[1]
+            features = vc.detect_target(_images.render_board(r, t), _images.TARGET)
+            np.testing.assert_array_equal(detail.features.image_xy, features.image_xy)
+            self.assertEqual(len(list((root / "cache").glob("*.detail.json"))), 1)
+            again = dataset_runner.detection_detail(spec, 0, root / "view_01.png", base_dir=root, cache=cache)
+            self.assertEqual(again.target, detail.target)
+
+            with self.assertRaises(vc.RunError) as raised:
+                dataset_runner.detection_detail(spec, 0, "missing.png", base_dir=root)
+            self.assertEqual(raised.exception.kind, "image_not_in_dataset")
 
     def test_a_manifest_file_resolves_against_its_folder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

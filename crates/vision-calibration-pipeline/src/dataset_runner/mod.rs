@@ -8,6 +8,9 @@
 //! a [`CalibrationExport`].
 //! [`camera_image_sizes`] reads each camera's image size, which the
 //! image-wide analyses take; [`input_files`] lists every file a run reads.
+//! [`detection_detail`] returns what a run's detection of one image looked
+//! like, for review: the per-feature overlay data, the candidates left out
+//! and the image's outcome.
 //!
 //! Converters, for a run driven step by step:
 //! - [`build_planar_input`] — `PlanarIntrinsics` (any camera model)
@@ -57,7 +60,7 @@ use thiserror::Error;
 
 use vision_calibration_core::{
     Cancelled, CorrespondenceView, NoMeta, PointBlur, PointCovariance, Progress, Pt2, Pt3,
-    RunControl, View,
+    RunControl, View, lexical_absolute,
 };
 use vision_calibration_dataset::{
     ChessCornersDetectorSpec, CornerCovarianceSpec, CornerStrategySpec, DatasetSpec, DetectorSpec,
@@ -66,9 +69,9 @@ use vision_calibration_dataset::{
 };
 use vision_calibration_detect::{
     CacheError, CacheKey, CachedFeatures, CharucoConfig, ChessCornersConfig, ChessboardConfig,
-    CornerCovariance, CornerStrategy, DetectionCache, DetectorConfig, Feature, GrayImageView,
-    ImageNoise, PuzzleboardConfig, RinggridCenterMethod, RinggridCoding, RinggridConfig,
-    RinggridLattice, validate_charuco_layout,
+    CornerCovariance, CornerStrategy, DetectionCache, DetectionDetail, DetectorConfig, Feature,
+    GrayImageView, ImageNoise, PuzzleboardConfig, RinggridCenterMethod, RinggridCoding,
+    RinggridConfig, RinggridLattice, validate_charuco_layout,
 };
 
 mod board_turn;
@@ -421,6 +424,30 @@ pub enum RunError {
     /// The run control's token was cancelled before the input was built.
     #[error("cancelled")]
     Cancelled,
+
+    /// An image named by camera and path is not one of the manifest's: the
+    /// camera index is out of range, or the path is not among that camera's
+    /// target images.
+    #[error("{path} is not a target image of camera {camera} of the manifest")]
+    ImageNotInDataset {
+        /// Index of the camera in the manifest's `cameras`.
+        camera: usize,
+        /// The image, as given.
+        path: PathBuf,
+    },
+
+    /// The cached features of an image differ from a fresh detection of it
+    /// with the same detector and config, so its detail would show a
+    /// detection the run did not use. Detect the dataset again
+    /// ([`Detection::Refresh`]) to bring the cache up to date.
+    #[error(
+        "the cached features of {path} differ from a fresh detection; \
+         refresh the detection cache"
+    )]
+    DetailMismatch {
+        /// The image.
+        path: PathBuf,
+    },
 }
 
 impl From<Cancelled> for RunError {
@@ -588,6 +615,116 @@ pub fn detect_target(
         path: PathBuf::from("<in-memory image>"),
         source,
     })
+}
+
+/// [`detect_target`], with the detection's detail: the target-specific
+/// overlay data of each feature, the candidates the detector left out with
+/// their reasons, and the image's outcome. `detail.features` equals what
+/// [`detect_target`] returns for the same image.
+///
+/// # Errors
+///
+/// As [`detect_target`].
+pub fn detect_target_detail(
+    image: GrayImageView<'_>,
+    target: &TargetSpec,
+    detector: Option<&DetectorSpec>,
+) -> Result<DetectionDetail, RunError> {
+    let config = detector_config(target, detector)?;
+    config
+        .detect_detailed(image)
+        .map_err(|source| RunError::Detection {
+            detector: config.name().to_string(),
+            path: PathBuf::from("<in-memory image>"),
+            source,
+        })
+}
+
+/// The detail of the detection a manifest run makes of one image: camera
+/// `camera`'s target image `image` (relative paths resolve against
+/// `base_dir`), detected with the detector, region of interest and cache key
+/// the converters use, so its features are the ones a run of `spec` with
+/// `detection` reads.
+///
+/// With a cache ([`Detection::Cached`]) a stored detail is returned when its
+/// features equal the image's cached features. Otherwise the image is
+/// detected, its features stored when the cache had none, and its detail
+/// stored beside them ([`DetectionCache::put_detail`]). [`Detection::Refresh`]
+/// detects again and overwrites both; [`Detection::Uncached`] reads and
+/// writes no cache. A calibration never reads the detail.
+///
+/// The detail is in the pixels of the camera's region of interest when the
+/// manifest sets one, as the features are.
+///
+/// # Errors
+///
+/// [`RunError::Validation`] for an invalid manifest;
+/// [`RunError::ImageNotInDataset`] for a camera index out of range or an
+/// image not among that camera's; I/O, decode and detection errors as a run
+/// reports them; [`RunError::DetailMismatch`] when the image's cached
+/// features differ from a fresh detection of it.
+pub fn detection_detail(
+    spec: &DatasetSpec,
+    base_dir: &Path,
+    camera: usize,
+    image: &Path,
+    detection: Detection<'_>,
+) -> Result<DetectionDetail, RunError> {
+    let config = target_to_detector_config(spec)?;
+    vision_calibration_dataset::validate(spec)?;
+    let not_in_dataset = || RunError::ImageNotInDataset {
+        camera,
+        path: image.to_path_buf(),
+    };
+    let source = spec.cameras.get(camera).ok_or_else(not_in_dataset)?;
+    let wanted = lexical_absolute(&base_dir.join(image));
+    let path = expand_camera_images(source, base_dir)?
+        .into_iter()
+        .find(|path| lexical_absolute(path) == wanted)
+        .ok_or_else(not_in_dataset)?;
+    cached_or_detected_detail(&config, source.roi_xywh, &path, detection)
+}
+
+/// [`cached_or_detected`] for the detail: the stored detail when it matches
+/// the stored features, else a fresh one, checked against the stored
+/// features and stored.
+fn cached_or_detected_detail(
+    config: &DetectorConfig,
+    roi: Option<[u32; 4]>,
+    image_path: &Path,
+    detection: Detection<'_>,
+) -> Result<DetectionDetail, RunError> {
+    let bytes = std::fs::read(image_path)?;
+    let key = CacheKey::for_detection(&bytes, config, roi);
+    let cached = detection.lookup(&key)?;
+    if let Some(entry) = &cached
+        && let Some(detail) = detection.lookup_detail(&key)?
+        && detail.features == entry.features
+    {
+        return Ok(detail);
+    }
+
+    let gray = decode_gray(&bytes, image_path, roi)?;
+    let view = GrayImageView::new(gray.width(), gray.height(), gray.as_raw())
+        .expect("an image buffer holds width × height bytes");
+    let detail = config
+        .detect_detailed(view)
+        .map_err(|source| RunError::Detection {
+            detector: config.name().to_string(),
+            path: image_path.to_path_buf(),
+            source,
+        })?;
+    match cached {
+        Some(entry) if entry.features != detail.features => {
+            return Err(RunError::DetailMismatch {
+                path: image_path.to_path_buf(),
+            });
+        }
+        Some(_) => {}
+        None => detection.store(&key, &CachedFeatures::new(detail.features.clone()))?,
+    }
+    detection.store_detail(&key, &detail)?;
+    Ok(detail)
 }
 
 /// The detector config for `target`, with the manifest's detector override
@@ -1091,6 +1228,23 @@ impl Detection<'_> {
     fn store(&self, key: &CacheKey, features: &CachedFeatures) -> Result<(), CacheError> {
         match self {
             Detection::Cached(cache) | Detection::Refresh(cache) => cache.put(key, features),
+            Detection::Uncached => Ok(()),
+        }
+    }
+
+    /// The cached detail for `key`, when this mode reads the cache. Only
+    /// [`detection_detail`] reads it; a calibration never does.
+    fn lookup_detail(&self, key: &CacheKey) -> Result<Option<DetectionDetail>, CacheError> {
+        match self {
+            Detection::Cached(cache) => cache.get_detail(key),
+            Detection::Refresh(_) | Detection::Uncached => Ok(None),
+        }
+    }
+
+    /// Store a fresh detail, when this mode writes the cache.
+    fn store_detail(&self, key: &CacheKey, detail: &DetectionDetail) -> Result<(), CacheError> {
+        match self {
+            Detection::Cached(cache) | Detection::Refresh(cache) => cache.put_detail(key, detail),
             Detection::Uncached => Ok(()),
         }
     }

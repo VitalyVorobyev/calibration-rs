@@ -5,7 +5,9 @@ image, builds the problem's input, calibrates and returns a
 :class:`DatasetCalibration`: the export and what detection kept. The
 ``build_*_input`` functions stop after the input, for a run driven step by
 step through a session. :func:`detect_target` runs a manifest's target
-detector on one numpy image.
+detector on one numpy image; :func:`detect_target_detail` and
+:func:`detection_detail` return a detection with what an overlay needs to
+judge it.
 
 The runner does not guess: a manifest that leaves a convention open (how
 images pair with robot poses, which way a pose transforms) raises
@@ -46,7 +48,7 @@ from ._generated_types import RigHandeyeInput as _RigHandeyeInputPayload
 from ._generated_types import RigHandeyeLaserlineInput as _RigHandeyeLaserlineInputPayload
 from ._generated_types import RigLaserlineDeviceInput as _RigLaserlineDeviceInputPayload
 from ._generated_types import SingleCamHandeyeInput as _SingleCamHandeyeInputPayload
-from .detect import Features, FsDetectionCache, _features
+from .detect import DetectionDetail, Features, FsDetectionCache, _detection_detail, _features
 from .models import (
     LaserlineDeviceConfig,
     LaserlineDeviceExport,
@@ -92,6 +94,8 @@ __all__ = [
     "camera_image_sizes",
     "input_files",
     "detect_target",
+    "detect_target_detail",
+    "detection_detail",
     "patched_config",
 ]
 
@@ -741,16 +745,83 @@ def detect_target(
         If the target is impossible (``kind == "invalid_target_config"``),
         e.g. an unknown ChArUco dictionary.
     """
+    return _features(
+        _native.detect_target(
+            _gray_image(image),
+            dict(target),
+            None if detector is None else dict(detector),
+        )
+    )
+
+
+def _gray_image(image: ArrayLike) -> NDArray[np.uint8]:
     array = np.asarray(image)
     if array.ndim != 2 or array.dtype != np.uint8:
         raise TypeError(
             "image must be a 2-D uint8 grayscale array, got "
             f"{array.ndim}-D {array.dtype}; convert colour images first"
         )
-    return _features(
-        _native.detect_target(
-            np.ascontiguousarray(array),
+    return np.ascontiguousarray(array)
+
+
+def detect_target_detail(
+    image: ArrayLike,
+    target: TargetSpec | Mapping[str, Any],
+    detector: DetectorSpec | Mapping[str, Any] | None = None,
+) -> DetectionDetail:
+    """:func:`detect_target`, with what an overlay needs to judge the detection.
+
+    Returns a :class:`~vision_calibration.detect.DetectionDetail`: the
+    features :func:`detect_target` returns for the same image, the image's
+    outcome, the target-specific overlay data of each feature and the
+    candidates the detector left out, each with its reason. Arguments and
+    errors as for :func:`detect_target`.
+    """
+    return _detection_detail(
+        _native.detect_target_detail(
+            _gray_image(image),
             dict(target),
             None if detector is None else dict(detector),
+        )
+    )
+
+
+def detection_detail(
+    manifest: Manifest,
+    camera: int,
+    image: str | os.PathLike[str],
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+    cache: FsDetectionCache | None = None,
+    force_redetect: bool = False,
+) -> DetectionDetail:
+    """The detail of a run's detection of one image.
+
+    ``image`` is one of camera ``camera``'s target images (a relative path
+    resolves against ``base_dir``, which defaults to the manifest file's
+    directory). It is detected with the detector, region of interest and
+    cache key a run of the manifest uses, so the features are those a
+    :func:`calibrate_dataset` run with the same ``cache`` reads. With a
+    ``cache``, a stored detail is reused when it matches the cached
+    features; otherwise the image is detected and its detail stored beside
+    the features (``force_redetect`` detects again and overwrites both). A
+    calibration never reads the detail.
+
+    Raises
+    ------
+    RunError
+        The image is not one of the camera's (``kind`` is
+        ``"image_not_in_dataset"``), its cached features differ from a fresh
+        detection (``"detail_mismatch"``; refresh the cache), or it cannot be
+        read or detected.
+    """
+    return _detection_detail(
+        _native.detection_detail(
+            _manifest_arg(manifest),
+            camera,
+            os.fspath(image),
+            _base_dir_arg(base_dir),
+            _cache_arg(cache),
+            force_redetect,
         )
     )
