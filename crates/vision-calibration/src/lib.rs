@@ -228,8 +228,11 @@ pub mod common {
 /// ([`DeviceSpec`](device_seed::DeviceSpec), the sidecar `spec.json` schema
 /// describing the capture hardware: lens focal, pixel pitch, Scheimpflug
 /// mount tilt, nominal rig layout) or from a previous calibration (any
-/// export). Its derivations, and the free functions for a `DeviceSpec`, give
-/// the manual-init seeds the workflows' seeded steps take.
+/// export, or a project's run). Its derivations, and the free functions for
+/// a `DeviceSpec`, give the manual-init seeds the workflows' seeded steps
+/// take. [`DeviceSeed::aggregate`](device_seed::DeviceSeed::aggregate) makes
+/// a seed for a device type from several units' seeds
+/// ([`SeedAggregate`](device_seed::SeedAggregate)).
 pub mod device_seed {
     pub use vision_calibration_pipeline::device_seed::{
         // Schema types (from `vision-calibration-dataset`)
@@ -249,9 +252,11 @@ pub mod device_seed {
         NominalPoseSpec,
         RigLayoutSpec,
         ScheimpflugMountSpec,
+        SeedAggregate,
         SeedCamera,
         SeedHandeye,
         SeedLens,
+        SeedSpread,
         handeye_seed,
         nominal_cam_se3_rig,
         rig_intrinsics_seed,
@@ -622,8 +627,9 @@ pub mod project {
         InputDigest, LeftOutImage, LibraryScan, LibraryScanOptions, PROJECT_FILE,
         PROJECT_FILE_JSON, PROJECT_VERSION, Project, ProjectDigest, ProjectEntry, ProjectError,
         ProjectRunOptions, ProjectSpec, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
-        RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSource, RunState,
-        RunSummary, ScanFailure, UnrecordedRun, ViewExclusion, ViewRef, scan_library,
+        RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSeed, RunSource,
+        RunState, RunSummary, ScanFailure, SeedSource, UnrecordedRun, ViewExclusion, ViewRef,
+        scan_library,
     };
 }
 

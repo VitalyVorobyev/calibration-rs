@@ -31,6 +31,9 @@ product = "bench rig"        # the device type
 id = "SN-0042"               # the device's own identifier
 label = "left"
 
+[seed]                       # where every run starts from (optional)
+run = "../SN-0041/runs/run-002"
+
 [dataset]
 manifest = "captures/dataset.toml"
 
@@ -58,6 +61,8 @@ so a misspelt section such as `[exlude]` never passes silently.
 - `[device]` names the device the project calibrates. Projects of one
   device, wherever they are, form its calibration history
   ([The Library](#the-library)); `id` is compared as written.
+- `[seed]` names the seed every run starts from instead of the closed-form
+  initialization ([Starting from a Seed](#starting-from-a-seed)).
 - `[config]` holds the workflow's configuration fields to change, keyed
   like its `*Config` ([Changes to the Defaults](getting_started.md#changes-to-the-defaults));
   what it leaves out keeps the default.
@@ -159,6 +164,40 @@ nothing out. A feature point that matches no detected feature is not an
 error, since the detection is only known once it ran: the run's record lists
 it under `unmatched_exclusions`.
 
+## Starting from a Seed
+
+A project of a device whose type, or whose own earlier calibration, is
+known can start every run from it, the way
+[Starting from a previous calibration](manual_init.md#starting-from-a-previous-calibration)
+describes for one dataset run. `[seed]` holds one key:
+
+| Key | The seed |
+|---|---|
+| `run` | a calibrated run: its folder (`runs/run-003`, of this project or another) or its `export.json`. Its record names the cameras and their image sizes. |
+| `device_spec` | a device specification (`spec.json`): the datasheet's focal lengths and mount tilts, the drawing's mounts ([Device Specifications](manifest.md#device-specifications)) |
+| `file` | a seed file (JSON, TOML by its `.toml` extension), such as `vcal seed` writes: one unit's, or a device type's ([A seed for a device type](manual_init.md#a-seed-for-a-device-type)) |
+
+A path is relative to the project folder unless absolute. The seed is made
+and checked against the dataset's cameras and the configuration's camera
+model before any image is read (`vcal check` and `Project::check` check it
+too), and a camera's image size against the seed's once the image headers
+are read, before any detection. A seed that is missing, cannot be read or
+does not fit is an error that names it (`field` `seed`), never a run
+without it. `ProjectRunOptions::seed` (Python `calibrate(seed=...)`) starts
+one run from another seed in place of the project's.
+
+The seed is a starting point: the calibration still estimates everything,
+and a seed close to the device ends where the unseeded run ends. The run's
+record keeps it under `inputs.seed`: the source as the project named it,
+the values the run started from (so a seed file edited later does not
+change what an old run says it used), and what the workflow `applied` and
+`ignored`, by label (`cam0.lens`, `cam0.cam_se3_rig`, `cam0.laser_plane`,
+`handeye`): a planar run takes a seed's lens and leaves its laser plane.
+
+`DeviceSeed::from_run` (Python `DeviceSeed.from_run`) makes the seed of a
+run, from its export and its record; `vcal seed from-runs` writes it to a
+file.
+
 ## Runs
 
 `vcal run my-camera` (or `Project::calibrate`) checks the project, detects
@@ -171,8 +210,9 @@ each other.
 `run.json` is the run's record and never changes: the tool and library
 version, the inputs as the run resolved them (the manifest, the exclusions,
 the configuration changes and the configuration they made, the quality
-thresholds), what detection left out and why, and a summary (the verdict,
-each camera's RMS reprojection error, features and views). A run's label,
+thresholds, the seed), what detection left out and why, and a summary (the
+verdict, each camera's RMS reprojection error, features, views and image
+size). A run's label,
 notes and star live apart, in `notes.json`, the only file that changes.
 
 `export.json` is the workflow's export. Its image manifest's `root` leads
@@ -186,10 +226,12 @@ as a `vcal run -o` folder, joins the project with `vcal project import` or
 
 The record's `digest` holds a SHA-256 of each input: the manifest (with
 the content of its robot pose file and upstream calibration), the
-exclusions, the resolved configuration, the quality thresholds, and the
+exclusions, the resolved configuration, the quality thresholds, the
 detections, the set of detection-cache keys the run read, which cover each
-image's bytes, the detector, its configuration and its version. `inputs`
-combines them. Two runs with the same `inputs` digest, by the same library
+image's bytes, the detector, its configuration and its version, and for a
+seeded run the seed's values (`seed`; where they were read from is not part
+of it). `inputs` combines them; a run without a seed has no `seed` digest,
+and its `inputs` combines the other five. Two runs with the same `inputs` digest, by the same library
 version, have byte-identical `export.json` and `quality.json`: the time
 stamp and duration in `run.json` are the only clock readings, and no digest
 includes them. Moving the data does not change a digest.
@@ -197,21 +239,48 @@ includes them. Moving the data does not change a digest.
 `Project::input_digest` (Python `Project.input_digest()`) computes the
 same digests of the project as it stands, for everything but the
 detections, without reading an image. A run whose `dataset`, `exclusions`,
-`config` or `quality` digest differs from the project's was made from
-other inputs than the project now states; a run's own configuration
-changes count as such a difference.
+`config`, `quality` or `seed` digest differs from the project's was made
+from other inputs than the project now states; a run's own configuration
+changes or seed count as such a difference.
 
 ## The Library
 
 The projects under a set of folders are a library. `vcal project scan`
 (`scan_library`) walks the folders, reads each project and groups the runs
-of every device by `[device]`'s `product` and `id`, oldest first. There is
-no index to fall out of date: the folders are the library.
+of every device by `[device]`'s `product` and `id`, oldest first (runs of
+the app's earlier format, which have no time, first). There is no index to
+fall out of date: the folders are the library.
+
+`DeviceHistory::representative_run` (Python
+`project.representative_run(device)`) picks the run that stands for a
+device: its latest starred run, else its latest run calibrated in a project
+(not imported) whose verdict is `pass`. Its seed starts the device's next
+calibration; the seeds of several devices of one type make the type's
+([A seed for a device type](manual_init.md#a-seed-for-a-device-type)):
+
+```rust,no_run
+use vision_calibration::device_seed::DeviceSeed;
+use vision_calibration::project::{LibraryScanOptions, scan_library};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let scan = scan_library(&["calibrations".into()], &LibraryScanOptions::default());
+let mut seeds = Vec::new();
+for device in scan.devices() {
+    if let Some(entry) = device.representative_run() {
+        seeds.push(DeviceSeed::from_run(&entry.run.dir)?);
+    }
+}
+let aggregate = DeviceSeed::aggregate(&seeds)?;
+std::fs::write("type-seed.json", serde_json::to_string_pretty(&aggregate.seed)?)?;
+# Ok(())
+# }
+```
 
 ## From the Command Line
 
 ```bash
-vcal project init my-camera --manifest captures/dataset.toml --device-id SN-0042
+vcal project init my-camera --manifest captures/dataset.toml --device-id SN-0042 \
+  --seed-run ../SN-0041/runs/run-002
 vcal check my-camera
 vcal run my-camera --label "after refocus" --report
 vcal project runs my-camera
@@ -284,4 +353,9 @@ for info in project.runs():
 
 for device in scan_library(["~/calibrations"])["devices"]:
     print(device["device"]["id"], len(device["runs"]))
+
+# The next unit's project starts from this one's run.
+spec = project.spec
+spec["seed"] = {"run": run["dir"]}
+next_unit = Project.create("my-camera-2", spec)
 ```

@@ -12,6 +12,8 @@
 //! vcal project import <project> <export>   add an export calibrated elsewhere as a run
 //! vcal project note <project> <run>        label, annotate or star a run
 //! vcal project scan <root>...     the projects under folders, grouped by device
+//! vcal seed from-runs <run>...    a seed file from a run, or a device type's from several
+//! vcal seed from-spec <spec>      a seed file from a device spec
 //! vcal sample list                list the sample datasets
 //! vcal sample fetch <id>          download a sample dataset; prints its manifest's path
 //! ```
@@ -19,8 +21,10 @@
 //! Every command is a thin layer over the library: `init` is
 //! [`sniff_folder`], `check` is [`camera_image_sizes`], `run` is
 //! [`calibrate_dataset`] followed by [`assess`], `project` is
-//! [`Project`] and [`scan_library`], and `sample` is [`samples`]. The same
-//! commands ship with the Python package as its `vcal` console script.
+//! [`Project`] and [`scan_library`], `seed` is [`DeviceSeed::from_run`],
+//! [`DeviceSeed::aggregate`] and [`DeviceSeed::from_spec`], and `sample` is
+//! [`samples`]. The same commands ship with the Python package as its `vcal`
+//! console script.
 //!
 //! `check` and `run` take a project when their path is a project folder (one
 //! holding `calibration-project.toml` or `calibration-project.json`) or a
@@ -57,7 +61,7 @@ use serde::Serialize;
 use vision_calibration::analysis::{
     CheckStatus, QualityReport, QualityThresholds, ReportOptions, Verdict, assess, html_report,
 };
-use vision_calibration::common::CalibratedCameras;
+use vision_calibration::common::{CalibratedCameras, calibrated_cameras};
 use vision_calibration::control::{Progress, RunControl};
 use vision_calibration::core::Uncertainty;
 use vision_calibration::dataset::{DatasetSpec, ProblemKind, samples, sniff_folder};
@@ -70,7 +74,7 @@ use vision_calibration::device_seed::{DeviceSeed, DeviceSpec};
 use vision_calibration::project::{
     DatasetSource, DeviceIdentity, LibraryScan, LibraryScanOptions, PROJECT_FILE,
     PROJECT_FILE_JSON, Project, ProjectError, ProjectRunOptions, ProjectSpec, RunInfo, RunNotes,
-    RunSource, RunState, scan_library,
+    RunSeed, RunSource, RunState, SeedSource, scan_library,
 };
 
 /// Writes a line to standard output. A failed write is ignored: a reader
@@ -193,6 +197,13 @@ enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Make a seed file (a `DeviceSeed`) for `vcal run --seed` or a
+    /// project's `[seed]`: from a calibrated run, from the runs of several
+    /// units of a device type, or from a device spec.
+    Seed {
+        #[command(subcommand)]
+        command: SeedCommand,
+    },
     /// List or download the sample datasets.
     Sample {
         #[command(subcommand)]
@@ -236,9 +247,20 @@ enum ProjectCommand {
         /// A name for the device, for display.
         #[arg(long, requires = "device_id")]
         device_label: Option<String>,
+        /// Start every run from this calibrated run (`[seed] run`): a run
+        /// folder of this project or another.
+        #[arg(long, value_name = "RUN", conflicts_with_all = ["seed_file", "seed_spec"])]
+        seed_run: Option<PathBuf>,
+        /// Start every run from a seed file (`[seed] file`), such as
+        /// `vcal seed` writes.
+        #[arg(long, value_name = "FILE", conflicts_with = "seed_spec")]
+        seed_file: Option<PathBuf>,
+        /// Start every run from a device spec (`[seed] device_spec`).
+        #[arg(long, value_name = "FILE")]
+        seed_spec: Option<PathBuf>,
     },
     /// List a project's runs: id, time (UTC), verdict, views, each camera's
-    /// RMS reprojection error, star and label.
+    /// RMS reprojection error, the seed it started from, star and label.
     Runs {
         /// The project (its folder or its project file).
         project: PathBuf,
@@ -288,6 +310,43 @@ enum ProjectCommand {
         /// Print the scan as JSON: `projects`, `failures` and `devices`.
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SeedCommand {
+    /// The seed of a calibrated run; of several runs, one per unit of a
+    /// device type, the seed of the type: each value the median across
+    /// them, with its spread printed. The type's seed is a starting point,
+    /// not a calibration of any unit.
+    FromRuns {
+        /// Project run folders (`runs/run-003`). With `--camera-ids` and
+        /// `--image-sizes`, export files instead (or folders `vcal run -o`
+        /// wrote).
+        #[arg(required = true, value_name = "RUN")]
+        runs: Vec<PathBuf>,
+        /// Where to write the seed: JSON, or TOML by its `.toml` extension.
+        #[arg(short, long)]
+        output: PathBuf,
+        /// The exports' camera ids, in their camera order: `cam0,cam1`.
+        #[arg(long, value_delimiter = ',', requires = "image_sizes")]
+        camera_ids: Vec<String>,
+        /// The exports' image sizes, one per camera: `1920x1200,1920x1200`.
+        #[arg(long, value_delimiter = ',', requires = "camera_ids")]
+        image_sizes: Vec<String>,
+        /// Print the seed (of several runs, the aggregate with each value's
+        /// spread) as JSON instead of a summary.
+        #[arg(long)]
+        json: bool,
+    },
+    /// The datasheet seed of a device spec (`spec.json`): each camera's
+    /// focal length and mount tilt, and the drawing's mounts.
+    FromSpec {
+        /// The device spec.
+        spec: PathBuf,
+        /// Where to write the seed: JSON, or TOML by its `.toml` extension.
+        #[arg(short, long)]
+        output: PathBuf,
     },
 }
 
@@ -390,6 +449,7 @@ where
             }
         }
         Command::Project { command } => project(command).map(|()| 0),
+        Command::Seed { command } => seed(command).map(|()| 0),
         Command::Sample { command } => sample(command).map(|()| 0),
     };
     outcome.unwrap_or_else(|err| {
@@ -855,6 +915,9 @@ fn calibrate_project(
             calibrated.usable_views,
             calibrated.total_views
         );
+        if let Some(seed) = &calibrated.inputs.seed {
+            say!("started from {}", seed_line(seed));
+        }
         for left_out in &calibrated.left_out {
             say!(
                 "  left out {}: {}",
@@ -894,6 +957,9 @@ fn project(command: ProjectCommand) -> Result<()> {
             device_id,
             device_product,
             device_label,
+            seed_run,
+            seed_file,
+            seed_spec,
         } => {
             let device = device_id.map(|id| {
                 let mut device = DeviceIdentity::new(id);
@@ -901,6 +967,10 @@ fn project(command: ProjectCommand) -> Result<()> {
                 device.label = device_label;
                 device
             });
+            let seed = seed_run
+                .map(SeedSource::Run)
+                .or(seed_file.map(SeedSource::File))
+                .or(seed_spec.map(SeedSource::DeviceSpec));
             project_init(
                 &folder,
                 data.as_deref(),
@@ -908,6 +978,7 @@ fn project(command: ProjectCommand) -> Result<()> {
                 embed,
                 name,
                 device,
+                seed,
             )
         }
         ProjectCommand::Runs { project, json } => project_runs(&project, json),
@@ -970,8 +1041,28 @@ fn project_init(
     embed: bool,
     name: Option<String>,
     device: Option<DeviceIdentity>,
+    seed: Option<SeedSource>,
 ) -> Result<()> {
     let folder_abs = absolute(folder)?;
+    // A seed's path is written relative to the project when it lies inside
+    // it; whether it makes a seed is checked by `vcal check` and every run.
+    let seed = seed
+        .map(|source| -> Result<SeedSource> {
+            let restate = |path: &Path| -> Result<PathBuf> {
+                let path_abs = absolute(path)?;
+                if !path_abs.exists() {
+                    bail!("the seed {} does not exist", path.display());
+                }
+                Ok(within(&folder_abs, &path_abs))
+            };
+            Ok(match source {
+                SeedSource::Run(path) => SeedSource::Run(restate(&path)?),
+                SeedSource::File(path) => SeedSource::File(restate(&path)?),
+                SeedSource::DeviceSpec(path) => SeedSource::DeviceSpec(restate(&path)?),
+                other => other,
+            })
+        })
+        .transpose()?;
     let mut unresolved = Vec::new();
     let dataset = match manifest {
         Some(manifest) => {
@@ -1010,6 +1101,7 @@ fn project_init(
     let mut spec = ProjectSpec::new(dataset);
     spec.name = name;
     spec.device = device;
+    spec.seed = seed;
     let project = Project::create(folder, spec)?;
     say!("wrote {}", project.file().display());
     print_unresolved(&unresolved, &mut std::io::stdout());
@@ -1070,12 +1162,39 @@ fn run_line(run: &RunInfo) -> String {
             .join(", ")
     });
     let mut line = format!("{}  {time}  {verdict}  {views}  {cameras}", run.id);
+    let seed = match run.record().map(|record| &record.source) {
+        Some(RunSource::Calibrated(calibrated)) => calibrated.inputs.seed.as_ref(),
+        _ => None,
+    };
+    if let Some(seed) = seed {
+        line.push_str("  seed: ");
+        line.push_str(&source_line(&seed.source));
+    }
     let notes = notes_line(&run.notes);
     if !notes.is_empty() {
         line.push_str("  ");
         line.push_str(&notes);
     }
     line
+}
+
+/// Where a seed came from, as `vcal` prints it: `run ../a/runs/run-003`.
+fn source_line(source: &SeedSource) -> String {
+    match source {
+        SeedSource::Run(path) => format!("run {}", path.display()),
+        SeedSource::File(path) => format!("file {}", path.display()),
+        SeedSource::DeviceSpec(path) => format!("device spec {}", path.display()),
+        other => format!("{other:?}"),
+    }
+}
+
+/// The seed a run started from, with its description.
+fn seed_line(seed: &RunSeed) -> String {
+    let source = source_line(&seed.source);
+    match &seed.value.description {
+        Some(description) => format!("the seed of {source} ({description})"),
+        None => format!("the seed of {source}"),
+    }
 }
 
 /// A run's star and label.
@@ -1244,6 +1363,134 @@ fn write_all(files: &[(PathBuf, String)]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `vcal seed`.
+fn seed(command: SeedCommand) -> Result<()> {
+    match command {
+        SeedCommand::FromRuns {
+            runs,
+            output,
+            camera_ids,
+            image_sizes,
+            json,
+        } => {
+            let sizes = image_sizes
+                .iter()
+                .map(|size| parse_size(size))
+                .collect::<Result<Vec<_>>>()?;
+            let seeds = runs
+                .iter()
+                .map(|run| {
+                    if camera_ids.is_empty() {
+                        DeviceSeed::from_run(run).map_err(anyhow::Error::from)
+                    } else {
+                        seed_of_export(run, &camera_ids, &sizes)
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if let [seed] = seeds.as_slice() {
+                write_seed(&output, seed)?;
+                if json {
+                    say!("{}", serde_json::to_string_pretty(seed)?);
+                } else {
+                    let ids: Vec<&str> = seed.cameras.iter().map(|c| c.id.as_str()).collect();
+                    say!(
+                        "{}: cameras {}",
+                        seed.description.as_deref().unwrap_or("the seed"),
+                        ids.join(", ")
+                    );
+                    say!("wrote {}", output.display());
+                }
+                return Ok(());
+            }
+            let aggregate = DeviceSeed::aggregate(&seeds)?;
+            write_seed(&output, &aggregate.seed)?;
+            if json {
+                say!("{}", serde_json::to_string_pretty(&aggregate)?);
+                return Ok(());
+            }
+            say!(
+                "the median of {} seeds: a starting point for the type, not a calibration of any unit",
+                aggregate.units
+            );
+            say!(
+                "  {:<28} {:>14} {:>12} {:>14} {:>14}",
+                "value",
+                "median",
+                "MAD σ",
+                "min",
+                "max"
+            );
+            for spread in &aggregate.spread {
+                say!(
+                    "  {:<28} {:>14.6} {:>12.6} {:>14.6} {:>14.6}",
+                    spread.label,
+                    spread.median,
+                    spread.mad_sigma,
+                    spread.min,
+                    spread.max
+                );
+            }
+            if !aggregate.omitted.is_empty() {
+                say!(
+                    "left out (not in every seed): {}",
+                    aggregate.omitted.join(", ")
+                );
+            }
+            say!("wrote {}", output.display());
+            Ok(())
+        }
+        SeedCommand::FromSpec { spec, output } => {
+            let seed = seed_from_spec(&spec)?.seed;
+            write_seed(&output, &seed)?;
+            say!("wrote {}", output.display());
+            Ok(())
+        }
+    }
+}
+
+/// The seed of the export at `path` (a file, or a folder `vcal run -o`
+/// wrote or a run folder), its cameras `ids` with images of `sizes`.
+fn seed_of_export(path: &Path, ids: &[String], sizes: &[[u32; 2]]) -> Result<DeviceSeed> {
+    let file = if path.is_dir() {
+        let vcal = path.join("calibration.json");
+        if vcal.is_file() {
+            vcal
+        } else {
+            path.join("export.json")
+        }
+    } else {
+        path.to_path_buf()
+    };
+    let context = || format!("reading the export {}", file.display());
+    let text = std::fs::read_to_string(&file).with_context(context)?;
+    let export = calibrated_cameras(&text).with_context(context)?;
+    DeviceSeed::from_calibration(export.as_ref(), ids, sizes).with_context(context)
+}
+
+/// `WIDTHxHEIGHT` as `[width, height]`.
+fn parse_size(text: &str) -> Result<[u32; 2]> {
+    let parsed = text
+        .split_once(['x', 'X'])
+        .and_then(|(w, h)| Some([w.trim().parse().ok()?, h.trim().parse().ok()?]));
+    match parsed {
+        Some(size) => Ok(size),
+        None => Err(Usage(format!("{text:?} is not an image size WIDTHxHEIGHT")).into()),
+    }
+}
+
+/// Write `seed` to `path`: TOML by its `.toml` extension, JSON otherwise.
+fn write_seed(path: &Path, seed: &DeviceSeed) -> Result<()> {
+    let text = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+    {
+        toml::to_string_pretty(seed).context("writing the seed as TOML")?
+    } else {
+        json_text(seed)?
+    };
+    write_all(&[(path.to_path_buf(), text)])
 }
 
 fn sample(command: SampleCommand) -> Result<()> {

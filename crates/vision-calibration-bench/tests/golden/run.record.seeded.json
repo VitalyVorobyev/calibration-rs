@@ -1,0 +1,203 @@
+{
+  "library_version": "1.0.0-rc.1",
+  "source": {
+    "digest": {
+      "config": "sha256:1600a7636c607a10e0fe5b15f99f3ca717fac53741d04cf857cf17870cb01638",
+      "dataset": "sha256:e4433ad59c253bec3d6e71fdc15459b99a1b3a82b03c19787fab4c9489d2ad37",
+      "detections": "sha256:127688895797ffc402c24905f1289f8293074439b8098c8db2438593672bb48f",
+      "exclusions": "sha256:6265843d9341ac0e44c47ba864e4854ad463ffbf372ff3b5ad7fcadd4f440cb5",
+      "inputs": "sha256:949510ac89ca67a80996ca91c843e548f11c3487aed7316418d3e25d30dab19c",
+      "quality": "sha256:1e426ba79481778a0c14f6fc4a607d403ebfe193464f3a97be83bf976d997938",
+      "seed": "sha256:7855f5319f6ef046c7713930d0b44130486fef511af21fdaeed57413228f0a42"
+    },
+    "duration_ms": 60,
+    "inputs": {
+      "config": {
+        "config": {
+          "camera": {
+            "fix": {},
+            "model": {
+              "distortion": "brown_conrady5",
+              "projection": "pinhole",
+              "sensor": "identity"
+            }
+          },
+          "intrinsics_init": {
+            "fix_k3": true,
+            "iterations": 2
+          },
+          "optimize": {
+            "fix_poses": [],
+            "reprojection_loss": {
+              "kind": "none"
+            }
+          },
+          "solver": {
+            "backend": "tiny_solver",
+            "max_iters": 120,
+            "verbosity": 0
+          }
+        },
+        "topology": "planar_intrinsics"
+      },
+      "config_patch": {},
+      "data_root": "data",
+      "dataset": {
+        "cameras": [
+          {
+            "id": "cam0",
+            "images": {
+              "kind": "list",
+              "paths": [
+                "view00.png",
+                "view01.png",
+                "view02.png",
+                "view03.png"
+              ]
+            }
+          }
+        ],
+        "target": {
+          "cols": 8,
+          "kind": "chessboard",
+          "rows": 6,
+          "square_size_m": 0.03
+        },
+        "topology": "planar_intrinsics",
+        "version": 1
+      },
+      "exclusions": {
+        "features": [
+          {
+            "camera": "cam0",
+            "image": "view00.png",
+            "points": [
+              [
+                0.0,
+                0.0,
+                0.0
+              ],
+              [
+                5.0,
+                5.0,
+                0.0
+              ]
+            ]
+          }
+        ],
+        "images": [
+          {
+            "camera": "cam0",
+            "image": "view01.png"
+          }
+        ]
+      },
+      "quality": {
+        "coverage_fail_below": 0.3,
+        "coverage_warn_below": 0.5,
+        "expected_feature_noise_px": null,
+        "max_parameter_correlation": 0.99,
+        "max_projection_sigma_px": 1.0,
+        "max_second_order_scatter": 1.2,
+        "max_sigma_inflation": 7.0,
+        "max_view_residual": 3.0,
+        "variance_test_alpha": 0.01
+      },
+      "seed": {
+        "applied": [
+          "cam0.lens"
+        ],
+        "source": {
+          "run": "runs/run-001"
+        },
+        "value": {
+          "cameras": [
+            {
+              "id": "cam0",
+              "image_size": [
+                640,
+                480
+              ],
+              "lens": {
+                "camera": {
+                  "distortion": {
+                    "iters": 8,
+                    "k1": 1.5206670364282438e-14,
+                    "k2": -3.0530308205759524e-13,
+                    "k3": 0.0,
+                    "p1": 5.731906265560452e-16,
+                    "p2": 8.73321604373695e-16,
+                    "type": "brown_conrady5"
+                  },
+                  "intrinsics": {
+                    "cx": 320.00000000000364,
+                    "cy": 239.9999999999943,
+                    "fx": 799.9999999999089,
+                    "fy": 799.9999999999076
+                  },
+                  "projection": {
+                    "type": "pinhole"
+                  },
+                  "sensor": {
+                    "type": "identity"
+                  }
+                },
+                "kind": "calibrated"
+              }
+            }
+          ],
+          "description": "the calibrated run run-001",
+          "version": 1
+        }
+      }
+    },
+    "kind": "calibrated",
+    "left_out": [
+      {
+        "camera": "cam0",
+        "image": "view01.png",
+        "reason": "excluded"
+      },
+      {
+        "camera": "cam0",
+        "image": "view03.png",
+        "reason": "too_few_features"
+      }
+    ],
+    "redetected": false,
+    "total_views": 8,
+    "unmatched_exclusions": [
+      {
+        "camera": "cam0",
+        "image": "view00.png",
+        "points": [
+          [
+            5.0,
+            5.0,
+            0.0
+          ]
+        ]
+      }
+    ],
+    "usable_views": 6
+  },
+  "summary": {
+    "cameras": [
+      {
+        "features": 287,
+        "id": "cam0",
+        "image_size": [
+          640,
+          480
+        ],
+        "rms_px": 7.733542828682991e-13,
+        "views": 6
+      }
+    ],
+    "kind": "planar_intrinsics",
+    "verdict": "warn"
+  },
+  "timestamp": 1795792257,
+  "tool": "golden",
+  "version": 1
+}

@@ -93,6 +93,19 @@ mechanism the steps consume.
 - Per-field seeds are all-or-none across a rig's cameras: mixed calibrated
   and nominal lenses are a typed `PartialField` for the rig's distortion,
   never zeros for the nominal ones.
+- **A device type's seed is a median** (`DeviceSeed::aggregate`, one seed
+  per unit, calibrated lenses only): every unit re-gauged to the camera
+  with the smallest id, the componentwise median of each camera parameter
+  and translation, the chordal (Markley) mean of a rotation corrected by
+  the componentwise median of the tangent vectors about it, laser planes
+  signed `d > 0` then medianed. Quantities only some units have are omitted
+  and listed, never filled. A median lens that folds where every unit's is
+  valid is `AggregateFolds`. The result is bit-identical under any order
+  of the units. Its spread (median, `1.4826·MAD`, min, max per value) is
+  descriptive, not a prior. The componentwise tangent median is not
+  rotation-equivariant: with an outlier pulling the chordal mean and inlier
+  turns off the tangent axes, it lands within the inliers' spread, not at
+  their mean (pinned by the aggregate tests).
 
 The `DeviceSpec` free functions (`scheimpflug_seed`, `rig_intrinsics_seed`,
 `nominal_cam_se3_rig`, `rig_layout_seed`, `handeye_seed`) stay and share

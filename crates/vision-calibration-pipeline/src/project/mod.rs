@@ -28,8 +28,14 @@
 //! by the same library version, have byte-identical exports and quality
 //! reports.
 //!
+//! A project's `[seed]` ([`SeedSource`]) names the seed its runs start
+//! from: a previous run, a device specification or a seed file; each run's
+//! record keeps the seed it used ([`RunSeed`]).
+//!
 //! [`scan_library`] finds the projects under a set of folders and
-//! [`LibraryScan::devices`] groups their runs by the device they calibrate.
+//! [`LibraryScan::devices`] groups their runs by the device they calibrate;
+//! [`DeviceHistory::representative_run`] picks the run that stands for a
+//! device.
 
 mod digest;
 mod error;
@@ -39,6 +45,7 @@ mod fs;
 mod library;
 mod record;
 mod run;
+mod seed;
 mod spec;
 
 pub use error::ProjectError;
@@ -55,6 +62,7 @@ pub use record::{
     RunNotes, RunRecord, RunSource, RunState, RunSummary, UnrecordedRun,
 };
 pub use run::ProjectRunOptions;
+pub use seed::{RunSeed, SeedSource};
 pub use spec::{DatasetSource, DeviceIdentity, ProjectSpec};
 
 /// The project file format version this library writes. Version 1 is the

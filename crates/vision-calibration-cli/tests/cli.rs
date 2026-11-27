@@ -877,6 +877,195 @@ fn a_seeded_run_starts_from_a_previous_calibration_or_a_datasheet() {
     assert!(!dir.join("runs/run-001").exists());
 }
 
+/// `vcal seed` writes the seed of a run, of a device type from several
+/// runs, of a bare export and of a device spec; a project whose `[seed]`
+/// names a run starts every run from it and its record says so.
+#[test]
+fn seed_files_and_a_seeded_project() {
+    use vision_calibration::device_seed::{CameraDeviceSpec, DeviceSeed, DeviceSpec};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("unit-1");
+    let manifest = manifest_folder(&dir);
+    assert_eq!(
+        vcal(&["project", "init", path(&dir), "--manifest", path(&manifest)]),
+        0
+    );
+    assert_eq!(vcal(&["run", path(&dir)]), 0);
+    let run = dir.join("runs/run-001");
+    let seeds = tmp.path().join("seeds");
+    std::fs::create_dir_all(&seeds).unwrap();
+
+    // One run: the library's seed of it.
+    let one = seeds.join("one.json");
+    assert_eq!(
+        vcal(&["seed", "from-runs", path(&run), "-o", path(&one)]),
+        0
+    );
+    let expected = DeviceSeed::from_run(&run).unwrap();
+    assert_eq!(read_json(&one), serde_json::to_value(&expected).unwrap());
+
+    // Two runs: their median, the seed of the aggregate in the file; the
+    // camera of two equal seeds is theirs.
+    let typed = seeds.join("type.toml");
+    assert_eq!(
+        vcal(&[
+            "seed",
+            "from-runs",
+            path(&run),
+            path(&run.join("export.json")),
+            "-o",
+            path(&typed),
+            "--json"
+        ]),
+        0
+    );
+    let aggregate: DeviceSeed = toml::from_str(&std::fs::read_to_string(&typed).unwrap()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&aggregate.cameras[0].lens).unwrap(),
+        serde_json::to_value(&expected.cameras[0].lens).unwrap()
+    );
+
+    // A bare export needs its cameras' ids and image sizes.
+    let out = tmp.path().join("out");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 0);
+    let id = expected.cameras[0].id.clone();
+    let bare = seeds.join("bare.json");
+    assert_eq!(
+        vcal(&["seed", "from-runs", path(&out), "-o", path(&bare)]),
+        1
+    );
+    assert_eq!(
+        vcal(&[
+            "seed",
+            "from-runs",
+            path(&out),
+            "-o",
+            path(&bare),
+            "--camera-ids",
+            &id,
+            "--image-sizes",
+            &format!("{WIDTH}x{HEIGHT}")
+        ]),
+        0
+    );
+    assert_eq!(
+        read_json(&bare)["cameras"],
+        serde_json::to_value(&expected.cameras).unwrap()
+    );
+    assert_eq!(
+        vcal(&[
+            "seed",
+            "from-runs",
+            path(&out),
+            "-o",
+            path(&bare),
+            "--camera-ids",
+            &id
+        ]),
+        2
+    );
+    assert_eq!(
+        vcal(&[
+            "seed",
+            "from-runs",
+            path(&out),
+            "-o",
+            path(&bare),
+            "--camera-ids",
+            &id,
+            "--image-sizes",
+            "640by480"
+        ]),
+        2
+    );
+
+    // A device spec.
+    let spec_file = seeds.join("spec.json");
+    std::fs::write(
+        &spec_file,
+        serde_json::to_string(&DeviceSpec::new(vec![CameraDeviceSpec::new(
+            id.clone(),
+            3.0,
+            5.0,
+            [WIDTH, HEIGHT],
+        )]))
+        .unwrap(),
+    )
+    .unwrap();
+    let from_spec = seeds.join("spec-seed.json");
+    assert_eq!(
+        vcal(&[
+            "seed",
+            "from-spec",
+            path(&spec_file),
+            "-o",
+            path(&from_spec)
+        ]),
+        0
+    );
+    assert_eq!(
+        read_json(&from_spec)["cameras"][0]["lens"]["kind"],
+        "nominal"
+    );
+
+    // A project of the next unit, seeded from the first unit's run.
+    let next = tmp.path().join("unit-2");
+    assert_eq!(
+        vcal(&[
+            "project",
+            "init",
+            path(&next),
+            "--manifest",
+            path(&manifest),
+            "--seed-run",
+            path(&run)
+        ]),
+        0
+    );
+    let file = read_toml(&next.join("calibration-project.toml"));
+    assert_eq!(file["seed"]["run"].as_str(), Some(path(&run)));
+    assert_eq!(vcal(&["check", path(&next)]), 0);
+    assert_eq!(vcal(&["run", path(&next)]), 0);
+    let record = read_json(&next.join("runs/run-001/run.json"));
+    let seed = &record["source"]["inputs"]["seed"];
+    assert_eq!(seed["source"]["run"].as_str(), Some(path(&run)));
+    assert_eq!(seed["value"], serde_json::to_value(&expected).unwrap());
+    assert_eq!(seed["applied"], serde_json::json!([format!("{id}.lens")]));
+    assert!(record["source"]["digest"]["seed"].is_string());
+    assert_eq!(vcal(&["project", "runs", path(&next)]), 0);
+
+    // One seed option at a time, and a seed that exists.
+    let other = tmp.path().join("unit-3");
+    assert_eq!(
+        vcal(&[
+            "project",
+            "init",
+            path(&other),
+            "--manifest",
+            path(&manifest),
+            "--seed-run",
+            path(&run),
+            "--seed-file",
+            path(&one)
+        ]),
+        2
+    );
+    assert_eq!(
+        vcal(&[
+            "project",
+            "init",
+            path(&other),
+            "--manifest",
+            path(&manifest),
+            "--seed-file",
+            path(&seeds.join("missing.json"))
+        ]),
+        1
+    );
+    assert!(!other.join("calibration-project.toml").exists());
+}
+
 fn read_toml(path: &Path) -> toml::Table {
     toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }

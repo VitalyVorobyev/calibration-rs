@@ -668,6 +668,114 @@ export type ViewRef =
       image: string;
     };
 /**
+ * Where the seed a project's runs start from comes from: the project
+ * file's `[seed]`, one key.
+ *
+ * ```toml
+ * [seed]
+ * run = "../unit-0007/runs/run-003"   # or: device_spec = "spec.json"
+ *                                     # or: file = "seeds/type-x.json"
+ * ```
+ *
+ * A path is relative to the project folder unless absolute. Every run of
+ * the project starts from the seed: a run's record keeps the seed's
+ * values as they were resolved ([`RunSeed`]), so a seed file that changes
+ * later does not change what a run says it started from. A seed is an
+ * initial value: the calibration still estimates everything.
+ *
+ * The seed is resolved and checked against the dataset and the
+ * configuration before any image is read; a seed that is missing, cannot
+ * be read or does not fit is an error, never a run without it.
+ */
+export type SeedSource =
+  | {
+      run: string;
+    }
+  | {
+      device_spec: string;
+    }
+  | {
+      file: string;
+    };
+/**
+ * A seed camera's lens: a whole calibrated camera, or a datasheet's values.
+ */
+export type SeedLens =
+  | {
+      /**
+       * The camera's parameters (a sensor homography is not seedable).
+       */
+      camera: CameraParams;
+      kind: "calibrated";
+    }
+  | {
+      /**
+       * Pinhole intrinsics, pixels.
+       */
+      intrinsics: FxFyCxCy;
+      kind: "nominal";
+      /**
+       * Sensor tilt, radians; zero for a frontal mount.
+       */
+      sensor: ScheimpflugParams;
+    };
+/**
+ * Serializable projection model parameters.
+ */
+export type ProjectionParams =
+  | {
+      type: "pinhole";
+    }
+  | {
+      type: "equidistant";
+    };
+/**
+ * Serializable sensor model parameters.
+ */
+export type SensorParams =
+  | {
+      type: "identity";
+    }
+  | {
+      /**
+       * Row-major homography matrix mapping normalized to sensor coordinates.
+       *
+       * @minItems 3
+       * @maxItems 3
+       */
+      h: [[number, number, number], [number, number, number], [number, number, number]];
+      type: "homography";
+    }
+  | {
+      /**
+       * Tilt around X axis in radians (alias: tau_x).
+       */
+      tilt_x: number;
+      /**
+       * Tilt around Y axis in radians (alias: tau_y).
+       */
+      tilt_y: number;
+      type: "scheimpflug";
+    };
+/**
+ * Where a seed's rig sits on the robot, in the seed's rig frame.
+ */
+export type SeedHandeye =
+  | {
+      /**
+       * The rig's pose on the gripper (`T_G_R`).
+       */
+      gripper_se3_rig: Iso3Schema;
+      mode: "eye_in_hand";
+    }
+  | {
+      mode: "eye_to_hand";
+      /**
+       * The base's pose in the rig (`T_R_B`).
+       */
+      rig_se3_base: Iso3Schema;
+    };
+/**
  * Why the runner left a target detection out of the calibration input.
  *
  * Serialized in `snake_case` (`"too_few_features"`, `"excluded"`, ...).
@@ -741,44 +849,6 @@ export type UncertaintyUnavailable =
     }
   | {
       kind: "calibration_without_covariance";
-    };
-/**
- * Serializable projection model parameters.
- */
-export type ProjectionParams =
-  | {
-      type: "pinhole";
-    }
-  | {
-      type: "equidistant";
-    };
-/**
- * Serializable sensor model parameters.
- */
-export type SensorParams =
-  | {
-      type: "identity";
-    }
-  | {
-      /**
-       * Row-major homography matrix mapping normalized to sensor coordinates.
-       *
-       * @minItems 3
-       * @maxItems 3
-       */
-      h: [[number, number, number], [number, number, number], [number, number, number]];
-      type: "homography";
-    }
-  | {
-      /**
-       * Tilt around X axis in radians (alias: tau_x).
-       */
-      tilt_x: number;
-      /**
-       * Tilt around Y axis in radians (alias: tau_y).
-       */
-      tilt_y: number;
-      type: "scheimpflug";
     };
 /**
  * What a check examines; [`assess`] describes each check.
@@ -1304,6 +1374,7 @@ export interface StudioApiTypes {
   DetectorSpec?: DetectorSpec;
   DeviceIdentity?: DeviceIdentity;
   DeviceOptimizeConfig?: DeviceOptimizeConfig;
+  DeviceSeed?: DeviceSeed;
   DirEntry?: DirEntry;
   DirListing?: DirListing;
   DisparityArgs?: DisparityArgs;
@@ -1473,6 +1544,7 @@ export interface StudioApiTypes {
   RunQualityArgs?: RunQualityArgs;
   RunRecord?: RunRecord;
   RunRef?: RunRef;
+  RunSeed?: RunSeed;
   RunSource?: RunSource;
   RunState?: RunState;
   RunSummary?: RunSummary;
@@ -1483,6 +1555,10 @@ export interface StudioApiTypes {
   ScanLibraryArgs?: ScanLibraryArgs;
   ScheimpflugParams?: ScheimpflugParams;
   SecondOrderError?: SecondOrderError;
+  SeedCamera?: SeedCamera;
+  SeedHandeye?: SeedHandeye;
+  SeedLens?: SeedLens;
+  SeedSource?: SeedSource;
   SensorKind?: SensorKind;
   SensorParams?: SensorParams;
   ServerEvent?: ServerEvent;
@@ -1673,6 +1749,8 @@ export interface CalibratedRun {
  * Two runs with equal `inputs` digests, by the same library version, have
  * byte-identical `export.json` and `quality.json`. The data root's
  * location is not part of any digest: a dataset moved whole keeps them.
+ * A run without a seed has no `seed` digest, and its `inputs` digest is
+ * the one it would have had before seeds were recorded.
  */
 export interface InputDigest {
   /**
@@ -1696,13 +1774,19 @@ export interface InputDigest {
    */
   exclusions: string;
   /**
-   * Over the other five, in their order here.
+   * Over the others, in their order here: the five, and `seed` when the
+   * run had one.
    */
   inputs: string;
   /**
    * The quality thresholds.
    */
   quality: string;
+  /**
+   * The seed's values ([`RunSeed::value`]), when the run started from
+   * one; where they were read from is not part of it.
+   */
+  seed?: string | null;
 }
 /**
  * What a calibrated run was given, resolved.
@@ -1733,6 +1817,10 @@ export interface RunInputs {
    * The thresholds the quality report was judged by.
    */
   quality: QualityThresholds;
+  /**
+   * The seed the run started from, when it had one.
+   */
+  seed?: RunSeed | null;
 }
 /**
  * Configuration for planar intrinsics calibration.
@@ -3014,6 +3102,179 @@ export interface QualityThresholds {
   variance_test_alpha?: number;
 }
 /**
+ * The seed a calibrated run started from, as its record keeps it.
+ */
+export interface RunSeed {
+  /**
+   * What the workflow took from the seed: `<camera>.lens`,
+   * `<camera>.cam_se3_rig`, `<camera>.laser_plane` and `handeye`, in the
+   * seed's camera order.
+   */
+  applied: string[];
+  /**
+   * What the seed holds that the workflow does not use, labelled the
+   * same way.
+   */
+  ignored?: string[];
+  /**
+   * Where the seed came from, as the project file (or the run's options)
+   * named it.
+   */
+  source: SeedSource;
+  /**
+   * The seed as it was resolved: the values the run started from, in
+   * the seed's own rig frame.
+   */
+  value: DeviceSeed;
+}
+/**
+ * The device quantities a calibration starts from, by camera id: a
+ * datasheet's nominal values or a previous calibration's estimates.
+ *
+ * A seed is an initial value; nothing in it is a constraint or a prior,
+ * and it carries no uncertainty. It holds what belongs to the hardware:
+ * each camera's lens, its mount in the rig, its laser plane and the rig's
+ * hand-eye. Nothing of a capture is in it (no target poses, robot-pose
+ * corrections or residuals), and no configuration: the camera model is the
+ * config's, and a calibrated lens must be of that model.
+ *
+ * Units are the pipeline's: pixels, radians and metres. A seed is made by
+ * [`from_spec`](Self::from_spec) or
+ * [`from_calibration`](Self::from_calibration), not transcribed by hand;
+ * its JSON form is how it is stored.
+ *
+ * The rig frame of the mounts and the hand-eye is the seed's own (a
+ * drawing's frame, or the reference camera of the run it came from). The
+ * derivations that take a `reference` camera re-express them so that
+ * camera's mount is the identity, as a rig problem's gauge requires; laser
+ * planes are in their camera's frame and need no change.
+ */
+export interface DeviceSeed {
+  /**
+   * The cameras, ids unique; at least one.
+   */
+  cameras: SeedCamera[];
+  /**
+   * Where the seed came from, for its reader.
+   */
+  description?: string | null;
+  /**
+   * The rig on the robot, in the seed's rig frame (see
+   * [`SeedCamera::cam_se3_rig`]).
+   */
+  handeye?: SeedHandeye | null;
+  /**
+   * Format version, [`DEVICE_SEED_VERSION`].
+   */
+  version: number;
+}
+/**
+ * One camera of a [`DeviceSeed`].
+ */
+export interface SeedCamera {
+  /**
+   * Camera-from-rig (`T_C_R`) in the seed's rig frame. Every camera has
+   * one or none does; a seed of one camera without it has the camera's
+   * frame as its rig frame.
+   */
+  cam_se3_rig?: Iso3Schema | null;
+  /**
+   * The camera's id in the dataset manifest.
+   */
+  id: string;
+  /**
+   * `[width, height]` in pixels of the images the values are for (the
+   * tile, for a camera that is a region of a larger sensor). A seed for
+   * another image size (another binning or region) is for another
+   * camera.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  image_size: [number, number];
+  /**
+   * The camera's laser plane, in the camera's own frame.
+   */
+  laser_plane?: LaserPlane | null;
+  /**
+   * The lens: intrinsics, distortion and sensor tilt.
+   */
+  lens: SeedLens;
+}
+/**
+ * JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).
+ *
+ * `nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and
+ * parameter types that embed [`Iso3`] annotate the field with
+ * `#[cfg_attr(feature = "schemars", schemars(with = "Iso3Schema"))]`
+ * (or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact
+ * serde wire format of `Isometry3`:
+ * `{ "rotation": [qx, qy, qz, qw], "translation": [tx, ty, tz] }`.
+ *
+ * It exists only to describe that shape to `schemars`; it is never
+ * constructed at runtime.
+ */
+export interface Iso3Schema {
+  /**
+   * Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).
+   *
+   * @minItems 4
+   * @maxItems 4
+   */
+  rotation: [number, number, number, number];
+  /**
+   * Translation `[tx, ty, tz]` in meters.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  translation: [number, number, number];
+}
+/**
+ * Laser plane in camera frame: unit normal + signed distance.
+ *
+ * The plane equation is: n̂ · p + d = 0
+ * where p is a point in camera coordinates.
+ *
+ * A plane is valid by construction: its normal has unit length (within
+ * `1e-9`) and every value is finite, and a plane read from JSON is checked
+ * the same way.
+ */
+export interface LaserPlane {
+  /**
+   * Signed distance from camera origin
+   */
+  distance: number;
+  /**
+   * Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  normal: [number, number, number];
+}
+/**
+ * Serializable camera parameters for building a runtime model.
+ */
+export interface CameraParams {
+  /**
+   * Distortion model parameters.
+   */
+  distortion: DistortionParams;
+  /**
+   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
+   */
+  intrinsics: FxFyCxCy;
+  /**
+   * Projection model parameters.
+   */
+  projection: ProjectionParams;
+  /**
+   * Sensor model parameters.
+   */
+  sensor: SensorParams;
+}
+/**
  * An image a run left out, with the reason.
  */
 export interface LeftOutImage {
@@ -3186,27 +3447,6 @@ export interface PoseParameter {
   translation_m: [number, number, number];
 }
 /**
- * Serializable camera parameters for building a runtime model.
- */
-export interface CameraParams {
-  /**
-   * Distortion model parameters.
-   */
-  distortion: DistortionParams;
-  /**
-   * Pinhole intrinsics (`fx, fy, cx, cy` in pixels).
-   */
-  intrinsics: FxFyCxCy;
-  /**
-   * Projection model parameters.
-   */
-  projection: ProjectionParams;
-  /**
-   * Sensor model parameters.
-   */
-  sensor: SensorParams;
-}
-/**
  * One camera's statistics.
  */
 export interface CameraStats {
@@ -3277,6 +3517,14 @@ export interface CameraSummary {
    * The camera's id in the manifest.
    */
   id: string;
+  /**
+   * Its image size `[width, height]`, pixels (its region's, for a camera
+   * cut from a larger image); `None` when the run did not record it.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  image_size?: [number, number] | null;
   /**
    * The root-mean-square reprojection error of its features, pixels:
    * √(mean of the squared error lengths); `None` without residuals.
@@ -3569,6 +3817,9 @@ export interface CreateProjectArgs {
  * product = "line scanner"
  * id = "SN-0042"
  *
+ * [seed]
+ * run = "../SN-0041/runs/run-002"
+ *
  * [dataset]
  * manifest = "captures/dataset.toml"
  *
@@ -3612,6 +3863,11 @@ export interface ProjectSpec {
    * defaults.
    */
   quality?: QualityThresholds | null;
+  /**
+   * The seed every run starts from instead of the closed-form
+   * initialization; `None` for none.
+   */
+  seed?: SeedSource | null;
   /**
    * The project file's format version, [`PROJECT_VERSION`].
    */
@@ -4844,35 +5100,6 @@ export interface FormSchema {
   schema: unknown;
 }
 /**
- * JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).
- *
- * `nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and
- * parameter types that embed [`Iso3`] annotate the field with
- * `#[cfg_attr(feature = "schemars", schemars(with = "Iso3Schema"))]`
- * (or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact
- * serde wire format of `Isometry3`:
- * `{ "rotation": [qx, qy, qz, qw], "translation": [tx, ty, tz] }`.
- *
- * It exists only to describe that shape to `schemars`; it is never
- * constructed at runtime.
- */
-export interface Iso3Schema {
-  /**
-   * Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).
-   *
-   * @minItems 4
-   * @maxItems 4
-   */
-  rotation: [number, number, number, number];
-  /**
-   * Translation `[tx, ty, tz]` in meters.
-   *
-   * @minItems 3
-   * @maxItems 3
-   */
-  translation: [number, number, number];
-}
-/**
  * The image file at `path`, as a browser can decode it: JPEG, PNG, WebP,
  * GIF and BMP are the file itself; TIFF, PNM and the other formats the
  * back end reads become an 8-bit PNG (a 16-bit image reduced as the
@@ -4950,29 +5177,6 @@ export interface UnpairedLaserFrameRef {
    * view belongs to a view another frame of the camera pairs with.
    */
   token?: string | null;
-}
-/**
- * Laser plane in camera frame: unit normal + signed distance.
- *
- * The plane equation is: n̂ · p + d = 0
- * where p is a point in camera coordinates.
- *
- * A plane is valid by construction: its normal has unit length (within
- * `1e-9`) and every value is finite, and a plane read from JSON is checked
- * the same way.
- */
-export interface LaserPlane {
-  /**
-   * Signed distance from camera origin
-   */
-  distance: number;
-  /**
-   * Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.
-   *
-   * @minItems 3
-   * @maxItems 3
-   */
-  normal: [number, number, number];
 }
 /**
  * Export type for laserline device calibration.
@@ -5339,6 +5543,10 @@ export interface ProjectDigest {
    * As [`InputDigest::quality`].
    */
   quality: string;
+  /**
+   * As [`InputDigest::seed`], of the project's `[seed]`.
+   */
+  seed?: string | null;
 }
 /**
  * An open project: its definition as on disk, what it resolves to, and its

@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use pythonize::pythonize;
 use vision_calibration::device_seed::{DeviceSeed, DeviceSeedError, DeviceSpec};
 
+use crate::errors::project_err;
 use crate::validation::value_err;
 use crate::{parse_cameras, parse_payload, runtime_err};
 
@@ -90,8 +91,46 @@ fn device_seed_select(
     seed_payload(py, &seed)
 }
 
+/// The seed of a project's run: its folder or its `export.json`.
+///
+/// Raises
+/// ------
+/// ProjectError
+///     With `kind == "seed_unresolved"` when the path is not a run, its
+///     record does not name its cameras or their image sizes, or its export
+///     makes no seed.
+#[pyfunction]
+fn device_seed_from_run(py: Python<'_>, run: std::path::PathBuf) -> PyResult<Py<PyAny>> {
+    let seed = py
+        .detach(|| DeviceSeed::from_run(&run))
+        .map_err(|e| project_err(py, e))?;
+    seed_payload(py, &seed)
+}
+
+/// The seed of a device type from several units' seeds: the
+/// `SeedAggregate` payload.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If a seed does not validate, the seeds are of different cameras,
+///     image sizes, models or hand-eye modes, a lens is nominal, or an
+///     aggregated lens folds.
+#[pyfunction]
+fn device_seed_aggregate(py: Python<'_>, seeds: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    let seeds: Vec<DeviceSeed> = parse_payload(seeds, "seeds")?;
+    let aggregate = py
+        .detach(|| DeviceSeed::aggregate(&seeds))
+        .map_err(seed_err)?;
+    let output = pythonize(py, &aggregate)
+        .map_err(|err| runtime_err(format!("failed to convert the aggregate to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(device_seed_from_calibration, m)?)?;
+    m.add_function(wrap_pyfunction!(device_seed_from_run, m)?)?;
+    m.add_function(wrap_pyfunction!(device_seed_aggregate, m)?)?;
     m.add_function(wrap_pyfunction!(device_seed_from_spec, m)?)?;
     m.add_function(wrap_pyfunction!(device_seed_validate, m)?)?;
     m.add_function(wrap_pyfunction!(device_seed_nominal, m)?)?;

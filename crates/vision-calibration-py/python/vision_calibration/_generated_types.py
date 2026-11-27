@@ -283,6 +283,11 @@ class _CameraSummaryRequired(TypedDict):
 class CameraSummary(_CameraSummaryRequired, total=False):
     """One camera of a `RunSummary`."""
 
+    image_size: tuple[int, int] | list[int] | None
+    """Its image size `[width, height]`, pixels (its region's, for a camera
+    cut from a larger image); `None` when the run did not record it.
+    """
+
     rms_px: float | None
     """The root-mean-square reprojection error of its features, pixels:
     √(mean of the squared error lengths); `None` without residuals.
@@ -2282,14 +2287,8 @@ ImagePattern: TypeAlias = ImagePattern_Glob | ImagePattern_List
 """How image paths for a camera are listed."""
 
 
-class InputDigest(TypedDict):
-    """The digest of a calibrated run's inputs: each `sha256:<hex>` of the
-    canonical JSON (keys sorted) of what it covers.
-
-    Two runs with equal `inputs` digests, by the same library version, have
-    byte-identical `export.json` and `quality.json`. The data root's
-    location is not part of any digest: a dataset moved whole keeps them.
-    """
+class _InputDigestRequired(TypedDict):
+    """The keys of `InputDigest` that every payload has."""
 
     config: str
     """The resolved configuration."""
@@ -2311,10 +2310,29 @@ class InputDigest(TypedDict):
     """
 
     inputs: str
-    """Over the other five, in their order here."""
+    """Over the others, in their order here: the five, and `seed` when the
+    run had one.
+    """
 
     quality: str
     """The quality thresholds."""
+
+
+class InputDigest(_InputDigestRequired, total=False):
+    """The digest of a calibrated run's inputs: each `sha256:<hex>` of the
+    canonical JSON (keys sorted) of what it covers.
+
+    Two runs with equal `inputs` digests, by the same library version, have
+    byte-identical `export.json` and `quality.json`. The data root's
+    location is not part of any digest: a dataset moved whole keeps them.
+    A run without a seed has no `seed` digest, and its `inputs` digest is
+    the one it would have had before seeds were recorded.
+    """
+
+    seed: str | None
+    """The seed's values (`RunSeed::value`), when the run started from
+    one; where they were read from is not part of it.
+    """
 
 
 class IntrinsicsInitConfig(TypedDict):
@@ -3513,6 +3531,9 @@ class ProjectSpec(_ProjectSpecRequired, total=False):
     product = "line scanner"
     id = "SN-0042"
 
+    [seed]
+    run = "../SN-0041/runs/run-002"
+
     [dataset]
     manifest = "captures/dataset.toml"
 
@@ -3546,6 +3567,11 @@ class ProjectSpec(_ProjectSpecRequired, total=False):
     quality: QualityThresholds | None
     """The thresholds the runs' quality is judged by; `None` for the
     defaults.
+    """
+
+    seed: SeedSource | None
+    """The seed every run starts from instead of the closed-form
+    initialization; `None` for none.
     """
 
 
@@ -5117,8 +5143,8 @@ class RunInfo(TypedDict):
     """What its files say."""
 
 
-class RunInputs(TypedDict):
-    """What a calibrated run was given, resolved."""
+class _RunInputsRequired(TypedDict):
+    """The keys of `RunInputs` that every payload has."""
 
     config: CalibrationConfig
     """The configuration they made."""
@@ -5139,6 +5165,13 @@ class RunInputs(TypedDict):
 
     quality: QualityThresholds
     """The thresholds the quality report was judged by."""
+
+
+class RunInputs(_RunInputsRequired, total=False):
+    """What a calibrated run was given, resolved."""
+
+    seed: RunSeed | None
+    """The seed the run started from, when it had one."""
 
 
 class RunNotes(TypedDict, total=False):
@@ -5184,6 +5217,35 @@ class RunRecord(TypedDict):
 
     version: int
     """The record's format version, `RUN_RECORD_VERSION`."""
+
+
+class _RunSeedRequired(TypedDict):
+    """The keys of `RunSeed` that every payload has."""
+
+    applied: list[str]
+    """What the workflow took from the seed: `<camera>.lens`,
+    `<camera>.cam_se3_rig`, `<camera>.laser_plane` and `handeye`, in the
+    seed's camera order.
+    """
+
+    source: SeedSource
+    """Where the seed came from, as the project file (or the run's options)
+    named it.
+    """
+
+    value: DeviceSeed
+    """The seed as it was resolved: the values the run started from, in
+    the seed's own rig frame.
+    """
+
+
+class RunSeed(_RunSeedRequired, total=False):
+    """The seed a calibrated run started from, as its record keeps it."""
+
+    ignored: list[str]
+    """What the seed holds that the workflow does not use, labelled the
+    same way.
+    """
 
 
 class _RunSource_CalibratedRequired(TypedDict):
@@ -5374,6 +5436,37 @@ class SecondOrderError(TypedDict):
     """
 
 
+class SeedAggregate(TypedDict):
+    """A seed for a device type, from the seeds of several of its units, with
+    the spread of every value across them (`DeviceSeed::aggregate`).
+
+    The seed is a starting point for another unit of the type. It is not a
+    calibration of any unit (never deploy it), not an estimate of a "true"
+    camera of the type, and its spread is descriptive: it is neither the
+    seed's uncertainty nor a prior.
+    """
+
+    omitted: list[str]
+    """What some seeds have and others do not, left out of the aggregate
+    rather than filled in: `<camera>.cam_se3_rig`, `<camera>.laser_plane`
+    or `handeye`.
+    """
+
+    seed: DeviceSeed
+    """The aggregated seed: the median of every value, its cameras in id
+    order, its rig frame the camera with the smallest id.
+    """
+
+    spread: list[SeedSpread]
+    """Each aggregated value's spread across the seeds, in the seed's order:
+    each camera's parameters, its mount and its laser plane, then the
+    hand-eye.
+    """
+
+    units: int
+    """How many seeds were aggregated."""
+
+
 class _SeedCameraRequired(TypedDict):
     """The keys of `SeedCamera` that every payload has."""
 
@@ -5456,6 +5549,92 @@ class SeedLens_Nominal(TypedDict):
 
 SeedLens: TypeAlias = SeedLens_Calibrated | SeedLens_Nominal
 """A seed camera's lens: a whole calibrated camera, or a datasheet's values."""
+
+
+class SeedSource_DeviceSpec(TypedDict):
+    """A device specification (`spec.json`): the datasheet seed
+    (`DeviceSeed::from_spec`).
+    """
+
+    device_spec: str
+
+
+class SeedSource_File(TypedDict):
+    """A `DeviceSeed` file, JSON (TOML by its `.toml` extension): one made
+    by `vcal seed`, or an aggregate of a device type
+    (`DeviceSeed::aggregate`).
+    """
+
+    file: str
+
+
+class SeedSource_Run(TypedDict):
+    """A calibrated run: its folder (`runs/run-003`, of this project or
+    another), or the `export.json` in it. Its record names the cameras
+    and their image sizes (`DeviceSeed::from_run`).
+    """
+
+    run: str
+
+
+SeedSource: TypeAlias = SeedSource_Run | SeedSource_DeviceSpec | SeedSource_File
+"""Where the seed a project's runs start from comes from: the project
+file's `[seed]`, one key.
+
+```toml
+[seed]
+run = "../unit-0007/runs/run-003"   # or: device_spec = "spec.json"
+                                    # or: file = "seeds/type-x.json"
+```
+
+A path is relative to the project folder unless absolute. Every run of
+the project starts from the seed: a run's record keeps the seed's
+values as they were resolved (`RunSeed`), so a seed file that changes
+later does not change what a run says it started from. A seed is an
+initial value: the calibration still estimates everything.
+
+The seed is resolved and checked against the dataset and the
+configuration before any image is read; a seed that is missing, cannot
+be read or does not fit is an error, never a run without it.
+"""
+
+
+class SeedSpread(TypedDict):
+    """The values one quantity takes across the aggregated seeds, and their
+    robust summary.
+
+    With the values `x₁ … xₙ`: `median` is the middle one in sorted order
+    (the mean of the two middle ones for an even `n`); `mad_sigma` is
+    `1.4826 · median(|xᵢ − median|)`, the median absolute deviation scaled
+    to estimate a standard deviation for normally spread values (0 for one
+    value); `min` and `max` the extremes. One outlying unit moves neither the
+    median nor `mad_sigma` much; with two units the median is their mean.
+    """
+
+    label: str
+    """The quantity: `<camera>.<parameter>` for a camera parameter by its
+    covariance name (`cam0.fx`, `cam0.k1`, `cam0.tilt_x`);
+    `<camera>.cam_se3_rig.<axis>` for a mount; `<camera>.laser_plane.<nx,
+    ny, nz, distance>` for a laser plane; `handeye.<axis>` for the
+    hand-eye. A pose's axes are `rx`, `ry`, `rz`, the rotation vector
+    about the seeds' chordal mean rotation, radians, and `tx`, `ty`,
+    `tz`, the translation, metres.
+    """
+
+    mad_sigma: float
+    """`1.4826 · median(|xᵢ − median|)`, in the values' unit."""
+
+    max: float
+    """The largest value."""
+
+    median: float
+    """The median of the values: the aggregate's value."""
+
+    min: float
+    """The smallest value."""
+
+    values: list[float]
+    """Each seed's value, in the order the seeds were given."""
 
 
 SensorKind: TypeAlias = Literal["identity", "scheimpflug"]
@@ -6527,6 +6706,7 @@ __all__ = [
     "RunInputs",
     "RunNotes",
     "RunRecord",
+    "RunSeed",
     "RunSource",
     "RunSource_Calibrated",
     "RunSource_Imported",
@@ -6538,6 +6718,7 @@ __all__ = [
     "ScanFailure",
     "ScheimpflugParams",
     "SecondOrderError",
+    "SeedAggregate",
     "SeedCamera",
     "SeedHandeye",
     "SeedHandeye_EyeInHand",
@@ -6545,6 +6726,11 @@ __all__ = [
     "SeedLens",
     "SeedLens_Calibrated",
     "SeedLens_Nominal",
+    "SeedSource",
+    "SeedSource_DeviceSpec",
+    "SeedSource_File",
+    "SeedSource_Run",
+    "SeedSpread",
     "SensorKind",
     "SensorParams",
     "SensorParams_Homography",

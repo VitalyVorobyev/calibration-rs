@@ -299,6 +299,34 @@
       ],
       "type": "object"
     },
+    "CameraParams": {
+      "description": "Serializable camera parameters for building a runtime model.",
+      "properties": {
+        "distortion": {
+          "$ref": "#/$defs/DistortionParams",
+          "description": "Distortion model parameters."
+        },
+        "intrinsics": {
+          "$ref": "#/$defs/FxFyCxCy",
+          "description": "Pinhole intrinsics (`fx, fy, cx, cy` in pixels)."
+        },
+        "projection": {
+          "$ref": "#/$defs/ProjectionParams",
+          "description": "Projection model parameters."
+        },
+        "sensor": {
+          "$ref": "#/$defs/SensorParams",
+          "description": "Sensor model parameters."
+        }
+      },
+      "required": [
+        "projection",
+        "distortion",
+        "sensor",
+        "intrinsics"
+      ],
+      "type": "object"
+    },
     "CameraSource": {
       "additionalProperties": false,
       "description": "Per-camera image source.",
@@ -355,6 +383,20 @@
         "id": {
           "description": "The camera's id in the manifest.",
           "type": "string"
+        },
+        "image_size": {
+          "description": "Its image size `[width, height]`, pixels (its region's, for a camera\ncut from a larger image); `None` when the run did not record it.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "rms_px": {
           "description": "The root-mean-square reprojection error of its features, pixels:\n√(mean of the squared error lengths); `None` without residuals.",
@@ -640,6 +682,48 @@
         "fix_poses",
         "fix_plane",
         "laser_residual_type"
+      ],
+      "type": "object"
+    },
+    "DeviceSeed": {
+      "additionalProperties": false,
+      "description": "The device quantities a calibration starts from, by camera id: a\ndatasheet's nominal values or a previous calibration's estimates.\n\nA seed is an initial value; nothing in it is a constraint or a prior,\nand it carries no uncertainty. It holds what belongs to the hardware:\neach camera's lens, its mount in the rig, its laser plane and the rig's\nhand-eye. Nothing of a capture is in it (no target poses, robot-pose\ncorrections or residuals), and no configuration: the camera model is the\nconfig's, and a calibrated lens must be of that model.\n\nUnits are the pipeline's: pixels, radians and metres. A seed is made by\n[`from_spec`](Self::from_spec) or\n[`from_calibration`](Self::from_calibration), not transcribed by hand;\nits JSON form is how it is stored.\n\nThe rig frame of the mounts and the hand-eye is the seed's own (a\ndrawing's frame, or the reference camera of the run it came from). The\nderivations that take a `reference` camera re-express them so that\ncamera's mount is the identity, as a rig problem's gauge requires; laser\nplanes are in their camera's frame and need no change.",
+      "properties": {
+        "cameras": {
+          "description": "The cameras, ids unique; at least one.",
+          "items": {
+            "$ref": "#/$defs/SeedCamera"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "Where the seed came from, for its reader.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "handeye": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeedHandeye"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The rig on the robot, in the seed's rig frame (see\n[`SeedCamera::cam_se3_rig`])."
+        },
+        "version": {
+          "description": "Format version, [`DEVICE_SEED_VERSION`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "cameras"
       ],
       "type": "object"
     },
@@ -1245,7 +1329,7 @@
       ]
     },
     "InputDigest": {
-      "description": "The digest of a calibrated run's inputs: each `sha256:<hex>` of the\ncanonical JSON (keys sorted) of what it covers.\n\nTwo runs with equal `inputs` digests, by the same library version, have\nbyte-identical `export.json` and `quality.json`. The data root's\nlocation is not part of any digest: a dataset moved whole keeps them.",
+      "description": "The digest of a calibrated run's inputs: each `sha256:<hex>` of the\ncanonical JSON (keys sorted) of what it covers.\n\nTwo runs with equal `inputs` digests, by the same library version, have\nbyte-identical `export.json` and `quality.json`. The data root's\nlocation is not part of any digest: a dataset moved whole keeps them.\nA run without a seed has no `seed` digest, and its `inputs` digest is\nthe one it would have had before seeds were recorded.",
       "properties": {
         "config": {
           "description": "The resolved configuration.",
@@ -1264,12 +1348,19 @@
           "type": "string"
         },
         "inputs": {
-          "description": "Over the other five, in their order here.",
+          "description": "Over the others, in their order here: the five, and `seed` when the\nrun had one.",
           "type": "string"
         },
         "quality": {
           "description": "The quality thresholds.",
           "type": "string"
+        },
+        "seed": {
+          "description": "The seed's values ([`RunSeed::value`]), when the run started from\none; where they were read from is not part of it.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1314,6 +1405,36 @@
       },
       "required": [
         "reprojection_loss"
+      ],
+      "type": "object"
+    },
+    "Iso3Schema": {
+      "description": "JSON Schema proxy for [`Iso3`] (`nalgebra::Isometry3<f64>`).\n\n`nalgebra` does not implement [`schemars::JsonSchema`], so `*Export` and\nparameter types that embed [`Iso3`] annotate the field with\n`#[cfg_attr(feature = \"schemars\", schemars(with = \"Iso3Schema\"))]`\n(or `Vec<Iso3Schema>` / `Option<Iso3Schema>`). This proxy mirrors the exact\nserde wire format of `Isometry3`:\n`{ \"rotation\": [qx, qy, qz, qw], \"translation\": [tx, ty, tz] }`.\n\nIt exists only to describe that shape to `schemars`; it is never\nconstructed at runtime.",
+      "properties": {
+        "rotation": {
+          "description": "Unit quaternion `[qx, qy, qz, qw]` (i, j, k, w order).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "translation": {
+          "description": "Translation `[tx, ty, tz]` in meters.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "rotation",
+        "translation"
       ],
       "type": "object"
     },
@@ -1411,6 +1532,31 @@
           "type": "number"
         }
       },
+      "type": "object"
+    },
+    "LaserPlane": {
+      "description": "Laser plane in camera frame: unit normal + signed distance.\n\nThe plane equation is: n̂ · p + d = 0\nwhere p is a point in camera coordinates.\n\nA plane is valid by construction: its normal has unit length (within\n`1e-9`) and every value is finite, and a plane read from JSON is checked\nthe same way.",
+      "properties": {
+        "distance": {
+          "description": "Signed distance from camera origin",
+          "format": "double",
+          "type": "number"
+        },
+        "normal": {
+          "description": "Unit normal vector in camera frame. Serializes as `[nx, ny, nz]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "normal",
+        "distance"
+      ],
       "type": "object"
     },
     "LaserScanAxis": {
@@ -1737,6 +1883,37 @@
           "const": "equidistant",
           "description": "Equidistant (fisheye) projection: radius = incidence angle, in\nradians; no parameters of its own. With\n[`DistortionKind::KannalaBrandt4`] it is the Kannala-Brandt fisheye\nmodel.",
           "type": "string"
+        }
+      ]
+    },
+    "ProjectionParams": {
+      "description": "Serializable projection model parameters.",
+      "oneOf": [
+        {
+          "description": "Classic pinhole model.",
+          "properties": {
+            "type": {
+              "const": "pinhole",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Equidistant (fisheye) projection.",
+          "properties": {
+            "type": {
+              "const": "equidistant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -2396,6 +2573,17 @@
         "quality": {
           "$ref": "#/$defs/QualityThresholds",
           "description": "The thresholds the quality report was judged by."
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunSeed"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The seed the run started from, when it had one."
         }
       },
       "required": [
@@ -2405,6 +2593,39 @@
         "config_patch",
         "config",
         "quality"
+      ],
+      "type": "object"
+    },
+    "RunSeed": {
+      "description": "The seed a calibrated run started from, as its record keeps it.",
+      "properties": {
+        "applied": {
+          "description": "What the workflow took from the seed: `<camera>.lens`,\n`<camera>.cam_se3_rig`, `<camera>.laser_plane` and `handeye`, in the\nseed's camera order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ignored": {
+          "description": "What the seed holds that the workflow does not use, labelled the\nsame way.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/SeedSource",
+          "description": "Where the seed came from, as the project file (or the run's options)\nnamed it."
+        },
+        "value": {
+          "$ref": "#/$defs/DeviceSeed",
+          "description": "The seed as it was resolved: the values the run started from, in\nthe seed's own rig frame."
+        }
+      },
+      "required": [
+        "source",
+        "value",
+        "applied"
       ],
       "type": "object"
     },
@@ -2497,6 +2718,194 @@
       ],
       "type": "object"
     },
+    "SeedCamera": {
+      "additionalProperties": false,
+      "description": "One camera of a [`DeviceSeed`].",
+      "properties": {
+        "cam_se3_rig": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Iso3Schema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Camera-from-rig (`T_C_R`) in the seed's rig frame. Every camera has\none or none does; a seed of one camera without it has the camera's\nframe as its rig frame."
+        },
+        "id": {
+          "description": "The camera's id in the dataset manifest.",
+          "type": "string"
+        },
+        "image_size": {
+          "description": "`[width, height]` in pixels of the images the values are for (the\ntile, for a camera that is a region of a larger sensor). A seed for\nanother image size (another binning or region) is for another\ncamera.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "laser_plane": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LaserPlane"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The camera's laser plane, in the camera's own frame."
+        },
+        "lens": {
+          "$ref": "#/$defs/SeedLens",
+          "description": "The lens: intrinsics, distortion and sensor tilt."
+        }
+      },
+      "required": [
+        "id",
+        "image_size",
+        "lens"
+      ],
+      "type": "object"
+    },
+    "SeedHandeye": {
+      "description": "Where a seed's rig sits on the robot, in the seed's rig frame.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The rig rides on the gripper.",
+          "properties": {
+            "gripper_se3_rig": {
+              "$ref": "#/$defs/Iso3Schema",
+              "description": "The rig's pose on the gripper (`T_G_R`)."
+            },
+            "mode": {
+              "const": "eye_in_hand",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "gripper_se3_rig"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The rig stands in the robot's base frame.",
+          "properties": {
+            "mode": {
+              "const": "eye_to_hand",
+              "type": "string"
+            },
+            "rig_se3_base": {
+              "$ref": "#/$defs/Iso3Schema",
+              "description": "The base's pose in the rig (`T_R_B`)."
+            }
+          },
+          "required": [
+            "mode",
+            "rig_se3_base"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SeedLens": {
+      "description": "A seed camera's lens: a whole calibrated camera, or a datasheet's values.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A calibrated camera, whole, in its model: intrinsics, distortion and\nsensor. Its model must be the one the session is configured with: the\nseeded steps refuse a distortion of another kind or a tilt for an\nuntilted camera, and the derivations do not compare the projection.\n[`DeviceSeed::nominal`] keeps only the intrinsics and the tilt, for a\nsession of another model.",
+          "properties": {
+            "camera": {
+              "$ref": "#/$defs/CameraParams",
+              "description": "The camera's parameters (a sensor homography is not seedable)."
+            },
+            "kind": {
+              "const": "calibrated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "camera"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "What a datasheet states: the intrinsics and the mount tilt. The\ndistortion is not known and starts at zero; the tilt is the stated\none, zero for a frontal mount.",
+          "properties": {
+            "intrinsics": {
+              "$ref": "#/$defs/FxFyCxCy",
+              "description": "Pinhole intrinsics, pixels."
+            },
+            "kind": {
+              "const": "nominal",
+              "type": "string"
+            },
+            "sensor": {
+              "$ref": "#/$defs/ScheimpflugParams",
+              "description": "Sensor tilt, radians; zero for a frontal mount."
+            }
+          },
+          "required": [
+            "kind",
+            "intrinsics",
+            "sensor"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SeedSource": {
+      "description": "Where the seed a project's runs start from comes from: the project\nfile's `[seed]`, one key.\n\n```toml\n[seed]\nrun = \"../unit-0007/runs/run-003\"   # or: device_spec = \"spec.json\"\n                                    # or: file = \"seeds/type-x.json\"\n```\n\nA path is relative to the project folder unless absolute. Every run of\nthe project starts from the seed: a run's record keeps the seed's\nvalues as they were resolved ([`RunSeed`]), so a seed file that changes\nlater does not change what a run says it started from. A seed is an\ninitial value: the calibration still estimates everything.\n\nThe seed is resolved and checked against the dataset and the\nconfiguration before any image is read; a seed that is missing, cannot\nbe read or does not fit is an error, never a run without it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A calibrated run: its folder (`runs/run-003`, of this project or\nanother), or the `export.json` in it. Its record names the cameras\nand their image sizes ([`DeviceSeed::from_run`]).",
+          "properties": {
+            "run": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "run"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A device specification (`spec.json`): the datasheet seed\n([`DeviceSeed::from_spec`]).",
+          "properties": {
+            "device_spec": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "device_spec"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A [`DeviceSeed`] file, JSON (TOML by its `.toml` extension): one made\nby `vcal seed`, or an aggregate of a device type\n([`DeviceSeed::aggregate`]).",
+          "properties": {
+            "file": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SensorKind": {
       "description": "Which sensor model a camera uses.",
       "oneOf": [
@@ -2509,6 +2918,78 @@
           "const": "scheimpflug",
           "description": "Scheimpflug tilted sensor `[tilt_x, tilt_y]` (radians).",
           "type": "string"
+        }
+      ]
+    },
+    "SensorParams": {
+      "description": "Serializable sensor model parameters.",
+      "oneOf": [
+        {
+          "description": "Identity sensor model.",
+          "properties": {
+            "type": {
+              "const": "identity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Homography applied in the sensor plane.",
+          "properties": {
+            "h": {
+              "description": "Row-major homography matrix mapping normalized to sensor coordinates.",
+              "items": {
+                "items": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "homography",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "h"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Scheimpflug/tilted sensor model.",
+          "properties": {
+            "tilt_x": {
+              "description": "Tilt around X axis in radians (alias: tau_x).",
+              "format": "double",
+              "type": "number"
+            },
+            "tilt_y": {
+              "description": "Tilt around Y axis in radians (alias: tau_y).",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "scheimpflug",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "tilt_x",
+            "tilt_y"
+          ],
+          "type": "object"
         }
       ]
     },

@@ -15,6 +15,16 @@ The payloads are the generated types of :mod:`vision_calibration.types`:
 ``ProjectSpec`` for the project file, ``RunInfo`` for a run (its ``state``
 holds the ``RunRecord`` of ``run.json``), ``RunNotes``, and ``LibraryScan``
 for :func:`scan_library`.
+
+A project's ``seed`` (``ProjectSpec["seed"]``, a ``SeedSource``: ``{"run":
+path}``, ``{"device_spec": path}`` or ``{"file": path}``) names the seed every
+run starts from; a run's record keeps the seed it used (``RunSeed``)::
+
+    spec = project.spec
+    spec["seed"] = {"run": "../unit-0007/runs/run-003"}
+    project.spec = spec
+    project.save()
+    run = project.calibrate()
 """
 
 from __future__ import annotations
@@ -33,6 +43,7 @@ from .types import (
     ProjectSpec,
     RunInfo,
     RunNotes,
+    SeedSource,
 )
 
 __all__ = [
@@ -49,6 +60,7 @@ __all__ = [
     "RUN_NOTES_FILE",
     "RUN_RECORD_FILE",
     "RUN_RECORD_VERSION",
+    "representative_run",
     "scan_library",
 ]
 
@@ -81,11 +93,13 @@ ProjectError = _native.ProjectError
 ``"not_a_project"``, ``"ambiguous_project"``, ``"project_exists"``,
 ``"unsupported_version"``, ``"changed_on_disk"``, ``"io"``, ``"parse"``,
 ``"invalid"``, ``"manifest"``, ``"config"``, ``"exclusion"``,
-``"run_not_found"``, ``"import_mismatch"`` or ``"calibrate"``. ``field`` is
-the field it is about, as a dotted path, or ``None``: a field of the project
-file for the project's own errors (``"device.id"``, ``"config"``,
-``"exclude.images[0]"``), a manifest field for the dataset's (``"target"``,
-``"cameras[cam0].images"``). A subclass of :class:`RuntimeError`."""
+``"run_not_found"``, ``"import_mismatch"``, ``"seed_unresolved"`` or
+``"calibrate"`` (a seed that does not fit the dataset is a ``"calibrate"``
+error). ``field`` is the field it is about, as a dotted path, or ``None``: a
+field of the project file for the project's own errors (``"device.id"``,
+``"config"``, ``"exclude.images[0]"``, ``"seed"``), a manifest field for the
+dataset's (``"target"``, ``"cameras[cam0].images"``). A subclass of
+:class:`RuntimeError`."""
 
 
 def _tool() -> str:
@@ -172,16 +186,17 @@ class Project:
         return cast("dict[str, Any]", self._native.config())
 
     def check(self) -> None:
-        """Check everything a run checks before it reads an image; raises
-        :class:`ProjectError` on the first problem."""
+        """Check everything a run checks before it reads an image, the
+        project's seed included; raises :class:`ProjectError` on the first
+        problem."""
         self._native.check()
 
     def input_digest(self) -> dict[str, str]:
         """The digests of the project's inputs as they stand, without reading
-        an image: ``{"dataset", "exclusions", "config", "quality"}``, each as
-        a run records it in its ``InputDigest``. A run whose digest differs
-        in one of them was made from other inputs than the project now
-        states."""
+        an image: ``{"dataset", "exclusions", "config", "quality"}``, with
+        ``"seed"`` when the project has one, each as a run records it in its
+        ``InputDigest``. A run whose digest differs in one of them was made
+        from other inputs than the project now states."""
         return cast("dict[str, str]", self._native.input_digest())
 
     def views(self) -> dict[str, Any]:
@@ -225,9 +240,15 @@ class Project:
         laser_extractor: LaserPixelExtractor | None = None,
         progress: ProgressCallback | None = None,
         tool: str | None = None,
+        seed: SeedSource | Mapping[str, Any] | None = None,
     ) -> RunInfo:
         """Calibrate the dataset and write the next run.
 
+        The run starts from the project's seed, or from ``seed`` (a
+        ``SeedSource``, ``{"run": path}``, ``{"device_spec": path}`` or
+        ``{"file": path}``, relative to the project folder) in its place;
+        the record keeps it, and a seed that cannot be made or does not fit
+        raises before any image is read.
         ``config_patch`` changes the configuration for this run only, over
         the project's; the record keeps it. ``redetect`` detects every image
         again; ``report_html`` also writes ``report.html``. ``label``,
@@ -238,6 +259,9 @@ class Project:
         in the record (default ``"python <version>"``).
         """
         patch = None if config_patch is None else dict(config_patch)
+        source = None if seed is None else {
+            key: os.fspath(value) for key, value in dict(seed).items()
+        }
         return cast(
             RunInfo,
             self._native.calibrate(
@@ -250,6 +274,7 @@ class Project:
                 report_html,
                 laser_extractor,
                 progress,
+                source,
             ),
         )
 
@@ -278,6 +303,16 @@ class Project:
 
     def __repr__(self) -> str:
         return f"Project({str(self.dir)!r})"
+
+
+def representative_run(device: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The run that stands for a device, one of the ``devices`` of
+    :func:`scan_library` (``{"device", "runs"}``): its latest starred run,
+    else its latest run calibrated in a project (not imported) whose verdict
+    is ``"pass"``; ``None`` when it has neither. The run is the device's
+    ``{"project", "run"}`` entry; its folder (``entry["run"]["dir"]``) makes
+    a seed with :meth:`vision_calibration.DeviceSeed.from_run`."""
+    return cast("dict[str, Any] | None", _native.project_representative_run(dict(device)))
 
 
 def scan_library(

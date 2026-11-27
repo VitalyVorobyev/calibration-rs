@@ -369,26 +369,33 @@ impl Project {
 
     /// Check everything a run checks before it reads an image: the project
     /// file's fields, the manifest (complete and valid, its pairing
-    /// stated), the configuration changes, the quality thresholds, and that
-    /// every exclusion names an image, view or camera of the dataset. The
-    /// image folders are listed; no image is read.
+    /// stated), the configuration changes, the quality thresholds, that
+    /// every exclusion names an image, view or camera of the dataset, and
+    /// the seed: the project's `[seed]` is made and checked against the
+    /// dataset's cameras and the configuration. The image folders are
+    /// listed; no image is read (a seeded camera's image size is checked
+    /// by the run, from the images' headers).
     ///
     /// # Errors
     ///
     /// [`ProjectError::Invalid`] for a field the project cannot have (an
     /// empty device id, a threshold out of range); [`ProjectError::Manifest`]
     /// as [`dataset`](Self::dataset); [`ProjectError::Calibrate`] for an
-    /// invalid manifest or images that cannot be listed or paired;
+    /// invalid manifest or images that cannot be listed or paired, or a
+    /// seed that does not fit ([`CalibrateDatasetError::Seed`]);
     /// [`ProjectError::Config`]; [`ProjectError::Exclusion`] for a stale
-    /// exclusion.
+    /// exclusion; [`ProjectError::SeedUnresolved`] for a seed that cannot be
+    /// made.
+    ///
+    /// [`CalibrateDatasetError::Seed`]: crate::dataset_runner::CalibrateDatasetError::Seed
     pub fn check(&self) -> Result<(), ProjectError> {
         self.prepare(&ConfigPatch::default()).map(drop)
     }
 
     /// The digests of the project's inputs as they stand, without reading
     /// an image: the manifest (with the content of its robot pose file and
-    /// upstream calibration), the exclusions, the configuration and the
-    /// quality thresholds, each as a run records it in
+    /// upstream calibration), the exclusions, the configuration, the
+    /// quality thresholds and the seed's values, each as a run records it in
     /// [`InputDigest`](super::InputDigest). Compare them with a run's to
     /// tell whether its inputs are still the project's.
     ///
@@ -397,17 +404,25 @@ impl Project {
     /// [`ProjectError::Manifest`] as [`dataset`](Self::dataset);
     /// [`ProjectError::Config`] as [`config`](Self::config);
     /// [`ProjectError::Io`] when the robot pose file or the upstream
-    /// calibration cannot be read.
+    /// calibration cannot be read; [`ProjectError::SeedUnresolved`] when
+    /// the project's seed cannot be made.
     pub fn input_digest(&self) -> Result<ProjectDigest, ProjectError> {
         let dataset = self.dataset()?;
         let config = CalibrationConfig::patched(dataset.topology, &self.spec.config)
             .map_err(ProjectError::Config)?;
+        let seed = self
+            .spec
+            .seed
+            .as_ref()
+            .map(|source| super::seed::resolve(&self.dir, source))
+            .transpose()?;
         super::digest::project_digest(
             &dataset,
             &self.data_root()?,
             &self.spec.exclude,
             &config,
             &self.spec.quality.unwrap_or_default(),
+            seed.as_ref(),
         )
     }
 

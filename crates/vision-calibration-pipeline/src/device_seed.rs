@@ -6,7 +6,12 @@
 //!
 //! - a datasheet and a drawing, [`DeviceSpec`] ([`DeviceSeed::from_spec`]);
 //! - a previous calibration of the device or of one of its type, any
-//!   export ([`DeviceSeed::from_calibration`]).
+//!   export ([`DeviceSeed::from_calibration`]) or a project's run
+//!   ([`DeviceSeed::from_run`]).
+//!
+//! [`DeviceSeed::aggregate`] makes the seed of a device type from several
+//! units' seeds: the median of each value, with its spread
+//! ([`SeedAggregate`]).
 //!
 //! Its derivations (`intrinsics_init`, `rig_init`, `handeye_init`, …) give
 //! the manual-init seeds the workflows' `*_with_seed` steps take. A seed is
@@ -45,6 +50,10 @@ use crate::laserline_device::DeviceManualInit;
 use crate::rig_handeye::HandeyeManualInit;
 use crate::rig_laserline_device::PlaneManualInit;
 use crate::single_cam_handeye;
+
+mod aggregate;
+
+pub use aggregate::{SeedAggregate, SeedSpread};
 
 // The schema types every consumer of this module needs, re-exported so the
 // facade can expose the full device-spec surface from one place.
@@ -250,6 +259,35 @@ pub enum DeviceSeedError {
     NothingToSeed {
         /// The workflow's topology.
         topology: ProblemKind,
+    },
+
+    /// [`DeviceSeed::aggregate`] was given a seed whose lens is a
+    /// datasheet's: only calibrations are aggregated.
+    #[error("camera `{camera}`: a nominal lens is not aggregated; aggregate calibrations only")]
+    NominalNotAggregated {
+        /// The camera id.
+        camera: String,
+    },
+
+    /// The seeds given to [`DeviceSeed::aggregate`] are not of one device
+    /// type: other camera ids, image sizes, camera models or hand-eye
+    /// modes, or no seed at all.
+    #[error("the seeds cannot be aggregated: {what}")]
+    AggregateMismatch {
+        /// How they differ.
+        what: String,
+    },
+
+    /// The aggregated lens of a camera folds where every seed's lens is
+    /// valid: the medians of coupled coefficients make a lens no unit has.
+    /// Seed from one unit's calibration instead.
+    #[error(
+        "camera `{camera}`: the aggregated lens folds inside the image where every seed's lens \
+         is valid; seed from one unit's calibration instead"
+    )]
+    AggregateFolds {
+        /// The camera id.
+        camera: String,
     },
 }
 

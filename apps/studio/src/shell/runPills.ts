@@ -35,12 +35,13 @@ export const VERDICT: Record<Verdict, { label: string; tone: Tone }> = {
   fail: { label: "Fail", tone: "defect" },
 };
 
-/** The four inputs of a run, as the words the user knows them by. */
+/** The inputs of a run, as the words the user knows them by. */
 const PART_WORD: Record<keyof ProjectDigest, string> = {
   dataset: "dataset",
   exclusions: "exclusions",
   config: "configuration",
   quality: "quality thresholds",
+  seed: "seed",
 };
 
 /** The pills of ;  is the project's own configuration

@@ -267,5 +267,32 @@ impl<'a> OrderedSeed<'a> {
     }
 }
 
+/// Check that `seed` fits the dataset `spec` and the workflow `config`, as
+/// a seeded run checks it before it reads any image: its cameras are the
+/// manifest's, each calibrated lens of the configured model, and what the
+/// workflow takes from it is consistent. The image sizes are checked once
+/// the images' headers are read, by the run.
+///
+/// # Errors
+///
+/// The [`DeviceSeedError`] a seeded run would fail with.
+pub(crate) fn check_seed(
+    seed: &DeviceSeed,
+    spec: &DatasetSpec,
+    config: &super::CalibrationConfig,
+) -> Result<(), DeviceSeedError> {
+    use super::CalibrationConfig as C;
+    let seed = OrderedSeed::new(seed, spec)?;
+    match config {
+        C::PlanarIntrinsics(c) => seed.planar(c).map(drop),
+        C::SingleCamHandeye(c) => seed.single_cam_handeye(c).map(drop),
+        C::LaserlineDevice(c) => seed.laserline_device(c).map(drop),
+        C::RigExtrinsics(c) => seed.rig_extrinsics(c).map(drop),
+        C::RigHandeye(c) => seed.rig_handeye(c).map(drop),
+        C::RigLaserlineDevice(c) => seed.rig_laserline_device(c).map(drop),
+        C::RigHandeyeLaserline(c) => seed.rig_handeye_laserline(c).map(drop),
+    }
+}
+
 #[cfg(test)]
 mod tests;

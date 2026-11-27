@@ -1,0 +1,171 @@
+{
+  "omitted": [
+    "cam0.laser_plane",
+    "cam1.laser_plane"
+  ],
+  "seed": {
+    "cameras": [
+      {
+        "cam_se3_rig": {
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "id": "cam0",
+        "image_size": [
+          1280,
+          960
+        ],
+        "lens": {
+          "camera": {
+            "distortion": {
+              "iters": 8,
+              "k1": -0.2,
+              "k2": 0.0,
+              "k3": 0.0,
+              "p1": 0.0,
+              "p2": 0.0,
+              "type": "brown_conrady5"
+            },
+            "intrinsics": {
+              "cx": 640.0,
+              "cy": 480.0,
+              "fx": 1500.0,
+              "fy": 1500.0
+            },
+            "projection": {
+              "type": "pinhole"
+            },
+            "sensor": {
+              "type": "identity"
+            }
+          },
+          "kind": "calibrated"
+        }
+      },
+      {
+        "cam_se3_rig": {
+          "rotation": [
+            1.5503715992218745e-33,
+            0.04997916927067833,
+            -2.465190328815662e-32,
+            0.9987502603949663
+          ],
+          "translation": [
+            -0.1,
+            0.0,
+            0.0
+          ]
+        },
+        "id": "cam1",
+        "image_size": [
+          1280,
+          960
+        ],
+        "lens": {
+          "camera": {
+            "distortion": {
+              "iters": 8,
+              "k1": -0.2,
+              "k2": 0.0,
+              "k3": 0.0,
+              "p1": 0.0,
+              "p2": 0.0,
+              "type": "brown_conrady5"
+            },
+            "intrinsics": {
+              "cx": 640.0,
+              "cy": 480.0,
+              "fx": 1500.0,
+              "fy": 1500.0
+            },
+            "projection": {
+              "type": "pinhole"
+            },
+            "sensor": {
+              "type": "identity"
+            }
+          },
+          "kind": "calibrated"
+        }
+      }
+    ],
+    "description": "the median of 3 seeds of one device type",
+    "handeye": {
+      "gripper_se3_rig": {
+        "rotation": [
+          0.09970865087213876,
+          0.004989591229462005,
+          0.049729481601460464,
+          0.9937606691655043
+        ],
+        "translation": [
+          0.0,
+          0.05,
+          0.2
+        ]
+      },
+      "mode": "eye_in_hand"
+    },
+    "version": 1
+  },
+  "spread": [
+    {
+      "label": "cam0.fx",
+      "mad_sigma": 14.82602218505602,
+      "max": 1510.0,
+      "median": 1500.0,
+      "min": 1490.0,
+      "values": [
+        1500.0,
+        1510.0,
+        1490.0
+      ]
+    },
+    {
+      "label": "cam0.fy",
+      "mad_sigma": 14.82602218505602,
+      "max": 1510.0,
+      "median": 1500.0,
+      "min": 1490.0,
+      "values": [
+        1500.0,
+        1510.0,
+        1490.0
+      ]
+    },
+    {
+      "label": "cam0.cx",
+      "mad_sigma": 0.0,
+      "max": 640.0,
+      "median": 640.0,
+      "min": 640.0,
+      "values": [
+        640.0,
+        640.0,
+        640.0
+      ]
+    },
+    {
+      "label": "cam0.cy",
+      "mad_sigma": 0.0,
+      "max": 480.0,
+      "median": 480.0,
+      "min": 480.0,
+      "values": [
+        480.0,
+        480.0,
+        480.0
+      ]
+    }
+  ],
+  "units": 3
+}

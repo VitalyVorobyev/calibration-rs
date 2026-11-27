@@ -146,7 +146,7 @@ from .dataset_runner import (
     calibrate_dataset as calibrate_dataset,
     detect_target as detect_target,
 )
-from .device_seed import DeviceSeed as DeviceSeed
+from .device_seed import DeviceSeed as DeviceSeed, SeedAggregate as SeedAggregate
 from .detect import (
     CacheKey as CacheKey,
     DetectionDetail as DetectionDetail,

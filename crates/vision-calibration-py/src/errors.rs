@@ -46,7 +46,7 @@ create_exception!(
     vision_calibration,
     ProjectError,
     PyRuntimeError,
-    "A project operation failed. `kind` names the failure (`\"not_a_project\"`, `\"changed_on_disk\"`, `\"exclusion\"`, `\"calibrate\"`, ...); `field` the project or manifest field it is about, as a dotted path (`\"device.id\"`, `\"exclude.images[0]\"`, `\"target\"`), or `None`."
+    "A project operation failed. `kind` names the failure (`\"not_a_project\"`, `\"changed_on_disk\"`, `\"exclusion\"`, `\"seed_unresolved\"`, `\"calibrate\"`, ...); `field` the project or manifest field it is about, as a dotted path (`\"device.id\"`, `\"exclude.images[0]\"`, `\"seed\"`, `\"target\"`), or `None`."
 );
 
 /// The `kind` of a `ProjectError`: its Rust variant in snake case.
@@ -67,6 +67,7 @@ pub(crate) fn project_error_kind(err: &RustProjectError) -> &'static str {
         RustProjectError::ImportMismatch { .. } => "import_mismatch",
         RustProjectError::Calibrate(_) => "calibrate",
         RustProjectError::Cancelled => "cancelled",
+        RustProjectError::SeedUnresolved { .. } => "seed_unresolved",
         _ => "unknown",
     }
 }
