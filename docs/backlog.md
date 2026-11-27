@@ -208,19 +208,6 @@ Each model follows AGENTS.md §10 (a camera model).
 
 ## Calibration problems (Phase 2)
 
-- [ ] CAL-RIG-LASER-PLANE-STALL - The rig laserline device's plane solve
-  stops short when it starts near but not at its optimum. Evidence (the
-  seeded dataset run tests, synthetic, both backends): with a plane seeded
-  1 degree and 2 mm off, the solve stops on `RelativeStep` 2-3 sigma of a
-  normal coordinate from where the unseeded linear fit ends, the laser cost
-  0.3 % higher, and a restart does not move it; with the `PointToPlane`
-  residual a turned start converges (0.013 sigma) but a pure 2 mm shift
-  still stalls (1.08 sigma). So a seed from a sibling unit can give a worse
-  result than no seed. Root-cause it (parametrisation of the plane, scaling
-  of the offset against the normal, the stopping rule) and gate: seeded
-  equals unseeded within 0.05 sigma for the sibling seeds of that test,
-  then gate the cell there. Do before projects make plane seeding one
-  click.
 - [ ] CAL-RIG-BA-STOP - The rig bundle adjustment stops on
   `MinRelDecrease` (1e-5) before its minimum: restarted from its own
   result it moves 0.04-0.05 sigma in a camera parameter and most of a

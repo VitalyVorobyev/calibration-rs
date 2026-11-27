@@ -87,6 +87,9 @@ pub(super) struct Compiled {
     vars: Vec<Var>,
     /// Indexed by IR parameter id.
     slots: Vec<Slot>,
+    /// The slots of the IR blocks the solve can move: used by a residual,
+    /// with a free coordinate; in IR order.
+    varying: Vec<Slot>,
 }
 
 /// Assigns factrs variables to IR blocks.
@@ -381,11 +384,25 @@ pub(super) fn compile(
         graph.add_factor(build_factor(kernel, &keys, residual.loss));
     }
 
+    let mut used = vec![false; ir.params.len()];
+    for residual in &ir.residuals {
+        for id in &residual.params {
+            used[id.0] = true;
+        }
+    }
+    let varying = ir
+        .params
+        .iter()
+        .filter(|block| used[block.id.0] && !block.fixed.is_all_fixed(block.dim))
+        .map(|block| slots[block.id.0])
+        .collect();
+
     Ok(Compiled {
         graph,
         values,
         vars,
         slots,
+        varying,
     })
 }
 
@@ -459,26 +476,36 @@ impl Compiled {
         }
     }
 
-    /// `‖x‖` over the IR's ambient parameters (SE3 as quaternion and
-    /// translation), summed in variable order.
-    pub(super) fn ambient_norm(&self, values: &Values) -> f64 {
-        self.vars
+    /// `‖x‖` over the ambient parameters (SE3 as quaternion and
+    /// translation) of the IR blocks the solve can move, summed in IR order:
+    /// a block every coordinate of which is held, or that no residual uses,
+    /// does not count.
+    pub(super) fn varying_norm(&self, values: &Values) -> f64 {
+        self.varying
             .iter()
-            .enumerate()
-            .map(|(index, var)| {
-                let key = Key(index as u64);
-                match var.kind {
-                    VarKind::Vector { dim } => with_vector_dim!(dim, N => {
-                        let v: &VectorVar<N> = values.get_unchecked(key).expect("compiled variable");
-                        v.0.norm_squared()
-                    }, _ => unreachable!("vector dims are checked when the variable is created")),
-                    VarKind::Se3 => {
+            .map(|&slot| {
+                let key = Key(slot.var() as u64);
+                match slot {
+                    Slot::Vector { var, offset, dim } => {
+                        let VarKind::Vector { dim: n } = self.vars[var].kind else {
+                            unreachable!("vector slot in a vector variable");
+                        };
+                        with_vector_dim!(n, N => {
+                            let v: &VectorVar<N> = values.get_unchecked(key).expect("compiled variable");
+                            v.0.as_slice()[offset..offset + dim].iter().map(|c| c * c).sum::<f64>()
+                        }, _ => unreachable!("vector dims are checked when the variable is created"))
+                    }
+                    Slot::Se3 { .. } => {
                         let p: &SE3 = values.get_unchecked(key).expect("compiled variable");
                         se3_to_ir(p).norm_squared()
                     }
-                    VarKind::Plane => {
+                    Slot::PlaneNormal { .. } => {
                         let p: &PlaneVar = values.get_unchecked(key).expect("compiled variable");
-                        p.normal.norm_squared() + p.distance * p.distance
+                        p.normal.norm_squared()
+                    }
+                    Slot::PlaneDistance { .. } => {
+                        let p: &PlaneVar = values.get_unchecked(key).expect("compiled variable");
+                        p.distance * p.distance
                     }
                 }
             })

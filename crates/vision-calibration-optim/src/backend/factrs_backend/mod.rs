@@ -175,7 +175,7 @@ impl LinearizationEngine for FactrsEngine<'_> {
     }
 
     fn norm(&self, x: &Values) -> f64 {
-        self.compiled.ambient_norm(x)
+        self.compiled.varying_norm(x)
     }
 }
 

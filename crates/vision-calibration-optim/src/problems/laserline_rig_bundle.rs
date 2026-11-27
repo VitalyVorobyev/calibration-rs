@@ -1143,4 +1143,147 @@ mod tests {
             );
         }
     }
+
+    /// A camera at the rig origin, ten noisy views of a 9 × 7 board at
+    /// half a metre and their laser stripes: the noisy plane solve of a rig
+    /// laserline workflow, with the true plane.
+    fn noisy_one_camera_scene() -> (RigLaserlineDataset, RigLaserlineUpstream, LaserPlane) {
+        use vision_calibration_core::synthetic::laser::{BoardExtent, laser_stripe_pixels};
+        use vision_calibration_core::synthetic::noise::UniformPixelNoise;
+        use vision_calibration_core::synthetic::{planar, poses};
+        use vision_calibration_core::{DistortionParams, ProjectionParams, SensorParams};
+
+        let camera = CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
+                params: BrownConrady5 {
+                    k1: -0.05,
+                    ..BrownConrady5::default()
+                },
+            },
+            SensorParams::Identity,
+            FxFyCxCy {
+                fx: 850.0,
+                fy: 845.0,
+                cx: 640.0,
+                cy: 480.0,
+            },
+        );
+        let model = camera.build().unwrap();
+        let normal = Vector3::new(0.30, 0.0, 1.0).normalize();
+        let truth = LaserPlane::new(normal, -0.5 * normal.z).unwrap();
+        let extent = BoardExtent::from_grid(9, 7, 0.06);
+        let c = extent.center();
+        let specs = poses::seeded_board_pose_specs(10, 0.35, 0x1A5E);
+        let board_poses = poses::centered_board_poses(&specs, (c[0], c[1]), 0.5);
+        // 0.1 px per axis: uniform on ±0.1·√3.
+        let noise = |seed| UniformPixelNoise {
+            seed,
+            max_abs_px: 0.1 * 3.0_f64.sqrt(),
+        };
+        let corners = planar::project_views_noisy(
+            &model,
+            &planar::grid_points(9, 7, 0.06),
+            &board_poses,
+            &noise(1),
+        )
+        .unwrap();
+        let views = corners
+            .into_iter()
+            .zip(&board_poses)
+            .enumerate()
+            .map(|(v, (obs, pose))| {
+                let stripe = laser_stripe_pixels(
+                    &model,
+                    pose,
+                    &truth.normal(),
+                    truth.distance(),
+                    &extent,
+                    v,
+                    &noise(2),
+                );
+                assert!(stripe.len() >= 20, "view {v}: the stripe misses the board");
+                RigLaserlineView::new(vec![Some(obs)], vec![Some(stripe)])
+            })
+            .collect();
+        let upstream = RigLaserlineUpstream {
+            cameras: vec![camera],
+            rig_se3_cam: vec![Iso3::identity()],
+            rig_se3_target: board_poses,
+            uncertainty: Uncertainty::default(),
+        };
+        (RigLaserlineDataset::new(views, 1).unwrap(), upstream, truth)
+    }
+
+    /// The plane solve under a held camera reaches its minimum from a start
+    /// near it, on both backends and with either laser residual: from the
+    /// true plane (within a σ of the minimum, not at it), from a plane moved
+    /// 2 mm and from one also turned 1°, it ends at one point.
+    ///
+    /// The held camera's intrinsics (some 1400 in pixels) once set the scale
+    /// of the relative-step rule: a step below 1.4e-5 counted as no step,
+    /// about a σ of the normal and eight of the distance, so a start that
+    /// close stopped where it began.
+    #[test]
+    fn a_plane_under_a_held_camera_converges_from_a_near_start() {
+        use crate::backend::SolverBackend;
+        let (dataset, upstream, truth) = noisy_one_camera_scene();
+        let turn = nalgebra::UnitQuaternion::from_scaled_axis(Vector3::y() * 1.0_f64.to_radians());
+        let shifted =
+            LaserPlane::new(truth.normal().into_inner(), truth.distance() + 0.002).unwrap();
+        let turned =
+            LaserPlane::new(turn * truth.normal().into_inner(), truth.distance() + 0.002).unwrap();
+        let coordinates = |p: &LaserPlane| {
+            let n = p.normal();
+            [n.x, n.y, n.z, p.distance()]
+        };
+        for residual in [
+            LaserlineResidualType::LineDistNormalized,
+            LaserlineResidualType::PointToPlane,
+        ] {
+            for backend in [SolverBackend::TinySolver, SolverBackend::Factrs] {
+                let backend_opts = BackendSolveOptions {
+                    backend,
+                    ..BackendSolveOptions::default()
+                };
+                let opts = RigLaserlineSolveOptions {
+                    laser_residual_type: residual,
+                    ..RigLaserlineSolveOptions::default()
+                };
+                let solve = |start: &LaserPlane| {
+                    optimize_rig_laserline(
+                        &dataset,
+                        &upstream,
+                        std::slice::from_ref(start),
+                        &opts,
+                        &backend_opts,
+                    )
+                    .unwrap()
+                };
+                let from_truth = solve(&truth);
+                let Uncertainty::Available(cov) = &from_truth.uncertainty else {
+                    panic!("{residual:?} {backend:?}: no covariance");
+                };
+                let sigmas = ["plane.nx", "plane.ny", "plane.nz", "plane.d"]
+                    .map(|label| cov.std_dev(label).unwrap());
+                let ends = coordinates(&from_truth.laser_planes_cam[0]);
+                // The true plane is not the noisy data's minimum: the solve
+                // from it moved.
+                let moved = (0..4)
+                    .map(|i| (ends[i] - coordinates(&truth)[i]).abs() / sigmas[i])
+                    .fold(0.0, f64::max);
+                assert!(moved > 0.1, "{residual:?} {backend:?}: moved {moved:.3} σ");
+                for (name, start) in [("shifted", &shifted), ("turned", &turned)] {
+                    let other = coordinates(&solve(start).laser_planes_cam[0]);
+                    let apart = (0..4)
+                        .map(|i| (other[i] - ends[i]).abs() / sigmas[i])
+                        .fold(0.0, f64::max);
+                    assert!(
+                        apart < 0.01,
+                        "{residual:?} {backend:?} {name}: {apart:.3} σ apart"
+                    );
+                }
+            }
+        }
+    }
 }

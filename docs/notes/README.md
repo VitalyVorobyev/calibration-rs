@@ -124,6 +124,9 @@ evidence behind ADR 0011.
 - [Ringgrid bias](ringgrid-bias.md) — the projective ellipse-center bias
   is removed inside the `ringgrid` detector; the ring-grid reprojection
   floor is per-detection localization scatter under defocus blur.
+- [LM stopping rules](lm-stopping.md) — the shared Levenberg–Marquardt
+  loop's stopping rules: the relative-step scale that stopped solves under
+  held blocks before their first step (the rig laser plane stall).
 - [Parameter uncertainty](uncertainty.md) — the covariance every
   calibration result carries, across all families.
 - [Detector feature covariance on real data](feature-covariance-study.md) —
