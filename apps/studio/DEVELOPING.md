@@ -55,7 +55,7 @@ one the page says no back end answers.
   mounted by them),
   `components/` (among them `PathPicker/`), `hooks/`, `lib/`, `store/` (the
   run the viewers show and the selection, `index.ts`), `api/` (the back
-  end: see "The back end and its client"). The Run workspace's forms carry
+  end: see "The back end and its client"). Calibrate's forms carry
   no schema: `config_form`, `dataset_form`, `resolve_config` and
   `config_patch` serve the library's schemas, its defaults and its merge
   rule (see "Forms" below).
@@ -93,7 +93,8 @@ shortcut list, the theme and Settings. Under it, `ConnectionStrip`: "No back
 end answers" with Retry, or "Connection lost" while the event stream is down
 (what writes is disabled through `useReadOnly`; it clears itself). The
 `RunList` is the left panel of Calibrate, Inspect and Compare: the runs as a
-`TreeView` and, for the current run, its label, star, report and deletion.
+list of cards (`RunCard`, `RunDetails`; rules in `project/runRows.ts`) and, for
+the current run, its label, notes and settings.
 The `JobTray` is the bottom panel: a row per job (the running one, the queue,
 the last three that ended, every failure until dismissed) with its stage, its
 bar, Cancel, a plot of the solver's cost, and the run a calibration wrote.
@@ -108,8 +109,8 @@ project and run; choosing either writes the address; a project opened without
 a run opens on its newest). Inspect's tabs are `Scene`, `Frames`, `Epipolar`
 and `Depth` (the viewers built before the screens); a tab a run cannot have
 is absent (`screens/inspect/tabs.ts`). The old addresses (`#/diagnose`,
-`#/viewer3d`, `#/epipolar`, `#/depth`, `#/run`) redirect. Calibrate is the
-Run workspace until its own screen replaces it.
+`#/viewer3d`, `#/epipolar`, `#/depth`, `#/run`) redirect. Calibrate is its own
+screen (see "Calibrate" below).
 
 **Keys** are pure rules in `keymap.ts` (a keystroke and whether the user is
 typing become an action) carried out by `useShellKeys`: `⌘1`…`⌘7`, `⌘K` (the
@@ -144,6 +145,46 @@ Component tests build the shell over placeholder screens and a mock back end
 the tray and its Cancel, the keys, a dropped stream) with `auth.spec.ts`
 (sign-in).
 
+## Calibrate
+
+`screens/calibrate/` is the editor (`ParameterEditor`), "This run" (`RunPanel`,
+`RunProgress`, `FailureView`, `RerunNotice`) and the pure rules beside them;
+the run list is the shell's (`shell/RunList.tsx`).
+
+- **The working configuration** is `project/runEditor.ts`: `edits` is `null`
+  while the editor holds the project's configuration, else the whole config
+  value the form edits. A run takes `patchOver(edits, projectConfig)` as its
+  one-off `config_patch` (`project/configEdit.ts`: the fewest changes that
+  merge over the project's patch, a list as one value, a removed optional
+  field as `null`); the run records it. `saveAsDefault` is the only write of
+  the project (`config_patch` then `save_project`, with the revision, so
+  `changed_on_disk` is the shell's callout). The baseline (library default,
+  project, or a run's recorded patch resolved by `resolve_config`) only
+  decides what the form marks as changed.
+- **Validation** (`useEditorCheck.ts`): after 300 ms of rest, `config_patch`
+  (does it read) then `resolve_config` (does it check). The library's message
+  starts with its field (`solver.max_iters must be positive`), which
+  `configCheck.ts` maps to the form's `messages`; any other message is the
+  form's. Run is disabled with the reason while it fails.
+- **Curation** (`curate.ts`) reads the schema's structure, never a topology:
+  a `camera` with a `model`, `camera_overrides`, any `…_loss`, `solver`,
+  `…_init`, and the `refine_…`/`fix…` switches get groups; whatever no rule
+  names is "All other fields", folded. A test renders it for all seven
+  workflows' schemas and checks every field of the default configuration is
+  in a group. `cameraRenderer.tsx` takes over two things the schema's
+  controls do badly: a camera's `fix` object (chips; the names per model are
+  `cameraParams.ts`, the library's `CameraFix` names, and a model it does not
+  know keeps the form's own control) and `camera_overrides` (a row per
+  camera). Switching a robust loss to a kind with a scale seeds 1 (the schema
+  would seed 0, which no loss accepts).
+- **History**: `runRows.ts` reads a run's record into a row (pooled and
+  per-camera RMS, views, features, changes against the project's patch).
+  `staleSince` does not call a run stale for settings of its own: the
+  library's digest differs by them, and the changes say it. The lowest-RMS
+  mark is only a mark; the star is the person's acceptance. Ticks feed
+  `session/compareSet.ts`, which the Compare screen will read.
+- **Seed row**: "not available yet"; no command serves a seed.
+
 ## Projects
 
 **Projects are the library's** (`vision_calibration::project`, the book's
@@ -173,8 +214,8 @@ dir, id }`); there is no "active export".
   `Progress`, its output the written run's `RunInfo`). A change publishes
   `project_changed { dir }` on the event stream.
 - **The store** (`project/projectStore.ts`) holds the open `ProjectView`
-  and replaces it from every answer; `draftStore.ts` holds the Run
-  workspace's unsaved edits (the manifest when the file holds it, the
+  and replaces it from every answer; `draftStore.ts` holds the
+  unsaved edits (the manifest when the file holds it, the
   configuration) and saves them through `save_project`, the configuration
   as its changes from the defaults (`config_patch`). A run is stale when one
   of its four input digests (`dataset`, `exclusions`, `config`, `quality`)
@@ -428,28 +469,26 @@ cluster that drives it from outside the stage.
 ## Run progress and cancellation
 
 A calibration is the `calibrate { dir, notes?, config_patch?, redetect? }`
-job (`api.jobs.calibrate`, driven by `RunWorkspace/useRunController.ts`):
-the library's `Project::calibrate` on the project as it is on disk (the Run
-workspace saves its edits first), with the HTML report. Its events are the
+job (`api.jobs.calibrate`, driven by `project/runEditor.ts`):
+the library's `Project::calibrate` on the project as it is on disk, with the
+HTML report and the editor's one-off `config_patch`. Its events are the
 library's `Progress` reports (each image detected, each calibration step,
 each solver iteration; iterations are throttled to one per 50 ms); the
-checklist (`RunWorkspace/runStages.ts`) takes its stage, `detect` ->
+checklist (`screens/calibrate/stages.ts`) takes its stage, `detect` ->
 `solve` -> `export`, from each report's kind. Its output is the written
-run's `RunInfo`, which the workspace lists and shows before it hands off to
-Diagnose. A failure is the job's `StudioError`: `needs_input` (a choice the
-manifest leaves open, with its `field` and `suggestions`) opens the
-ask-user dialog, which writes the choice into the draft manifest.
+run's `RunInfo`, which the run list shows and selects. A failure is the job's
+`StudioError`, shown with the stage it stopped in and what to try
+(`project/configCheck.ts`).
 Cancelling the job (`cancel_job`, the job's `CancelToken`) stops the
 library at its next image or solver iteration, nothing is written, and the
 job ends `cancelled`.
 
 ## Forms
 
-The Run workspace's manifest and config forms (`SchemaValueForm` from
-`@vitavision/forms`) render the schemas the back end serves:
-`dataset_form` (the `DatasetSpec` schema and a starting manifest) and
-`config_form { topology }` (the workflow's `*Config` schema and the
-library's default), fetched by `RunWorkspace/useForms.ts`. The values are the
+Calibrate's config form (`SchemaValueForm` from `@vitavision/forms`)
+renders the schema the back end serves, `config_form { topology }` (the
+workflow's `*Config` schema and the library's default), fetched by
+`project/runEditor.ts`; `dataset_form` serves the manifest's. The values are the
 open project's: its manifest and its configuration as `open_project`
 resolves it (the defaults with the project's changes). A saved
 configuration goes back as its changes from the defaults, `config_patch {
@@ -459,8 +498,7 @@ else replaces; a field the workflow lacks is a `config` error). The
 frontend holds no copy of a Rust default and cannot lag the back end. A
 studio-core test compares the served schemas and defaults with the ones
 `cargo xtask emit-schemas` publishes in the repository's `schemas/`, which
-the form round-trip tests (`configRoundTrip.test.tsx`,
-`configForms.test.tsx`) render.
+the curation test (`screens/calibrate/curate.test.ts`) renders for all seven.
 
 ## Quick Start samples
 

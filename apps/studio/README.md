@@ -49,7 +49,7 @@ It reads and writes only under its root folders. On `127.0.0.1` (the
 default) it needs nothing more; on any other address it needs its token,
 printed in the address it shows at start. `--help` lists the options.
 
-Signed installers and in-app detection outside the Run workspace are not
+Signed installers and in-app detection outside the Calibrate screen are not
 provided.
 
 Contributing to the app: [DEVELOPING.md](DEVELOPING.md).

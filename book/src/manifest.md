@@ -2,7 +2,7 @@
 
 A calibration dataset is a folder of images, usually a robot-pose file, and some knowledge only you have: what the target is, how big it is, which frame convention the robot controller uses. The **dataset manifest** (`DatasetSpec`, in the `vision-calibration-dataset` crate) is the one on-disk format that describes all of it. The manifest is *descriptive*, never prescriptive: your data stays where it is, and the manifest points at it.
 
-The same manifest drives three front ends: the Rust [dataset runner](#running-a-manifest), the desktop app's Run workspace (which edits it in a schema-driven form) and the folder sniffer that writes a first draft.
+The same manifest drives three front ends: the Rust [dataset runner](#running-a-manifest), the desktop app (which edits it in a schema-driven form) and the folder sniffer that writes a first draft.
 
 A [project](projects.md) adds a history to a manifest: the configuration changes it is calibrated with, what to leave out and every run. Its project file references a manifest file like this one, or holds the manifest itself.
 
@@ -107,7 +107,7 @@ println!("{:?}", spec.unresolved);
 # }
 ```
 
-The same function is `vcal init` on the command line ([The Command Line](cli.md)) and the **Sniff folder** button of the app's Run workspace:
+The same function is `vcal init` on the command line ([The Command Line](cli.md)) and the **Sniff folder** button of the app:
 
 ```bash
 vcal init data/my_dataset        # writes data/my_dataset/dataset.toml

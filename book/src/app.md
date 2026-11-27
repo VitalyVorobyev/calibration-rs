@@ -34,7 +34,7 @@ It serves only the folders given with `--root` (or a project folder given alone,
 - **Five workspaces**, reachable from the left rail (hotkeys `⌘1` to `⌘5`): Diagnose, 3D viewer, Epipolar, Depth and Run calibration.
 - **One run at a time.** The viewers show one run of the open [project](projects.md): its export plus derived pose and camera indices. Every workspace except Run reads it; they all react to the same run, the selected pose and the selected camera.
 - **Three ways to a run.** Choose one of the project's runs in the panel on the left. Running a calibration from the **Run** workspace writes the project's next run and hands off to **Diagnose** with it. **Import Export…** in the top bar adds an export calibrated elsewhere (a `*Export.json`, or a `vcal run -o` folder) to the open project as its next run.
-- **The export needs `diagnostics.image_manifest` to render anything visual.** An export with residual numbers but no manifest produces an error banner ("This export has no image_manifest field") instead of a blank viewer. Runs launched from the Run workspace fill it in, as do `vcal run` and the library's `calibrate_dataset`; a hand-written export may not have one.
+- **The export needs `diagnostics.image_manifest` to render anything visual.** An export with residual numbers but no manifest produces an error banner ("This export has no image_manifest field") instead of a blank viewer. Runs launched from the Calibrate screen fill it in, as do `vcal run` and the library's `calibrate_dataset`; a hand-written export may not have one.
 
 ## What Is Where
 
@@ -46,7 +46,7 @@ It serves only the folders given with `--root` (or a project folder given alone,
 | **Epipolar** | `⌘3` | click a point in one image, see its epipolar line in another |
 | **Depth** | `⌘4` | rectify a stereo pair and compute disparity, depth and a point cloud |
 
-The Run workspace is the entry point for a new dataset; the other four work on any run of a project, calibrated by the app, by `vcal run` or imported.
+The Calibrate screen is where a run is set up and started; the other screens work on any run of a project, calibrated by the app, by `vcal run` or imported.
 
 ## Projects
 
@@ -56,7 +56,7 @@ The **Project** menu in the top bar:
 
 - **Open project…** opens a folder browser over the folders the app may read (the same one on the desktop and in a browser) and lists the project's runs in a panel on the left; choosing a run loads it into the viewers. A folder without a project file is reported as "not a project folder"; the app never guesses one from a folder's contents.
 - **New project from a dataset folder…** makes the folder a project whose manifest the [folder sniffer](manifest.md#the-folder-sniffer) drafts; **New project from a manifest…** makes the manifest's folder a project referencing that file, which the app shows but never rewrites.
-- **Save project** writes the Run workspace's edits to the project file. If the file changed on disk since it was opened (another program, another browser tab), nothing is written and the app asks you to reload it.
+- **Save project** writes the project's unsaved edits to the project file. If the file changed on disk since it was opened (another program, another browser tab), nothing is written and the app asks you to reload it.
 - **Import an export as a run…** is the menu's twin of the top bar's **Import Export…**; **Reload project** reads it again; **Recent** reopens one of the last projects opened (in a browser: the server's list, shared by everyone using it).
 
 The panel on the left lists the runs with their views and verdict, a ★ on starred ones and "stale" on a run made from other inputs (dataset, exclusions, configuration or quality thresholds) than the project states now. Below it, the chosen run takes a label and a star, opens its `report.html` ([The Calibration Report](report.md)), and can be deleted.
