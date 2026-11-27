@@ -83,6 +83,12 @@ pub enum ErrorKind {
     RunNotFound,
     /// An export of another workflow or camera count than the project's.
     ImportMismatch,
+    /// The seed cannot be made (a run without a record, a file that does
+    /// not read) or does not fit the project's dataset and configuration
+    /// (`field` is `seed`).
+    Seed,
+    /// The file exists and the command was not asked to overwrite it.
+    FileExists,
     /// The manifest leaves a choice open: `field` names it and
     /// `suggestions` lists the values to offer.
     NeedsInput,
@@ -148,6 +154,7 @@ impl StudioError {
             ErrorKind::Busy
             | ErrorKind::ProjectExists
             | ErrorKind::ChangedOnDisk
+            | ErrorKind::FileExists
             | ErrorKind::RootsFixed => 409,
             ErrorKind::Internal => 500,
             _ => 422,
@@ -203,6 +210,7 @@ impl From<ProjectError> for StudioError {
             ProjectError::Exclusion { .. } => error(ErrorKind::Exclusion),
             ProjectError::RunNotFound { .. } => error(ErrorKind::RunNotFound),
             ProjectError::ImportMismatch { .. } => error(ErrorKind::ImportMismatch),
+            ProjectError::SeedUnresolved { path, .. } => error(ErrorKind::Seed).at(display(&path)),
             ProjectError::Calibrate(e) => e.into(),
             ProjectError::Cancelled => StudioError::cancelled(),
             // A variant of a later library version.
@@ -238,6 +246,9 @@ impl From<CalibrateDatasetError> for StudioError {
             CalibrateDatasetError::Run(e) => e.into(),
             CalibrateDatasetError::Cancelled => StudioError::cancelled(),
             CalibrateDatasetError::ConfigTopologyMismatch { .. } => error(ErrorKind::Config),
+            // The library names no field for a seed that does not fit; the
+            // seed is the project's `seed`.
+            CalibrateDatasetError::Seed(_) => error(ErrorKind::Seed).on_field("seed"),
             _ => error(ErrorKind::Calibration),
         }
     }
@@ -346,6 +357,27 @@ mod tests {
         assert_eq!(e.field.as_deref(), Some("pose_pairing"));
         assert_eq!(e.suggestions, ["by_index"]);
         assert_eq!(e.message, "How are views paired?");
+    }
+
+    #[test]
+    fn a_seed_error_is_seed_on_the_seed_field() {
+        let unresolved = StudioError::from(ProjectError::SeedUnresolved {
+            path: PathBuf::from("/lib/a/runs/run-001"),
+            message: "not a run".into(),
+        });
+        assert_eq!(unresolved.kind, ErrorKind::Seed);
+        assert_eq!(unresolved.field.as_deref(), Some("seed"));
+        assert_eq!(unresolved.path.as_deref(), Some("/lib/a/runs/run-001"));
+        assert_eq!(unresolved.http_status(), 422);
+        let misfit = StudioError::from(ProjectError::Calibrate(CalibrateDatasetError::Seed(
+            vision_calibration::device_seed::DeviceSeedError::NoCameras,
+        )));
+        assert_eq!(misfit.kind, ErrorKind::Seed);
+        assert_eq!(misfit.field.as_deref(), Some("seed"));
+        assert_eq!(
+            StudioError::new(ErrorKind::FileExists, "x").http_status(),
+            409
+        );
     }
 
     #[test]

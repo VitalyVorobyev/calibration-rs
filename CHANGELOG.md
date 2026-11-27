@@ -140,6 +140,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   statistics table adds the median and the 95th percentile. A problem with
   the dataset is placed on the field the library names for it.
 
+- Calibration Studio's back end serves devices and seeds (its Device screen
+  is to follow): a device's calibration history across every project under
+  the library folders (or each device of a type), with each run's verdict,
+  per-camera RMS, star, the seed it started from and which run stands for
+  the device; each camera parameter, rig mount, hand-eye and laser plane
+  over that history with its σ, a gap where a run lacks it, and its spread
+  across the runs (median, 1.4826·MAD, min, max); the seed of a run or of
+  several runs or devices aggregated, previewed or written to a JSON or TOML
+  file; and a project's seed set or cleared, refused with the library's
+  error when it does not fit the project. A project's seed path is checked
+  like every other path the project names: one outside the library folders
+  is refused.
+
 - Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
   returns a `DetectionDetail` with the features `detect` returns (bit for
   bit), the image's outcome (detected; not found, with the detector's

@@ -38,12 +38,13 @@ dirs = "5"
 # The API schema (`studio-schema`) and the command table's argument and
 # reply types. schemars 1.x, matching the workspace pin.
 schemars = { version = "1", features = ["derive"] }
+# Seed files written as TOML (`export_seed`), as the library reads them.
+toml = "1"
 
 [dev-dependencies]
 tempfile = "3"
 # The tests calibrate synthetic views.
 vision-calibration = { path = "../../../../crates/vision-calibration", features = ["synthetic"] }
-toml = "0.8"
 
 [features]
 default = ["samples"]

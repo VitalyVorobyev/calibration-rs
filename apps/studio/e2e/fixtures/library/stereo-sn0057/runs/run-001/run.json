@@ -15,13 +15,15 @@
         "id": "cam0",
         "rms_px": 1.84,
         "features": 40,
-        "views": 2
+        "views": 2,
+        "image_size": [96, 72]
       },
       {
         "id": "cam1",
         "rms_px": 2.07,
         "features": 40,
-        "views": 2
+        "views": 2,
+        "image_size": [96, 72]
       }
     ]
   }

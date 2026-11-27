@@ -20,6 +20,8 @@
 //!   plane format.
 //! - [`scope`] — the file scope: paths judged against root folders after
 //!   canonicalising, and every path a project and its manifest name.
+//! - [`seeds`] — the paths a project's seed names, judged, and the seed of
+//!   a run.
 //! - [`settings`] — the desktop's roots and the recent projects, kept
 //!   between runs.
 
@@ -35,5 +37,6 @@ pub mod planes;
 pub mod pose_values;
 pub mod runs;
 pub mod scope;
+pub mod seeds;
 pub mod settings;
 pub mod uncertainty;

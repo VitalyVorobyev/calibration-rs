@@ -189,7 +189,7 @@
       "args": {
         "$ref": "#/definitions/SaveProjectArgs"
       },
-      "doc": "Replace the project's definition with `spec` and write it, in its\nformat (a version 1 project becomes version 2). `revision` is the one\n`open_project` answered: when the file changed on disk since, nothing is\nwritten and the answer is `changed_on_disk` (open it again and apply the\nedit). Every path the spec names must lie inside a root.",
+      "doc": "Replace the project's definition with `spec` and write it, in its\nformat (a version 1 project becomes version 2). `revision` is the one\n`open_project` answered: when the file changed on disk since, nothing is\nwritten and the answer is `changed_on_disk` (open it again and apply the\nedit). Every path the spec names must lie inside a root. A changed\n`seed` is checked as `set_project_seed` checks it.",
       "kind": "plain",
       "name": "save_project",
       "reply": {
@@ -255,6 +255,61 @@
       "name": "import_export",
       "reply": {
         "$ref": "#/definitions/RunInfo"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/SetProjectSeedArgs"
+      },
+      "doc": "Set the project's `[seed]` (a run's folder, a device specification or\na seed file, relative to the project folder unless absolute), or clear\nit with `null`, and save the project as `save_project` does (`revision`\nas `open_project` answered it, else `changed_on_disk`). The seed's path\nmust lie inside a root. The library's pre-flight check runs on the\nedited project before anything is written: a seed that cannot be made\nor does not fit the dataset's cameras and the configuration's camera\nmodel is refused with the library's error (`seed`, on the field\n`seed`). When the project fails that check for another reason (an open\nmanifest choice, a stale exclusion) but its dataset and configuration\nresolve, the seed is still made, so one that cannot be is refused; its\nfit is checked by the next run.",
+      "kind": "plain",
+      "name": "set_project_seed",
+      "reply": {
+        "$ref": "#/definitions/ProjectView"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DeviceHistoryArgs"
+      },
+      "doc": "The calibration history of a device (or of every device of a product):\nevery run of every project under the roots that names it, in the\nlibrary's order (runs without a timestamp first, then by timestamp, then\nby project folder and listing order), with the run that stands for each\ndevice (its latest starred run, else its latest pass run calibrated in a\nproject). A device no project names has no history (`devices` is\nempty); a folder or project the scan cannot read is a failure, not an\nerror.",
+      "kind": "plain",
+      "name": "device_history",
+      "reply": {
+        "$ref": "#/definitions/DeviceHistories"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DeviceSeriesArgs"
+      },
+      "doc": "The values of a device's parameters (or of each device of a product)\nover its history, for a trend chart: every camera parameter, each\ncamera's mount in a rig, the hand-eye and each laser plane, as each run\nestimated them, with their σ. A parameter only some runs have is a gap\nin the others (`null`), never dropped. `starred_only` keeps the starred\nruns. Each series of a camera parameter names its spread across the\nruns, the library's robust summary (median, 1.4826·MAD, min, max) of\nthe runs' seeds.",
+      "kind": "plain",
+      "name": "device_series",
+      "reply": {
+        "$ref": "#/definitions/DeviceSeriesSet"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/SeedPreviewArgs"
+      },
+      "doc": "The seed `from` makes, without writing anything: its values, each\nvalue's spread across the runs of an aggregate, and what the aggregate\nleft out. A run's seed carries its cameras, the mounts of a rig of\nseveral cameras, its laser planes and its hand-eye; never anything of\nthe capture (target poses, robot-pose corrections, residuals) nor the\nuncertainty. `seed` when a run makes no seed (a run without a record, a\nrecord without its image sizes) or the runs do not aggregate (other\ncameras, image sizes, models or hand-eye modes); `invalid` (on\n`devices[i]`) for a device with no representative run.",
+      "kind": "plain",
+      "name": "seed_preview",
+      "reply": {
+        "$ref": "#/definitions/SeedPreview"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ExportSeedArgs"
+      },
+      "doc": "Write the seed `from` makes (as `seed_preview` answers it) to the file\n`dest` inside a root: TOML by its `.toml` extension, JSON by `.json`,\nthe format a project's `[seed] file` reads. An existing file is\n`file_exists` unless `overwrite`; the file's folder must exist.",
+      "kind": "plain",
+      "name": "export_seed",
+      "reply": {
+        "$ref": "#/definitions/ExportedSeed"
       }
     },
     {
@@ -1256,6 +1311,27 @@
         "distortion",
         "sensor",
         "intrinsics"
+      ],
+      "type": "object"
+    },
+    "CameraRms": {
+      "description": "A camera's reprojection RMS in a run.",
+      "properties": {
+        "id": {
+          "description": "The camera's id in the manifest.",
+          "type": "string"
+        },
+        "rms_px": {
+          "description": "Pixels; absent without residuals.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
       ],
       "type": "object"
     },
@@ -2395,6 +2471,68 @@
       },
       "type": "object"
     },
+    "DeviceHistories": {
+      "description": "The histories of the devices asked for.",
+      "properties": {
+        "devices": {
+          "description": "One per device, by product, then id.",
+          "items": {
+            "$ref": "#/definitions/DeviceHistoryView"
+          },
+          "type": "array"
+        },
+        "failures": {
+          "description": "What the library scan could not read, by path.",
+          "items": {
+            "$ref": "#/definitions/ScanFailure"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "devices",
+        "failures"
+      ],
+      "type": "object"
+    },
+    "DeviceHistoryArgs": {
+      "additionalProperties": false,
+      "description": "The calibration history of a device (or of every device of a product):\nevery run of every project under the roots that names it, in the\nlibrary's order (runs without a timestamp first, then by timestamp, then\nby project folder and listing order), with the run that stands for each\ndevice (its latest starred run, else its latest pass run calibrated in a\nproject). A device no project names has no history (`devices` is\nempty); a folder or project the scan cannot read is a failure, not an\nerror.",
+      "properties": {
+        "device": {
+          "$ref": "#/definitions/DeviceSelector"
+        }
+      },
+      "required": [
+        "device"
+      ],
+      "type": "object"
+    },
+    "DeviceHistoryView": {
+      "description": "One device's runs.",
+      "properties": {
+        "device": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DeviceIdentity"
+            }
+          ],
+          "description": "The device, as the first of its projects (by folder) states it."
+        },
+        "runs": {
+          "description": "Its runs, in the history's order.",
+          "items": {
+            "$ref": "#/definitions/DeviceRunRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "device",
+        "runs"
+      ],
+      "type": "object"
+    },
     "DeviceIdentity": {
       "additionalProperties": false,
       "description": "The device a project calibrates.\n\nProjects of one device, in any folder, form its calibration history:\nthe library groups them by `product` and `id` together.",
@@ -2412,6 +2550,26 @@
         },
         "product": {
           "description": "The device type or product line it belongs to; `None` when the id\nalone names the device.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "DeviceKey": {
+      "additionalProperties": false,
+      "description": "One device, by what a project's `[device]` states: its product (none for\na device of no stated product) and its id, both compared as written.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "product": {
+          "default": null,
           "type": [
             "string",
             "null"
@@ -2486,6 +2644,92 @@
       ],
       "type": "object"
     },
+    "DeviceRunRow": {
+      "description": "One run of a device's history.",
+      "properties": {
+        "cameras": {
+          "description": "Each camera's reprojection RMS, in camera order; empty when the run\nhas no summary.",
+          "items": {
+            "$ref": "#/definitions/CameraRms"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "The run's id (`run-003`).",
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RunOrigin"
+            }
+          ],
+          "description": "Where its export came from, or why its record cannot be read."
+        },
+        "project": {
+          "description": "The project folder.",
+          "type": "string"
+        },
+        "project_name": {
+          "description": "The project's name, or its folder's.",
+          "type": "string"
+        },
+        "representative": {
+          "description": "Whether it is the run that stands for its device (the library's\nrepresentative run).",
+          "type": "boolean"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RunSeedUse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The seed the run started from, for a seeded calibrated run."
+        },
+        "starred": {
+          "type": "boolean"
+        },
+        "timestamp": {
+          "description": "When the run was written, seconds since the Unix epoch; absent for a\nrun of the app's earlier format.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its quality verdict; absent when it was not assessed."
+        }
+      },
+      "required": [
+        "project",
+        "project_name",
+        "id",
+        "origin",
+        "starred",
+        "cameras",
+        "representative"
+      ],
+      "type": "object"
+    },
     "DeviceSeed": {
       "additionalProperties": false,
       "description": "The device quantities a calibration starts from, by camera id: a\ndatasheet's nominal values or a previous calibration's estimates.\n\nA seed is an initial value; nothing in it is a constraint or a prior,\nand it carries no uncertainty. It holds what belongs to the hardware:\neach camera's lens, its mount in the rig, its laser plane and the rig's\nhand-eye. Nothing of a capture is in it (no target poses, robot-pose\ncorrections or residuals), and no configuration: the camera model is the\nconfig's, and a calibrated lens must be of that model.\n\nUnits are the pipeline's: pixels, radians and metres. A seed is made by\n[`from_spec`](Self::from_spec) or\n[`from_calibration`](Self::from_calibration), not transcribed by hand;\nits JSON form is how it is stored.\n\nThe rig frame of the mounts and the hand-eye is the seed's own (a\ndrawing's frame, or the reference camera of the run it came from). The\nderivations that take a `reference` camera re-express them so that\ncamera's mount is the identity, as a rig problem's gauge requires; laser\nplanes are in their camera's frame and need no change.",
@@ -2525,6 +2769,132 @@
       "required": [
         "version",
         "cameras"
+      ],
+      "type": "object"
+    },
+    "DeviceSelector": {
+      "description": "A device, or every device of a product (a device type).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The device of `product` (none for no stated product) and `id`.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "device",
+              "type": "string"
+            },
+            "product": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Every device whose product is `product`.",
+          "properties": {
+            "kind": {
+              "const": "type",
+              "type": "string"
+            },
+            "product": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "product"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DeviceSeries": {
+      "description": "One device's parameters over its runs.",
+      "properties": {
+        "device": {
+          "$ref": "#/definitions/DeviceIdentity"
+        },
+        "parameters": {
+          "description": "Each parameter, in the order the runs first name them (each run's\ncameras in camera order, the solver's order within a camera, then\nmounts, the hand-eye and laser planes).",
+          "items": {
+            "$ref": "#/definitions/ParameterSeries"
+          },
+          "type": "array"
+        },
+        "runs": {
+          "description": "The x axis: the runs, in the history's order.",
+          "items": {
+            "$ref": "#/definitions/SeriesRun"
+          },
+          "type": "array"
+        },
+        "statistics": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SeriesStatistics"
+            }
+          ],
+          "description": "The spread of every value across the runs' seeds."
+        }
+      },
+      "required": [
+        "device",
+        "runs",
+        "parameters",
+        "statistics"
+      ],
+      "type": "object"
+    },
+    "DeviceSeriesArgs": {
+      "additionalProperties": false,
+      "description": "The values of a device's parameters (or of each device of a product)\nover its history, for a trend chart: every camera parameter, each\ncamera's mount in a rig, the hand-eye and each laser plane, as each run\nestimated them, with their σ. A parameter only some runs have is a gap\nin the others (`null`), never dropped. `starred_only` keeps the starred\nruns. Each series of a camera parameter names its spread across the\nruns, the library's robust summary (median, 1.4826·MAD, min, max) of\nthe runs' seeds.",
+      "properties": {
+        "device": {
+          "$ref": "#/definitions/DeviceSelector"
+        },
+        "starred_only": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device"
+      ],
+      "type": "object"
+    },
+    "DeviceSeriesSet": {
+      "description": "The series of the devices asked for.",
+      "properties": {
+        "devices": {
+          "description": "One per device, by product, then id.",
+          "items": {
+            "$ref": "#/definitions/DeviceSeries"
+          },
+          "type": "array"
+        },
+        "failures": {
+          "description": "What the library scan could not read, by path.",
+          "items": {
+            "$ref": "#/definitions/ScanFailure"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "devices",
+        "failures"
       ],
       "type": "object"
     },
@@ -3489,6 +3859,16 @@
           "type": "string"
         },
         {
+          "const": "seed",
+          "description": "The seed cannot be made (a run without a record, a file that does\nnot read) or does not fit the project's dataset and configuration\n(`field` is `seed`).",
+          "type": "string"
+        },
+        {
+          "const": "file_exists",
+          "description": "The file exists and the command was not asked to overwrite it.",
+          "type": "string"
+        },
+        {
           "const": "needs_input",
           "description": "The manifest leaves a choice open: `field` names it and\n`suggestions` lists the values to offer.",
           "type": "string"
@@ -3608,6 +3988,49 @@
           "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
         }
       },
+      "type": "object"
+    },
+    "ExportSeedArgs": {
+      "additionalProperties": false,
+      "description": "Write the seed `from` makes (as `seed_preview` answers it) to the file\n`dest` inside a root: TOML by its `.toml` extension, JSON by `.json`,\nthe format a project's `[seed] file` reads. An existing file is\n`file_exists` unless `overwrite`; the file's folder must exist.",
+      "properties": {
+        "dest": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "from": {
+          "$ref": "#/definitions/SeedFrom"
+        },
+        "overwrite": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "from",
+        "dest"
+      ],
+      "type": "object"
+    },
+    "ExportedSeed": {
+      "description": "A seed written to a file.",
+      "properties": {
+        "path": {
+          "description": "The file written, absolute.",
+          "type": "string"
+        },
+        "preview": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SeedPreview"
+            }
+          ],
+          "description": "The seed and where it came from, as `seed_preview` answers it."
+        }
+      },
+      "required": [
+        "path",
+        "preview"
+      ],
       "type": "object"
     },
     "Feature": {
@@ -5111,6 +5534,25 @@
       ],
       "type": "object"
     },
+    "LeftOutRun": {
+      "description": "A run left out of the statistics.",
+      "properties": {
+        "reason": {
+          "$ref": "#/definitions/StudioError"
+        },
+        "run": {
+          "description": "Its position in `runs`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run",
+        "reason"
+      ],
+      "type": "object"
+    },
     "LibraryScan": {
       "description": "What a scan found: the projects, and what it could not read.",
       "properties": {
@@ -5444,6 +5886,66 @@
           "type": "string"
         }
       ]
+    },
+    "ParameterSeries": {
+      "description": "One parameter over the runs.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id; absent for the hand-eye.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group": {
+          "$ref": "#/definitions/SeriesGroup"
+        },
+        "key": {
+          "description": "`<camera>.<name>` (`cam0.fx`), `<camera>.cam_se3_rig.<rx…tz>`,\n`<pose>.<rx…tz>` for the hand-eye (`gripper_se3_rig.tx`),\n`<camera>.laser_plane.<nx, ny, nz, distance>`; cameras by their id.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The parameter or component (`fx`, `k1`, `tx`, `nx`).",
+          "type": "string"
+        },
+        "points": {
+          "description": "One per run of `runs`, in its order; `null` where the run does not\nhave the parameter.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/SeriesPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "sigma_of": {
+          "$ref": "#/definitions/SigmaBasis"
+        },
+        "spread": {
+          "description": "The label of its spread in `statistics` (the same as `key`), when\nthe library's spread is of these values: a camera parameter's. A\nmount's, hand-eye's or laser plane's spread is listed under the\nlibrary's own labels, over its own parametrization.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unit": {
+          "description": "`px`, `rad`, `deg` (a rotation's axis-angle component), `m`, or\nempty (a coefficient, a normal's component).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "group",
+        "name",
+        "unit",
+        "sigma_of",
+        "points"
+      ],
+      "type": "object"
     },
     "ParameterSigma": {
       "description": "A parameter's standard deviation, or why it has none.",
@@ -9297,6 +9799,67 @@
       },
       "type": "object"
     },
+    "RunOrigin": {
+      "description": "Where a run's export came from.",
+      "oneOf": [
+        {
+          "description": "The project calibrated it.",
+          "properties": {
+            "kind": {
+              "const": "calibrated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was imported from an export calibrated elsewhere.",
+          "properties": {
+            "kind": {
+              "const": "imported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A run of the app's earlier format, without a record.",
+          "properties": {
+            "kind": {
+              "const": "unrecorded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Its record cannot be read by this version.",
+          "properties": {
+            "kind": {
+              "const": "unreadable",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "RunQualityArgs": {
       "additionalProperties": false,
       "description": "A run's quality report; `not found` (`io`) for an imported export whose\nquality could not be assessed.",
@@ -9421,6 +9984,46 @@
         "source",
         "value",
         "applied"
+      ],
+      "type": "object"
+    },
+    "RunSeedUse": {
+      "description": "The seed a run started from, as its record keeps it (its values are in\n`run_info`'s record).",
+      "properties": {
+        "applied": {
+          "description": "What the workflow took from it (`cam0.lens`, `cam1.cam_se3_rig`,\n`cam0.laser_plane`, `handeye`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "The seed's own description (`the calibrated run run-003`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ignored": {
+          "description": "What it holds that the workflow does not use.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SeedSource"
+            }
+          ],
+          "description": "Where it came from, as the project (or the run's options) named it."
+        }
+      },
+      "required": [
+        "source",
+        "applied",
+        "ignored"
       ],
       "type": "object"
     },
@@ -9607,7 +10210,7 @@
     },
     "SaveProjectArgs": {
       "additionalProperties": false,
-      "description": "Replace the project's definition with `spec` and write it, in its\nformat (a version 1 project becomes version 2). `revision` is the one\n`open_project` answered: when the file changed on disk since, nothing is\nwritten and the answer is `changed_on_disk` (open it again and apply the\nedit). Every path the spec names must lie inside a root.",
+      "description": "Replace the project's definition with `spec` and write it, in its\nformat (a version 1 project becomes version 2). `revision` is the one\n`open_project` answered: when the file changed on disk since, nothing is\nwritten and the answer is `changed_on_disk` (open it again and apply the\nedit). Every path the spec names must lie inside a root. A changed\n`seed` is checked as `set_project_seed` checks it.",
       "properties": {
         "dir": {
           "$ref": "#/definitions/UserPath"
@@ -9754,6 +10357,71 @@
       ],
       "type": "object"
     },
+    "SeedFrom": {
+      "description": "What a seed is made from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "One run's seed: its cameras whole, the mounts of a rig of several,\nits laser planes and hand-eye (the library's `DeviceSeed::from_run`).",
+          "properties": {
+            "kind": {
+              "const": "run",
+              "type": "string"
+            },
+            "run": {
+              "$ref": "#/definitions/RunRef"
+            }
+          },
+          "required": [
+            "kind",
+            "run"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The aggregate of several runs' seeds, one run per unit (the\nlibrary's `DeviceSeed::aggregate`).",
+          "properties": {
+            "kind": {
+              "const": "runs",
+              "type": "string"
+            },
+            "runs": {
+              "items": {
+                "$ref": "#/definitions/RunRef"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "runs"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The aggregate of each device's representative run (its latest\nstarred run, else its latest pass run calibrated in a project).",
+          "properties": {
+            "devices": {
+              "items": {
+                "$ref": "#/definitions/DeviceKey"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "units",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "devices"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SeedHandeye": {
       "description": "Where a seed's rig sits on the robot, in the seed's rig frame.",
       "oneOf": [
@@ -9865,6 +10533,77 @@
         }
       ]
     },
+    "SeedPreview": {
+      "description": "A seed and where it came from.",
+      "properties": {
+        "omitted": {
+          "description": "What only some of the aggregated runs have (`<camera>.cam_se3_rig`,\n`<camera>.laser_plane`, `handeye`), left out of the aggregate rather\nthan filled in; without mounts, a seed of several cameras leaves out\nthe hand-eye too. Empty for one run's seed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "runs": {
+          "description": "The runs it was made from, in the order given (for `units`, each\ndevice's representative run).",
+          "items": {
+            "$ref": "#/definitions/SeedRun"
+          },
+          "type": "array"
+        },
+        "seed": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DeviceSeed"
+            }
+          ],
+          "description": "The seed: what a seeded run starts from."
+        },
+        "spread": {
+          "description": "Each aggregated value's values across the runs, median, 1.4826·MAD,\nmin and max (the library's labels: `cam0.fx`, `cam1.cam_se3_rig.tx`,\n`cam0.laser_plane.nx`, `handeye.rz`); empty for one run's seed.",
+          "items": {
+            "$ref": "#/definitions/SeedSpread"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "seed",
+        "runs",
+        "spread",
+        "omitted"
+      ],
+      "type": "object"
+    },
+    "SeedPreviewArgs": {
+      "additionalProperties": false,
+      "description": "The seed `from` makes, without writing anything: its values, each\nvalue's spread across the runs of an aggregate, and what the aggregate\nleft out. A run's seed carries its cameras, the mounts of a rig of\nseveral cameras, its laser planes and its hand-eye; never anything of\nthe capture (target poses, robot-pose corrections, residuals) nor the\nuncertainty. `seed` when a run makes no seed (a run without a record, a\nrecord without its image sizes) or the runs do not aggregate (other\ncameras, image sizes, models or hand-eye modes); `invalid` (on\n`devices[i]`) for a device with no representative run.",
+      "properties": {
+        "from": {
+          "$ref": "#/definitions/SeedFrom"
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "type": "object"
+    },
+    "SeedRun": {
+      "description": "A run a seed was made from.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The project folder.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "id"
+      ],
+      "type": "object"
+    },
     "SeedSource": {
       "description": "Where the seed a project's runs start from comes from: the project\nfile's `[seed]`, one key.\n\n```toml\n[seed]\nrun = \"../unit-0007/runs/run-003\"   # or: device_spec = \"spec.json\"\n                                    # or: file = \"seeds/type-x.json\"\n```\n\nA path is relative to the project folder unless absolute. Every run of\nthe project starts from the seed: a run's record keeps the seed's\nvalues as they were resolved ([`RunSeed`]), so a seed file that changes\nlater does not change what a run says it started from. A seed is an\ninitial value: the calibration still estimates everything.\n\nThe seed is resolved and checked against the dataset and the\nconfiguration before any image is read; a seed that is missing, cannot\nbe read or does not fit is an error, never a run without it.",
       "oneOf": [
@@ -9908,6 +10647,52 @@
           "type": "object"
         }
       ]
+    },
+    "SeedSpread": {
+      "description": "The values one quantity takes across the aggregated seeds, and their\nrobust summary.\n\nWith the values `x₁ … xₙ`: `median` is the middle one in sorted order\n(the mean of the two middle ones for an even `n`); `mad_sigma` is\n`1.4826 · median(|xᵢ − median|)`, the median absolute deviation scaled\nto estimate a standard deviation for normally spread values (0 for one\nvalue); `min` and `max` the extremes. One outlying unit moves neither the\nmedian nor `mad_sigma` much; with two units the median is their mean.",
+      "properties": {
+        "label": {
+          "description": "The quantity: `<camera>.<parameter>` for a camera parameter by its\ncovariance name (`cam0.fx`, `cam0.k1`, `cam0.tilt_x`);\n`<camera>.cam_se3_rig.<axis>` for a mount; `<camera>.laser_plane.<nx,\nny, nz, distance>` for a laser plane; `handeye.<axis>` for the\nhand-eye. A pose's axes are `rx`, `ry`, `rz`, the rotation vector\nabout the seeds' chordal mean rotation, radians, and `tx`, `ty`,\n`tz`, the translation, metres.",
+          "type": "string"
+        },
+        "mad_sigma": {
+          "description": "`1.4826 · median(|xᵢ − median|)`, in the values' unit.",
+          "format": "double",
+          "type": "number"
+        },
+        "max": {
+          "description": "The largest value.",
+          "format": "double",
+          "type": "number"
+        },
+        "median": {
+          "description": "The median of the values: the aggregate's value.",
+          "format": "double",
+          "type": "number"
+        },
+        "min": {
+          "description": "The smallest value.",
+          "format": "double",
+          "type": "number"
+        },
+        "values": {
+          "description": "Each seed's value, in the order the seeds were given.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "values",
+        "median",
+        "mad_sigma",
+        "min",
+        "max"
+      ],
+      "type": "object"
     },
     "SensorKind": {
       "description": "Which sensor model a camera uses.",
@@ -9996,6 +10781,176 @@
         }
       ]
     },
+    "SeriesGroup": {
+      "description": "What a parameter belongs to.",
+      "oneOf": [
+        {
+          "enum": [
+            "intrinsics",
+            "projection",
+            "distortion",
+            "sensor"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "mount",
+          "description": "A camera's pose in a rig of several (`cam_se3_rig`).",
+          "type": "string"
+        },
+        {
+          "const": "handeye",
+          "description": "The rig's (or the camera's) pose on the robot.",
+          "type": "string"
+        },
+        {
+          "const": "laser_plane",
+          "description": "A camera's laser plane.",
+          "type": "string"
+        }
+      ]
+    },
+    "SeriesPoint": {
+      "description": "A run's value of a parameter.",
+      "properties": {
+        "at_bound": {
+          "description": "The solve ended with it on a bound.",
+          "type": "boolean"
+        },
+        "sigma": {
+          "$ref": "#/definitions/ParameterSigma"
+        },
+        "value": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "sigma",
+        "at_bound"
+      ],
+      "type": "object"
+    },
+    "SeriesRun": {
+      "description": "One run on the x axis.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StudioError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it has no values (its export cannot be read, its cameras are not\nnamed): every series has a gap there."
+        },
+        "id": {
+          "type": "string"
+        },
+        "order": {
+          "description": "Its position in the device's history (`device_history`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "project": {
+          "description": "The project folder.",
+          "type": "string"
+        },
+        "timestamp": {
+          "description": "When it was written, seconds since the Unix epoch; absent for a run\nof the app's earlier format.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "order",
+        "project",
+        "id"
+      ],
+      "type": "object"
+    },
+    "SeriesStatistics": {
+      "description": "The spread of the values across the runs: the library's aggregate of\nthe seeds of the runs that make one.",
+      "oneOf": [
+        {
+          "properties": {
+            "left_out": {
+              "description": "The runs that make no seed, and why.",
+              "items": {
+                "$ref": "#/definitions/LeftOutRun"
+              },
+              "type": "array"
+            },
+            "omitted": {
+              "description": "What only some of the runs have, left out of the spread.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "runs": {
+              "description": "The runs aggregated, as positions in `runs`.",
+              "items": {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "spread": {
+              "description": "Each value's values, median, 1.4826·MAD, min and max, in the\nlibrary's order and with its labels.",
+              "items": {
+                "$ref": "#/definitions/SeedSpread"
+              },
+              "type": "array"
+            },
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "runs",
+            "spread",
+            "omitted",
+            "left_out"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No spread: the library's reason (no run makes a seed; the runs'\ncameras, models or image sizes differ).",
+          "properties": {
+            "left_out": {
+              "items": {
+                "$ref": "#/definitions/LeftOutRun"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "$ref": "#/definitions/StudioError"
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason",
+            "left_out"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ServerEvent": {
       "description": "One numbered event.",
       "properties": {
@@ -10059,6 +11014,34 @@
       "description": "What this back end is and what it serves. The frontend branches on\nthese values, never on which transport carries them.",
       "type": "object"
     },
+    "SetProjectSeedArgs": {
+      "additionalProperties": false,
+      "description": "Set the project's `[seed]` (a run's folder, a device specification or\na seed file, relative to the project folder unless absolute), or clear\nit with `null`, and save the project as `save_project` does (`revision`\nas `open_project` answered it, else `changed_on_disk`). The seed's path\nmust lie inside a root. The library's pre-flight check runs on the\nedited project before anything is written: a seed that cannot be made\nor does not fit the dataset's cameras and the configuration's camera\nmodel is refused with the library's error (`seed`, on the field\n`seed`). When the project fails that check for another reason (an open\nmanifest choice, a stale exclusion) but its dataset and configuration\nresolve, the seed is still made, so one that cannot be is refused; its\nfit is checked by the next run.",
+      "properties": {
+        "dir": {
+          "$ref": "#/definitions/UserPath"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SeedSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "dir",
+        "revision"
+      ],
+      "type": "object"
+    },
     "SetRunNotesArgs": {
       "additionalProperties": false,
       "description": "Replace the notes (label, notes, star) of run `id`; empty notes remove\nthem. Answers the run as listed after.",
@@ -10091,6 +11074,21 @@
         {
           "const": "dirs",
           "description": "Folders only.",
+          "type": "string"
+        }
+      ]
+    },
+    "SigmaBasis": {
+      "description": "What a series' σ is of.",
+      "oneOf": [
+        {
+          "const": "value",
+          "description": "The value itself: a band of `value ± σ` is its uncertainty.",
+          "type": "string"
+        },
+        {
+          "const": "perturbation",
+          "description": "The pose's right perturbation `pose·Exp(δ)` along this component\n(as `camera_parameter_values` gives it), not the value's own σ.",
           "type": "string"
         }
       ]

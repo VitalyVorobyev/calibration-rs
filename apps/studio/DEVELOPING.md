@@ -185,7 +185,8 @@ the run list is the shell's (`shell/RunList.tsx`).
   library's digest differs by them, and the changes say it. The lowest-RMS
   mark is only a mark; the star is the person's acceptance. Ticks feed
   `session/compareSet.ts`, which the Compare screen will read.
-- **Seed row**: "not available yet"; no command serves a seed.
+- **Seed row**: "not available yet" in the editor; the back end serves the
+  project's seed (`set_project_seed`, see "Devices and seeds").
 
 ## Inspect
 
@@ -366,6 +367,53 @@ that is a file of its own. The matrix is `components/ViewMatrix` with
 `renderCellContent` (`CountCell`). Tests: `detect/*.test.ts(x)` (the pure
 rules, each tab on every target kind, the screen over a mock back end) and
 `e2e/server/detect.spec.ts` on the committed fixtures.
+
+**Devices and seeds** (`api/commands/device.rs`, `device_series.rs`,
+`seed.rs`; `seeds.rs`), the Device screen's back end; the history, the
+seeds and their statistics are the library's (`LibraryScan::devices`,
+`DeviceHistory::representative_run`, `DeviceSeed::from_run` and
+`aggregate`). A device is `{ kind: "device", product?, id }` or every
+device of a product, `{ kind: "type", product }`.
+
+- `device_history { device }`: each device's runs across the projects
+  under the roots, in the library's order, as rows (project and its name,
+  run id, origin, label, star, verdict, per-camera RMS, timestamp, the seed
+  it started from with what it applied and ignored, and whether it is the
+  device's representative run), with the scan's failures.
+- `device_series { device, starred_only? }`: each parameter over those runs
+  for a trend chart (x: `runs`, each with its `order` in the history and
+  its timestamp): every camera parameter (`<camera id>.<name>`), each
+  mount (`<id>.cam_se3_rig.<rx…tz>`), the hand-eye (`<pose>.<rx…tz>`) and
+  laser plane (`<id>.laser_plane.<nx, ny, nz, distance>`), one point per
+  run with its σ (`camera_parameter_values`' reading; a pose's σ is of its
+  perturbation, `sigma_of`), `null` where a run lacks it. `statistics` is
+  the library's `DeviceSeed::aggregate` of the runs' seeds (`SeedSpread`:
+  values, median, 1.4826·MAD, min, max; the runs that make no seed are
+  `left_out`; runs of other cameras or models make it `unavailable`); a
+  camera parameter's series names its spread label.
+- `seed_preview { from }`, `from` one of `{ kind: "run", run }`,
+  `{ kind: "runs", runs }` (aggregate) or `{ kind: "units", devices }`
+  (each device's representative run, aggregated): the seed, the runs, the
+  spread and what the aggregate omitted; writes nothing.
+  `export_seed { from, dest, overwrite? }` writes that seed to `dest`
+  inside a root (`.json`, or `.toml`), `file_exists` (409) unless
+  `overwrite`.
+- `set_project_seed { dir, revision, seed }` sets (`{ run | device_spec |
+  file: <path> }`, relative to the project folder) or clears (`null`) the
+  project's `[seed]` through `save_project`'s path, which also checks a seed
+  a saved spec changes: the library's `Project::check` on the edited
+  project, a seed it refuses answered with its error as `seed` on the field
+  `seed`, nothing written. A run's record (`run_info`, `list_runs`) keeps
+  the seed it used (`RunInputs::seed`: source, values, applied, ignored).
+- Every path a seed names is judged before the library follows it
+  (`RootScope::check_seed_path` on every open; `check_seed_inputs`, with the
+  images a seed run's export names, before a seed is resolved), as is an
+  exported seed's destination.
+
+Tests: `api/commands/device_tests.rs` on the fixture library (the two
+`SN-0042` projects, `SN-0057`, `rig-demo`, and a seeded run of
+`planar-demo`) with the reply goldens, and `e2e/server/device.spec.ts`
+over HTTP. The Device screen itself is not built yet.
 
 Recent projects are the back end's list (`recent_projects`,
 `forget_recent`; the desktop's, or a server's shared by its clients), put

@@ -344,9 +344,10 @@ pub fn check_manifest(
 
 /// The paths a project file names, judged before the library follows them.
 impl RootScope {
-    /// The project's data root and, for a referenced manifest, the manifest
-    /// file: both inside a root (lexically: either may not exist yet). What
-    /// opening a project needs before it reads the manifest.
+    /// The project's data root, for a referenced manifest the manifest
+    /// file, and the path its `[seed]` names: each inside a root
+    /// (lexically: any may not exist yet). What opening a project needs
+    /// before it reads the manifest.
     pub fn check_project_paths(&self, project: &Project) -> Result<(), StudioError> {
         let outside = |what: &str, path: &Path| {
             StudioError::new(
@@ -365,6 +366,9 @@ impl RootScope {
             let file = project.dir().join(path);
             self.check_lexical(&file)
                 .map_err(|_| outside("manifest", &file))?;
+        }
+        if let Some(source) = &project.spec().seed {
+            self.check_seed_path(project.dir(), source)?;
         }
         Ok(())
     }
@@ -392,11 +396,13 @@ impl RootScope {
     }
 
     /// [`check_project_paths`](Self::check_project_paths), then
-    /// [`check_dataset`](Self::check_dataset) of the project's manifest:
+    /// [`check_dataset`](Self::check_dataset) of the project's manifest and
+    /// what its seed reads ([`check_project_seed`](Self::check_project_seed)):
     /// what a run, a view listing or a save checks before the library reads
     /// anything the project names.
     pub fn check_project(&self, project: &Project) -> Result<(), StudioError> {
         self.check_project_paths(project)?;
+        self.check_project_seed(project)?;
         self.check_dataset(&project.dataset()?, &project.data_root()?)
     }
 }

@@ -32,6 +32,11 @@ export interface Commands {
   set_run_notes: { args: T.SetRunNotesArgs; reply: T.RunInfo };
   delete_run: { args: T.DeleteRunArgs; reply: T.DeleteRunReply };
   import_export: { args: T.ImportExportArgs; reply: T.RunInfo };
+  set_project_seed: { args: T.SetProjectSeedArgs; reply: T.ProjectView };
+  device_history: { args: T.DeviceHistoryArgs; reply: T.DeviceHistories };
+  device_series: { args: T.DeviceSeriesArgs; reply: T.DeviceSeriesSet };
+  seed_preview: { args: T.SeedPreviewArgs; reply: T.SeedPreview };
+  export_seed: { args: T.ExportSeedArgs; reply: T.ExportedSeed };
   run_info: { args: T.RunInfoArgs; reply: T.RunInfo };
   run_export: { args: T.RunExportArgs; reply: T.RunExport };
   run_quality: { args: T.RunQualityArgs; reply: T.QualityReport };
@@ -207,7 +212,8 @@ export function createClient(t: Transport, hub: JobHub) {
      * format (a version 1 project becomes version 2). `revision` is the one
      * `open_project` answered: when the file changed on disk since, nothing is
      * written and the answer is `changed_on_disk` (open it again and apply the
-     * edit). Every path the spec names must lie inside a root.
+     * edit). Every path the spec names must lie inside a root. A changed
+     * `seed` is checked as `set_project_seed` checks it.
      */
     saveProject: (args: T.SaveProjectArgs): Promise<T.ProjectView> =>
       t.invoke("save_project", args) as Promise<T.ProjectView>,
@@ -251,6 +257,67 @@ export function createClient(t: Transport, hub: JobHub) {
      */
     importExport: (args: T.ImportExportArgs): Promise<T.RunInfo> =>
       t.invoke("import_export", args) as Promise<T.RunInfo>,
+    /**
+     * Set the project's `[seed]` (a run's folder, a device specification or
+     * a seed file, relative to the project folder unless absolute), or clear
+     * it with `null`, and save the project as `save_project` does (`revision`
+     * as `open_project` answered it, else `changed_on_disk`). The seed's path
+     * must lie inside a root. The library's pre-flight check runs on the
+     * edited project before anything is written: a seed that cannot be made
+     * or does not fit the dataset's cameras and the configuration's camera
+     * model is refused with the library's error (`seed`, on the field
+     * `seed`). When the project fails that check for another reason (an open
+     * manifest choice, a stale exclusion) but its dataset and configuration
+     * resolve, the seed is still made, so one that cannot be is refused; its
+     * fit is checked by the next run.
+     */
+    setProjectSeed: (args: T.SetProjectSeedArgs): Promise<T.ProjectView> =>
+      t.invoke("set_project_seed", args) as Promise<T.ProjectView>,
+    /**
+     * The calibration history of a device (or of every device of a product):
+     * every run of every project under the roots that names it, in the
+     * library's order (runs without a timestamp first, then by timestamp, then
+     * by project folder and listing order), with the run that stands for each
+     * device (its latest starred run, else its latest pass run calibrated in a
+     * project). A device no project names has no history (`devices` is
+     * empty); a folder or project the scan cannot read is a failure, not an
+     * error.
+     */
+    deviceHistory: (args: T.DeviceHistoryArgs): Promise<T.DeviceHistories> =>
+      t.invoke("device_history", args) as Promise<T.DeviceHistories>,
+    /**
+     * The values of a device's parameters (or of each device of a product)
+     * over its history, for a trend chart: every camera parameter, each
+     * camera's mount in a rig, the hand-eye and each laser plane, as each run
+     * estimated them, with their σ. A parameter only some runs have is a gap
+     * in the others (`null`), never dropped. `starred_only` keeps the starred
+     * runs. Each series of a camera parameter names its spread across the
+     * runs, the library's robust summary (median, 1.4826·MAD, min, max) of
+     * the runs' seeds.
+     */
+    deviceSeries: (args: T.DeviceSeriesArgs): Promise<T.DeviceSeriesSet> =>
+      t.invoke("device_series", args) as Promise<T.DeviceSeriesSet>,
+    /**
+     * The seed `from` makes, without writing anything: its values, each
+     * value's spread across the runs of an aggregate, and what the aggregate
+     * left out. A run's seed carries its cameras, the mounts of a rig of
+     * several cameras, its laser planes and its hand-eye; never anything of
+     * the capture (target poses, robot-pose corrections, residuals) nor the
+     * uncertainty. `seed` when a run makes no seed (a run without a record, a
+     * record without its image sizes) or the runs do not aggregate (other
+     * cameras, image sizes, models or hand-eye modes); `invalid` (on
+     * `devices[i]`) for a device with no representative run.
+     */
+    seedPreview: (args: T.SeedPreviewArgs): Promise<T.SeedPreview> =>
+      t.invoke("seed_preview", args) as Promise<T.SeedPreview>,
+    /**
+     * Write the seed `from` makes (as `seed_preview` answers it) to the file
+     * `dest` inside a root: TOML by its `.toml` extension, JSON by `.json`,
+     * the format a project's `[seed] file` reads. An existing file is
+     * `file_exists` unless `overwrite`; the file's folder must exist.
+     */
+    exportSeed: (args: T.ExportSeedArgs): Promise<T.ExportedSeed> =>
+      t.invoke("export_seed", args) as Promise<T.ExportedSeed>,
     /**
      * A run's listing entry: its state (with the record of a run this library
      * wrote) and its notes.
