@@ -905,6 +905,8 @@ export type ErrorKind =
   | "exclusion"
   | "run_not_found"
   | "import_mismatch"
+  | "seed"
+  | "file_exists"
   | "needs_input"
   | "detection"
   | "calibration"
@@ -1056,6 +1058,78 @@ export type ImageDetectionState =
       error: StudioError;
       kind: "failed";
     };
+/**
+ * Where a run's export came from.
+ */
+export type RunOrigin =
+  | {
+      kind: "calibrated";
+    }
+  | {
+      kind: "imported";
+    }
+  | {
+      kind: "unrecorded";
+    }
+  | {
+      kind: "unreadable";
+      message: string;
+    };
+/**
+ * A device, or every device of a product (a device type).
+ */
+export type DeviceSelector =
+  | {
+      id: string;
+      kind: "device";
+      product?: string | null;
+    }
+  | {
+      kind: "type";
+      product: string;
+    };
+/**
+ * What a parameter belongs to.
+ */
+export type SeriesGroup =
+  | ("intrinsics" | "projection" | "distortion" | "sensor")
+  | "mount"
+  | "handeye"
+  | "laser_plane";
+/**
+ * What a series' σ is of.
+ */
+export type SigmaBasis = "value" | "perturbation";
+/**
+ * The spread of the values across the runs: the library's aggregate of
+ * the seeds of the runs that make one.
+ */
+export type SeriesStatistics =
+  | {
+      /**
+       * The runs that make no seed, and why.
+       */
+      left_out: LeftOutRun[];
+      /**
+       * What only some of the runs have, left out of the spread.
+       */
+      omitted: string[];
+      /**
+       * The runs aggregated, as positions in `runs`.
+       */
+      runs: number[];
+      /**
+       * Each value's values, median, 1.4826·MAD, min and max, in the
+       * library's order and with its labels.
+       */
+      spread: SeedSpread[];
+      status: "available";
+    }
+  | {
+      left_out: LeftOutRun[];
+      reason: StudioError;
+      status: "unavailable";
+    };
 export type EntryKind = "dir" | "file";
 export type DisparityEvent = null;
 /**
@@ -1105,6 +1179,22 @@ export type JobState =
  * which keeps exports without laser frames byte-stable and forward-readable.
  */
 export type FrameKind = "target" | "laser";
+/**
+ * What a seed is made from.
+ */
+export type SeedFrom =
+  | {
+      kind: "run";
+      run: RunRef;
+    }
+  | {
+      kind: "runs";
+      runs: RunRef[];
+    }
+  | {
+      devices: DeviceKey[];
+      kind: "units";
+    };
 export type FetchSampleEvent = null;
 export type ForgetRecentReply = string[];
 /**
@@ -1336,6 +1426,7 @@ export interface StudioApiTypes {
   CameraParameterValuesArgs?: CameraParameterValuesArgs;
   CameraParameters?: CameraParameters;
   CameraParams?: CameraParams;
+  CameraRms?: CameraRms;
   CameraSource?: CameraSource;
   CameraStats?: CameraStats;
   CameraSummary?: CameraSummary;
@@ -1372,9 +1463,18 @@ export interface StudioApiTypes {
   DetectionOverview?: DetectionOverview;
   DetectionOverviewArgs?: DetectionOverviewArgs;
   DetectorSpec?: DetectorSpec;
+  DeviceHistories?: DeviceHistories;
+  DeviceHistoryArgs?: DeviceHistoryArgs;
+  DeviceHistoryView?: DeviceHistoryView;
   DeviceIdentity?: DeviceIdentity;
+  DeviceKey?: DeviceKey;
   DeviceOptimizeConfig?: DeviceOptimizeConfig;
+  DeviceRunRow?: DeviceRunRow;
   DeviceSeed?: DeviceSeed;
+  DeviceSelector?: DeviceSelector;
+  DeviceSeries?: DeviceSeries;
+  DeviceSeriesArgs?: DeviceSeriesArgs;
+  DeviceSeriesSet?: DeviceSeriesSet;
   DirEntry?: DirEntry;
   DirListing?: DirListing;
   DisparityArgs?: DisparityArgs;
@@ -1396,6 +1496,8 @@ export interface StudioApiTypes {
   EventBody?: EventBody;
   Exclusions?: Exclusions;
   ExportDiagnostics?: ExportDiagnostics;
+  ExportSeedArgs?: ExportSeedArgs;
+  ExportedSeed?: ExportedSeed;
   Feature?: Feature;
   FeatureBlur?: FeatureBlur;
   FeatureExclusion?: FeatureExclusion;
@@ -1441,6 +1543,7 @@ export interface StudioApiTypes {
   LaserlineResidualType?: LaserlineResidualType;
   LaserlineStats?: LaserlineStats;
   LeftOutImage?: LeftOutImage;
+  LeftOutRun?: LeftOutRun;
   LibraryScan?: LibraryScan;
   ListDirArgs?: ListDirArgs;
   ListJobsArgs?: ListJobsArgs;
@@ -1454,6 +1557,7 @@ export interface StudioApiTypes {
   OpenProjectArgs?: OpenProjectArgs;
   ParameterCovariance?: ParameterCovariance;
   ParameterGroup?: ParameterGroup;
+  ParameterSeries?: ParameterSeries;
   ParameterSigma?: ParameterSigma;
   PerFeatureResiduals?: PerFeatureResiduals;
   PixelRect?: PixelRect;
@@ -1541,10 +1645,12 @@ export interface StudioApiTypes {
   RunInfoArgs?: RunInfoArgs;
   RunInputs?: RunInputs;
   RunNotes?: RunNotes;
+  RunOrigin?: RunOrigin;
   RunQualityArgs?: RunQualityArgs;
   RunRecord?: RunRecord;
   RunRef?: RunRef;
   RunSeed?: RunSeed;
+  RunSeedUse?: RunSeedUse;
   RunSource?: RunSource;
   RunState?: RunState;
   RunSummary?: RunSummary;
@@ -1556,16 +1662,27 @@ export interface StudioApiTypes {
   ScheimpflugParams?: ScheimpflugParams;
   SecondOrderError?: SecondOrderError;
   SeedCamera?: SeedCamera;
+  SeedFrom?: SeedFrom;
   SeedHandeye?: SeedHandeye;
   SeedLens?: SeedLens;
+  SeedPreview?: SeedPreview;
+  SeedPreviewArgs?: SeedPreviewArgs;
+  SeedRun?: SeedRun;
   SeedSource?: SeedSource;
+  SeedSpread?: SeedSpread;
   SensorKind?: SensorKind;
   SensorParams?: SensorParams;
+  SeriesGroup?: SeriesGroup;
+  SeriesPoint?: SeriesPoint;
+  SeriesRun?: SeriesRun;
+  SeriesStatistics?: SeriesStatistics;
   ServerEvent?: ServerEvent;
   ServerInfo?: ServerInfo;
   ServerInfoArgs?: ServerInfoArgs;
+  SetProjectSeedArgs?: SetProjectSeedArgs;
   SetRunNotesArgs?: SetRunNotesArgs;
   Show?: Show;
+  SigmaBasis?: SigmaBasis;
   SigmaUnavailable?: SigmaUnavailable;
   SingleCamHandeyeConfig?: SingleCamHandeyeConfig;
   SingleCamHandeyeExport?: SingleCamHandeyeExport;
@@ -3447,6 +3564,19 @@ export interface PoseParameter {
   translation_m: [number, number, number];
 }
 /**
+ * A camera's reprojection RMS in a run.
+ */
+export interface CameraRms {
+  /**
+   * The camera's id in the manifest.
+   */
+  id: string;
+  /**
+   * Pixels; absent without residuals.
+   */
+  rms_px?: number | null;
+}
+/**
  * One camera's statistics.
  */
 export interface CameraStats {
@@ -4485,6 +4615,308 @@ export interface DetectionOverviewArgs {
   run?: string | null;
 }
 /**
+ * The histories of the devices asked for.
+ */
+export interface DeviceHistories {
+  /**
+   * One per device, by product, then id.
+   */
+  devices: DeviceHistoryView[];
+  /**
+   * What the library scan could not read, by path.
+   */
+  failures: ScanFailure[];
+}
+/**
+ * One device's runs.
+ */
+export interface DeviceHistoryView {
+  /**
+   * The device, as the first of its projects (by folder) states it.
+   */
+  device: DeviceIdentity;
+  /**
+   * Its runs, in the history's order.
+   */
+  runs: DeviceRunRow[];
+}
+/**
+ * One run of a device's history.
+ */
+export interface DeviceRunRow {
+  /**
+   * Each camera's reprojection RMS, in camera order; empty when the run
+   * has no summary.
+   */
+  cameras: CameraRms[];
+  /**
+   * The run's id (`run-003`).
+   */
+  id: string;
+  label?: string | null;
+  /**
+   * Where its export came from, or why its record cannot be read.
+   */
+  origin: RunOrigin;
+  /**
+   * The project folder.
+   */
+  project: string;
+  /**
+   * The project's name, or its folder's.
+   */
+  project_name: string;
+  /**
+   * Whether it is the run that stands for its device (the library's
+   * representative run).
+   */
+  representative: boolean;
+  /**
+   * The seed the run started from, for a seeded calibrated run.
+   */
+  seed?: RunSeedUse | null;
+  starred: boolean;
+  /**
+   * When the run was written, seconds since the Unix epoch; absent for a
+   * run of the app's earlier format.
+   */
+  timestamp?: number | null;
+  /**
+   * Its quality verdict; absent when it was not assessed.
+   */
+  verdict?: Verdict | null;
+}
+/**
+ * The seed a run started from, as its record keeps it (its values are in
+ * `run_info`'s record).
+ */
+export interface RunSeedUse {
+  /**
+   * What the workflow took from it (`cam0.lens`, `cam1.cam_se3_rig`,
+   * `cam0.laser_plane`, `handeye`).
+   */
+  applied: string[];
+  /**
+   * The seed's own description (`the calibrated run run-003`).
+   */
+  description?: string | null;
+  /**
+   * What it holds that the workflow does not use.
+   */
+  ignored: string[];
+  /**
+   * Where it came from, as the project (or the run's options) named it.
+   */
+  source: SeedSource;
+}
+/**
+ * A folder or project a scan could not read. A scan never fails on one.
+ */
+export interface ScanFailure {
+  /**
+   * Why it could not be read.
+   */
+  message: string;
+  /**
+   * The folder.
+   */
+  path: string;
+}
+/**
+ * The calibration history of a device (or of every device of a product):
+ * every run of every project under the roots that names it, in the
+ * library's order (runs without a timestamp first, then by timestamp, then
+ * by project folder and listing order), with the run that stands for each
+ * device (its latest starred run, else its latest pass run calibrated in a
+ * project). A device no project names has no history (`devices` is
+ * empty); a folder or project the scan cannot read is a failure, not an
+ * error.
+ */
+export interface DeviceHistoryArgs {
+  device: DeviceSelector;
+}
+/**
+ * One device, by what a project's `[device]` states: its product (none for
+ * a device of no stated product) and its id, both compared as written.
+ */
+export interface DeviceKey {
+  id: string;
+  product?: string | null;
+}
+/**
+ * One device's parameters over its runs.
+ */
+export interface DeviceSeries {
+  device: DeviceIdentity;
+  /**
+   * Each parameter, in the order the runs first name them (each run's
+   * cameras in camera order, the solver's order within a camera, then
+   * mounts, the hand-eye and laser planes).
+   */
+  parameters: ParameterSeries[];
+  /**
+   * The x axis: the runs, in the history's order.
+   */
+  runs: SeriesRun[];
+  /**
+   * The spread of every value across the runs' seeds.
+   */
+  statistics: SeriesStatistics;
+}
+/**
+ * One parameter over the runs.
+ */
+export interface ParameterSeries {
+  /**
+   * The camera's id; absent for the hand-eye.
+   */
+  camera?: string | null;
+  group: SeriesGroup;
+  /**
+   * `<camera>.<name>` (`cam0.fx`), `<camera>.cam_se3_rig.<rx…tz>`,
+   * `<pose>.<rx…tz>` for the hand-eye (`gripper_se3_rig.tx`),
+   * `<camera>.laser_plane.<nx, ny, nz, distance>`; cameras by their id.
+   */
+  key: string;
+  /**
+   * The parameter or component (`fx`, `k1`, `tx`, `nx`).
+   */
+  name: string;
+  /**
+   * One per run of `runs`, in its order; `null` where the run does not
+   * have the parameter.
+   */
+  points: (SeriesPoint | null)[];
+  sigma_of: SigmaBasis;
+  /**
+   * The label of its spread in `statistics` (the same as `key`), when
+   * the library's spread is of these values: a camera parameter's. A
+   * mount's, hand-eye's or laser plane's spread is listed under the
+   * library's own labels, over its own parametrization.
+   */
+  spread?: string | null;
+  /**
+   * `px`, `rad`, `deg` (a rotation's axis-angle component), `m`, or
+   * empty (a coefficient, a normal's component).
+   */
+  unit: string;
+}
+/**
+ * A run's value of a parameter.
+ */
+export interface SeriesPoint {
+  /**
+   * The solve ended with it on a bound.
+   */
+  at_bound: boolean;
+  sigma: ParameterSigma;
+  value: number;
+}
+/**
+ * One run on the x axis.
+ */
+export interface SeriesRun {
+  /**
+   * Why it has no values (its export cannot be read, its cameras are not
+   * named): every series has a gap there.
+   */
+  error?: StudioError | null;
+  id: string;
+  /**
+   * Its position in the device's history (`device_history`).
+   */
+  order: number;
+  /**
+   * The project folder.
+   */
+  project: string;
+  /**
+   * When it was written, seconds since the Unix epoch; absent for a run
+   * of the app's earlier format.
+   */
+  timestamp?: number | null;
+}
+/**
+ * A run left out of the statistics.
+ */
+export interface LeftOutRun {
+  reason: StudioError;
+  /**
+   * Its position in `runs`.
+   */
+  run: number;
+}
+/**
+ * The values one quantity takes across the aggregated seeds, and their
+ * robust summary.
+ *
+ * With the values `x₁ … xₙ`: `median` is the middle one in sorted order
+ * (the mean of the two middle ones for an even `n`); `mad_sigma` is
+ * `1.4826 · median(|xᵢ − median|)`, the median absolute deviation scaled
+ * to estimate a standard deviation for normally spread values (0 for one
+ * value); `min` and `max` the extremes. One outlying unit moves neither the
+ * median nor `mad_sigma` much; with two units the median is their mean.
+ */
+export interface SeedSpread {
+  /**
+   * The quantity: `<camera>.<parameter>` for a camera parameter by its
+   * covariance name (`cam0.fx`, `cam0.k1`, `cam0.tilt_x`);
+   * `<camera>.cam_se3_rig.<axis>` for a mount; `<camera>.laser_plane.<nx,
+   * ny, nz, distance>` for a laser plane; `handeye.<axis>` for the
+   * hand-eye. A pose's axes are `rx`, `ry`, `rz`, the rotation vector
+   * about the seeds' chordal mean rotation, radians, and `tx`, `ty`,
+   * `tz`, the translation, metres.
+   */
+  label: string;
+  /**
+   * `1.4826 · median(|xᵢ − median|)`, in the values' unit.
+   */
+  mad_sigma: number;
+  /**
+   * The largest value.
+   */
+  max: number;
+  /**
+   * The median of the values: the aggregate's value.
+   */
+  median: number;
+  /**
+   * The smallest value.
+   */
+  min: number;
+  /**
+   * Each seed's value, in the order the seeds were given.
+   */
+  values: number[];
+}
+/**
+ * The values of a device's parameters (or of each device of a product)
+ * over its history, for a trend chart: every camera parameter, each
+ * camera's mount in a rig, the hand-eye and each laser plane, as each run
+ * estimated them, with their σ. A parameter only some runs have is a gap
+ * in the others (`null`), never dropped. `starred_only` keeps the starred
+ * runs. Each series of a camera parameter names its spread across the
+ * runs, the library's robust summary (median, 1.4826·MAD, min, max) of
+ * the runs' seeds.
+ */
+export interface DeviceSeriesArgs {
+  device: DeviceSelector;
+  starred_only?: boolean;
+}
+/**
+ * The series of the devices asked for.
+ */
+export interface DeviceSeriesSet {
+  /**
+   * One per device, by product, then id.
+   */
+  devices: DeviceSeries[];
+  /**
+   * What the library scan could not read, by path.
+   */
+  failures: ScanFailure[];
+}
+/**
  * One entry of a listing.
  */
 export interface DirEntry {
@@ -5070,6 +5502,67 @@ export interface TargetFeatureResidual {
   view: number;
 }
 /**
+ * Write the seed `from` makes (as `seed_preview` answers it) to the file
+ * `dest` inside a root: TOML by its `.toml` extension, JSON by `.json`,
+ * the format a project's `[seed] file` reads. An existing file is
+ * `file_exists` unless `overwrite`; the file's folder must exist.
+ */
+export interface ExportSeedArgs {
+  dest: UserPath;
+  from: SeedFrom;
+  overwrite?: boolean;
+}
+/**
+ * A seed written to a file.
+ */
+export interface ExportedSeed {
+  /**
+   * The file written, absolute.
+   */
+  path: string;
+  /**
+   * The seed and where it came from, as `seed_preview` answers it.
+   */
+  preview: SeedPreview;
+}
+/**
+ * A seed and where it came from.
+ */
+export interface SeedPreview {
+  /**
+   * What only some of the aggregated runs have (`<camera>.cam_se3_rig`,
+   * `<camera>.laser_plane`, `handeye`), left out of the aggregate rather
+   * than filled in; without mounts, a seed of several cameras leaves out
+   * the hand-eye too. Empty for one run's seed.
+   */
+  omitted: string[];
+  /**
+   * The runs it was made from, in the order given (for `units`, each
+   * device's representative run).
+   */
+  runs: SeedRun[];
+  /**
+   * The seed: what a seeded run starts from.
+   */
+  seed: DeviceSeed;
+  /**
+   * Each aggregated value's values across the runs, median, 1.4826·MAD,
+   * min and max (the library's labels: `cam0.fx`, `cam1.cam_se3_rig.tx`,
+   * `cam0.laser_plane.nx`, `handeye.rz`); empty for one run's seed.
+   */
+  spread: SeedSpread[];
+}
+/**
+ * A run a seed was made from.
+ */
+export interface SeedRun {
+  id: string;
+  /**
+   * The project folder.
+   */
+  project: string;
+}
+/**
  * Make the sample dataset `id` (one of `server_info.samples`) available
  * as a project and answer its folder: the files are downloaded into the
  * back end's samples folder (always one of its roots), checked against
@@ -5371,19 +5864,6 @@ export interface LibraryScan {
    * The projects, sorted by folder.
    */
   projects: ProjectEntry[];
-}
-/**
- * A folder or project a scan could not read. A scan never fails on one.
- */
-export interface ScanFailure {
-  /**
-   * Why it could not be read.
-   */
-  message: string;
-  /**
-   * The folder.
-   */
-  path: string;
 }
 /**
  * One project a scan found.
@@ -6449,7 +6929,8 @@ export interface SampleProject {
  * format (a version 1 project becomes version 2). `revision` is the one
  * `open_project` answered: when the file changed on disk since, nothing is
  * written and the answer is `changed_on_disk` (open it again and apply the
- * edit). Every path the spec names must lie inside a root.
+ * edit). Every path the spec names must lie inside a root. A changed
+ * `seed` is checked as `set_project_seed` checks it.
  */
 export interface SaveProjectArgs {
   dir: UserPath;
@@ -6461,6 +6942,20 @@ export interface SaveProjectArgs {
  * project that cannot be read is listed as a failure, never an error.
  */
 export interface ScanLibraryArgs {}
+/**
+ * The seed `from` makes, without writing anything: its values, each
+ * value's spread across the runs of an aggregate, and what the aggregate
+ * left out. A run's seed carries its cameras, the mounts of a rig of
+ * several cameras, its laser planes and its hand-eye; never anything of
+ * the capture (target poses, robot-pose corrections, residuals) nor the
+ * uncertainty. `seed` when a run makes no seed (a run without a record, a
+ * record without its image sizes) or the runs do not aggregate (other
+ * cameras, image sizes, models or hand-eye modes); `invalid` (on
+ * `devices[i]`) for a device with no representative run.
+ */
+export interface SeedPreviewArgs {
+  from: SeedFrom;
+}
 /**
  * One numbered event.
  */
@@ -6506,6 +7001,25 @@ export interface ServerInfo {
  * these values, never on which transport carries them.
  */
 export interface ServerInfoArgs {}
+/**
+ * Set the project's `[seed]` (a run's folder, a device specification or
+ * a seed file, relative to the project folder unless absolute), or clear
+ * it with `null`, and save the project as `save_project` does (`revision`
+ * as `open_project` answered it, else `changed_on_disk`). The seed's path
+ * must lie inside a root. The library's pre-flight check runs on the
+ * edited project before anything is written: a seed that cannot be made
+ * or does not fit the dataset's cameras and the configuration's camera
+ * model is refused with the library's error (`seed`, on the field
+ * `seed`). When the project fails that check for another reason (an open
+ * manifest choice, a stale exclusion) but its dataset and configuration
+ * resolve, the seed is still made, so one that cannot be is refused; its
+ * fit is checked by the next run.
+ */
+export interface SetProjectSeedArgs {
+  dir: UserPath;
+  revision: string;
+  seed?: SeedSource | null;
+}
 /**
  * Replace the notes (label, notes, star) of run `id`; empty notes remove
  * them. Answers the run as listed after.

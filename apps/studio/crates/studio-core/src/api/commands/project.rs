@@ -4,7 +4,7 @@
 //! pairs into are `views`'s). A project is named by its folder in every command; the back
 //! end keeps nothing open between calls.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -112,9 +112,12 @@ impl ProjectView {
                     Ok(config) => ConfigState::Ok { config },
                     Err(error) => ConfigState::Invalid { error },
                 };
+                // The digest resolves the seed: what it reads is judged first.
                 let digest = match config {
-                    ConfigState::Ok { .. } => project.input_digest().ok(),
-                    ConfigState::Invalid { .. } => None,
+                    ConfigState::Ok { .. } if ctx.scope.check_project_seed(project).is_ok() => {
+                        project.input_digest().ok()
+                    }
+                    _ => None,
                 };
                 (
                     DatasetState::Ok {
@@ -202,7 +205,8 @@ pub fn create_project(ctx: &Ctx, args: CreateProjectArgs) -> Result<ProjectView,
 /// The paths a spec for a project in `dir` names, judged before the
 /// project file is written: the data folder (the inline manifest's `root`
 /// against the project folder, or the referenced manifest's folder), the
-/// referenced manifest, and every file the manifest names.
+/// referenced manifest, every file the manifest names, and what its seed
+/// reads.
 pub(super) fn check_spec_paths(
     ctx: &Ctx,
     dir: &Path,
@@ -242,6 +246,9 @@ pub(super) fn check_spec_paths(
     if let Some(dataset) = dataset {
         ctx.scope.check_dataset(&dataset, &data_root)?;
     }
+    if let Some(source) = &spec.seed {
+        ctx.scope.check_seed_inputs(dir, source)?;
+    }
     Ok(())
 }
 
@@ -249,7 +256,8 @@ pub(super) fn check_spec_paths(
 /// format (a version 1 project becomes version 2). `revision` is the one
 /// `open_project` answered: when the file changed on disk since, nothing is
 /// written and the answer is `changed_on_disk` (open it again and apply the
-/// edit). Every path the spec names must lie inside a root.
+/// edit). Every path the spec names must lie inside a root. A changed
+/// `seed` is checked as `set_project_seed` checks it.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SaveProjectArgs {
@@ -259,16 +267,33 @@ pub struct SaveProjectArgs {
 }
 
 pub fn save_project(ctx: &Ctx, args: SaveProjectArgs) -> Result<ProjectView, StudioError> {
-    let mut project = open_checked(ctx, &args.dir)?;
-    if project.revision() != args.revision {
+    let project = open_checked(ctx, &args.dir)?;
+    save_spec(ctx, project, &args.revision, args.spec)
+}
+
+/// Write `spec` as `project`'s definition: refused when the file is not at
+/// `revision` any more, when the spec names a path outside the roots, and
+/// when it changes the seed to one the library's pre-flight check refuses
+/// (`check_seed`). Announces the change and answers the project as saved.
+pub(super) fn save_spec(
+    ctx: &Ctx,
+    mut project: Project,
+    revision: &str,
+    spec: ProjectSpec,
+) -> Result<ProjectView, StudioError> {
+    if project.revision() != revision {
         return Err(StudioError::from(
             vision_calibration::project::ProjectError::ChangedOnDisk {
                 path: project.file().to_path_buf(),
             },
         ));
     }
-    check_spec_paths(ctx, project.dir(), &args.spec)?;
-    *project.spec_mut() = args.spec;
+    check_spec_paths(ctx, project.dir(), &spec)?;
+    let seed_changed = project.spec().seed != spec.seed;
+    *project.spec_mut() = spec;
+    if seed_changed {
+        super::seed::check_seed(&project)?;
+    }
     project.save()?;
     ctx.events.project_changed(project.dir());
     ProjectView::of(ctx, &project)
@@ -345,44 +370,8 @@ pub fn import_export(ctx: &Ctx, args: ImportExportArgs) -> Result<RunInfo, Studi
         source.clone()
     };
     let file = ctx.scope.check(&file)?;
-    check_export_images(ctx, &file)?;
+    ctx.scope.check_export_images(&file)?;
     let run = project.import_export(&file, args.notes)?;
     ctx.events.project_changed(project.dir());
     Ok(run)
-}
-
-/// The images an export's image manifest names (the import reads their
-/// sizes), judged against the roots: an export may name any folder.
-fn check_export_images(ctx: &Ctx, file: &Path) -> Result<(), StudioError> {
-    let Ok(text) = std::fs::read_to_string(file) else {
-        // The library reports what it cannot read.
-        return Ok(());
-    };
-    let Ok(export) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Ok(());
-    };
-    let Some(manifest) = export.pointer("/diagnostics/image_manifest") else {
-        return Ok(());
-    };
-    let base = file.parent().map(Path::to_path_buf).unwrap_or_default();
-    let root = base.join(manifest["root"].as_str().unwrap_or("."));
-    let mut paths: Vec<PathBuf> = vec![root.clone()];
-    for frame in manifest["frames"].as_array().into_iter().flatten() {
-        if let Some(path) = frame["path"].as_str() {
-            paths.push(root.join(path));
-        }
-    }
-    for path in paths {
-        ctx.scope.check_lexical(&path).map_err(|_| {
-            StudioError::new(
-                ErrorKind::ForbiddenPath,
-                format!(
-                    "the export names {}, which is outside the folders this back end serves",
-                    path.display()
-                ),
-            )
-            .at(path.to_string_lossy())
-        })?;
-    }
-    Ok(())
 }

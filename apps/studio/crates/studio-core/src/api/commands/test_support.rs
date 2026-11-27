@@ -13,7 +13,7 @@ pub fn slash(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn fixture(name: &str) -> PathBuf {
+pub fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../e2e/fixtures/library")
         .join(name)

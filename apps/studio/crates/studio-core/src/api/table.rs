@@ -10,7 +10,8 @@ use serde::de::DeserializeOwned;
 
 use super::Ctx;
 use super::commands::{
-    detection, files, forms, jobs, maps, project, resources, runs, session, setup, viewer, views,
+    detection, device, device_series, files, forms, jobs, maps, project, resources, runs, seed,
+    session, setup, viewer, views,
 };
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
@@ -178,6 +179,13 @@ pub fn table() -> Vec<CommandSpec> {
         plain("set_run_notes", project::set_run_notes),
         plain("delete_run", project::delete_run),
         plain("import_export", project::import_export),
+        plain("set_project_seed", seed::set_project_seed),
+        // Devices across the projects: their history, their parameters
+        // over it, and the seeds their runs make.
+        plain("device_history", device::device_history),
+        plain("device_series", device_series::device_series),
+        plain("seed_preview", seed::seed_preview),
+        plain("export_seed", seed::export_seed),
         // Runs: calibrate the next one; read one.
         job("calibrate", Lane::Heavy, runs::calibrate),
         plain("run_info", runs::run_info),

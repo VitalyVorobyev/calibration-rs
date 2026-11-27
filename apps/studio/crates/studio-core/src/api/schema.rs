@@ -167,9 +167,10 @@ mod tests {
 
     /// The contents of a project file or manifest: the paths they name are
     /// not arguments a client chose but what the file says, judged by the
-    /// scope (`check_spec_paths`, `RootScope::check_dataset`) before the
-    /// library follows any of them.
-    const FILE_CONTENTS: [&str; 2] = ["ProjectSpec", "DatasetSpec"];
+    /// scope (`check_spec_paths`, `RootScope::check_dataset`,
+    /// `RootScope::check_seed_inputs`) before the library follows any of
+    /// them. A `SeedSource` is the project file's `[seed]`.
+    const FILE_CONTENTS: [&str; 3] = ["ProjectSpec", "DatasetSpec", "SeedSource"];
 
     /// Every path-named property reachable from `schema` that is not a
     /// `UserPath`, as `Type.field`.
