@@ -18,6 +18,8 @@ Every work the book cites, once. Chapters link here by author and year.
 
 - <a id="kannala-brandt-2006"></a>**Kannala, J. & Brandt, S.S.** (2006). "A Generic Camera Model and Calibration Method for Conventional, Wide-Angle, and Fish-Eye Lenses." *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 28(8), 1335-1340. — The fisheye model: an odd polynomial in the angle from the optical axis.
 
+- <a id="hagemann-2022"></a>**Hagemann, A., Knorr, M., Janssen, H., & Stiller, C.** (2022). "Inferring Bias and Uncertainty in Camera Calibration." *International Journal of Computer Vision*, 130(1), 17-32. — Systematic and random calibration error separated; two calibrations compared in image space after a compensating rotation of the viewing rays.
+
 - <a id="steger-2017"></a>**Steger, C.** (2017). "A Comprehensive and Versatile Camera Model for Cameras with Tilt Lenses." *International Journal of Computer Vision*, 123(2), 121-159. — The tilt-lens camera model with an image-side distance, its telecentric variants and its degenerate cases.
 
 - <a id="kumar-ahuja-2014"></a>**Kumar, A. & Ahuja, N.** (2014). "Non-frontal Camera Calibration using Focal Stack Imagery." *International Conference on Pattern Recognition (ICPR)*, 202-207. — A sensor tilt cannot be calibrated geometrically under ideal perspective imaging; image blur determines it.

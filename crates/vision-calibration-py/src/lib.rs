@@ -768,6 +768,99 @@ fn distortion_map(
     Ok(out.into_any().unbind())
 }
 
+/// Where two calibrations of one camera project the same ray, after the
+/// rotation of the second camera's frame that brings them closest.
+///
+/// Parameters
+/// ----------
+/// a:
+///     Serde payload of the reference `CameraParams`; the grid is its image.
+/// b:
+///     Serde payload of the compared `CameraParams`.
+/// image_size:
+///     ``[width, height]`` of the cameras' images, pixels.
+/// columns:
+///     Grid columns; the stride is ``ceil(width / columns)``.
+/// compensation:
+///     ``"rotation"`` (fit the rotation) or ``"none"``.
+/// fit_points:
+///     Pixels of ``a``'s image whose blocks the rotation is fitted on, as
+///     ``[[x, y], ...]``; ``None`` fits every node with a value.
+///
+/// Returns
+/// -------
+/// dict
+///     The grid fields, ``difference`` (a dict of ``dx`` and ``dy`` float64
+///     arrays shaped ``(rows, columns)``, NaN where a node has no value),
+///     ``fitted`` (a bool array of the same shape), ``camb_so3_cama``
+///     (``[qx, qy, qz, qw]``), ``rotation_angle_rad``, ``valid_nodes``,
+///     ``fit_nodes``, ``rms_fit_px``, ``max_fit_px``, ``rms_valid_px`` and
+///     ``max_valid_px``.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If a camera is not finite or its sensor homography is not
+///     invertible, ``compensation`` is unknown, the image or ``columns`` is
+///     empty, or fewer than three nodes of the fit region have a value.
+#[pyfunction(signature = (a, b, image_size, columns=64, compensation="rotation", fit_points=None))]
+fn projection_difference(
+    py: Python<'_>,
+    a: &Bound<'_, PyAny>,
+    b: &Bound<'_, PyAny>,
+    image_size: &Bound<'_, PyAny>,
+    columns: u32,
+    compensation: &str,
+    fit_points: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use numpy::PyArrayMethods;
+    use vision_calibration::analysis::{
+        Compensation, FitRegion, ProjectionDifferenceOptions, projection_difference,
+    };
+    use vision_calibration::core::CameraParams;
+
+    let compensation = match compensation {
+        "rotation" => Compensation::Rotation,
+        "none" => Compensation::None,
+        other => {
+            return Err(value_err(format!(
+                "compensation must be \"rotation\" or \"none\", got {other:?}"
+            )));
+        }
+    };
+    let a: CameraParams = session::parse_checked(a, "a")?;
+    let b: CameraParams = session::parse_checked(b, "b")?;
+    let grid = image_grid(image_size, columns)?;
+    let fit_region = match fit_points {
+        None => FitRegion::WholeImage,
+        Some(points) => FitRegion::Covered(parse_payload(points, "fit_points")?),
+    };
+    let options = ProjectionDifferenceOptions::new(compensation, fit_region);
+    let diff = py
+        .detach(|| projection_difference(&a, &b, &grid, &options))
+        .map_err(|err| value_err(format!("invalid input: {err}")))?;
+    let (rows, cols) = (grid.rows(), grid.columns());
+    let out = grid_payload(py, &grid)?;
+    let planes = pyo3::types::PyDict::new(py);
+    planes.set_item("dx", plane(py, diff.difference.dx, rows, cols)?)?;
+    planes.set_item("dy", plane(py, diff.difference.dy, rows, cols)?)?;
+    out.set_item("difference", planes)?;
+    out.set_item(
+        "fitted",
+        numpy::PyArray1::from_vec(py, diff.fitted).reshape([rows, cols])?,
+    )?;
+    let q = diff.camb_so3_cama.coords;
+    out.set_item("camb_so3_cama", vec![q.x, q.y, q.z, q.w])?;
+    out.set_item("rotation_angle_rad", diff.camb_so3_cama.angle())?;
+    out.set_item("valid_nodes", diff.valid_nodes)?;
+    out.set_item("fit_nodes", diff.fit_nodes)?;
+    out.set_item("rms_fit_px", diff.rms_fit_px)?;
+    out.set_item("max_fit_px", diff.max_fit_px)?;
+    out.set_item("rms_valid_px", diff.rms_valid_px)?;
+    out.set_item("max_valid_px", diff.max_valid_px)?;
+    Ok(out.into_any().unbind())
+}
+
 /// The systematic part of one camera's reprojection residuals over its
 /// image.
 ///
@@ -873,6 +966,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fit_focus, m)?)?;
     m.add_function(wrap_pyfunction!(distortion_map, m)?)?;
     m.add_function(wrap_pyfunction!(residual_map, m)?)?;
+    m.add_function(wrap_pyfunction!(projection_difference, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;

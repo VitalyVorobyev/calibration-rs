@@ -847,6 +847,12 @@ pub mod synthetic {
 ///   [`Bandwidth`](analysis::Bandwidth), returning a
 ///   [`ResidualMap`](analysis::ResidualMap) and its
 ///   [`BandwidthSelection`](analysis::BandwidthSelection).
+/// - Two calibrations of one camera compared through their projections,
+///   whatever their models: [`projection_difference`](analysis::projection_difference)
+///   with [`ProjectionDifferenceOptions`](analysis::ProjectionDifferenceOptions)
+///   ([`Compensation`](analysis::Compensation),
+///   [`FitRegion`](analysis::FitRegion)), returning a
+///   [`ProjectionDifference`](analysis::ProjectionDifference).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
@@ -869,9 +875,10 @@ pub mod analysis {
     };
 
     pub use vision_calibration_core::{
-        DisplacementPlane, DistortionMap, FeatureResidualHistogram, ImageGrid,
-        LaserFeatureResidual, LaserLineTrace, PerFeatureResiduals, REPROJECTION_HISTOGRAM_EDGES_PX,
-        ReprojectionStats, TargetFeatureResidual, distortion_map,
+        Compensation, DisplacementPlane, DistortionMap, FeatureResidualHistogram, FitRegion,
+        ImageGrid, LaserFeatureResidual, LaserLineTrace, PerFeatureResiduals, ProjectionDifference,
+        ProjectionDifferenceOptions, REPROJECTION_HISTOGRAM_EDGES_PX, ReprojectionStats,
+        TargetFeatureResidual, distortion_map, projection_difference,
     };
 }
 

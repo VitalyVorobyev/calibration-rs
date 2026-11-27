@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `analysis::projection_difference` compares two calibrations of one camera,
+  of the same model or of different ones, through where they put the same
+  ray: at each node of the first camera's `ImageGrid`, the second camera's
+  pixel minus the first's (`b − a`), after fitting the rotation of the
+  second camera's frame that brings the two closest (`Compensation::Rotation`,
+  the default; `Compensation::None` compares the frames as calibrated). The
+  rotation is fitted in pixels on the grid blocks the observed features
+  cover (`FitRegion::Covered`) or on every node (`FitRegion::WholeImage`).
+  `ProjectionDifference` holds the plane, the fitted rotation
+  (`camb_so3_cama`), the fitted nodes, and the RMS and largest difference
+  over the fitted nodes and over the image; nodes where either camera has no
+  ray or projection are NaN and take no part in the fit. Python:
+  `vision_calibration.projection_difference` (numpy planes).
+
 - Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
   returns a `DetectionDetail` with the features `detect` returns (bit for
   bit), the image's outcome (detected; not found, with the detector's

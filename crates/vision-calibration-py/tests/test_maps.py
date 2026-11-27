@@ -81,3 +81,44 @@ class ResidualMapTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProjectionDifferenceTest(unittest.TestCase):
+    def test_a_principal_point_shift_is_b_minus_a(self) -> None:
+        a = _camera(-0.1)
+        b = _camera(-0.1)
+        b["intrinsics"] = dict(b["intrinsics"], cx=640.5)
+        d = vc.projection_difference(a, b, (1280, 960), compensation="none")
+        self.assertIsInstance(d, vc.ProjectionDifference)
+        self.assertEqual(d.difference.dx.shape, (48, 64))
+        np.testing.assert_allclose(d.difference.dx, np.ones((48, 64)), atol=1e-9)
+        np.testing.assert_allclose(d.difference.dy, np.zeros((48, 64)), atol=1e-9)
+        self.assertEqual(d.camb_so3_cama, (0.0, 0.0, 0.0, 1.0))
+        self.assertEqual(d.rotation_angle_rad, 0.0)
+        self.assertTrue(d.fitted.all())
+        self.assertEqual((d.valid_nodes, d.fit_nodes), (64 * 48, 64 * 48))
+        # A rotation of the frame absorbs most of the shift.
+        r = vc.projection_difference(a, b, (1280, 960))
+        self.assertLess(r.rms_fit_px, 0.5)
+        self.assertGreater(r.rotation_angle_rad, 1e-3)
+        self.assertAlmostEqual(float(np.linalg.norm(r.camb_so3_cama)), 1.0)
+
+    def test_the_fit_region_is_the_blocks_of_the_points(self) -> None:
+        a = _camera(-0.1)
+        b = _camera(-0.12)
+        points = np.array([[100.0, 100.0], [600.0, 400.0], [1000.0, 800.0]])
+        d = vc.projection_difference(a, b, (1280, 960), fit_points=points)
+        self.assertEqual(d.fit_nodes, 3)
+        self.assertEqual(int(d.fitted.sum()), 3)
+        self.assertTrue(d.fitted[5, 5] and d.fitted[20, 30] and d.fitted[40, 50])
+        self.assertTrue(math.isfinite(d.rms_fit_px))
+        self.assertGreaterEqual(d.max_valid_px, d.max_fit_px)
+        same = vc.projection_difference(a, b, (1280, 960), fit_points=points.tolist())
+        np.testing.assert_array_equal(d.difference.dx, same.difference.dx)
+
+    def test_rejects_bad_input(self) -> None:
+        a = _camera(-0.1)
+        with self.assertRaises(ValueError):
+            vc.projection_difference(a, a, (1280, 960), compensation="pose")
+        with self.assertRaises(ValueError):
+            vc.projection_difference(a, a, (1280, 960), fit_points=[[10.0, 10.0]])

@@ -68,10 +68,119 @@ observed features are extrapolations of the fit.
 
 **Compare projections, not layers.** The data constrain the focal length and
 the distortion coefficients jointly (`fx` trades against `k1`), so two
-calibrations that project alike can show different distortion layers. How
-precisely a calibration places a ray is the
+calibrations that project alike can show different distortion layers. The
+[projection difference](#comparing-two-calibrations) compares what they do.
+How precisely a calibration places a ray is the
 [projection uncertainty](uncertainty_projection.md), which can be evaluated
 at the same nodes (`ImageGrid::nodes`).
+
+## Comparing two calibrations
+
+`projection_difference` compares two calibrations of one camera, of the same
+model or of different ones, through where they put the same ray. At each node
+`u` of the first camera's image:
+
+```text
+d(u) = a⁻¹(u)                              the ray a sees through u
+Δ(u) = b(R·d(u)) − u                       pixels: b − a at the same ray
+R    = argmin over rotations of Σ |b(R·d(u)) − u|²   over the fitted nodes
+```
+
+The rotation `R` is the gauge between a camera's intrinsics and its
+orientation. A calibration's poses absorb any rotation of its camera frame,
+and a shifted principal point is largely a small rotation, so two equally good
+calibrations can differ by a near-uniform shift that no use of the camera
+with re-estimated poses would see. With the rotation fitted, `Δ` is the part
+of the difference no re-orientation removes: the difference in the lens. The
+cameras are central, so rays are compared by direction and no translation
+enters. The fit minimizes the pixel difference itself, so `rms_fit_px` is the
+smallest RMS any rotation reaches, the image-space mapping error of
+[Hagemann et al. (2022)](references.md#hagemann-2022). `Compensation::None`
+compares the camera frames as calibrated, for a frame used as it is (one
+calibration's intrinsics with another's extrinsics).
+
+Fit the rotation where the data constrained the cameras:
+`FitRegion::Covered` takes the observed features' pixels and fits on the grid
+blocks they fall in, each block once. Over the whole image (the default) the
+corners, far from any observation and extrapolated by both models, pull the
+rotation. Values outside the fit region are reported (`max_valid_px`) but are
+extrapolations.
+
+```rust
+use vision_calibration::analysis::{
+    Compensation, FitRegion, ImageGrid, ProjectionDifferenceOptions, projection_difference,
+};
+use vision_calibration::core::{
+    BrownConrady5, CameraParams, DistortionParams, FxFyCxCy, ProjectionParams, SensorParams,
+};
+
+fn main() -> anyhow::Result<()> {
+    let camera = |fx: f64, cx: f64, k1: f64| {
+        CameraParams::new(
+            ProjectionParams::Pinhole,
+            DistortionParams::BrownConrady5 {
+                params: BrownConrady5 { k1, k2: 0.03, ..BrownConrady5::default() },
+            },
+            SensorParams::Identity,
+            FxFyCxCy { fx, fy: fx, cx, cy: 479.5 },
+        )
+    };
+    let (a, b) = (camera(900.0, 639.5, -0.12), camera(901.0, 641.0, -0.125));
+    // The pixels of the features the calibration observed.
+    let observed: Vec<[f64; 2]> = (0..20)
+        .flat_map(|j| (0..20).map(move |i| [240.0 + 40.0 * i as f64, 100.0 + 38.0 * j as f64]))
+        .collect();
+    let grid = ImageGrid::with_columns([1280, 960], 64)?;
+    let options =
+        ProjectionDifferenceOptions::new(Compensation::Rotation, FitRegion::Covered(observed));
+    let diff = projection_difference(&a, &b, &grid, &options)?;
+    println!(
+        "{:.3} px RMS over {} observed blocks (up to {:.3} px; {:.2} px over the image), \
+         rotation {:.4}°",
+        diff.rms_fit_px,
+        diff.fit_nodes,
+        diff.max_fit_px,
+        diff.max_valid_px,
+        diff.rotation_angle().to_degrees()
+    );
+    Ok(())
+}
+```
+
+The grid is the first camera's image, the plane is indexed by its pixels and
+its sign is `b − a`. A node is `NaN` where the first camera has no ray (the
+distortion map's rules) or the second cannot project the rotated ray: outside
+its projection's domain (a fisheye's ray beyond 90° for a pinhole), past its
+distortion's fold, or behind its tilted sensor. Those nodes take no part in
+the fit. A pixel the second camera puts off the image is a value, not `NaN`.
+With cameras of different fields of view, put the one whose rays should be
+compared first.
+
+**Reading it.**
+
+- On two calibrations of one capture with models that both fit, the
+  difference is small: in a synthetic test with 0.1 px of noise, a
+  Brown-Conrady and a rational fit differ by 0.019 px RMS over the observed
+  region, half the Brown-Conrady fit's error against the true lens.
+- A term one model lacks shows at its full size. The reprojection residual of
+  the lacking model understates it, because each view's pose absorbs part of
+  the field; in a synthetic test of a thin-prism lens fitted without the
+  prism terms, the projection difference was 3.4 times the residual's RMS.
+- The difference carries no σ. A calibration's projection uncertainty is not
+  its scale: it includes the frame rotation that the compensation removes,
+  and in the same test it matched the uncompensated error, about seven times
+  the compensated one.
+
+In Python the planes are numpy arrays:
+
+```python
+records = run_a.export["diagnostics"]["per_feature_residuals"]["target"]
+observed = [r["projected_px"] for r in records if r["projected_px"] is not None]
+d = vc.projection_difference(
+    run_a.export["camera"], run_b.export["camera"], (1280, 960), fit_points=observed
+)
+print(d.rms_fit_px, "px RMS;", np.degrees(d.rotation_angle_rad), "deg of rotation")
+```
 
 ## The residual map
 

@@ -12,6 +12,8 @@ Every displacement is ``actual − reference`` in pixels: a distortion layer is
 where the camera puts a ray relative to the simpler model without that stage,
 and a residual is ``observed − projected``. A distortion the model lacks shows
 in the residual map with the sign and units it has in the distortion map.
+:func:`~vision_calibration.projection_difference` compares two calibrations of
+one camera: the second camera's pixel minus the first's at the same ray.
 
 .. code-block:: python
 
@@ -30,7 +32,13 @@ from typing import Any, cast
 import numpy as np
 from numpy.typing import NDArray
 
-__all__ = ["DisplacementPlane", "DistortionMap", "ImageGrid", "ResidualMap"]
+__all__ = [
+    "DisplacementPlane",
+    "DistortionMap",
+    "ImageGrid",
+    "ProjectionDifference",
+    "ResidualMap",
+]
 
 
 def _plane(value: Any) -> NDArray[np.float64]:
@@ -220,3 +228,59 @@ class ResidualMap:
     def mean_magnitude(self) -> NDArray[np.float64]:
         """The length of the local mean at each node, pixels."""
         return cast(NDArray[np.float64], np.hypot(self.mean_dx, self.mean_dy))
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionDifference:
+    """Where two calibrations of one camera project the same ray, over the
+    first camera's image: ``b(R·ray) − u`` at each node ``u``, ``ray`` the
+    first camera's ray through it, in pixels.
+
+    ``R`` is the rotation of the second camera's frame that brings its
+    projections closest to the first's over the fitted nodes (the identity
+    without compensation): a camera's orientation is not separately
+    observable from what uses the camera, so the difference left is the part
+    no re-orientation removes. Nodes where either camera has no value are
+    NaN and take no part in the fit. Outside the fit region the values are
+    extrapolations of both models.
+    """
+
+    grid: ImageGrid
+    difference: DisplacementPlane
+    """``b − a`` at the same ray, pixels."""
+    fitted: NDArray[np.bool_]
+    """Whether each node took part in the rotation fit, ``(rows, columns)``."""
+    camb_so3_cama: tuple[float, float, float, float]
+    """The fitted rotation ``R`` as ``(qx, qy, qz, qw)``: it takes the first
+    camera's ray directions into the second camera's frame."""
+    rotation_angle_rad: float
+    """The angle of ``R``, radians."""
+    valid_nodes: int
+    """Nodes with a value."""
+    fit_nodes: int
+    """Fitted nodes."""
+    rms_fit_px: float
+    """The RMS of ``|difference|`` over the fitted nodes, pixels."""
+    max_fit_px: float
+    """The largest ``|difference|`` over the fitted nodes, pixels."""
+    rms_valid_px: float
+    """The RMS of ``|difference|`` over every node with a value, pixels."""
+    max_valid_px: float
+    """The largest ``|difference|`` over every node with a value, pixels."""
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ProjectionDifference":
+        q = [float(v) for v in cast(list[Any], payload["camb_so3_cama"])]
+        return cls(
+            grid=ImageGrid.from_payload(payload),
+            difference=DisplacementPlane.from_payload(payload["difference"]),
+            fitted=cast(NDArray[np.bool_], np.asarray(payload["fitted"], dtype=np.bool_)),
+            camb_so3_cama=(q[0], q[1], q[2], q[3]),
+            rotation_angle_rad=float(payload["rotation_angle_rad"]),
+            valid_nodes=int(payload["valid_nodes"]),
+            fit_nodes=int(payload["fit_nodes"]),
+            rms_fit_px=float(payload["rms_fit_px"]),
+            max_fit_px=float(payload["max_fit_px"]),
+            rms_valid_px=float(payload["rms_valid_px"]),
+            max_valid_px=float(payload["max_valid_px"]),
+        )

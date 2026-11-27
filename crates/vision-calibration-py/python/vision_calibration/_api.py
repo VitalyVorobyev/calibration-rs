@@ -34,7 +34,7 @@ from .models import (
     SingleCamHandeyeExport,
 )
 from ._generated_types import FocusDiagnostic, ModelComparison, RobustLoss
-from .maps import DistortionMap, ResidualMap
+from .maps import DistortionMap, ProjectionDifference, ResidualMap
 from .types import ProgressCallback
 
 
@@ -727,3 +727,64 @@ def residual_map(
         _export_payload(result), list(image_size), camera, columns, options
     )
     return ResidualMap.from_payload(cast(Mapping[str, Any], payload))
+
+
+def projection_difference(
+    a: CameraParams | Mapping[str, Any],
+    b: CameraParams | Mapping[str, Any],
+    image_size: tuple[int, int],
+    columns: int = 64,
+    compensation: str = "rotation",
+    fit_points: Sequence[Sequence[float]] | None = None,
+) -> ProjectionDifference:
+    """Where two calibrations of one camera project the same ray.
+
+    At each node ``u`` of ``a``'s image, ``b(R·ray) − u`` in pixels, ``ray``
+    the ray ``a`` sees through ``u`` and ``R`` the rotation of ``b``'s frame
+    that brings its projections closest to ``a``'s over the fit region (the
+    gauge between a camera's intrinsics and its orientation). The cameras
+    can be of different models. See
+    :class:`~vision_calibration.maps.ProjectionDifference`.
+
+    Parameters
+    ----------
+    a:
+        The reference camera, e.g. ``result.export["camera"]``; the grid is
+        its image.
+    b:
+        The compared camera.
+    image_size:
+        ``(width, height)`` of the cameras' images, pixels.
+    columns:
+        Grid columns; the stride is ``ceil(width / columns)``.
+    compensation:
+        ``"rotation"`` (fit the rotation) or ``"none"`` (compare the camera
+        frames as calibrated).
+    fit_points:
+        Pixels ``(x, y)`` of ``a``'s image (a list or an ``(n, 2)`` array)
+        whose blocks the rotation
+        is fitted on: the observed features, where the data constrained the
+        calibrations. ``None`` fits every node with a value, corners
+        included.
+
+    Raises
+    ------
+    ValueError
+        If a camera is not finite or its sensor homography is not invertible,
+        ``compensation`` is unknown, the image or ``columns`` is empty, or
+        fewer than three nodes of the fit region have a value.
+    """
+    points = (
+        None
+        if fit_points is None
+        else [[float(p[0]), float(p[1])] for p in fit_points]
+    )
+    payload = _native.projection_difference(
+        a if isinstance(a, Mapping) else a.to_payload(),
+        b if isinstance(b, Mapping) else b.to_payload(),
+        list(image_size),
+        columns,
+        compensation,
+        points,
+    )
+    return ProjectionDifference.from_payload(cast(Mapping[str, Any], payload))

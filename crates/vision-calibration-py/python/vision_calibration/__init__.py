@@ -44,6 +44,7 @@ from ._api import (
     compare_camera_models,
     distortion_map,
     fit_focus,
+    projection_difference,
     residual_map,
     predict_with_robot_poses,
     predict_with_views,
@@ -149,7 +150,13 @@ from .models import (
     SingleCamHandeyeView,
 )
 from .camera import CameraModel
-from .maps import DisplacementPlane, DistortionMap, ImageGrid, ResidualMap
+from .maps import (
+    DisplacementPlane,
+    DistortionMap,
+    ImageGrid,
+    ProjectionDifference,
+    ResidualMap,
+)
 from .common import (
     HandeyeInitOptions,
     HandeyeOptimizeOptions,
@@ -302,9 +309,11 @@ __all__ = [
     "fit_focus",
     "distortion_map",
     "residual_map",
+    "projection_difference",
     "DisplacementPlane",
     "DistortionMap",
     "ImageGrid",
+    "ProjectionDifference",
     "ResidualMap",
     # Sessions
     "CalibrationSession",

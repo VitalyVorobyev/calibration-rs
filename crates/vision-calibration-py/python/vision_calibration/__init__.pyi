@@ -121,6 +121,7 @@ from .maps import (
     DisplacementPlane as DisplacementPlane,
     DistortionMap as DistortionMap,
     ImageGrid as ImageGrid,
+    ProjectionDifference as ProjectionDifference,
     ResidualMap as ResidualMap,
 )
 from .common import (
@@ -309,6 +310,16 @@ def distortion_map(
     image_size: tuple[int, int],
     columns: int = 256,
 ) -> DistortionMap: ...
+
+
+def projection_difference(
+    a: CameraParams | Mapping[str, Any],
+    b: CameraParams | Mapping[str, Any],
+    image_size: tuple[int, int],
+    columns: int = 64,
+    compensation: str = "rotation",
+    fit_points: Sequence[Sequence[float]] | None = None,
+) -> ProjectionDifference: ...
 
 
 def residual_map(
