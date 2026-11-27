@@ -1024,12 +1024,19 @@ fn seed_files_and_a_seeded_project() {
         0
     );
     let file = read_toml(&next.join("calibration-project.toml"));
-    assert_eq!(file["seed"]["run"].as_str(), Some(path(&run)));
+    // Compared as paths: the separators differ by platform.
+    assert_eq!(
+        file["seed"]["run"].as_str().map(Path::new),
+        Some(run.as_path())
+    );
     assert_eq!(vcal(&["check", path(&next)]), 0);
     assert_eq!(vcal(&["run", path(&next)]), 0);
     let record = read_json(&next.join("runs/run-001/run.json"));
     let seed = &record["source"]["inputs"]["seed"];
-    assert_eq!(seed["source"]["run"].as_str(), Some(path(&run)));
+    assert_eq!(
+        seed["source"]["run"].as_str().map(Path::new),
+        Some(run.as_path())
+    );
     assert_eq!(seed["value"], serde_json::to_value(&expected).unwrap());
     assert_eq!(seed["applied"], serde_json::json!([format!("{id}.lens")]));
     assert!(record["source"]["digest"]["seed"].is_string());
