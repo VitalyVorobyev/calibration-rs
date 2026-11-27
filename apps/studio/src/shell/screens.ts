@@ -24,7 +24,7 @@ export interface Screen {
 /** In rail order, which is the workflow's. `⌘n` is the n-th. */
 export const SCREENS: readonly Screen[] = [
   { id: "library", label: "Library", path: "/library", needsProject: false, built: true },
-  { id: "dataset", label: "Dataset", path: "/dataset", needsProject: true, built: false },
+  { id: "dataset", label: "Dataset", path: "/dataset", needsProject: true, built: true },
   { id: "detect", label: "Detect", path: "/detect", needsProject: true, built: false },
   {
     id: "calibrate",

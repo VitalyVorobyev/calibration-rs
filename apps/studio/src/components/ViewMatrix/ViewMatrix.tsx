@@ -71,6 +71,10 @@ export function ViewMatrix({
 
   return (
     <SequenceMatrix
+      // The matrix keeps the window of rows it last drew and reads it before
+      // it measures again: fewer rows than that (a filter) would read past
+      // its end. A new size is a new matrix.
+      key={`${rows.length}x${columns.length}`}
       aria-label={rest["aria-label"]}
       rows={rows}
       columns={columns}
@@ -108,21 +112,31 @@ export function ViewMatrix({
         const image = view && cam !== undefined ? view.images[cam] : null;
         return `view ${row.id}, camera ${column.id}, ${image ?? "no image"}`;
       }}
-      renderCell={(row, column) => {
+      renderCell={(row, column, state) => {
         const view = byToken.get(row.id);
         const cam = cameraIndex.get(column.id);
         const path = view && cam !== undefined ? imagePath(dataRoot, view, cam) : null;
-        if (path === null) {
-          return (
-            <span
-              title="This camera has no image for this view"
-              className="grid size-full place-items-center gap-0 bg-defect/8 text-defect"
-            >
-              <ImageOff aria-hidden className="size-4" />
-            </span>
-          );
-        }
-        return <Thumb path={path} />;
+        return (
+          <span className="relative block size-full">
+            {path === null ? (
+              <span
+                title="This camera has no image for this view"
+                className="grid size-full place-items-center gap-0 bg-defect/8 text-defect"
+              >
+                <ImageOff aria-hidden className="size-4" />
+              </span>
+            ) : (
+              <Thumb path={path} />
+            )}
+            {/* The selection is a ring over the picture, which would hide a tint. */}
+            {state.selected && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 ring-2 ring-signal ring-inset"
+              />
+            )}
+          </span>
+        );
       }}
     />
   );

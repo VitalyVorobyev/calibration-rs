@@ -26,7 +26,7 @@ export function useProjectViews(
   enabled = true,
   /** Bumped by the caller to ask again with the same arguments (the saved
    * project changed). */
-  refresh = 0,
+  refresh: string | number = 0,
 ): ViewsState {
   const [state, setState] = useState<ViewsState>({
     data: null,

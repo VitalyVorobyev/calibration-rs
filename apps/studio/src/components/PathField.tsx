@@ -10,6 +10,7 @@ import { pickFile, pickFolder } from "../shell/dialogs";
 export function PathField({
   value,
   onValueChange,
+  onPick,
   kind,
   base,
   disabled,
@@ -18,6 +19,9 @@ export function PathField({
 }: {
   value: string;
   onValueChange: (value: string) => void;
+  /** Called with a path chosen in the picker instead of `onValueChange`,
+   * for a field that writes something of it (a folder as a pattern). */
+  onPick?: ((path: string) => void) | undefined;
   kind: "file" | "folder";
   base?: string | undefined;
   disabled?: boolean | undefined;
@@ -30,7 +34,8 @@ export function PathField({
     if (picked === null) return;
     const rel = base !== undefined ? relativePath(base, picked) : picked;
     // A path that leaves the data folder is clearer absolute.
-    onValueChange(rel.startsWith("..") ? picked : rel);
+    const path = rel.startsWith("..") ? picked : rel;
+    (onPick ?? onValueChange)(path);
   };
   return (
     <div className="flex items-center gap-2">

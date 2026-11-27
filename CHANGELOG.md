@@ -408,6 +408,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project's device is set from the context bar, whose device type and device
   list their siblings. `calibration-studio-server` previews the layout of a
   draft project in a folder that is not a project yet.
+- Calibration Studio's Dataset screen describes how the data is laid out: a
+  form of the manifest in groups (workflow, cameras, pairing, target, poses
+  and motion, laser, detector) with the cameras as cards to add, duplicate,
+  reorder and remove, beside the camera by view matrix of thumbnails that
+  description finds (ten cameras by hundreds of views stay light; filters for
+  the views with a missing image, one camera, a token) and the selected image
+  in a zoomable stage. After each edit the library judges the draft and its
+  messages appear under the fields they are about; Save writes the manifest
+  into the project file and is refused while there are errors. Edits survive
+  a change of the project file by another tab or program: the screen says so
+  and puts them back on the new version. A manifest kept in a file of its own
+  is shown read-only, with the way to copy it into the project.
 - Calibration Studio reads and writes only inside its root folders. The
   desktop app starts with none and asks you to add one (Settings lists and
   removes them); a project or manifest that names a path outside them is

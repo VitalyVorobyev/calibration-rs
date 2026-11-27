@@ -46,7 +46,7 @@ one the page says no back end answers.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: the rail of
   seven screens, the context bar, the run list, the job tray, the status
   line, Settings, the keys; see "The shell"), `screens/` (one folder per
-  screen: Library, Calibrate, Inspect; the ones not built yet are a
+  screen: Library, Dataset, Calibrate, Inspect; the ones not built yet are a
   "coming" page), `session/` (the stores every screen shares: the session
   with the back end, the selection, the jobs and the connection, the query
   cache, the pure rules of a job row), `project/` (the open project, `projectStore.ts`; its unsaved edits,
@@ -251,6 +251,27 @@ it as a project in a scratch folder), and what the sniffer left open
 dataset form's schema. The camera × view matrix is `components/ViewMatrix/`
 (`SequenceMatrix` with thumbnails from the `image` resource; at most six
 loads at a time, `lib/thumbQueue.ts`), shared with the Dataset screen.
+
+**The Dataset screen** (`screens/dataset/`) edits the open project's
+manifest as an explicit draft. The draft is `project/draftStore.ts`
+(`manifest`, its saved baseline, `manifestDirty`); a change of the project
+file under unsaved edits keeps them and sets `disk` (`rebase` puts the edits
+back on the disk's version, a field changed in both keeps mine and is marked
+changed; `keepEditing` overwrites; `revert` drops them). `useProjectViews`
+asks `project_views` for the draft spec 400 ms after the last edit; the
+library's messages are placed on the form's fields (`datasetModel.ts`:
+`placeMessages`, which reads the field out of a message that names none; the
+app's own warning for a pattern that matched nothing; counts), the rail's
+badge reads the error count (`project/problems.ts`) and `⌘S` is refused while
+there are errors. `DatasetForm` is `SchemaValueForm` with `baseline`,
+`messages` and the groups of `datasetUi`; the cameras are `CamerasEditor`
+(`renderField`, since the schema's control for a list of structures is a JSON
+box), each pattern an `ImagePatternField` with what it matches. The matrix is
+`components/ViewMatrix` in `MatrixPane` (filters), the selection the app's
+(`session/selection.ts`), the selected image `ViewDetail` on stage2d. The
+per-view robot pose and laser frame the spec shows as matrix columns are not
+in `project_views` (the library pairs only the cameras' images), so the screen
+lists what the manifest declares instead.
 
 Recent projects are the back end's list (`recent_projects`,
 `forget_recent`; the desktop's, or a server's shared by its clients), put
