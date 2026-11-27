@@ -60,8 +60,8 @@ After the fix, *measured*:
   (`problems/laserline_rig_bundle.rs`): from the true plane, from a 2 mm
   shift and from a 1° turn plus 2 mm, for both laser residuals, on both
   backends, the solves end within 0.01σ of one another, and the one from
-  the truth moves by more than 0.1σ. Before the fix it failed (0.365σ
-  apart on the first case).
+  the truth moves by more than 0.1σ. Before the fix it failed: the solve
+  from the true plane took no step.
 - The seeded-run cell `RigLaserlineDevice sibling` is gated now:
   `plane_z` 6.4e-5 on both backends (gate 0.05), the laser cost identical.
 - Monte Carlo over 60 noise draws of the rig laserline scene (two cameras,
@@ -71,14 +71,26 @@ After the fix, *measured*:
   1.926e-5 (camera 1), the RMS distance error from 1.686e-6 to 1.379e-6 m
   and from 3.685e-6 to 3.659e-6 m; the median laser-cost decrease from
   the old result is 0.5 %, the largest 33 %.
+- A second Monte Carlo, written without the first one's code (two cameras
+  of different focal length, 10 views, 200 draws, both backends agreeing
+  to every printed digit): before, 103 and 185 of 200 solves per camera
+  took no step; after, none of 400. The RMS normal error falls by 3 % and
+  17 %, the RMS distance error by 11 % and 19.5 %. After the fix the RMS
+  of error/σ over the four plane coordinates is 0.96 to 1.09 (and 0.93 to
+  1.15 at 0.03 px, 0.3 px and 25 views); before, at 25 views, the stated
+  σ was 3.5 to 4.5 times the RMS error. Over the regression suite's 204
+  solves the iteration total is 748 before and after, and none stops at
+  the iteration limit.
 - The covariance moves with it: at a point that is not the minimum the
   per-view scores do not average to zero, so the view-scatter check
   inflated the stated σ (camera 1's normal σ 4.8e-5 at the linear fit,
   7.5e-6 at the minimum, against camera 0's 1.1e-5 on a like geometry).
 - Unchanged: the single-camera laserline device and the joint rig hand-eye
   laserline workflow (their seeded-run cells and suite entries are
-  identical to before; the joint workflow runs the rig plane solve as its
-  warm start, and its joint stage reaches the same minimum), and every
+  identical to before; the joint workflow's warm start uses the
+  point-to-plane residual by default, whose minimum the linear plane fit
+  already is, so those plane solves took no step before and take none
+  now), and every
   calibration parameter of the regression suite (`suite check`:
   tiny-solver's largest change per entry is what it was before, at most
   4.7e-7σ; factrs' largest change against the references is the same as
@@ -87,11 +99,16 @@ After the fix, *measured*:
   past the old scale (`opencv_stereo` up to 4.7e-6σ, `opencv_fisheye_stereo`
   up to 1.65e-3σ in a length's mean error, and that entry's RMS length
   errors all fall), on both backends. Those two references were re-blessed
-  for that reason; their calibration exports changed by at most 3.8e-9
-  relative.
+  for that reason. The calibration export in the `opencv_fisheye_stereo`
+  reference also changed, by at most 3.8e-9 relative: that is an older
+  drift of the stored reference from what the code computes, which the
+  re-bless took in; the code's calibration exports are byte-identical
+  before and after on every suite entry and both backends.
 
-Not explained: the joint rig hand-eye laserline cells agree with the old
-code to every printed digit, which a moved warm start would hardly leave
-(*hypothesis*: on that scene the warm-start plane solves took full steps
-and stopped on the decrease rule under either scale; printing their
-terminations before and after would decide it).
+Open (*hypothesis*): the rule still measures a step against every free
+block, so a small free block (a plane) beside a large free one (free
+intrinsics, in pixels) could stop early. The seeded single-camera and
+joint cells show no sign of it; a joint laserline solve with free
+intrinsics and the plane started about 1σ off would decide it. Also seen
+on one scene and not explained: the point-to-plane residual's stated σ is
+30 to 40 % too large (RMS of error/σ 0.70 to 0.76), before and after.

@@ -503,7 +503,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step and stopped where they began. It now measures against the free
   parameters only. Results move where such a solve stopped that way: the
   laser planes of a rig laserline calibration (`rig_laserline_device`, and
-  the warm start of `rig_handeye_laserline`), which often came back as the
+  the warm start of `rig_handeye_laserline` when it uses the normalized
+  line-distance residual), which often came back as the
   linear plane fit unchanged, now reach the least-squares minimum (on
   synthetic rigs the plane normal's RMS error falls by up to 20 %, and a
   plane seeded a degree and 2 mm off ends where the unseeded run does), and
