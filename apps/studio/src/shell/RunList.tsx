@@ -176,10 +176,7 @@ export function RunList({ project }: { project: ProjectView | null }) {
                       onSelect: () => void useProject.getState().openRun(run.id),
                       onTick: () => useCompareSet.getState().toggle(project.dir, run.id),
                       onStar: (starred) =>
-                        void useProject.getState().setNotes(run.id, {
-                          ...run.notes,
-                          starred,
-                        }),
+                        void useProject.getState().patchNotes(run.id, { starred }),
                       onOpenInspect: () => {
                         void useProject.getState().openRun(run.id);
                         open("inspect", run.id);

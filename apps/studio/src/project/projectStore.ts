@@ -36,6 +36,9 @@ export interface ProjectState {
   openRun: (id: string) => Promise<void>;
   /** Replace the notes of run `id`. */
   setNotes: (id: string, notes: RunNotes) => Promise<boolean>;
+  /** Change some of run `id`'s notes, on top of its latest ones: edits
+   * made together (a star and a label) each keep the other's. */
+  patchNotes: (id: string, patch: Partial<RunNotes>) => Promise<boolean>;
   /** Delete run `id`. */
   deleteRun: (id: string) => Promise<boolean>;
   /** Add the export at `path` as the next run, and show it. */
@@ -47,6 +50,9 @@ export interface ProjectState {
 /** Bumped by every open, so a slower answer for an earlier project never
  * replaces a newer one. */
 let openSeq = 0;
+
+/** The notes writes in flight, in order (`patchNotes`). */
+let notesQueue: Promise<void> = Promise.resolve();
 
 export const useProject = create<ProjectState>()((set, get) => {
   const fail = (e: unknown) => {
@@ -163,14 +169,31 @@ export const useProject = create<ProjectState>()((set, get) => {
       if (!project) return false;
       try {
         const run = await api.setRunNotes({ dir: project.dir, id, notes });
-        setRuns(
-          project.dir,
-          project.runs.map((r) => (r.id === id ? run : r)),
-        );
+        // The runs as they are now, not as they were when this was asked.
+        const now = get().project;
+        if (now?.dir === project.dir) {
+          setRuns(
+            project.dir,
+            now.runs.map((r) => (r.id === id ? run : r)),
+          );
+        }
         return true;
       } catch (e) {
         return fail(e);
       }
+    },
+
+    patchNotes: (id, patch) => {
+      // One at a time, each on the notes the one before left.
+      const next = notesQueue.then(async () => {
+        const current = get().project?.runs.find((r) => r.id === id)?.notes ?? {};
+        return get().setNotes(id, { ...current, ...patch });
+      });
+      notesQueue = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
     },
 
     deleteRun: async (id) => {

@@ -27,11 +27,9 @@ export function RunDetails({ run, row }: { run: RunInfo; row: RunRow }) {
     const nextNotes = (next.notes ?? notes).trim();
     if (nextLabel === (run.notes.label ?? "") && nextNotes === (run.notes.notes ?? ""))
       return;
-    void useProject.getState().setNotes(run.id, {
-      ...run.notes,
+    void useProject.getState().patchNotes(run.id, {
       label: nextLabel || null,
       notes: nextNotes || null,
-      starred: run.notes.starred ?? false,
     });
   };
 
