@@ -152,6 +152,11 @@ pub(crate) struct CovarianceEstimate {
     /// residual noise predicts (see [`view_scatter`]), when significantly
     /// more; `matrix` is scaled by it.
     pub view_scatter: Option<f64>,
+    /// `c` of `matrix = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+    /// (whitened) residuals, when every residual is of one family and no
+    /// prior enters: `σ̂²` under least squares, the sandwich's `s / κ²` under
+    /// a robust loss. `None` otherwise.
+    pub variance_factor: Option<f64>,
     /// The error's predicted departure from `matrix` at second order (see
     /// [`second_order`]); `None` without shared coordinates or with too many,
     /// for noise-free data, or when the residuals cannot be evaluated at its
@@ -262,6 +267,7 @@ pub(crate) fn estimate(
             num_residuals: m,
             dof: m,
             view_scatter: None,
+            variance_factor: None,
             second_order: None,
         }));
     };
@@ -417,6 +423,17 @@ pub(crate) fn estimate(
             &h_inverse * g * &h_inverse
         }
     };
+    // `Σ = c (JᵀJ)⁻¹` with `c = s / κ²` when every residual is of one
+    // family and no prior enters (`H = κ JᵀJ`): the variance factor a
+    // comparison of nested solves needs to put both on one noise level.
+    let one_family = m_obs == m
+        && blocks
+            .first()
+            .and_then(|b| b.family)
+            .is_some_and(|f| blocks.iter().all(|b| b.family == Some(f)));
+    let variance_factor = (proportional && one_family)
+        .then(|| ratios[0] / moments.kappa(&blocks[0]))
+        .filter(|c| c.is_finite() && *c > 0.0);
     let view_scatter = view_scatter(ir, &raw, &blocks, &moments, &h_inverse, &sigma, &free);
     let scale = view_scatter.unwrap_or(1.0);
     let tangent_coords: Vec<Coordinate> = free.iter().map(|&(c, _)| c).collect();
@@ -442,6 +459,7 @@ pub(crate) fn estimate(
         num_residuals: m,
         dof: m.saturating_sub(n),
         view_scatter,
+        variance_factor,
         second_order,
     }))
 }

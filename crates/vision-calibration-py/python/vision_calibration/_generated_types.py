@@ -179,7 +179,9 @@ class CameraDifference(TypedDict):
 
 class CameraEvidence(TypedDict):
     """One camera's fit in one run. The residual statistics are in-sample:
-    they compare like with like only between runs of the same observations.
+    they compare like with like only between runs of the same observations
+    (`DataRelation::Identical`, `DataRelation::SameData`); a run that
+    left out its worst features always has a lower residual.
     """
 
     features: int
@@ -566,13 +568,6 @@ class CompareRunsOptions(TypedDict, total=False):
     The rows follow from the image's aspect.
     """
 
-    relations: list[DataRelation]
-    """How each run after the first relates to the first, one entry per
-    run after the first; empty for `DataRelation::Unknown` everywhere.
-    The relation decides which test a difference gets, so it is stated,
-    never guessed.
-    """
-
     thresholds: QualityThresholds
     """The thresholds each run's quality verdict is judged by."""
 
@@ -797,6 +792,12 @@ class CovarianceStatus_Available(TypedDict):
     """The number of shared (not per-view) parameters it covers."""
 
     status: Literal["available"]
+    variance_factor: float | None
+    """Its a-posteriori variance factor, when it comes from one
+    residual family with an estimated noise level; what a nested
+    test needs.
+    """
+
     view_scatter: float | None
     """The factor the covariance was scaled by because the views
     scatter more than the residual noise predicts; `None` when it
@@ -1298,11 +1299,14 @@ class DifferenceTest_Independent(TypedDict):
 
 
 class DifferenceTest_Nested(TypedDict):
-    """Nested observations under one configuration:
-    `σ_Δ = √(σ_smaller² − σ_larger²)` (the Hausman form, each variance
-    taken at the larger run's view-scatter factor), `z = Δ / σ_Δ`. Under
-    the hypothesis that the left-out observations fit the model as the
-    others do, `z` is standard normal.
+    """Nested observations under one configuration (the Hausman form):
+    `σ_Δ² = c · k_larger · (a_smaller − a_larger)`, `a` each run's
+    variance per unit noise (its stated variance over its view-scatter
+    factor and variance factor), `c` the smaller run's variance factor
+    and `k_larger` the larger run's view-scatter factor: both on one
+    noise level. `z = Δ / σ_Δ` is standard normal when the left-out
+    observations fit the model as the others do and were not chosen by
+    their residuals.
     """
 
     kind: Literal["nested"]
@@ -2738,6 +2742,55 @@ class JointOptimizeConfig(_JointOptimizeConfigRequired, total=False):
     """
 
 
+class JointTest_Independent(TypedDict):
+    """Independent captures: `Σ_Δ = Σ_ref + Σ_other`."""
+
+    chi2: float
+    """`χ²`."""
+
+    dof: int
+    """Its degrees of freedom."""
+
+    kind: Literal["independent"]
+    p_value: float
+    """The upper-tail p-value of `χ²`."""
+
+
+class JointTest_Nested(TypedDict):
+    """Nested observations under one configuration (the Hausman form, on
+    one noise level as `DifferenceTest::Nested`), through a generalized
+    inverse over the directions whose variance grows without the
+    left-out data, `dof` their number. Offered for poses; a camera's
+    parameters have no nested joint test (`NoTest::NestedJoint`).
+    """
+
+    chi2: float
+    """`χ²`."""
+
+    dof: int
+    """Its degrees of freedom."""
+
+    kind: Literal["nested"]
+    p_value: float
+    """The upper-tail p-value of `χ²`."""
+
+
+class JointTest_NotAvailable(TypedDict):
+    """No valid test."""
+
+    kind: Literal["not_available"]
+    reason: NoTest
+    """Why."""
+
+
+JointTest: TypeAlias = JointTest_Independent | JointTest_Nested | JointTest_NotAvailable
+"""The test of several quantities at once (a pose's tangent, a camera's
+parameters), their difference `δ` against the covariance of the
+difference: `χ² = δᵀ Σ_Δ⁻¹ δ`, `Σ_Δ` as each `DifferenceTest` forms
+a variance.
+"""
+
+
 class LaserExtractionSpec(TypedDict, total=False):
     """Laser-line extraction parameters. Consumed by the
     runner's injected `LaserPixelExtractor`; hashed (canonical JSON)
@@ -3170,7 +3223,10 @@ NoTest: TypeAlias = Literal[
     "shared_data",
     "no_covariance",
     "not_estimated",
+    "mixed_residuals",
+    "no_variance_factor",
     "nested_variance_not_positive",
+    "nested_joint",
     "gauge_differs",
     "singular_covariance",
 ]
@@ -3183,8 +3239,20 @@ NoTest: TypeAlias = Literal[
   amount neither export states.
 - ``"no_covariance"``: A run has no covariance.
 - ``"not_estimated"``: A run held the quantity fixed, so states no σ of it.
-- ``"nested_variance_not_positive"``: Nested runs whose stated variances do not order (the smaller run's
-  variance is not the larger): the Hausman form has no σ.
+- ``"mixed_residuals"``: Nested runs whose covariance combines residual families (laser and
+  reprojection), robot-pose priors or per-camera noise levels: the
+  nested form's premise, one noise level for every residual, fails,
+  and no test of such runs has been validated.
+- ``"no_variance_factor"``: Nested runs of which one export states no variance factor (written
+  before it was recorded, or its covariance was derived from several
+  solves): their noise levels cannot be put on one scale.
+- ``"nested_variance_not_positive"``: Nested runs whose variance of the difference is not positive (the
+  smaller run's information is not the smaller).
+- ``"nested_joint"``: The joint test of a camera's parameters between nested runs, which
+  is not offered: it rejects well above its level when the left-out
+  data are a small share (measured: 7.7 % with 1 of 8 views left out,
+  15.7 % with 6 of about 2000 features, at the 5 % level). Each
+  parameter's own nested test remains.
 - ``"gauge_differs"``: The runs' rigs have different reference cameras, so the other run's
   covariance is not of the compared pose.
 - ``"singular_covariance"``: The covariance of the difference is singular.
@@ -3200,27 +3268,34 @@ class ParameterComparison_DifferentModels(TypedDict):
 
 
 class ParameterComparison_SameModel(TypedDict):
-    """Both runs use one model: each parameter, in the solver's order."""
+    """Both runs use one model."""
+
+    joint: JointTest
+    """One test of every parameter both runs estimated, over their full
+    covariance: a `χ²` of as many degrees of freedom, for independent
+    captures. Read it before the per-parameter tests: of eight
+    parameters tested at 5 % each, one rejects by chance in about a
+    quarter of comparisons. Not offered for nested runs
+    (`NoTest::NestedJoint`).
+    """
 
     kind: Literal["same_model"]
     parameters: list[ParameterDifference]
-    """The parameters."""
+    """Each parameter, in the solver's order, with its own test."""
 
 
-class ParameterComparison_Unavailable(TypedDict):
-    """A camera whose parameters the solver does not name (a general
-    sensor homography).
+class ParameterComparison_Unparameterized(TypedDict):
+    """A camera whose parameters the solver does not name: a general sensor
+    homography.
     """
 
-    kind: Literal["unavailable"]
-    reason: str
-    """Why."""
+    kind: Literal["unparameterized"]
 
 
 ParameterComparison: TypeAlias = (
     ParameterComparison_SameModel
     | ParameterComparison_DifferentModels
-    | ParameterComparison_Unavailable
+    | ParameterComparison_Unparameterized
 )
 """A camera's parameters in two runs."""
 
@@ -3261,6 +3336,19 @@ class ParameterCovariance(_ParameterCovarianceRequired, total=False):
     costs `s (s + 1)` residual evaluations for `s` of them), its data is
     noise-free, or the covariance was derived from others rather than
     from one solve.
+    """
+
+    variance_factor: float | None
+    """The a-posteriori variance factor `c` of a covariance from one
+    residual family with an estimated noise level and no prior:
+    `covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+    residuals (whitened by their stated covariances, when they have
+    them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
+    per degree of freedom (px², or dimensionless for whitened residuals);
+    under a robust loss, the sandwich's `E[ψ²] / E[ψ′]²`. It puts two
+    solves of nested data on one noise level. `None` when the covariance
+    combines residual families, stated priors or another calibration's
+    share, or was derived from several solves.
     """
 
     view_scatter: float | None
@@ -3731,7 +3819,7 @@ class PoseDifference(TypedDict):
     tangent, in the pose's source frame.
     """
 
-    test: PoseTest
+    test: JointTest
     """The test of the difference, when the data relation supports one."""
 
     translation_m: tuple[float, float, float] | list[float]
@@ -3768,50 +3856,6 @@ class PosePairing_SharedFilenameToken(TypedDict):
 PosePairing: TypeAlias = PosePairing_ByIndex | PosePairing_SharedFilenameToken
 """How per-camera image lists align across views and (optionally)
 align with robot poses.
-"""
-
-
-class PoseTest_Independent(TypedDict):
-    """Independent captures: `χ² = τᵀ (Σ_ref + Σ_other)⁻¹ τ`."""
-
-    chi2: float
-    """`χ²`."""
-
-    dof: int
-    """Its degrees of freedom (6)."""
-
-    kind: Literal["independent"]
-    p_value: float
-    """The upper-tail p-value of `χ²`."""
-
-
-class PoseTest_Nested(TypedDict):
-    """Nested observations under one configuration:
-    `χ² = τᵀ (Σ_smaller − Σ_larger)⁻¹ τ` (the Hausman form).
-    """
-
-    chi2: float
-    """`χ²`."""
-
-    dof: int
-    """Its degrees of freedom (6)."""
-
-    kind: Literal["nested"]
-    p_value: float
-    """The upper-tail p-value of `χ²`."""
-
-
-class PoseTest_NotAvailable(TypedDict):
-    """No valid test."""
-
-    kind: Literal["not_available"]
-    reason: NoTest
-    """Why."""
-
-
-PoseTest: TypeAlias = PoseTest_Independent | PoseTest_Nested | PoseTest_NotAvailable
-"""The test of a pose difference, its tangent `τ` against the covariance
-of the difference.
 """
 
 
@@ -4104,7 +4148,7 @@ class ProjectionComparison_Compared(TypedDict):
 class ProjectionComparison_Unavailable(TypedDict):
     """Not computed, for the reason given."""
 
-    reason: str
+    reason: ProjectionUnavailable
     """Why."""
 
     status: Literal["unavailable"]
@@ -4142,6 +4186,22 @@ class ProjectionParams_Pinhole(TypedDict):
 
 ProjectionParams: TypeAlias = ProjectionParams_Pinhole | ProjectionParams_Equidistant
 """Serializable projection model parameters."""
+
+
+ProjectionUnavailable: TypeAlias = Literal[
+    "invalid_image",
+    "too_few_nodes",
+    "singular",
+    "not_central",
+]
+"""Why a projection difference was not computed.
+
+- ``"invalid_image"``: The image or grid is empty.
+- ``"too_few_nodes"``: Fewer than three nodes of the covered region have a value.
+- ``"singular"``: A sensor homography does not invert, or the rotation fit is
+  singular.
+- ``"not_central"``: A camera's projection is not central.
+"""
 
 
 class ProjectionUncertainty(TypedDict):
@@ -4414,6 +4474,21 @@ class RankedRobotPose(TypedDict):
     """
 
 
+RefusalReason: TypeAlias = Literal[
+    "shared_features",
+    "not_a_subset",
+    "configurations_differ",
+]
+"""Why a stated relation does not hold.
+
+- ``"shared_features"``: Stated independent, the runs share bit-identical features (the same
+  target point at the same observed pixel): they read the same images.
+- ``"not_a_subset"``: Stated nested, the smaller run has a feature the larger lacks, or
+  the two have the same features.
+- ``"configurations_differ"``: Stated nested, the two configurations differ.
+"""
+
+
 RejectReason: TypeAlias = Literal[
     "too_few_features",
     "partial_chessboard",
@@ -4492,6 +4567,18 @@ class RejectedPoint(_RejectedPointRequired, total=False):
 
     world_xyz: tuple[float, float, float] | list[float] | None
     """The target point it would have had, metres, when it had a label."""
+
+
+class RelationRefusal(TypedDict):
+    """A stated relation the runs contradict, and why: the difference is then
+    treated as `DataRelation::Overlapping`.
+    """
+
+    reason: RefusalReason
+    """Why it does not hold."""
+
+    stated: DataRelation
+    """The relation as stated."""
 
 
 class _ReprojectionStatsRequired(TypedDict):
@@ -5694,13 +5781,6 @@ class _RunDifferenceRequired(TypedDict):
     configuration was not given.
     """
 
-    fit_comparable: bool
-    """Whether the two runs' in-sample residual statistics compare like
-    with like: only for the same observations (`DataRelation::Identical`,
-    `DataRelation::SameData`). A run that left out its worst features
-    always has a lower residual, which says nothing of its calibration.
-    """
-
     handeye: PoseDifference | None
     """The hand-eye, expressed for the reference run's reference camera;
     `None` unless both runs calibrated one in the same mode.
@@ -5713,7 +5793,9 @@ class _RunDifferenceRequired(TypedDict):
     """The cameras, by id, whose camera models differ between the runs."""
 
     relation: DataRelation
-    """How its observations relate to the reference's, as stated."""
+    """How its observations relate to the reference's: the stated relation,
+    or `DataRelation::Overlapping` when the runs contradict it.
+    """
 
     rig: list[PoseDifference]
     """Each camera's pose relative to the reference run's reference camera,
@@ -5743,6 +5825,11 @@ class RunDifference(_RunDifferenceRequired, total=False):
     exclusion_changes: ExclusionChanges | None
     """The exclusions one run made and the other did not. `None` unless
     both are runs a project calibrated.
+    """
+
+    relation_refused: RelationRefusal | None
+    """The stated relation the runs contradict, and why; `None` when the
+    stated relation was used.
     """
 
 
@@ -6972,6 +7059,19 @@ class Uncertainty_Available(_Uncertainty_AvailableRequired, total=False):
     from one solve.
     """
 
+    variance_factor: float | None
+    """The a-posteriori variance factor `c` of a covariance from one
+    residual family with an estimated noise level and no prior:
+    `covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+    residuals (whitened by their stated covariances, when they have
+    them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
+    per degree of freedom (px², or dimensionless for whitened residuals);
+    under a robust loss, the sandwich's `E[ψ²] / E[ψ′]²`. It puts two
+    solves of nested data on one noise level. `None` when the covariance
+    combines residual families, stated priors or another calibration's
+    share, or was derived from several solves.
+    """
+
     view_scatter: float | None
     """How many times the variance of the shared parameters across views
     exceeds what the residual noise predicts, measured by leaving out one
@@ -7284,6 +7384,10 @@ __all__ = [
     "IntrinsicsOptimizeConfig",
     "Iso3",
     "JointOptimizeConfig",
+    "JointTest",
+    "JointTest_Independent",
+    "JointTest_Nested",
+    "JointTest_NotAvailable",
     "LaserExtractionSpec",
     "LaserFeatureResidual",
     "LaserLineTrace",
@@ -7310,7 +7414,7 @@ __all__ = [
     "ParameterComparison",
     "ParameterComparison_DifferentModels",
     "ParameterComparison_SameModel",
-    "ParameterComparison_Unavailable",
+    "ParameterComparison_Unparameterized",
     "ParameterCovariance",
     "ParameterDifference",
     "PerFeatureResiduals",
@@ -7335,10 +7439,6 @@ __all__ = [
     "PosePairing",
     "PosePairing_ByIndex",
     "PosePairing_SharedFilenameToken",
-    "PoseTest",
-    "PoseTest_Independent",
-    "PoseTest_Nested",
-    "PoseTest_NotAvailable",
     "PredictedRigUncertainty",
     "PredictedUncertainty",
     "ProblemKind",
@@ -7356,6 +7456,7 @@ __all__ = [
     "ProjectionParams",
     "ProjectionParams_Equidistant",
     "ProjectionParams_Pinhole",
+    "ProjectionUnavailable",
     "ProjectionUncertainty",
     "PuzzleboardDecode",
     "PuzzleboardDetail",
@@ -7364,9 +7465,11 @@ __all__ = [
     "QualityThresholds",
     "RankedCandidate",
     "RankedRobotPose",
+    "RefusalReason",
     "RejectReason",
     "RejectedMarker",
     "RejectedPoint",
+    "RelationRefusal",
     "ReprojectionStats",
     "ResidualKind",
     "ResidualKind_Custom",

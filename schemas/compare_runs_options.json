@@ -15,94 +15,6 @@
         }
       ]
     },
-    "DataRelation": {
-      "description": "How the observations of a run relate to the reference run's: what\ndecides which test of a difference is valid.",
-      "oneOf": [
-        {
-          "description": "Not established: no test.",
-          "properties": {
-            "kind": {
-              "const": "unknown",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "No observation in common: independent captures of the device.",
-          "properties": {
-            "kind": {
-              "const": "independent",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "The same observations and the same configuration.",
-          "properties": {
-            "kind": {
-              "const": "identical",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "The same observations under another configuration (camera model,\nloss, solver).",
-          "properties": {
-            "kind": {
-              "const": "same_data",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "One run's observations are a strict subset of the other's, and the\nconfigurations are equal: the runs differ by what was left out.",
-          "properties": {
-            "kind": {
-              "const": "nested",
-              "type": "string"
-            },
-            "smaller": {
-              "$ref": "#/$defs/RunSide",
-              "description": "The run with fewer observations."
-            }
-          },
-          "required": [
-            "kind",
-            "smaller"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Shared and differing observations, or nested observations under\ndifferent configurations.",
-          "properties": {
-            "kind": {
-              "const": "overlapping",
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "type": "object"
-        }
-      ]
-    },
     "QualityThresholds": {
       "additionalProperties": false,
       "description": "Thresholds of the quality checks.\n\nEvery default is a limit a well-planned calibration of a perspective\ncamera clears, and that a calibration with a known planning flaw (views\nbunched in one part of the image, near-identical board poses) does not.\nThe expected feature noise has no default: it depends on the detector,\nthe target and the optics.",
@@ -166,21 +78,6 @@
         }
       },
       "type": "object"
-    },
-    "RunSide": {
-      "description": "One of the two runs of a difference.",
-      "oneOf": [
-        {
-          "const": "reference",
-          "description": "The reference run, the first of the comparison.",
-          "type": "string"
-        },
-        {
-          "const": "other",
-          "description": "The run compared with it.",
-          "type": "string"
-        }
-      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -198,14 +95,6 @@
       "format": "uint32",
       "minimum": 0,
       "type": "integer"
-    },
-    "relations": {
-      "default": [],
-      "description": "How each run after the first relates to the first, one entry per\nrun after the first; empty for [`DataRelation::Unknown`] everywhere.\nThe relation decides which test a difference gets, so it is stated,\nnever guessed.",
-      "items": {
-        "$ref": "#/$defs/DataRelation"
-      },
-      "type": "array"
     },
     "thresholds": {
       "$ref": "#/$defs/QualityThresholds",

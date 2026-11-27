@@ -35,26 +35,49 @@ reprojection RMS, because each view's pose absorbs part of the field.
   pose carries the Mahalanobis length of its tangent in the reference's
   covariance.
 - **A test only where the data relation makes one valid**, the relation
-  stated by the caller (`DataRelation`; a project reads it from its records):
+  stated on the run (`ComparedRun::with_relation`; a project reads it from
+  its records, `None` is `Unknown`):
   - `Independent` (no observation in common): `σ_Δ² = σa² + σb²`, `z`, its
-    two-sided p; for a pose the 6-dof `χ² = τᵀ(Σa + Σb)⁻¹τ`.
+    two-sided p; for a pose the 6-dof `χ² = τᵀ(Σa + Σb)⁻¹τ`; and one joint
+    `χ²` over every camera parameter both estimated (`ParameterComparison::
+    SameModel::joint`), because of eight per-parameter tests at 5 % one
+    rejects by chance in about a quarter of null comparisons.
   - `Nested { smaller }` (one run's observations a strict subset of the
-    other's, one configuration): the Hausman form
-    `σ_Δ² = σ_smaller² − σ_larger²` (Hausman 1978: under the null the
-    efficient estimate is uncorrelated with its difference from the
-    inefficient one), each variance divided by its own run's view-scatter
-    factor and multiplied by the larger run's, so a scaling that fired in
-    one run does not enter the difference. A variance that does not order
-    is `NoTest::NestedVarianceNotPositive`, never clamped.
+    other's, one configuration): the Hausman form on **one noise level**.
+    Each export states its variance factor `c` (`ParameterCovariance::
+    variance_factor`, `Σ = k · c · (JᵀJ)⁻¹`, `k` the view-scatter factor),
+    so each run's information `A⁻¹ = Σ / (k c)` is recovered and
+    `σ_Δ² = c_smaller · k_larger · (A_s⁻¹ − A_l⁻¹)` (Hausman 1978: under the
+    null the efficient estimate is uncorrelated with its difference from the
+    inefficient one). The smaller run's `c` is consistent under both
+    hypotheses and keeps the power when the larger run holds the outliers.
+    A variance that does not grow is `NestedVarianceNotPositive`, never
+    clamped. A pose's nested `χ²` goes through a generalized inverse over
+    the directions whose variance grows. A camera's parameters get no nested
+    joint test (`NestedJoint`, measured below). Not offered for a covariance
+    of several residual families, robot-pose priors or per-camera noise
+    levels (`MixedResiduals`, the premise `G ∝ H` fails and no gate exists),
+    nor for an export without the factor (`NoVarianceFactor`).
+  - The nested test is **not valid for observations left out because of
+    their residuals** (the worst features or views of a fit): the remaining
+    fit then agrees with the full one by construction less than chance
+    predicts. The classifier cannot know how an exclusion was chosen; the
+    rustdoc and the book say so, and a residual-based screening with its own
+    test is backlog COMPARE-SCREENING.
   - Otherwise `NotAvailable { reason }`: `SharedData` (`SameData`,
     `Overlapping`: the correlation is unknown and near 1), `UnknownRelation`,
     `Identical`, `NoCovariance`, `NotEstimated`, `GaugeDiffers`,
     `SingularCovariance`. `Unknown` never yields a test.
-  - `fit_comparable` is true only for `Identical` and `SameData`: in-sample
-    residuals of different observations do not compare.
+- **A stated relation the exports contradict is refused**, the difference
+  compared as `Overlapping` with `RunDifference::relation_refused`: a stated
+  independent pair sharing bit-identical features (the same target point at
+  the same observed pixel), a stated nested pair whose smaller run is not a
+  strict subset of the larger's features, or whose given configurations
+  differ. The in-sample residuals compare like with like only for
+  `Identical` and `SameData`; a separate flag would restate the relation, so
+  none is kept.
 - **The data relation of project runs comes from their records, at
-  feature level** (`project::compare_recorded_runs`, `Project::compare_runs`;
-  a caller-given relation is refused there). Each run records the content
+  feature level** (`project::compare_recorded_runs`, `Project::compare_runs`). Each run records the content
   hash of every image it used (ADR 0033 D10). A feature is
   `(image content, camera id, target point, observed pixel)` with exact
   bits, so a moved or renamed image is the same data and a re-detection with
@@ -68,7 +91,8 @@ reprojection RMS, because each view's pose absorbs part of the field.
   dataset that grew (another manifest) is `Overlapping`, not `Nested`. Each
   difference carries the `DataOverlap` and the `ExclusionChanges` behind it.
 - **Parameters only between cameras of one model** (the labels name the same
-  quantity); otherwise `DifferentModels`, and the projection difference
+  quantity); otherwise `DifferentModels` (a general sensor homography,
+  which the solver does not parameterize, is `Unparameterized`), and the projection difference
   (ADR 0034), fitted on the blocks either run's features cover, is the
   comparison. It carries no σ.
 - **Poses are compared relative to one camera**, the reference run's rig
@@ -93,54 +117,73 @@ reprojection RMS, because each view's pose absorbs part of the field.
 
 `crates/vision-calibration-pipeline/tests/compare_runs_gates.rs`
 (release-only, in `scripts/uncertainty_gates.py`), synthetic captures under
-the null (one device, the model right), a 12 × 9 board, 0.3 px noise,
-Brown-Conrady, 400 trials per gate on both backends. Ranges over the eight
-camera parameters; the Monte-Carlo error of a rate is ±1.1 %, of a z
-standard deviation ±0.035:
+the null (one device, the model right, nothing left out by its residuals), a
+12 × 9 board, 0.3 px noise, Brown-Conrady, on one backend (the two reach the
+same optimum, so the same seeds on the other repeat the draw). Ranges over
+the eight camera parameters. Gate per parameter: rejection rate within 3.5
+Monte-Carlo errors of 5 %, z std within `3.4/√(2n)` of 1, at most 1 % of
+the tests missing; per cell, the pooled mean `z²` within 3 bootstrap errors
+of 1; the joint `χ²` likewise.
 
-| Gate | Rejection rate at 5 % | z std |
-|---|---|---|
-| Independent captures, 20 views | 2.0–5.5 % (tiny-solver), 3.5–5.2 % (factrs) | 0.93–1.02 |
-| Nested, 30 % of the views left out | 3.0–7.2 % | 0.89–1.02 |
-| Nested, 20 % of the features left out | 3.7–6.8 % | 0.93–1.08 |
-| Nested, views, Huber loss (0.5 px) | 4.0–6.5 % | 0.92–1.02 |
-| Nested, features, Huber loss (0.5 px) | 4.3–6.8 % | 0.95–1.10 |
-| Rig `right_se3_left` χ², independent | 4.0 % (mean χ² 5.66 of 6) | — |
-| Rig `right_se3_left` χ², nested (30 % views) | 6.2 % (mean χ² 5.81) | — |
+| Cell (trials) | Rejection at 5 % | z std | Joint χ² (8 dof) / pose χ² (6 dof) |
+|---|---|---|---|
+| Independent, 20 views (400) | 2.0–5.5 % | 0.93–1.00 | 5.75 %, mean χ²/dof 1.01 |
+| Nested, 6 of 20 views out (1000) | 3.5–6.0 % | 0.89–0.99 | not offered (`NestedJoint`) |
+| Nested, 20 % of features out (1000) | 3.9–6.0 % | 0.98–1.04 | not offered |
+| Nested, 1 of 8 views out (1000) | 4.4–6.1 % | 0.98–1.04 | not offered |
+| Nested, Huber 0.5 px, 6 of 20 views (1000) | 4.6–5.2 % | 0.98–1.00 | not offered |
+| Nested, Huber 0.5 px, 20 % of features (1000) | 4.6–6.1 % | 0.98–1.04 | not offered |
+| Rig `right_se3_left`, independent (400) | — | — | 4.0 %, mean χ²/dof 0.94 |
+| Rig `right_se3_left`, 2 of 8 views out (1000) | — | — | 4.5 %, mean χ²/dof 0.95 |
 
-A sweep (200 trials per cell, tiny-solver) over 8 / 20 / 60 views,
-0.05 / 0.3 px, a Kannala-Brandt fisheye and a Scheimpflug sensor, for the
-independent and nested-view tests: every rate within 2.9 MC errors of 5 %,
-z std 0.85–1.14. The gate allows each rate 3.5 MC errors and each z std
-`3.4/√(2n)` around 1 (a family-wise false alarm of about 1 % over eight
-parameters); a first bound of [0.9, 1.1] failed on one draw of seeds
-(z std 1.101, 20 % of the features left out under Huber) and was replaced by
-the multiplicity-aware bound, not by a wider fixed one.
+Missing tests under the null: at most 0.8 % per parameter (`k2`
+`NestedVarianceNotPositive`, 1 of 8 views out). A sweep at 200 trials per
+cell over 8 / 20 / 60 views, 0.05 / 0.3 px, a Kannala-Brandt fisheye and a
+Scheimpflug sensor, independent and 30 % of the views out, passes the same
+gate (rates 1.5–9.5 %, z std 0.85–1.14, inside each cell's bounds).
 
-Two real effects inside the bounds:
+The alternative: 1 % of the larger run's features moved 8 px, left out by
+the smaller run. Some parameter rejects in 98.8 % of 400 comparisons
+(pooled mean `z²` ≈ 2200); 82 % of the per-parameter tests are available,
+the rest `NestedVarianceNotPositive` (the left-out share is small).
 
-- **Feature exclusion inflates the nested z by about 7 %** (z std 1.04–1.10
-  over two seed sets, rates up to 7.5 %). Each run estimates its own noise
-  level; with a fifth of the features left out the variance difference is a
-  small part of each variance, and the two noise estimates' sampling error
-  enters it. Putting both covariances on one estimated noise level (the
-  larger run's) would remove it, but the export does not state the variance
-  factor its covariance used (a robust loss's is a moment ratio), so this is
-  left as a follow-up rather than approximated from the MAD noise level.
-- **A few views make the tests slightly overconfident**: independent
-  captures of 8 views reached z std 1.09–1.14.
+**Before the common noise level** (the review's measurement, 400 trials,
+1024 × 768, 10 × 7 board): each run's own noise estimate entered the
+difference, `V̂ = k(ŝ_s²A_s⁻¹ − ŝ_l²A_l⁻¹)`; its second term dominates for
+small exclusions: 1 of 25 views out gave z std up to 1.88 and up to
+18/400 `NestedVarianceNotPositive` per parameter, 6 features out z std
+1.09–1.69, a rig pose χ² with 2 of 8 views out a mean of 11.76 against 6.03
+on one noise level, and the test was unavailable in 99.5–100 % of the
+comparisons with 1 % outliers. The gates at 20–30 % exclusions had passed
+because the term is small there. The earlier claims of this ADR that "the
+feature-exclusion inflation comes from two noise estimates" at 20 % and
+that "8 views reach z std 1.09–1.14" were not reproduced (the review's 8
+views: 0.93–1.04; here, 0.94–1.09 at 200 trials) and are withdrawn.
 
-Under a Huber loss the Hausman form holds because, with i.i.d. residuals of
-one family, the sandwich covariance is a scalar multiple of the same
-information matrix in both runs; it is not gated for mixed residual
-families (hand-eye with robot-pose priors, laser).
+**A limitation, pinned** (`nested_small_exclusions_have_heavier_tails`):
+with a small left-out share the nested `z` of some parameters still has
+heavy tails on one noise level: 1 of 25 views out, `k2` z std 1.14 (MAD
+1.00, three `|z| > 4` in 1000); 6 of about 2000 features out, z std up to
+1.35 and `k2` 7.7 % rejections with 4.3 % not positive. Each run's
+information is evaluated at its own estimate, and two nearly equal
+informations then differ mostly by that mismatch. A tighter solver stop
+(`1e-14` decrease) changed nothing (convergence is not the cause). A cut on
+the relative variance growth was measured and rejected: at 1–2 % it removes
+most small-exclusion tests and the 1 %-outlier tests the nested test exists
+for, and biases what it keeps (joint mean χ²/dof 0.92). The camera-parameter
+joint test through a generalized inverse rejects 7.7 % (1 of 8 views),
+9.1 % (1 of 25) and 15.7 % (6 features) and is not offered for nested runs.
 
 ## Consequences
 
 - The app and `vcal` show a table whose columns each say what they are;
   nothing ranks runs. The book says which criterion answers which question
-  (held-out error for the model, the nested test for an exclusion, the
-  independent test and the projection σ for a recalibration).
+  (held-out error for the model; the nested test for whether data left out
+  without looking at the residuals fit as the rest do; the independent test
+  and the projection σ for a recalibration).
+- The export gains `ParameterCovariance::variance_factor`, an optional
+  field: present for one residual family without priors, its numbers
+  unchanged (the regression suite on both backends).
 - The tests are as good as each run's stated σ; on real images the
   view-scatter factor corrects the share it measures. Errors shared by both
   captures (the target's flatness) are in neither σ.
@@ -154,3 +197,10 @@ families (hand-eye with robot-pose priors, laser).
 - **A residual-map difference in v1**: see Deferred.
 - **Comparing `cam_se3_rig` as stored**: depends on the rig camera each run
   chose.
+- **Each run's own noise level in the nested form**: measured above; the
+  difference of the two noise estimates dominates small exclusions.
+- **The larger run's variance factor**: inconsistent under the alternative
+  when the larger run holds the outliers the smaller left out.
+- **A cut on the relative variance growth**: measured above.
+- **The relation in `CompareRunsOptions`** (one entry per later run): a
+  length to check and, in a project, a state to forbid; it is the run's.

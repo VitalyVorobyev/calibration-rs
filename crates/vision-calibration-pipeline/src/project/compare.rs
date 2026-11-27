@@ -60,49 +60,41 @@ impl Project {
 ///
 /// # Errors
 ///
-/// [`ProjectError::Compare`] when `options` states relations (the records
-/// decide them), a run's summary names no cameras, a camera's image size is
-/// unknown, or the comparison's own checks fail;
+/// [`ProjectError::Compare`] when a run's summary names no cameras, a
+/// camera's image size is unknown, or the comparison's own checks fail;
 /// [`ProjectError::Io`] and [`ProjectError::Parse`] when an export cannot
 /// be read.
 pub fn compare_recorded_runs(
     runs: &[RunInfo],
     options: &CompareRunsOptions,
 ) -> Result<RunComparison, ProjectError> {
-    if !options.relations.is_empty() {
-        return Err(ProjectError::Compare(Error::invalid_input(
-            "the relations of recorded runs are read from their records; \
-             leave CompareRunsOptions::relations empty",
-        )));
-    }
     let loaded = runs.iter().map(load).collect::<Result<Vec<_>, _>>()?;
-    let reference = &loaded[..1];
-    let mut relations = Vec::new();
+    let reference = &loaded[0];
     let mut overlaps = Vec::new();
     let mut exclusions = Vec::new();
-    for other in &loaded[1..] {
-        let (relation, overlap) = relation(&reference[0], other);
-        relations.push(relation);
-        overlaps.push(overlap);
-        exclusions.push(exclusion_changes(&reference[0], other));
-    }
     let compared: Vec<ComparedRun<'_>> = loaded
         .iter()
-        .map(|run| {
-            let compared = ComparedRun::new(
+        .enumerate()
+        .map(|(i, run)| {
+            let mut compared = ComparedRun::new(
                 run.id.clone(),
                 run.export.as_ref(),
                 run.camera_ids.clone(),
                 run.image_sizes.clone(),
             );
-            match run.calibrated.as_ref() {
-                Some(c) => compared.with_config(c.inputs.config.clone()),
-                None => compared,
+            if let Some(c) = run.calibrated.as_ref() {
+                compared = compared.with_config(c.inputs.config.clone());
             }
+            if i > 0 {
+                let (relation, overlap) = relation(reference, run);
+                overlaps.push(overlap);
+                exclusions.push(exclusion_changes(reference, run));
+                compared = compared.with_relation(relation);
+            }
+            compared
         })
         .collect();
-    let mut comparison = compare_runs(&compared, &options.clone().with_relations(relations))
-        .map_err(ProjectError::Compare)?;
+    let mut comparison = compare_runs(&compared, options).map_err(ProjectError::Compare)?;
     for ((difference, overlap), changes) in comparison
         .differences
         .iter_mut()

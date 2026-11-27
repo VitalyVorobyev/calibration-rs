@@ -54,14 +54,13 @@ fn equal_inputs_are_identical_with_no_difference() {
     let comparison = compare(&project, &[&a.id, &b.id]);
     let d = &comparison.differences[0];
     assert_eq!(d.relation, DataRelation::Identical);
-    assert!(d.fit_comparable);
     let overlap = d.data.expect("overlap");
     assert_eq!(overlap.shared_images, 7);
     assert_eq!(
         overlap.reference_only_features + overlap.other_only_features,
         0
     );
-    let ParameterComparison::SameModel { parameters } = &d.cameras[0].parameters else {
+    let ParameterComparison::SameModel { parameters, .. } = &d.cameras[0].parameters else {
         panic!("same model");
     };
     assert!(parameters.iter().all(|p| p.delta == 0.0));
@@ -113,10 +112,8 @@ fn an_exclusion_nests_and_another_configuration_shares_data() {
     let changes = nested.exclusion_changes.as_ref().expect("changes");
     assert_eq!(changes.other_only.images.len(), 1);
     assert!(changes.reference_only.is_empty());
-    assert!(!nested.fit_comparable);
 
     assert_eq!(same.relation, DataRelation::SameData);
-    assert!(same.fit_comparable);
     let config = same.config_changes.as_ref().expect("both configured");
     assert_eq!(config.len(), 1);
     assert!(config[0].path.ends_with("solver.max_iters"), "{config:?}");
@@ -131,15 +128,20 @@ fn disjoint_captures_are_independent_and_imports_unknown() {
     let first = planar_project(&tmp.path().join("first"));
     let second_dir = tmp.path().join("second");
     let second = planar_project(&second_dir);
-    // Another capture: every image of the second project differs in content,
-    // its detection the same.
+    // Another capture: every image of the second project differs in content
+    // and its detections by noise.
     let cache = FsDetectionCache::new(second_dir.join(DETECTIONS_DIR));
     let config = DetectorConfig::Chessboard(ChessboardConfig::new(6, 8, 0.03));
     let data = second_dir.join("data");
     for i in 0..8u32 {
         let rel = format!("img/view{i:02}.png");
         let old = CacheKey::for_detection(&std::fs::read(data.join(&rel)).unwrap(), &config, None);
-        let features = cache.get(&old).unwrap().unwrap();
+        // Another capture's detections: the same corners a micropixel off
+        // (bit-identical detections would be the same data).
+        let mut features = cache.get(&old).unwrap().unwrap();
+        for f in &mut features.features {
+            f.image_xy[0] += 1e-6;
+        }
         write_image(&data, &rel, 1000 + i);
         let new = CacheKey::for_detection(&std::fs::read(data.join(&rel)).unwrap(), &config, None);
         cache.put(&new, &features).unwrap();
@@ -162,12 +164,6 @@ fn disjoint_captures_are_independent_and_imports_unknown() {
     assert_eq!(unknown.exclusion_changes, None);
     assert_eq!(comparison.runs[2].cameras[0].image_size, [640, 480]);
 
-    // The records decide the relations.
-    let stated = CompareRunsOptions::new().with_relations(vec![DataRelation::Independent]);
-    assert!(matches!(
-        first.compare_runs(&[&a.id, &a.id], &stated),
-        Err(ProjectError::Compare(_))
-    ));
     assert!(matches!(
         first.compare_runs(&[&a.id, "run-404"], &CompareRunsOptions::new()),
         Err(ProjectError::RunNotFound { .. })

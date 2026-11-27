@@ -18,7 +18,8 @@ def _run(name: str, views: int) -> dict:
 class CompareRunsTest(unittest.TestCase):
     def test_two_runs_side_by_side(self) -> None:
         full, part = _run("full", 10), _run("part", 8)
-        comparison = vc.compare_runs([full, part], relations=[{"kind": "nested", "smaller": "other"}])
+        part["relation"] = {"kind": "nested", "smaller": "other"}
+        comparison = vc.compare_runs([full, part])
         self.assertEqual([r["name"] for r in comparison["runs"]], ["full", "part"])
         evidence = comparison["runs"][0]
         self.assertEqual(evidence["kind"], "planar_intrinsics")
@@ -26,16 +27,31 @@ class CompareRunsTest(unittest.TestCase):
         self.assertEqual(evidence["cameras"][0]["id"], "cam")
         self.assertEqual(evidence["cameras"][0]["views"], 10)
         difference = comparison["differences"][0]
+        # The 8 views are the first 8 of the 10: the stated relation holds.
         self.assertEqual(difference["relation"], {"kind": "nested", "smaller": "other"})
-        self.assertFalse(difference["fit_comparable"])
+        self.assertNotIn("relation_refused", difference)
         camera = difference["cameras"][0]
         self.assertEqual(camera["parameters"]["kind"], "same_model")
+        self.assertIn("joint", camera["parameters"])
         fx = next(p for p in camera["parameters"]["parameters"] if p["label"] == "fx")
         # Noise-free views: both runs recover the same camera.
         self.assertAlmostEqual(fx["delta"], 0.0, places=4)
-        self.assertIn("kind", fx["test"])
+        self.assertEqual(fx["test"]["kind"], "nested")
+        self.assertEqual(
+            camera["parameters"]["joint"], {"kind": "not_available", "reason": "nested_joint"}
+        )
         self.assertEqual(camera["projection"]["status"], "compared")
         self.assertLess(camera["projection"]["rms_fit_px"], 1e-3)
+
+    def test_a_contradicted_relation_is_refused(self) -> None:
+        a, b = _run("a", 10), _run("b", 9)
+        b["relation"] = {"kind": "independent"}
+        difference = vc.compare_runs([a, b])["differences"][0]
+        self.assertEqual(difference["relation"], {"kind": "overlapping"})
+        self.assertEqual(
+            difference["relation_refused"],
+            {"stated": {"kind": "independent"}, "reason": "shared_features"},
+        )
 
     def test_without_a_relation_there_is_no_test(self) -> None:
         a, b = _run("a", 10), _run("b", 9)
@@ -55,7 +71,7 @@ class CompareRunsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             vc.compare_runs([a, dict(a, camera_ids=["other"])])
         with self.assertRaises(ValueError):
-            vc.compare_runs([a, a], relations=[{"kind": "independent"}] * 2)
+            vc.compare_runs([dict(a, relation={"kind": "independent"}), a])
 
 
 if __name__ == "__main__":

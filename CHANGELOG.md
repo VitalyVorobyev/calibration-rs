@@ -100,12 +100,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   difference over the image fitted on the covered region, the rig poses
   relative to the reference's rig camera (so they do not depend on which
   camera each run held fixed), the hand-eye, the laser planes, the camera
-  models and configuration settings that differ (`RunDifference`). A test is
-  reported only where the stated data relation (`DataRelation`) makes one
+  models and configuration settings that differ (`RunDifference`). Each run
+  states its relation to the reference (`ComparedRun::with_relation`,
+  `DataRelation`), and a test is reported only where the relation makes one
   valid: independent captures (`σ_Δ² = σ_ref² + σ_other²`, a 6-dof χ² for a
-  pose) and nested observations under one configuration (the Hausman form
-  `σ_Δ² = σ_smaller² − σ_larger²`); otherwise `not_available` with the
-  reason. Python: `vision_calibration.compare_runs`.
+  pose, and a joint χ² of each camera's parameters) and nested observations
+  under one configuration (the Hausman form on the smaller run's noise
+  level, from each export's variance factor); otherwise `not_available`
+  with the reason (`NoTest`). A stated relation the exports contradict
+  (independent runs sharing features, a nested run that is not a subset or
+  has another configuration) is refused and the pair compared as
+  overlapping (`RelationRefusal`). The nested test does not apply to
+  observations left out because of their residuals. Python:
+  `vision_calibration.compare_runs`.
+- `ParameterCovariance::variance_factor`: the a-posteriori variance factor
+  of a covariance from one residual family with an estimated noise level
+  and no prior (`covariance = view_scatter · c · (JᵀJ)⁻¹`), so two solves of
+  nested data can be put on one noise level. An optional export field,
+  absent for covariances of several families, priors or several solves;
+  the covariance's numbers are unchanged. Python
+  `ParameterCovariance.variance_factor`.
 - `Project::compare_runs` and `project::compare_recorded_runs` compare a
   project's runs (or runs of several projects) with the data relation read
   from their records: independent captures when they used no image of the

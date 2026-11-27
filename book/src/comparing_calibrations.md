@@ -16,26 +16,29 @@ on all three:
 ## What a comparison holds
 
 For each run, its own evidence (`RunEvidence`): the quality verdict, whether
-it has a covariance (and the view-scatter factor it was scaled by), the
-camera that is its rig frame, and per camera the views, features and the
-in-sample residual statistics (RMS, median, 95th percentile), with the
-largest projection σ over the image.
+it has a covariance (with the view-scatter factor it was scaled by and its
+variance factor), the camera that is its rig frame, and per camera the
+views, features and the in-sample residual statistics (`reprojection`:
+mean, RMS, median, 95th percentile), with the largest projection σ over the
+image. The residual statistics compare like with like only between runs of
+the same observations: a run that left out its worst features always has a
+lower residual, which says nothing of its calibration.
 
 For each run after the first, against the reference (`RunDifference`),
 cameras matched by id:
 
 | Field | What it is | What it is not |
 |---|---|---|
-| `relation` | how the run's observations relate to the reference's, as stated | a guess: it is given (or, for a project's runs, read from their records) |
-| `fit_comparable` | whether the in-sample residuals compare like with like: only for the same observations | — a run that left out its worst features always has a lower residual, which says nothing of its calibration |
+| `relation` | how the run's observations relate to the reference's, as stated on the run (or, for a project's runs, read from their records) | a guess: a relation the exports contradict is refused (`relation_refused`) and the pair compared as overlapping |
 | parameter `delta` | `other − reference`, in the parameter's unit | — |
 | `delta_over_reference_sigma` | the change in units of the reference's stated σ: whether it matters at the precision the reference claims (materiality) | a test. Two fits of the same images can differ by many σ without disagreeing, and by less than one while disagreeing |
 | parameter `test` | a z-test, only where the data relation makes one valid (below), with its p-value | present for every pair: without a valid test it is `not_available`, with the reason |
+| `joint` | one χ² of all the camera's parameters both runs estimated, for independent captures | eight per-parameter tests read together: at 5 % each, one of eight rejects by chance in about a quarter of comparisons |
 | `projection` | the [projection difference](diagnostic_maps.md#comparing-two-calibrations) over the image, fitted on the blocks either run's features cover, for any two models | a σ-scaled quantity: a run's projection σ is not its scale |
 | `rig` | each camera's pose relative to the reference run's rig camera: rotation angle, translation length and components, the tangent, a 6-dof χ² where valid | dependent on which camera each run held fixed: the poses are relative, so they compare whatever the rig frame |
 | `handeye` | the hand-eye expressed for that camera | — |
 | `laser_planes` | the angle between the normals and the change of distance, with a test where valid | — |
-| `model_changes`, `config_changes` | the cameras whose models differ; the settings whose values differ (when each run's configuration is given) | — |
+| `model_changes`, `config_changes` | the cameras whose models differ; the settings whose values differ (when both runs' configurations are given) | — |
 
 Parameters are compared only between cameras of one model; across models
 their labels name different quantities, and the projection difference is the
@@ -44,24 +47,43 @@ describe a capture, not the device, and are never compared.
 
 ## When a difference has a test
 
-| Relation | What `Δ` is | `σ` of `Δ` |
+| Relation | What `Δ` is | Variance of `Δ` |
 |---|---|---|
-| `independent`: two captures with no observation in common | device change plus each capture's error | `√(σ_ref² + σ_other²)` |
-| `nested`: one run's observations a strict subset of the other's, one configuration | the pull of the left-out observations | `√(σ_smaller² − σ_larger²)` |
+| `independent`: two captures with no observation in common | device change plus each capture's error | `σ_ref² + σ_other²` |
+| `nested`: one run's observations a strict subset of the other's, one configuration, left out without looking at the residuals | the pull of the left-out observations | `c_smaller · k_larger · (a_smaller − a_larger)` (below) |
 | `same_data`, `overlapping`, `identical`, `unknown` | an estimator or model effect on shared noise, or not known | none |
 
 The nested form is the specification test of
 [Hausman (1978)](references.md#hausman-1978): when the left-out observations
 fit the model as the rest do, the estimate from all of them is efficient,
 uncorrelated with its difference from the estimate without them, so the
-variance of the difference is the difference of the variances. A large `z`
-says the left-out observations pulled the estimate further than leaving out
-that much data does by chance: they did not fit as the rest do. A small `z`
-says leaving them out cost precision and changed nothing else. Each variance
-is taken at the larger run's view-scatter factor, so a scaling that fired in
-one run only does not enter the difference. When the smaller run's stated
-variance is not the larger (`nested_variance_not_positive`), there is no
-test.
+variance of the difference is the difference of the variances. Both
+variances must be on **one noise level**: each run estimates its own, and
+the difference of the two estimates would otherwise dominate a small
+exclusion. Each export states its variance factor `c` (`σ̂²` under least
+squares) beside its view-scatter factor `k`, so each run's variance per unit
+noise `a = σ² / (k c)` is known, and the variance of `Δ` is taken on the
+smaller run's noise level. A large `z` says the left-out observations
+pulled the estimate further than leaving out that much data does by chance;
+a small one says leaving them out cost precision and changed nothing else.
+
+The nested test answers one question: *do the two fits agree beyond what
+their shared data explain, for observations left out without looking at the
+residuals* (a camera's images dropped because of motion blur, a view
+excluded because the target was partly hidden, a random half for a
+consistency check). It is **not valid for observations chosen by their
+residuals** (the worst features or views of a fit): the remaining fit then
+agrees with the full one less than chance predicts, and a correct model is
+rejected far more often than the level says. There is no test for such an
+exclusion, and the comparison cannot tell how an exclusion was chosen.
+
+It is also not offered when a run's covariance combines several residual
+families or priors (laser and reprojection residuals, robot-pose priors,
+per-camera noise levels: `mixed_residuals`), when an export states no
+variance factor (`no_variance_factor`), and when the smaller run's variance
+does not grow (`nested_variance_not_positive`). A camera's parameters have
+no nested joint test (`nested_joint`); each parameter's own test and a
+pose's χ² remain.
 
 Runs of the same observations under another configuration have no test:
 their errors are almost fully correlated by an amount neither export states.
@@ -73,19 +95,23 @@ frame (`gauge_differs` otherwise): the other run's covariance is of its own
 rig frame's poses.
 
 **Measured.** On synthetic captures under the null (both runs of one
-device, the model right), 400 trials each on both solver backends, the
-rejection rate at the 5 % level was 2.0–7.2 % per parameter (Monte-Carlo
-error ±1.1 %) and the z standard deviation 0.89–1.10: independent captures,
-30 % of the views left out, 20 % of the features left out, under plain least
-squares and a Huber loss. The 6-dof χ² of a two-camera rig's relative pose
-rejected 4.0 % (independent) and 6.2 % (nested). A sweep over 8, 20 and 60
-views, two noise levels, a Kannala-Brandt fisheye and a Scheimpflug sensor
-stayed within the same bounds. Two effects are real: leaving out a fifth of
-the features makes the nested z about 7 % too wide (each run estimates its
-own noise level, and their difference enters the small variance
-difference), and with 8 views the independent z reached a standard
-deviation of 1.14: read a z near the threshold from few views or small
-exclusions with that margin.
+device, the model right), at the 5 % level each parameter's rejection rate
+was 2.0–6.1 % (Monte-Carlo error ±0.7 % at 1000 trials) and its z standard
+deviation 0.89–1.04 for independent captures, 6 of 20 views, 20 % of the
+features and 1 of 8 views left out, under plain least squares and a Huber
+loss; the joint χ² of independent captures rejected 5.75 %. The 6-dof χ² of
+a two-camera rig's relative pose rejected 4.0 % (independent) and 4.5 % (2
+of 8 views left out). A sweep over 8, 20 and 60 views, two noise levels, a
+Kannala-Brandt fisheye and a Scheimpflug sensor stayed within the same
+bounds. A run whose larger half holds 1 % gross outliers is told apart from
+the run without them in 98.8 % of comparisons.
+
+When the left-out data are a **small share** of the information (1 of 25
+views, a handful of features), the nested z of some parameters has heavier
+tails than a standard normal (standard deviation up to 1.35 in a synthetic
+test, a rejection rate up to 7.7 % at 5 %): each run's information is
+evaluated at its own estimate, and two nearly equal informations then differ
+mostly by that mismatch. Read a small exclusion's p-value with that margin.
 
 The tests are as good as the stated σ: on real images a covariance can be
 short by the error shared by a view's corners, which the view-scatter
@@ -111,9 +137,12 @@ No function picks one, because each question has its own criterion:
 - **Which camera model?** Held-out error,
   [`compare_camera_models`](distortion_selection.md). In-sample residuals
   always favour the larger model.
-- **Was that exclusion right?** The exclusion is justified by what the
-  detection shows. The nested test says whether the left-out data were
-  inconsistent with the rest (large `z`) or merely noisy (small `z`).
+- **Do the runs agree after leaving data out?** For data left out without
+  looking at the residuals, the nested test says whether the fit without
+  them disagrees with the fit with them beyond what their shared data
+  explain. Whether an exclusion was *right* is what the detection shows;
+  outliers chosen by their residuals need a screening test of their own, not
+  this one.
 - **Which recalibration to deploy?** Among runs that pass and have a
   covariance, the most precise (smallest projection σ), checked against the
   others with the independent test. A significant disagreement means the
@@ -135,13 +164,14 @@ fn main() -> anyhow::Result<()> {
     let cam = || vec!["cam0".to_string()];
     let runs = [
         ComparedRun::new("monday", monday.as_ref(), cam(), vec![[1280, 960]]),
-        ComparedRun::new("friday", friday.as_ref(), cam(), vec![[1280, 960]]),
+        // Another capture of the device: no image in common.
+        ComparedRun::new("friday", friday.as_ref(), cam(), vec![[1280, 960]])
+            .with_relation(DataRelation::Independent),
     ];
-    // Two captures of the device: no image in common.
-    let options = CompareRunsOptions::new().with_relations(vec![DataRelation::Independent]);
-    let comparison = compare_runs(&runs, &options)?;
+    let comparison = compare_runs(&runs, &CompareRunsOptions::new())?;
     for camera in &comparison.differences[0].cameras {
-        if let ParameterComparison::SameModel { parameters } = &camera.parameters {
+        if let ParameterComparison::SameModel { parameters, joint } = &camera.parameters {
+            println!("all parameters: {joint:?}");
             for p in parameters {
                 if let DifferenceTest::Independent { z, p_value, .. } = p.test {
                     println!("{} {:+.4} (z {z:+.2}, p {p_value:.3})", p.label, p.delta);
@@ -159,9 +189,14 @@ In Python:
 comparison = vc.compare_runs(
     [
         {"name": "monday", "export": monday, "camera_ids": ["cam0"], "image_sizes": [(1280, 960)]},
-        {"name": "friday", "export": friday, "camera_ids": ["cam0"], "image_sizes": [(1280, 960)]},
-    ],
-    relations=[{"kind": "independent"}],
+        {
+            "name": "friday",
+            "export": friday,
+            "camera_ids": ["cam0"],
+            "image_sizes": [(1280, 960)],
+            "relation": {"kind": "independent"},
+        },
+    ]
 )
 for p in comparison["differences"][0]["cameras"][0]["parameters"]["parameters"]:
     print(p["label"], p["delta"], p["test"])

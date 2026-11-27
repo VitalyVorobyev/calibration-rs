@@ -867,10 +867,11 @@ fn projection_difference(
 /// ----------
 /// runs:
 ///     ``[{"name": str, "export": dict, "camera_ids": [str, ...],
-///     "image_sizes": [[width, height], ...], "config": dict | None}, ...]``:
-///     each run's export (any problem type, all of one), its cameras' ids and
-///     image sizes in camera order, and optionally the serde payload of its
-///     `CalibrationConfig`.
+///     "image_sizes": [[width, height], ...], "config": dict | None,
+///     "relation": dict | None}, ...]``: each run's export (any problem
+///     type, all of one), its cameras' ids and image sizes in camera order,
+///     and optionally the serde payloads of its `CalibrationConfig` and of
+///     its `DataRelation` to the first run (none on the first).
 /// options:
 ///     Serde payload of `CompareRunsOptions`; `None` for the defaults.
 ///
@@ -885,7 +886,7 @@ fn projection_difference(
 ///     If fewer than two runs are given, the runs are of different
 ///     workflows, the ids or sizes are not one per camera, a run shares no
 ///     camera id with the reference, a shared camera's image sizes differ, or
-///     the relations are not one per run after the first.
+///     the first run states a relation.
 /// TypeError
 ///     If an export or a payload has the wrong shape.
 #[pyfunction(signature = (runs, options=None))]
@@ -904,6 +905,7 @@ fn compare_runs(
         camera_ids: Vec<String>,
         image_sizes: Vec<[u32; 2]>,
         config: Option<CalibrationConfig>,
+        relation: Option<vision_calibration::analysis::DataRelation>,
     }
     let options: CompareRunsOptions =
         parse_optional_payload(options, "options")?.unwrap_or_default();
@@ -920,12 +922,17 @@ fn compare_runs(
             Some(c) if !c.is_none() => Some(session::parse_checked(&c, "config")?),
             _ => None,
         };
+        let relation = match run.get_item("relation")? {
+            Some(r) if !r.is_none() => Some(parse_payload(&r, "relation")?),
+            _ => None,
+        };
         parsed.push(Parsed {
             name: item("name")?.extract()?,
             export: parse_cameras(&item("export")?, "export")?,
             camera_ids: parse_payload(&item("camera_ids")?, "camera_ids")?,
             image_sizes: parse_payload(&item("image_sizes")?, "image_sizes")?,
             config,
+            relation,
         });
     }
     let comparison = py
@@ -939,8 +946,12 @@ fn compare_runs(
                         p.camera_ids.clone(),
                         p.image_sizes.clone(),
                     );
-                    match &p.config {
+                    let run = match &p.config {
                         Some(c) => run.with_config(c.clone()),
+                        None => run,
+                    };
+                    match p.relation {
+                        Some(r) => run.with_relation(r),
                         None => run,
                     }
                 })

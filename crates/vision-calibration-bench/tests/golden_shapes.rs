@@ -772,10 +772,11 @@ fn device_seed() {
     check_reads_back::<DeviceSeed>("device_seed.json", &golden);
 }
 
-/// A comparison of three runs of a rig hand-eye laserline calibration: one
-/// against itself as an independent capture (parameter, rig, hand-eye and
-/// plane tests), one with another camera model (projection only), each with
-/// its configuration.
+/// A comparison of four runs of a rig hand-eye laserline calibration: one
+/// as an independent capture (parameter, joint, rig, hand-eye and plane
+/// tests), one stated independent though it shares the reference's
+/// features (refused), one with another camera model (projection only),
+/// each with its configuration.
 #[test]
 fn run_comparison() {
     use vision_calibration::analysis::{
@@ -793,6 +794,15 @@ fn run_comparison() {
     session.set_input(input).unwrap();
     run_rig_handeye_laserline(&mut session).unwrap();
     let export = session.export().unwrap();
+    // Another capture: the same estimates from other detections.
+    let mut capture = export.clone();
+    let residuals = &mut capture.diagnostics.per_feature_residuals;
+    for r in &mut residuals.target {
+        r.observed_px[0] += 1e-6;
+    }
+    for r in &mut residuals.laser {
+        r.observed_px[0] += 1e-6;
+    }
     let mut rational = export.clone();
     let k = rational.cameras[0].distortion.values();
     let mut values = vec![0.0; 8];
@@ -807,12 +817,17 @@ fn run_comparison() {
     let runs = [
         ComparedRun::new("run-001", &export, ids.clone(), sizes.clone())
             .with_config(configured.clone()),
-        ComparedRun::new("run-002", &export, ids.clone(), sizes.clone())
-            .with_config(configured.clone()),
-        ComparedRun::new("run-003", &rational, ids, sizes).with_config(configured),
+        ComparedRun::new("run-002", &capture, ids.clone(), sizes.clone())
+            .with_config(configured.clone())
+            .with_relation(DataRelation::Independent),
+        ComparedRun::new("run-003", &export, ids.clone(), sizes.clone())
+            .with_config(configured.clone())
+            .with_relation(DataRelation::Independent),
+        ComparedRun::new("run-004", &rational, ids, sizes)
+            .with_config(configured)
+            .with_relation(DataRelation::SameData),
     ];
-    let options = CompareRunsOptions::new()
-        .with_relations(vec![DataRelation::Independent, DataRelation::SameData]);
+    let options = CompareRunsOptions::new();
     let comparison = compare_runs(&runs, &options).unwrap();
     let value = serde_json::to_value(&comparison).unwrap();
     // Not read back from the fixture: its arrays are cut to four elements,

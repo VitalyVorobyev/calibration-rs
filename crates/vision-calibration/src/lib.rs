@@ -886,9 +886,12 @@ pub mod synthetic {
 ///   [`PoseDifference`](analysis::PoseDifference),
 ///   [`PlaneDifference`](analysis::PlaneDifference),
 ///   [`DataOverlap`](analysis::DataOverlap),
+///   [`RelationRefusal`](analysis::RelationRefusal),
+///   [`RefusalReason`](analysis::RefusalReason),
+///   [`ProjectionUnavailable`](analysis::ProjectionUnavailable),
 ///   [`ExclusionChanges`](analysis::ExclusionChanges)) with its
 ///   [`DifferenceTest`](analysis::DifferenceTest) or
-///   [`PoseTest`](analysis::PoseTest), or why there is none
+///   [`JointTest`](analysis::JointTest), or why there is none
 ///   ([`NoTest`](analysis::NoTest)).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
@@ -904,12 +907,13 @@ pub mod analysis {
         CheckStatus, CompareRunsOptions, ComparedRun, ConfigChange, CovarianceStatus,
         CrossValidationOptions, DataOverlap, DataRelation, DepthOfField, DifferenceTest,
         ExclusionChanges, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,
-        FocusJackknifeCovariance, FocusOptions, FocusViewStats, FoldScore, HeldOutScore,
+        FocusJackknifeCovariance, FocusOptions, FocusViewStats, FoldScore, HeldOutScore, JointTest,
         Measurement, ModelComparison, ModelOutcome, ModelScore, NoTest, ParameterComparison,
-        ParameterDifference, PlaneDifference, PoseDifference, PoseTest, PredictedRigUncertainty,
-        PredictedUncertainty, ProjectionComparison, QualityCheck, QualityReport, QualityThresholds,
-        RankedCandidate, RankedRobotPose, ReportOptions, ResidualMap, ResidualMapOptions,
-        RunComparison, RunDifference, RunEvidence, RunSide, Unit, Verdict, assess, candidate_poses,
+        ParameterDifference, PlaneDifference, PoseDifference, PredictedRigUncertainty,
+        PredictedUncertainty, ProjectionComparison, ProjectionUnavailable, QualityCheck,
+        QualityReport, QualityThresholds, RankedCandidate, RankedRobotPose, RefusalReason,
+        RelationRefusal, ReportOptions, ResidualMap, ResidualMapOptions, RunComparison,
+        RunDifference, RunEvidence, RunSide, Unit, Verdict, assess, candidate_poses,
         compare_camera_models, compare_runs, fit_focus, html_report, predict_with_robot_poses,
         predict_with_views, rank_candidates, rank_robot_poses, residual_map,
     };

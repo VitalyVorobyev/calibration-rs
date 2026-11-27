@@ -34,7 +34,6 @@ from .models import (
     SingleCamHandeyeExport,
 )
 from ._generated_types import (
-    DataRelation,
     FocusDiagnostic,
     ModelComparison,
     RobustLoss,
@@ -798,7 +797,6 @@ def projection_difference(
 
 def compare_runs(
     runs: Sequence[Mapping[str, Any]],
-    relations: Sequence[DataRelation | Mapping[str, Any]] | None = None,
     compensation: str = "rotation",
     grid_columns: int = 64,
     thresholds: QualityThresholds | None = None,
@@ -808,13 +806,16 @@ def compare_runs(
     For each later run and each camera both have (matched by id): the
     parameters with their stated σ, ``delta = other − reference`` and
     ``delta_over_reference_sigma`` (materiality: how large the change is at
-    the precision the reference claims, not a test), the projection
-    difference over the image, the rig poses relative to the reference's
-    reference camera, the hand-eye and the laser planes. A statistical test
-    is reported only where the data relation makes one valid: independent
-    captures (``σ_Δ² = σ_ref² + σ_other²``) and nested observations under one
-    configuration (``σ_Δ² = σ_smaller² − σ_larger²``); otherwise
-    ``{"kind": "not_available", "reason": ...}``.
+    the precision the reference claims, not a test), one joint test of all
+    parameters, the projection difference over the image, the rig poses
+    relative to the reference's reference camera, the hand-eye and the laser
+    planes. A statistical test is reported only where the run's stated
+    relation to the reference makes one valid: independent captures
+    (``σ_Δ² = σ_ref² + σ_other²``) and nested observations under one
+    configuration (the Hausman form on one noise level); otherwise
+    ``{"kind": "not_available", "reason": ...}``. A nested test is not valid
+    for observations left out because of their residuals. A stated relation
+    the exports contradict is refused (``relation_refused``).
 
     Parameters
     ----------
@@ -822,15 +823,13 @@ def compare_runs(
         At least two runs of one workflow, each a mapping with ``name``,
         ``export`` (a calibration result, or its export as a dict),
         ``camera_ids`` (one per camera, in camera order), ``image_sizes``
-        (``(width, height)`` per camera) and optionally ``config`` (the
+        (``(width, height)`` per camera), and optionally ``config`` (the
         configuration the run was calibrated with, its workflow's or a
-        dataset-runner payload; with every run's,
-        each difference lists the configuration changes).
-    relations:
-        How each run after the first relates to the first, e.g.
-        ``{"kind": "independent"}`` or
-        ``{"kind": "nested", "smaller": "other"}``; ``None`` for unknown,
-        which never yields a test.
+        dataset-runner payload; with both runs', a difference lists the
+        configuration changes) and ``relation`` (how the run's observations
+        relate to the first run's, e.g. ``{"kind": "independent"}`` or
+        ``{"kind": "nested", "smaller": "other"}``; absent for unknown, which
+        never yields a test, and on the first run).
     compensation:
         ``"rotation"`` or ``"none"``: how the projection difference aligns
         the two camera frames.
@@ -845,8 +844,8 @@ def compare_runs(
     ValueError
         If fewer than two runs are given, they are of different workflows,
         the ids or sizes are not one per camera, a run shares no camera id
-        with the reference, a shared camera's image sizes differ, or the
-        relations are not one per run after the first.
+        with the reference, a shared camera's image sizes differ, or the first
+        run states a relation.
     """
     payload_runs = []
     for run in runs:
@@ -858,6 +857,7 @@ def compare_runs(
         if config is not None and "topology" not in config:
             # A workflow's own configuration: tag it with the export's workflow.
             config = {"topology": export["kind"], "config": config}
+        relation = run.get("relation")
         payload_runs.append(
             {
                 "name": str(run["name"]),
@@ -865,13 +865,10 @@ def compare_runs(
                 "camera_ids": [str(i) for i in run["camera_ids"]],
                 "image_sizes": [[int(w), int(h)] for w, h in run["image_sizes"]],
                 "config": config,
+                "relation": None if relation is None else dict(relation),
             }
         )
-    options: dict[str, Any] = {
-        "relations": [dict(r) for r in relations or []],
-        "compensation": compensation,
-        "grid_columns": grid_columns,
-    }
+    options: dict[str, Any] = {"compensation": compensation, "grid_columns": grid_columns}
     if thresholds is not None:
         options["thresholds"] = thresholds.to_payload()
     return cast(RunComparison, _native.compare_runs(payload_runs, options))

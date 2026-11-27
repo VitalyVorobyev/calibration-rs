@@ -24,7 +24,7 @@
       "type": "object"
     },
     "CameraEvidence": {
-      "description": "One camera's fit in one run. The residual statistics are in-sample:\nthey compare like with like only between runs of the same observations.",
+      "description": "One camera's fit in one run. The residual statistics are in-sample:\nthey compare like with like only between runs of the same observations\n([`DataRelation::Identical`], [`DataRelation::SameData`]); a run that\nleft out its worst features always has a lower residual.",
       "properties": {
         "features": {
           "description": "Its features in the calibration.",
@@ -186,6 +186,14 @@
               "const": "available",
               "type": "string"
             },
+            "variance_factor": {
+              "description": "Its a-posteriori variance factor, when it comes from one\nresidual family with an estimated noise level; what a nested\ntest needs.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
             "view_scatter": {
               "description": "The factor the covariance was scaled by because the views\nscatter more than the residual noise predicts; `None` when it\nwas not scaled.",
               "format": "double",
@@ -198,7 +206,8 @@
           "required": [
             "status",
             "shared_parameters",
-            "view_scatter"
+            "view_scatter",
+            "variance_factor"
           ],
           "type": "object"
         },
@@ -395,7 +404,7 @@
           "type": "object"
         },
         {
-          "description": "Nested observations under one configuration:\n`σ_Δ = √(σ_smaller² − σ_larger²)` (the Hausman form, each variance\ntaken at the larger run's view-scatter factor), `z = Δ / σ_Δ`. Under\nthe hypothesis that the left-out observations fit the model as the\nothers do, `z` is standard normal.",
+          "description": "Nested observations under one configuration (the Hausman form):\n`σ_Δ² = c · k_larger · (a_smaller − a_larger)`, `a` each run's\nvariance per unit noise (its stated variance over its view-scatter\nfactor and variance factor), `c` the smaller run's variance factor\nand `k_larger` the larger run's view-scatter factor: both on one\nnoise level. `z = Δ / σ_Δ` is standard normal when the left-out\nobservations fit the model as the others do and were not chosen by\ntheir residuals.",
           "properties": {
             "kind": {
               "const": "nested",
@@ -592,6 +601,93 @@
       ],
       "type": "object"
     },
+    "JointTest": {
+      "description": "The test of several quantities at once (a pose's tangent, a camera's\nparameters), their difference `δ` against the covariance of the\ndifference: `χ² = δᵀ Σ_Δ⁻¹ δ`, `Σ_Δ` as each [`DifferenceTest`] forms\na variance.",
+      "oneOf": [
+        {
+          "description": "Independent captures: `Σ_Δ = Σ_ref + Σ_other`.",
+          "properties": {
+            "chi2": {
+              "description": "`χ²`.",
+              "format": "double",
+              "type": "number"
+            },
+            "dof": {
+              "description": "Its degrees of freedom.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "independent",
+              "type": "string"
+            },
+            "p_value": {
+              "description": "The upper-tail p-value of `χ²`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "chi2",
+            "dof",
+            "p_value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Nested observations under one configuration (the Hausman form, on\none noise level as [`DifferenceTest::Nested`]), through a generalized\ninverse over the directions whose variance grows without the\nleft-out data, `dof` their number. Offered for poses; a camera's\nparameters have no nested joint test ([`NoTest::NestedJoint`]).",
+          "properties": {
+            "chi2": {
+              "description": "`χ²`.",
+              "format": "double",
+              "type": "number"
+            },
+            "dof": {
+              "description": "Its degrees of freedom.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "nested",
+              "type": "string"
+            },
+            "p_value": {
+              "description": "The upper-tail p-value of `χ²`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "chi2",
+            "dof",
+            "p_value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No valid test.",
+          "properties": {
+            "kind": {
+              "const": "not_available",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/NoTest",
+              "description": "Why."
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "NoTest": {
       "description": "Why a difference has no test.",
       "oneOf": [
@@ -621,8 +717,23 @@
           "type": "string"
         },
         {
+          "const": "mixed_residuals",
+          "description": "Nested runs whose covariance combines residual families (laser and\nreprojection), robot-pose priors or per-camera noise levels: the\nnested form's premise, one noise level for every residual, fails,\nand no test of such runs has been validated.",
+          "type": "string"
+        },
+        {
+          "const": "no_variance_factor",
+          "description": "Nested runs of which one export states no variance factor (written\nbefore it was recorded, or its covariance was derived from several\nsolves): their noise levels cannot be put on one scale.",
+          "type": "string"
+        },
+        {
           "const": "nested_variance_not_positive",
-          "description": "Nested runs whose stated variances do not order (the smaller run's\nvariance is not the larger): the Hausman form has no σ.",
+          "description": "Nested runs whose variance of the difference is not positive (the\nsmaller run's information is not the smaller).",
+          "type": "string"
+        },
+        {
+          "const": "nested_joint",
+          "description": "The joint test of a camera's parameters between nested runs, which\nis not offered: it rejects well above its level when the left-out\ndata are a small share (measured: 7.7 % with 1 of 8 views left out,\n15.7 % with 6 of about 2000 features, at the 5 % level). Each\nparameter's own nested test remains.",
           "type": "string"
         },
         {
@@ -641,14 +752,18 @@
       "description": "A camera's parameters in two runs.",
       "oneOf": [
         {
-          "description": "Both runs use one model: each parameter, in the solver's order.",
+          "description": "Both runs use one model.",
           "properties": {
+            "joint": {
+              "$ref": "#/$defs/JointTest",
+              "description": "One test of every parameter both runs estimated, over their full\ncovariance: a `χ²` of as many degrees of freedom, for independent\ncaptures. Read it before the per-parameter tests: of eight\nparameters tested at 5 % each, one rejects by chance in about a\nquarter of comparisons. Not offered for nested runs\n([`NoTest::NestedJoint`])."
+            },
             "kind": {
               "const": "same_model",
               "type": "string"
             },
             "parameters": {
-              "description": "The parameters.",
+              "description": "Each parameter, in the solver's order, with its own test.",
               "items": {
                 "$ref": "#/$defs/ParameterDifference"
               },
@@ -657,7 +772,8 @@
           },
           "required": [
             "kind",
-            "parameters"
+            "parameters",
+            "joint"
           ],
           "type": "object"
         },
@@ -675,20 +791,15 @@
           "type": "object"
         },
         {
-          "description": "A camera whose parameters the solver does not name (a general\nsensor homography).",
+          "description": "A camera whose parameters the solver does not name: a general sensor\nhomography.",
           "properties": {
             "kind": {
-              "const": "unavailable",
-              "type": "string"
-            },
-            "reason": {
-              "description": "Why.",
+              "const": "unparameterized",
               "type": "string"
             }
           },
           "required": [
-            "kind",
-            "reason"
+            "kind"
           ],
           "type": "object"
         }
@@ -839,7 +950,7 @@
           "type": "array"
         },
         "test": {
-          "$ref": "#/$defs/PoseTest",
+          "$ref": "#/$defs/JointTest",
           "description": "The test of the difference, when the data relation supports one."
         },
         "translation_m": {
@@ -868,93 +979,6 @@
         "test"
       ],
       "type": "object"
-    },
-    "PoseTest": {
-      "description": "The test of a pose difference, its tangent `τ` against the covariance\nof the difference.",
-      "oneOf": [
-        {
-          "description": "Independent captures: `χ² = τᵀ (Σ_ref + Σ_other)⁻¹ τ`.",
-          "properties": {
-            "chi2": {
-              "description": "`χ²`.",
-              "format": "double",
-              "type": "number"
-            },
-            "dof": {
-              "description": "Its degrees of freedom (6).",
-              "format": "uint",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "kind": {
-              "const": "independent",
-              "type": "string"
-            },
-            "p_value": {
-              "description": "The upper-tail p-value of `χ²`.",
-              "format": "double",
-              "type": "number"
-            }
-          },
-          "required": [
-            "kind",
-            "chi2",
-            "dof",
-            "p_value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "Nested observations under one configuration:\n`χ² = τᵀ (Σ_smaller − Σ_larger)⁻¹ τ` (the Hausman form).",
-          "properties": {
-            "chi2": {
-              "description": "`χ²`.",
-              "format": "double",
-              "type": "number"
-            },
-            "dof": {
-              "description": "Its degrees of freedom (6).",
-              "format": "uint",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "kind": {
-              "const": "nested",
-              "type": "string"
-            },
-            "p_value": {
-              "description": "The upper-tail p-value of `χ²`.",
-              "format": "double",
-              "type": "number"
-            }
-          },
-          "required": [
-            "kind",
-            "chi2",
-            "dof",
-            "p_value"
-          ],
-          "type": "object"
-        },
-        {
-          "description": "No valid test.",
-          "properties": {
-            "kind": {
-              "const": "not_available",
-              "type": "string"
-            },
-            "reason": {
-              "$ref": "#/$defs/NoTest",
-              "description": "Why."
-            }
-          },
-          "required": [
-            "kind",
-            "reason"
-          ],
-          "type": "object"
-        }
-      ]
     },
     "ProblemKind": {
       "description": "The calibration problem a dataset is for, and the kind of an export.\n\nOne value per problem type, serialized as its snake_case name\n(`\"planar_intrinsics\"`, …). A manifest names it in its `topology` field,\nwhich selects the problem a run dispatches to; every export carries it in\nits `kind` field, so a consumer narrows on one value instead of probing\nwhich fields are present. The tag is required on deserialize.\n\nA problem kind describes the data (how many cameras, robot poses, laser\nimages), not the camera model: a tilted (Scheimpflug) single camera is a\n`planar_intrinsics` dataset whose calibration config names the sensor.",
@@ -1065,8 +1089,8 @@
           "description": "Not computed, for the reason given.",
           "properties": {
             "reason": {
-              "description": "Why.",
-              "type": "string"
+              "$ref": "#/$defs/ProjectionUnavailable",
+              "description": "Why."
             },
             "status": {
               "const": "unavailable",
@@ -1095,6 +1119,69 @@
           "type": "string"
         }
       ]
+    },
+    "ProjectionUnavailable": {
+      "description": "Why a projection difference was not computed.",
+      "oneOf": [
+        {
+          "const": "invalid_image",
+          "description": "The image or grid is empty.",
+          "type": "string"
+        },
+        {
+          "const": "too_few_nodes",
+          "description": "Fewer than three nodes of the covered region have a value.",
+          "type": "string"
+        },
+        {
+          "const": "singular",
+          "description": "A sensor homography does not invert, or the rotation fit is\nsingular.",
+          "type": "string"
+        },
+        {
+          "const": "not_central",
+          "description": "A camera's projection is not central.",
+          "type": "string"
+        }
+      ]
+    },
+    "RefusalReason": {
+      "description": "Why a stated relation does not hold.",
+      "oneOf": [
+        {
+          "const": "shared_features",
+          "description": "Stated independent, the runs share bit-identical features (the same\ntarget point at the same observed pixel): they read the same images.",
+          "type": "string"
+        },
+        {
+          "const": "not_a_subset",
+          "description": "Stated nested, the smaller run has a feature the larger lacks, or\nthe two have the same features.",
+          "type": "string"
+        },
+        {
+          "const": "configurations_differ",
+          "description": "Stated nested, the two configurations differ.",
+          "type": "string"
+        }
+      ]
+    },
+    "RelationRefusal": {
+      "description": "A stated relation the runs contradict, and why: the difference is then\ntreated as [`DataRelation::Overlapping`].",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/RefusalReason",
+          "description": "Why it does not hold."
+        },
+        "stated": {
+          "$ref": "#/$defs/DataRelation",
+          "description": "The relation as stated."
+        }
+      },
+      "required": [
+        "stated",
+        "reason"
+      ],
+      "type": "object"
     },
     "ReprojectionStats": {
       "description": "Summary statistics for reprojection errors.\n\nThe percentiles (`median`, `p95`) interpolate linearly between order\nstatistics of the ascending-sorted errors, the default of numpy and\npandas: the `q`-quantile of `n` errors lies at fractional rank\n`q * (n - 1)`, so the median of an even count is the mean of the middle\ntwo. They are present when the statistics were computed from the errors\n([`from_errors`](Self::from_errors)), and absent when built from\naggregates ([`from_summary`](Self::from_summary)).",
@@ -1187,10 +1274,6 @@
           ],
           "description": "The exclusions one run made and the other did not. `None` unless\nboth are runs a project calibrated."
         },
-        "fit_comparable": {
-          "description": "Whether the two runs' in-sample residual statistics compare like\nwith like: only for the same observations ([`DataRelation::Identical`],\n[`DataRelation::SameData`]). A run that left out its worst features\nalways has a lower residual, which says nothing of its calibration.",
-          "type": "boolean"
-        },
         "handeye": {
           "anyOf": [
             {
@@ -1218,7 +1301,18 @@
         },
         "relation": {
           "$ref": "#/$defs/DataRelation",
-          "description": "How its observations relate to the reference's, as stated."
+          "description": "How its observations relate to the reference's: the stated relation,\nor [`DataRelation::Overlapping`] when the runs contradict it."
+        },
+        "relation_refused": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RelationRefusal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The stated relation the runs contradict, and why; `None` when the\nstated relation was used."
         },
         "rig": {
           "description": "Each camera's pose relative to the reference run's reference camera,\nfor the cameras both runs have (a rig).",
@@ -1244,7 +1338,6 @@
       "required": [
         "run",
         "relation",
-        "fit_comparable",
         "model_changes",
         "config_changes",
         "cameras",

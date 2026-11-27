@@ -3,8 +3,8 @@
 use std::fmt::Write as _;
 
 use vision_calibration::analysis::{
-    CameraEvidence, CovarianceStatus, DataRelation, DifferenceTest, ParameterComparison,
-    PoseDifference, PoseTest, ProjectionComparison, RunComparison, RunDifference, RunSide,
+    CameraEvidence, CovarianceStatus, DataRelation, DifferenceTest, JointTest, ParameterComparison,
+    PoseDifference, ProjectionComparison, RunComparison, RunDifference, RunSide,
 };
 
 use super::name;
@@ -44,7 +44,9 @@ pub(crate) fn render(comparison: &RunComparison) -> String {
     out.push_str(
         "\nΔ = other − reference. Δ/σ_ref is the change in units of the reference's stated σ \
          (materiality), not a test; a test is shown only where the data relation makes one \
-         valid, its p two-sided (χ²: upper tail).\n",
+         valid, its p two-sided (χ²: upper tail). Read the joint test of all parameters first: \
+         one of eight per-parameter tests rejects by chance in about a quarter of comparisons. \
+         A nested test is not valid for data left out because of its residuals.\n",
     );
     out
 }
@@ -84,12 +86,22 @@ fn render_difference(out: &mut String, d: &RunDifference, reference: &str, other
         ),
         r => tag(&r),
     };
-    let fit = if d.fit_comparable {
+    // In-sample residuals compare like with like only for the same
+    // observations.
+    let fit = if matches!(d.relation, DataRelation::Identical | DataRelation::SameData) {
         "residuals comparable"
     } else {
         "residuals not comparable (other observations)"
     };
     let _ = writeln!(out, "{other} vs {reference}: {relation}; {fit}");
+    if let Some(refused) = &d.relation_refused {
+        let _ = writeln!(
+            out,
+            "  stated {} refused: {}",
+            tag(&refused.stated),
+            tag(&refused.reason)
+        );
+    }
     if let Some(data) = &d.data {
         let _ = writeln!(
             out,
@@ -144,7 +156,7 @@ fn render_difference(out: &mut String, d: &RunDifference, reference: &str, other
     }
     for camera in &d.cameras {
         let _ = writeln!(out, "  camera {}", camera.id);
-        if let ParameterComparison::SameModel { parameters } = &camera.parameters {
+        if let ParameterComparison::SameModel { parameters, joint } = &camera.parameters {
             let _ = writeln!(
                 out,
                 "    {:<10} {:>22} {:>22} {:>12} {:>9}  test",
@@ -163,6 +175,7 @@ fn render_difference(out: &mut String, d: &RunDifference, reference: &str, other
                     scalar_test(&p.test)
                 );
             }
+            let _ = writeln!(out, "    all parameters: {}", joint_test(joint));
         }
         let projection = match &camera.projection {
             ProjectionComparison::Compared {
@@ -176,7 +189,9 @@ fn render_difference(out: &mut String, d: &RunDifference, reference: &str, other
                 "{rms_fit_px:.4} px RMS over {fit_nodes} covered nodes (max {max_fit_px:.4}; \
                  {max_valid_px:.3} over the image), rotation {rotation_deg:.4}°"
             ),
-            ProjectionComparison::Unavailable { reason } => format!("not computed ({reason})"),
+            ProjectionComparison::Unavailable { reason } => {
+                format!("not computed ({})", tag(reason))
+            }
             _ => "-".to_string(),
         };
         let _ = writeln!(out, "    projection difference: {projection}");
@@ -221,22 +236,26 @@ fn pose_line(p: &PoseDifference) -> String {
     let materiality = p
         .delta_over_reference_sigma
         .map_or_else(String::new, |r| format!(", {r:.2} σ_ref"));
-    let test = match &p.test {
-        PoseTest::Independent { chi2, dof, p_value } => {
-            format!("independent χ² {chi2:.2} ({dof} dof, p {p_value:.3})")
-        }
-        PoseTest::Nested { chi2, dof, p_value } => {
-            format!("nested χ² {chi2:.2} ({dof} dof, p {p_value:.3})")
-        }
-        PoseTest::NotAvailable { reason } => format!("none ({})", tag(reason)),
-        _ => "-".to_string(),
-    };
+    let test = joint_test(&p.test);
     format!(
         "{}: rotation {:.4}°, translation {:.3} mm{materiality}, {test}",
         p.label,
         p.rotation_deg,
         p.translation_norm_m * 1e3
     )
+}
+
+fn joint_test(test: &JointTest) -> String {
+    match test {
+        JointTest::Independent { chi2, dof, p_value } => {
+            format!("independent χ² {chi2:.2} ({dof} dof, p {p_value:.3})")
+        }
+        JointTest::Nested { chi2, dof, p_value } => {
+            format!("nested χ² {chi2:.2} ({dof} dof, p {p_value:.3})")
+        }
+        JointTest::NotAvailable { reason } => format!("none ({})", tag(reason)),
+        _ => "-".to_string(),
+    }
 }
 
 /// A value's serde tag (`independent`, `shared_data`).

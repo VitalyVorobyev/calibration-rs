@@ -261,7 +261,10 @@ renamed image is still the same data and a re-detected one with another
 detector is not. An imported run records no image content, so its relation
 is unknown and its differences have no test. Each difference also lists the
 images and features the two runs share and the exclusions only one of them
-made.
+made. A nested test of two runs that differ by an exclusion holds only when
+the exclusion was not chosen by looking at the residuals; the records cannot
+tell, so read the test of an exclusion made after a residual plot as
+materiality only.
 
 Runs of other projects (another capture of the same device) are compared
 by their folder: `vcal project compare my-camera run-004

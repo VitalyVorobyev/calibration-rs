@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use nalgebra::{Matrix6, UnitQuaternion, Vector3, Vector6};
+use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3, Vector6};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CameraModelSpec, CameraParams, Compensation, FitRegion, Handeye, ImageGrid, Iso3,
@@ -26,13 +26,18 @@ use crate::Error;
 use crate::common::CalibratedCameras;
 use crate::dataset_runner::CalibrationConfig;
 
+mod stats;
+#[cfg(test)]
+use stats::chi2_survival;
+use stats::{Scale, mahalanobis_squared};
+
 /// A cross-check that a camera pose is the identity: the reference camera
 /// of a rig is held at exactly the identity, so any rounding is far below.
 const IDENTITY_TOLERANCE: f64 = 1e-12;
 
 /// One run as [`compare_runs`] reads it: its export, the id and image size
 /// of each of its cameras, and optionally the configuration it was
-/// calibrated with.
+/// calibrated with and how its observations relate to the reference's.
 #[non_exhaustive]
 pub struct ComparedRun<'a> {
     /// The name the comparison shows for the run (`run-003`, or any label).
@@ -45,14 +50,20 @@ pub struct ComparedRun<'a> {
     /// Each camera's image size `[width, height]`, pixels, in the export's
     /// camera order.
     pub image_sizes: Vec<[u32; 2]>,
-    /// The configuration the run was calibrated with; when every run has
-    /// one, each difference lists the configuration changes.
+    /// The configuration the run was calibrated with; when both runs of a
+    /// difference have one, the difference lists the configuration changes.
     pub config: Option<CalibrationConfig>,
+    /// How the run's observations relate to the reference's (the first
+    /// run's): it decides which test a difference gets, so it is stated,
+    /// never guessed. `None` is [`DataRelation::Unknown`]. The reference
+    /// itself has none.
+    pub relation: Option<DataRelation>,
 }
 
 impl<'a> ComparedRun<'a> {
     /// The run `name` of `export`, its cameras named `camera_ids` and of
-    /// `image_sizes`, both in the export's camera order; no configuration.
+    /// `image_sizes`, both in the export's camera order; no configuration,
+    /// the relation unknown.
     pub fn new(
         name: impl Into<String>,
         export: &'a dyn CalibratedCameras,
@@ -65,6 +76,7 @@ impl<'a> ComparedRun<'a> {
             camera_ids,
             image_sizes,
             config: None,
+            relation: None,
         }
     }
 
@@ -72,6 +84,14 @@ impl<'a> ComparedRun<'a> {
     #[must_use]
     pub fn with_config(mut self, config: CalibrationConfig) -> Self {
         self.config = Some(config);
+        self
+    }
+
+    /// The same run with the relation of its observations to the
+    /// reference's.
+    #[must_use]
+    pub fn with_relation(mut self, relation: DataRelation) -> Self {
+        self.relation = Some(relation);
         self
     }
 }
@@ -83,6 +103,7 @@ impl std::fmt::Debug for ComparedRun<'_> {
             .field("camera_ids", &self.camera_ids)
             .field("image_sizes", &self.image_sizes)
             .field("config", &self.config.is_some())
+            .field("relation", &self.relation)
             .finish_non_exhaustive()
     }
 }
@@ -127,17 +148,40 @@ pub enum RunSide {
     Other,
 }
 
+/// A stated relation the runs contradict, and why: the difference is then
+/// treated as [`DataRelation::Overlapping`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct RelationRefusal {
+    /// The relation as stated.
+    pub stated: DataRelation,
+    /// Why it does not hold.
+    pub reason: RefusalReason,
+}
+
+/// Why a stated relation does not hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RefusalReason {
+    /// Stated independent, the runs share bit-identical features (the same
+    /// target point at the same observed pixel): they read the same images.
+    SharedFeatures,
+    /// Stated nested, the smaller run has a feature the larger lacks, or
+    /// the two have the same features.
+    NotASubset,
+    /// Stated nested, the two configurations differ.
+    ConfigurationsDiffer,
+}
+
 /// The options of [`compare_runs`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CompareRunsOptions {
-    /// How each run after the first relates to the first, one entry per
-    /// run after the first; empty for [`DataRelation::Unknown`] everywhere.
-    /// The relation decides which test a difference gets, so it is stated,
-    /// never guessed.
-    pub relations: Vec<DataRelation>,
     /// How the projection difference aligns the two camera frames; default
     /// [`Compensation::Rotation`].
     pub compensation: Compensation,
@@ -151,7 +195,6 @@ pub struct CompareRunsOptions {
 impl Default for CompareRunsOptions {
     fn default() -> Self {
         Self {
-            relations: Vec::new(),
             compensation: Compensation::Rotation,
             grid_columns: 64,
             thresholds: QualityThresholds::default(),
@@ -160,18 +203,10 @@ impl Default for CompareRunsOptions {
 }
 
 impl CompareRunsOptions {
-    /// The default options: every relation unknown, rotation-compensated
-    /// projection differences on a 64-column grid, the default thresholds.
+    /// The default options: rotation-compensated projection differences on
+    /// a 64-column grid, the default thresholds.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// The options with the relation of each run after the first to the
-    /// first.
-    #[must_use]
-    pub fn with_relations(mut self, relations: Vec<DataRelation>) -> Self {
-        self.relations = relations;
-        self
     }
 }
 
@@ -223,6 +258,10 @@ pub enum CovarianceStatus {
         /// scatter more than the residual noise predicts; `None` when it
         /// was not scaled.
         view_scatter: Option<f64>,
+        /// Its a-posteriori variance factor, when it comes from one
+        /// residual family with an estimated noise level; what a nested
+        /// test needs.
+        variance_factor: Option<f64>,
     },
     /// It has none, for the reason given.
     Unavailable {
@@ -232,7 +271,9 @@ pub enum CovarianceStatus {
 }
 
 /// One camera's fit in one run. The residual statistics are in-sample:
-/// they compare like with like only between runs of the same observations.
+/// they compare like with like only between runs of the same observations
+/// ([`DataRelation::Identical`], [`DataRelation::SameData`]); a run that
+/// left out its worst features always has a lower residual.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -266,13 +307,13 @@ pub struct RunDifference {
     /// The run's position in the comparison (1 for the first run after the
     /// reference).
     pub run: usize,
-    /// How its observations relate to the reference's, as stated.
+    /// How its observations relate to the reference's: the stated relation,
+    /// or [`DataRelation::Overlapping`] when the runs contradict it.
     pub relation: DataRelation,
-    /// Whether the two runs' in-sample residual statistics compare like
-    /// with like: only for the same observations ([`DataRelation::Identical`],
-    /// [`DataRelation::SameData`]). A run that left out its worst features
-    /// always has a lower residual, which says nothing of its calibration.
-    pub fit_comparable: bool,
+    /// The stated relation the runs contradict, and why; `None` when the
+    /// stated relation was used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation_refused: Option<RelationRefusal>,
     /// The cameras, by id, whose camera models differ between the runs.
     pub model_changes: Vec<String>,
     /// Where the two configurations differ; `None` when either run's
@@ -368,20 +409,24 @@ pub struct CameraDifference {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ParameterComparison {
-    /// Both runs use one model: each parameter, in the solver's order.
+    /// Both runs use one model.
     SameModel {
-        /// The parameters.
+        /// Each parameter, in the solver's order, with its own test.
         parameters: Vec<ParameterDifference>,
+        /// One test of every parameter both runs estimated, over their full
+        /// covariance: a `χ²` of as many degrees of freedom, for independent
+        /// captures. Read it before the per-parameter tests: of eight
+        /// parameters tested at 5 % each, one rejects by chance in about a
+        /// quarter of comparisons. Not offered for nested runs
+        /// ([`NoTest::NestedJoint`]).
+        joint: JointTest,
     },
     /// The models differ, so a parameter of one is not a parameter of the
     /// other; the projection difference compares them.
     DifferentModels,
-    /// A camera whose parameters the solver does not name (a general
-    /// sensor homography).
-    Unavailable {
-        /// Why.
-        reason: String,
-    },
+    /// A camera whose parameters the solver does not name: a general sensor
+    /// homography.
+    Unparameterized,
 }
 
 /// One parameter in two runs.
@@ -429,11 +474,14 @@ pub enum DifferenceTest {
         /// The two-sided p-value of `z`.
         p_value: f64,
     },
-    /// Nested observations under one configuration:
-    /// `σ_Δ = √(σ_smaller² − σ_larger²)` (the Hausman form, each variance
-    /// taken at the larger run's view-scatter factor), `z = Δ / σ_Δ`. Under
-    /// the hypothesis that the left-out observations fit the model as the
-    /// others do, `z` is standard normal.
+    /// Nested observations under one configuration (the Hausman form):
+    /// `σ_Δ² = c · k_larger · (a_smaller − a_larger)`, `a` each run's
+    /// variance per unit noise (its stated variance over its view-scatter
+    /// factor and variance factor), `c` the smaller run's variance factor
+    /// and `k_larger` the larger run's view-scatter factor: both on one
+    /// noise level. `z = Δ / σ_Δ` is standard normal when the left-out
+    /// observations fit the model as the others do and were not chosen by
+    /// their residuals.
     Nested {
         /// `σ_Δ`.
         sigma: f64,
@@ -467,9 +515,24 @@ pub enum NoTest {
     NoCovariance,
     /// A run held the quantity fixed, so states no σ of it.
     NotEstimated,
-    /// Nested runs whose stated variances do not order (the smaller run's
-    /// variance is not the larger): the Hausman form has no σ.
+    /// Nested runs whose covariance combines residual families (laser and
+    /// reprojection), robot-pose priors or per-camera noise levels: the
+    /// nested form's premise, one noise level for every residual, fails,
+    /// and no test of such runs has been validated.
+    MixedResiduals,
+    /// Nested runs of which one export states no variance factor (written
+    /// before it was recorded, or its covariance was derived from several
+    /// solves): their noise levels cannot be put on one scale.
+    NoVarianceFactor,
+    /// Nested runs whose variance of the difference is not positive (the
+    /// smaller run's information is not the smaller).
     NestedVarianceNotPositive,
+    /// The joint test of a camera's parameters between nested runs, which
+    /// is not offered: it rejects well above its level when the left-out
+    /// data are a small share (measured: 7.7 % with 1 of 8 views left out,
+    /// 15.7 % with 6 of about 2000 features, at the 5 % level). Each
+    /// parameter's own nested test remains.
+    NestedJoint,
     /// The runs' rigs have different reference cameras, so the other run's
     /// covariance is not of the compared pose.
     GaugeDiffers,
@@ -503,31 +566,36 @@ pub struct PoseDifference {
     /// uncertainty. Not a test.
     pub delta_over_reference_sigma: Option<f64>,
     /// The test of the difference, when the data relation supports one.
-    pub test: PoseTest,
+    pub test: JointTest,
 }
 
-/// The test of a pose difference, its tangent `τ` against the covariance
-/// of the difference.
+/// The test of several quantities at once (a pose's tangent, a camera's
+/// parameters), their difference `δ` against the covariance of the
+/// difference: `χ² = δᵀ Σ_Δ⁻¹ δ`, `Σ_Δ` as each [`DifferenceTest`] forms
+/// a variance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
-pub enum PoseTest {
-    /// Independent captures: `χ² = τᵀ (Σ_ref + Σ_other)⁻¹ τ`.
+pub enum JointTest {
+    /// Independent captures: `Σ_Δ = Σ_ref + Σ_other`.
     Independent {
         /// `χ²`.
         chi2: f64,
-        /// Its degrees of freedom (6).
+        /// Its degrees of freedom.
         dof: usize,
         /// The upper-tail p-value of `χ²`.
         p_value: f64,
     },
-    /// Nested observations under one configuration:
-    /// `χ² = τᵀ (Σ_smaller − Σ_larger)⁻¹ τ` (the Hausman form).
+    /// Nested observations under one configuration (the Hausman form, on
+    /// one noise level as [`DifferenceTest::Nested`]), through a generalized
+    /// inverse over the directions whose variance grows without the
+    /// left-out data, `dof` their number. Offered for poses; a camera's
+    /// parameters have no nested joint test ([`NoTest::NestedJoint`]).
     Nested {
         /// `χ²`.
         chi2: f64,
-        /// Its degrees of freedom (6).
+        /// Its degrees of freedom.
         dof: usize,
         /// The upper-tail p-value of `χ²`.
         p_value: f64,
@@ -594,8 +662,25 @@ pub enum ProjectionComparison {
     /// Not computed, for the reason given.
     Unavailable {
         /// Why.
-        reason: String,
+        reason: ProjectionUnavailable,
     },
+}
+
+/// Why a projection difference was not computed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ProjectionUnavailable {
+    /// The image or grid is empty.
+    InvalidImage,
+    /// Fewer than three nodes of the covered region have a value.
+    TooFewNodes,
+    /// A sensor homography does not invert, or the rotation fit is
+    /// singular.
+    Singular,
+    /// A camera's projection is not central.
+    NotCentral,
 }
 
 /// Calibrations of one rig side by side against the first, the reference:
@@ -608,7 +693,8 @@ pub enum ProjectionComparison {
 /// - **parameters**, when both use one camera model: each value, its stated
 ///   σ in each run, `Δ = other − reference`, `Δ / σ_ref` (materiality: how
 ///   large the change is at the precision the reference claims, not a test)
-///   and a [`DifferenceTest`];
+///   and a [`DifferenceTest`], and one [`JointTest`] of every parameter both
+///   estimated;
 /// - the **projection difference** over the image
 ///   ([`projection_difference`](vision_calibration_core::projection_difference),
 ///   fitted on the blocks either run's features cover), whatever the
@@ -626,30 +712,44 @@ pub enum ProjectionComparison {
 ///
 /// # Tests
 ///
-/// The relation of each run to the reference is stated in
-/// [`CompareRunsOptions::relations`]; it decides the test:
+/// Each run's relation to the reference is stated on the run
+/// ([`ComparedRun::with_relation`]); it decides the test:
 ///
-/// | Relation | Test |
+/// | Relation | Variance of `Δ` |
 /// |---|---|
-/// | [`Independent`](DataRelation::Independent) | `σ_Δ² = σ_ref² + σ_other²` |
-/// | [`Nested`](DataRelation::Nested) | `σ_Δ² = σ_smaller² − σ_larger²` (Hausman), each variance taken at the larger run's view-scatter factor |
+/// | [`Independent`](DataRelation::Independent) | `σ_ref² + σ_other²` |
+/// | [`Nested`](DataRelation::Nested) | `c · k_larger · (a_smaller − a_larger)`, both runs on the smaller run's noise level (the Hausman form) |
 /// | any other | none, with the reason |
 ///
 /// The nested form holds because, when the left-out observations fit the
 /// model as the rest do, the estimate from all observations is uncorrelated
-/// with its difference from the estimate without them. Runs of the same
-/// observations under different configurations have no test: their errors
-/// are almost fully correlated by an amount neither export states, so a
-/// small difference does not mean agreement and a large one is no
-/// significance.
+/// with its difference from the estimate without them. It needs both runs'
+/// covariances on one noise level, so it needs each export's variance
+/// factor, and a covariance from one residual family without priors
+/// ([`NoTest::MixedResiduals`] otherwise). It is **not** valid when the
+/// left-out observations were chosen by their residuals (the worst features
+/// or views of a fit): a test of the remaining fit against the full one
+/// then rejects far more often than its level even when the model is
+/// right. Runs of the same observations under different configurations have
+/// no test: their errors are almost fully correlated by an amount neither
+/// export states, so a small difference does not mean agreement and a large
+/// one is no significance.
+///
+/// A stated relation the exports contradict is not used: a stated
+/// independent pair that shares bit-identical features (the same target
+/// point at the same observed pixel), and a stated nested pair whose
+/// smaller run is not a strict subset of the larger, or whose given
+/// configurations differ, are compared as
+/// [`Overlapping`](DataRelation::Overlapping), with the refusal in
+/// [`RunDifference::relation_refused`].
 ///
 /// # Errors
 ///
 /// [`Error::InvalidInput`] for fewer than two runs, runs of different
 /// workflows, camera ids or image sizes not one per camera, a camera id
 /// repeated in a run, a run sharing no camera id with the reference, a
-/// shared camera whose image sizes differ, relations not one per run after
-/// the first, or zero grid columns. Errors of a run's quality assessment
+/// shared camera whose image sizes differ, a relation stated on the
+/// reference, or zero grid columns. Errors of a run's quality assessment
 /// pass through.
 pub fn compare_runs(
     runs: &[ComparedRun<'_>],
@@ -661,18 +761,11 @@ pub fn compare_runs(
         .zip(&prepared)
         .map(|(run, p)| run_evidence(run, p, &options.thresholds))
         .collect::<Result<Vec<_>, Error>>()?;
-    let reference = &prepared[0];
     let differences = (1..runs.len())
         .map(|i| {
-            let relation = options
-                .relations
-                .get(i - 1)
-                .copied()
-                .unwrap_or(DataRelation::Unknown);
             run_difference(
                 i,
-                relation,
-                (&runs[0], reference),
+                (&runs[0], &prepared[0]),
                 (&runs[i], &prepared[i]),
                 options,
             )
@@ -691,6 +784,9 @@ struct Prepared {
     /// The index of the camera whose rig pose is the identity.
     reference_camera: Option<usize>,
     covariance: Option<ParameterCovariance>,
+    /// Each feature: camera id, target (0) or laser (1), the target point
+    /// and the observed pixel, as exact bits.
+    features: BTreeSet<(String, u8, [u64; 3], [u64; 2])>,
 }
 
 impl Prepared {
@@ -705,15 +801,6 @@ impl Prepared {
         } else {
             name.to_string()
         }
-    }
-
-    /// The view-scatter factor the covariance was scaled by (1 when it was
-    /// not).
-    fn view_scatter(&self) -> f64 {
-        self.covariance
-            .as_ref()
-            .and_then(|c| c.view_scatter)
-            .unwrap_or(1.0)
     }
 }
 
@@ -730,17 +817,16 @@ fn validate(
     if options.grid_columns == 0 {
         return Err(Error::invalid_input("grid_columns must be at least 1"));
     }
-    if !options.relations.is_empty() && options.relations.len() != runs.len() - 1 {
+    if runs[0].relation.is_some() {
         return Err(Error::invalid_input(format!(
-            "relations has {} entries; expected one per run after the first ({})",
-            options.relations.len(),
-            runs.len() - 1
+            "run {} is the reference; a relation is stated on the runs compared with it",
+            runs[0].name
         )));
     }
-    let reference_kind = export_kind(runs[0].export);
+    let reference_kind = runs[0].export.kind();
     let mut prepared = Vec::with_capacity(runs.len());
     for run in runs {
-        if export_kind(run.export) != reference_kind {
+        if run.export.kind() != reference_kind {
             return Err(Error::invalid_input(format!(
                 "run {} is of another workflow than run {}",
                 run.name, runs[0].name
@@ -772,6 +858,7 @@ fn validate(
             cam_se3_rig,
             reference_camera,
             covariance: run.export.parameter_uncertainty().covariance().cloned(),
+            features: features(run),
         });
     }
     for run in &runs[1..] {
@@ -797,8 +884,28 @@ fn validate(
     Ok(prepared)
 }
 
-fn export_kind(export: &dyn CalibratedCameras) -> ProblemKind {
-    export.kind()
+/// The run's features as exact bits, by camera id.
+fn features(run: &ComparedRun<'_>) -> BTreeSet<(String, u8, [u64; 3], [u64; 2])> {
+    let id = |c: usize| run.camera_ids.get(c).cloned().unwrap_or_default();
+    let residuals = &run.export.diagnostics().per_feature_residuals;
+    residuals
+        .target
+        .iter()
+        .map(|r| {
+            (
+                id(r.camera),
+                0,
+                r.target_xyz_m.map(f64::to_bits),
+                r.observed_px.map(f64::to_bits),
+            )
+        })
+        .chain(
+            residuals
+                .laser
+                .iter()
+                .map(|r| (id(r.camera), 1, [0; 3], r.observed_px.map(f64::to_bits))),
+        )
+        .collect()
 }
 
 fn is_identity(pose: &Iso3) -> bool {
@@ -816,6 +923,7 @@ fn run_evidence(
         Uncertainty::Available(c) => CovarianceStatus::Available {
             shared_parameters: c.labels.len(),
             view_scatter: c.view_scatter,
+            variance_factor: c.variance_factor,
         },
         Uncertainty::Unavailable { reason } => CovarianceStatus::Unavailable {
             reason: reason.clone(),
@@ -853,7 +961,7 @@ fn run_evidence(
         .collect();
     Ok(RunEvidence {
         name: run.name.clone(),
-        kind: export_kind(run.export),
+        kind: run.export.kind(),
         verdict: report.verdict,
         covariance,
         reference_camera: prepared.reference_camera.map(|i| run.camera_ids[i].clone()),
@@ -866,7 +974,6 @@ type Side<'r, 'a> = (&'r ComparedRun<'a>, &'r Prepared);
 
 fn run_difference(
     index: usize,
-    relation: DataRelation,
     reference: Side<'_, '_>,
     other: Side<'_, '_>,
     options: &CompareRunsOptions,
@@ -898,7 +1005,22 @@ fn run_difference(
         .cloned()
         .collect();
     unmatched.sort();
-    let scale = Scale::new(relation, ref_p, oth_p);
+    let config_changes = match (&ref_run.config, &oth_run.config) {
+        (Some(a), Some(b)) => Some(config_changes(a, b)),
+        _ => None,
+    };
+    let stated = oth_run.relation.unwrap_or_default();
+    let refusal = refusal(stated, ref_p, oth_p, config_changes.as_deref());
+    let relation = if refusal.is_some() {
+        DataRelation::Overlapping
+    } else {
+        stated
+    };
+    let scale = Scale::new(
+        relation,
+        ref_p.covariance.as_ref(),
+        oth_p.covariance.as_ref(),
+    );
     let cameras: Vec<CameraDifference> = pairs
         .iter()
         .map(|&(i, j)| camera_difference(i, j, reference, other, &scale, options))
@@ -908,17 +1030,13 @@ fn run_difference(
         .filter(|&&(i, j)| ref_p.cameras[i].spec() != oth_p.cameras[j].spec())
         .map(|&(i, _)| ref_run.camera_ids[i].clone())
         .collect();
-    let config_changes = match (&ref_run.config, &oth_run.config) {
-        (Some(a), Some(b)) => Some(config_changes(a, b)),
-        _ => None,
-    };
     let rig = rig_differences(&pairs, reference, other, &scale);
     let handeye = handeye_difference(&pairs, reference, other, &scale);
     let laser_planes = plane_differences(&pairs, reference, other, &scale);
     RunDifference {
         run: index,
         relation,
-        fit_comparable: matches!(relation, DataRelation::Identical | DataRelation::SameData),
+        relation_refused: refusal.map(|reason| RelationRefusal { stated, reason }),
         model_changes,
         config_changes,
         cameras,
@@ -931,157 +1049,29 @@ fn run_difference(
     }
 }
 
-/// How a difference is tested: the relation, and for nested runs which one
-/// is smaller and the view-scatter factors that put both covariances on the
-/// larger run's noise scale.
-struct Scale<'p> {
-    relation: DataRelation,
-    reference: &'p Prepared,
-    other: &'p Prepared,
-}
-
-impl<'p> Scale<'p> {
-    fn new(relation: DataRelation, reference: &'p Prepared, other: &'p Prepared) -> Self {
-        Self {
-            relation,
-            reference,
-            other,
-        }
-    }
-
-    /// Why no test applies, before any σ is read; `None` when the relation
-    /// supports one.
-    fn relation_bar(&self) -> Option<NoTest> {
-        match self.relation {
-            DataRelation::Independent | DataRelation::Nested { .. } => {
-                if self.reference.covariance.is_none() || self.other.covariance.is_none() {
-                    Some(NoTest::NoCovariance)
-                } else {
-                    None
-                }
+/// Why the exports contradict the stated relation, if they do.
+fn refusal(
+    stated: DataRelation,
+    reference: &Prepared,
+    other: &Prepared,
+    config_changes: Option<&[ConfigChange]>,
+) -> Option<RefusalReason> {
+    match stated {
+        DataRelation::Independent => (!reference.features.is_disjoint(&other.features))
+            .then_some(RefusalReason::SharedFeatures),
+        DataRelation::Nested { smaller } => {
+            if config_changes.is_some_and(|c| !c.is_empty()) {
+                return Some(RefusalReason::ConfigurationsDiffer);
             }
-            DataRelation::Unknown => Some(NoTest::UnknownRelation),
-            DataRelation::Identical => Some(NoTest::Identical),
-            DataRelation::SameData | DataRelation::Overlapping => Some(NoTest::SharedData),
-        }
-    }
-
-    /// The variance of `Δ` from the two runs' variances of the quantity.
-    /// `Err` with the reason when there is none.
-    fn variance(&self, reference_var: f64, other_var: f64) -> Result<f64, NoTest> {
-        match self.relation {
-            DataRelation::Independent => Ok(reference_var + other_var),
-            DataRelation::Nested { smaller } => {
-                let (small, large) = self.nested_pair(smaller, reference_var, other_var);
-                let v = small - large;
-                if v > 0.0 && v.is_finite() {
-                    Ok(v)
-                } else {
-                    Err(NoTest::NestedVarianceNotPositive)
-                }
-            }
-            _ => Err(self.relation_bar().unwrap_or(NoTest::UnknownRelation)),
-        }
-    }
-
-    /// The smaller and larger run's variances, each divided by its own
-    /// view-scatter factor and multiplied by the larger run's: both on the
-    /// larger run's noise scale.
-    fn nested_pair(&self, smaller: RunSide, reference: f64, other: f64) -> (f64, f64) {
-        let (vr, vo) = (self.reference.view_scatter(), self.other.view_scatter());
-        match smaller {
-            RunSide::Reference => (reference / vr * vo, other),
-            RunSide::Other => (other / vo * vr, reference),
-        }
-    }
-
-    fn scalar_test(
-        &self,
-        delta: f64,
-        reference_var: Option<f64>,
-        other_var: Option<f64>,
-    ) -> DifferenceTest {
-        if let Some(reason) = self.relation_bar() {
-            return DifferenceTest::NotAvailable { reason };
-        }
-        let (Some(a), Some(b)) = (reference_var, other_var) else {
-            return DifferenceTest::NotAvailable {
-                reason: NoTest::NotEstimated,
+            let (small, large) = match smaller {
+                RunSide::Reference => (&reference.features, &other.features),
+                RunSide::Other => (&other.features, &reference.features),
             };
-        };
-        match self.variance(a, b) {
-            Ok(v) => {
-                let sigma = v.sqrt();
-                let z = delta / sigma;
-                let p_value = chi2_survival(z * z, 1);
-                match self.relation {
-                    DataRelation::Nested { .. } => DifferenceTest::Nested { sigma, z, p_value },
-                    _ => DifferenceTest::Independent { sigma, z, p_value },
-                }
-            }
-            Err(reason) => DifferenceTest::NotAvailable { reason },
+            (!(small.is_subset(large) && small.len() < large.len()))
+                .then_some(RefusalReason::NotASubset)
         }
+        _ => None,
     }
-
-    fn pose_test(
-        &self,
-        tangent: &Vector6<f64>,
-        reference: Option<Matrix6<f64>>,
-        other: Option<Matrix6<f64>>,
-    ) -> PoseTest {
-        if let Some(reason) = self.relation_bar() {
-            return PoseTest::NotAvailable { reason };
-        }
-        let (Some(a), Some(b)) = (reference, other) else {
-            return PoseTest::NotAvailable {
-                reason: NoTest::NotEstimated,
-            };
-        };
-        let (covariance, nested) = match self.relation {
-            DataRelation::Nested { smaller } => {
-                let (vr, vo) = (self.reference.view_scatter(), self.other.view_scatter());
-                let (small, large) = match smaller {
-                    RunSide::Reference => (a / vr * vo, b),
-                    RunSide::Other => (b / vo * vr, a),
-                };
-                (small - large, true)
-            }
-            _ => (a + b, false),
-        };
-        let Some(chi2) = mahalanobis_squared(&covariance, tangent) else {
-            return PoseTest::NotAvailable {
-                reason: if nested {
-                    NoTest::NestedVarianceNotPositive
-                } else {
-                    NoTest::SingularCovariance
-                },
-            };
-        };
-        let p_value = chi2_survival(chi2, 6);
-        if nested {
-            PoseTest::Nested {
-                chi2,
-                dof: 6,
-                p_value,
-            }
-        } else {
-            PoseTest::Independent {
-                chi2,
-                dof: 6,
-                p_value,
-            }
-        }
-    }
-}
-
-/// `τᵀ Σ⁻¹ τ` through a Cholesky factor; `None` when `Σ` is not positive
-/// definite.
-fn mahalanobis_squared(covariance: &Matrix6<f64>, tangent: &Vector6<f64>) -> Option<f64> {
-    let symmetric = 0.5 * (covariance + covariance.transpose());
-    let cholesky = symmetric.cholesky()?;
-    let solved = cholesky.solve(tangent);
-    let value = tangent.dot(&solved);
-    value.is_finite().then_some(value)
 }
 
 fn camera_difference(
@@ -1093,20 +1083,25 @@ fn camera_difference(
     options: &CompareRunsOptions,
 ) -> CameraDifference {
     let (ref_run, ref_p) = reference;
-    let (oth_run, oth_p) = other;
+    let oth_p = other.1;
     let (a, b) = (&ref_p.cameras[i], &oth_p.cameras[j]);
     let parameters = if a.spec() != b.spec() {
         ParameterComparison::DifferentModels
     } else {
         match (camera_parameters(a), camera_parameters(b)) {
-            (Ok(pa), Ok(pb)) => ParameterComparison::SameModel {
-                parameters: pa
+            (Ok(pa), Ok(pb)) => {
+                let mut joint_labels = Vec::new();
+                let parameters = pa
                     .iter()
                     .zip(&pb)
                     .map(|(&(label, va), &(_, vb))| {
-                        let var_a = variance(ref_p, &ref_p.label(i, label));
-                        let var_b = variance(oth_p, &oth_p.label(j, label));
+                        let (la, lb) = (ref_p.label(i, label), oth_p.label(j, label));
+                        let var_a = variance(ref_p, &la);
+                        let var_b = variance(oth_p, &lb);
                         let delta = vb - va;
+                        if var_a.is_some() && var_b.is_some() {
+                            joint_labels.push((la, lb, delta));
+                        }
                         let reference_sigma = var_a.map(f64::sqrt);
                         ParameterDifference {
                             label: label.to_string(),
@@ -1119,19 +1114,41 @@ fn camera_difference(
                             test: scale.scalar_test(delta, var_a, var_b),
                         }
                     })
-                    .collect(),
-            },
-            (Err(e), _) | (_, Err(e)) => ParameterComparison::Unavailable {
-                reason: e.to_string(),
-            },
+                    .collect();
+                let joint = joint_camera_test(&joint_labels, ref_p, oth_p, scale);
+                ParameterComparison::SameModel { parameters, joint }
+            }
+            _ => ParameterComparison::Unparameterized,
         }
     };
-    let projection = projection_comparison(i, j, reference, other, options, ref_run, oth_run);
+    let projection = projection_comparison(i, j, reference, other, options);
     CameraDifference {
         id: ref_run.camera_ids[i].clone(),
         parameters,
         projection,
     }
+}
+
+/// The joint test of the parameters both runs estimated, `(reference label,
+/// other label, delta)` each.
+fn joint_camera_test(
+    labels: &[(String, String, f64)],
+    reference: &Prepared,
+    other: &Prepared,
+    scale: &Scale<'_>,
+) -> JointTest {
+    if labels.is_empty() {
+        return scale.joint_test(&DVector::zeros(0), None, None, false);
+    }
+    let a: Vec<&str> = labels.iter().map(|(l, _, _)| l.as_str()).collect();
+    let b: Vec<&str> = labels.iter().map(|(_, l, _)| l.as_str()).collect();
+    let delta = DVector::from_iterator(labels.len(), labels.iter().map(|(_, _, d)| *d));
+    scale.joint_test(
+        &delta,
+        block_covariance(reference, &a),
+        block_covariance(other, &b),
+        false,
+    )
 }
 
 fn projection_comparison(
@@ -1140,19 +1157,16 @@ fn projection_comparison(
     reference: Side<'_, '_>,
     other: Side<'_, '_>,
     options: &CompareRunsOptions,
-    ref_run: &ComparedRun<'_>,
-    oth_run: &ComparedRun<'_>,
 ) -> ProjectionComparison {
-    let size = ref_run.image_sizes[i];
-    let grid = match ImageGrid::with_columns(size, options.grid_columns) {
-        Ok(grid) => grid,
-        Err(e) => {
-            return ProjectionComparison::Unavailable {
-                reason: e.to_string(),
-            };
-        }
+    let size = reference.0.image_sizes[i];
+    let Ok(grid) = ImageGrid::with_columns(size, options.grid_columns) else {
+        return ProjectionComparison::Unavailable {
+            reason: ProjectionUnavailable::InvalidImage,
+        };
     };
-    let covered: Vec<[f64; 2]> = observed(ref_run, i).chain(observed(oth_run, j)).collect();
+    let covered: Vec<[f64; 2]> = observed(reference.0, i)
+        .chain(observed(other.0, j))
+        .collect();
     let fit = ProjectionDifferenceOptions::new(options.compensation, FitRegion::Covered(covered));
     match projection_difference(&reference.1.cameras[i], &other.1.cameras[j], &grid, &fit) {
         Ok(d) => ProjectionComparison::Compared {
@@ -1166,7 +1180,15 @@ fn projection_comparison(
             max_valid_px: d.max_valid_px,
         },
         Err(e) => ProjectionComparison::Unavailable {
-            reason: e.to_string(),
+            reason: match e {
+                vision_calibration_core::Error::InsufficientData { .. } => {
+                    ProjectionUnavailable::TooFewNodes
+                }
+                vision_calibration_core::Error::InvalidInput { .. } => {
+                    ProjectionUnavailable::NotCentral
+                }
+                _ => ProjectionUnavailable::Singular,
+            },
         },
     }
 }
@@ -1191,15 +1213,16 @@ fn variance(prepared: &Prepared, label: &str) -> Option<f64> {
     (v.is_finite() && v >= 0.0).then_some(v)
 }
 
-/// The 6×6 covariance of the pose whose labels are `labels`; `None` when
-/// any is missing.
-fn pose_covariance(prepared: &Prepared, labels: &[String; 6]) -> Option<Matrix6<f64>> {
+/// The covariance block of `labels`; `None` when any is missing.
+fn block_covariance(prepared: &Prepared, labels: &[&str]) -> Option<DMatrix<f64>> {
     let c = prepared.covariance.as_ref()?;
     let index: Vec<usize> = labels
         .iter()
         .map(|l| c.index(l))
         .collect::<Option<Vec<_>>>()?;
-    let m = Matrix6::from_fn(|r, s| c.covariance[index[r]][index[s]]);
+    let m = DMatrix::from_fn(index.len(), index.len(), |r, s| {
+        c.covariance[index[r]][index[s]]
+    });
     m.iter().all(|v| v.is_finite()).then_some(m)
 }
 
@@ -1213,12 +1236,18 @@ fn pose_labels(name: &str) -> [String; 6] {
     POSE_COORDINATES.map(|c| format!("{name}.{c}"))
 }
 
+fn pose_covariance(prepared: &Prepared, name: &str) -> Option<DMatrix<f64>> {
+    let labels = pose_labels(name);
+    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    block_covariance(prepared, &refs)
+}
+
 /// The difference of two poses.
 fn pose_difference(
     label: String,
     reference: &Iso3,
     other: &Iso3,
-    covariances: (Option<Matrix6<f64>>, Option<Matrix6<f64>>),
+    covariances: (Option<DMatrix<f64>>, Option<DMatrix<f64>>),
     gauge_differs: bool,
     scale: &Scale<'_>,
 ) -> PoseDifference {
@@ -1227,17 +1256,18 @@ fn pose_difference(
     let dt = other.translation.vector - reference.translation.vector;
     let v = reference.rotation.inverse_transform_vector(&dt);
     let tangent = Vector6::new(omega.x, omega.y, omega.z, v.x, v.y, v.z);
+    let delta = DVector::from_column_slice(tangent.as_slice());
     let delta_over_reference_sigma = covariances
         .0
         .as_ref()
-        .and_then(|c| mahalanobis_squared(c, &tangent))
+        .and_then(|c| mahalanobis_squared(c, &delta))
         .map(f64::sqrt);
     let test = if gauge_differs && scale.relation_bar().is_none() {
-        PoseTest::NotAvailable {
+        JointTest::NotAvailable {
             reason: NoTest::GaugeDiffers,
         }
     } else {
-        scale.pose_test(&tangent, covariances.0, covariances.1)
+        scale.joint_test(&delta, covariances.0, covariances.1, true)
     };
     PoseDifference {
         label,
@@ -1287,11 +1317,11 @@ fn rig_differences(
             // `cam_i_se3_cam_r = cam_i_se3_rig · cam_r_se3_rig⁻¹`.
             let a = ref_p.cam_se3_rig[i] * ref_p.cam_se3_rig[r].inverse();
             let b = oth_p.cam_se3_rig[j] * oth_p.cam_se3_rig[r_other].inverse();
-            let cov_a = pose_covariance(ref_p, &pose_labels(&ref_p.label(i, "cam_se3_rig")));
+            let cov_a = pose_covariance(ref_p, &ref_p.label(i, "cam_se3_rig"));
             let cov_b = if gauge_differs {
                 None
             } else {
-                pose_covariance(oth_p, &pose_labels(&oth_p.label(j, "cam_se3_rig")))
+                pose_covariance(oth_p, &oth_p.label(j, "cam_se3_rig"))
             };
             let label = format!("{}_se3_{}", ref_run.camera_ids[i], ref_run.camera_ids[r]);
             pose_difference(label, &a, &b, (cov_a, cov_b), gauge_differs, scale)
@@ -1331,11 +1361,11 @@ fn handeye_difference(
         ),
         _ => return None,
     };
-    let cov_a = pose_covariance(ref_p, &pose_labels(name_a));
+    let cov_a = pose_covariance(ref_p, name_a);
     let cov_b = if gauge_differs {
         None
     } else {
-        pose_covariance(oth_p, &pose_labels(name_b))
+        pose_covariance(oth_p, name_b)
     };
     Some(pose_difference(
         label,
@@ -1438,93 +1468,6 @@ fn json_diff(
             other: b.map(Value::to_string),
         }),
     }
-}
-
-/// The upper tail `P(X > x)` of a χ² variable of `dof` degrees of freedom:
-/// the regularized upper incomplete gamma `Q(dof/2, x/2)`.
-pub(crate) fn chi2_survival(x: f64, dof: usize) -> f64 {
-    if !x.is_finite() {
-        return if x > 0.0 { 0.0 } else { 1.0 };
-    }
-    if x <= 0.0 {
-        return 1.0;
-    }
-    gamma_q(dof as f64 / 2.0, x / 2.0)
-}
-
-/// The regularized upper incomplete gamma function `Q(a, x)`, `a > 0`,
-/// `x ≥ 0`: the series below `a + 1`, Lentz's continued fraction above
-/// (Press et al., *Numerical Recipes*, §6.2), each to `1e-15`.
-fn gamma_q(a: f64, x: f64) -> f64 {
-    const EPS: f64 = 1e-15;
-    const MAX_TERMS: usize = 1000;
-    const TINY: f64 = 1e-300;
-    let log_prefix = a * x.ln() - x - ln_gamma(a);
-    if x < a + 1.0 {
-        let (mut term, mut sum, mut ap) = (1.0 / a, 1.0 / a, a);
-        for _ in 0..MAX_TERMS {
-            ap += 1.0;
-            term *= x / ap;
-            sum += term;
-            if term.abs() < sum.abs() * EPS {
-                break;
-            }
-        }
-        (1.0 - sum * log_prefix.exp()).clamp(0.0, 1.0)
-    } else {
-        let mut b = x + 1.0 - a;
-        let mut c = 1.0 / TINY;
-        let mut d = 1.0 / b;
-        let mut h = d;
-        for i in 1..=MAX_TERMS {
-            let an = -(i as f64) * (i as f64 - a);
-            b += 2.0;
-            d = an * d + b;
-            if d.abs() < TINY {
-                d = TINY;
-            }
-            c = b + an / c;
-            if c.abs() < TINY {
-                c = TINY;
-            }
-            d = 1.0 / d;
-            let step = d * c;
-            h *= step;
-            if (step - 1.0).abs() < EPS {
-                break;
-            }
-        }
-        (log_prefix.exp() * h).clamp(0.0, 1.0)
-    }
-}
-
-/// `ln Γ(x)`, `x > 0`, by the Lanczos approximation (`g = 7`, 9 terms;
-/// relative error below `1e-15`).
-fn ln_gamma(x: f64) -> f64 {
-    const G: f64 = 7.0;
-    const C: [f64; 9] = [
-        0.999_999_999_999_809_9,
-        676.520_368_121_885_1,
-        -1_259.139_216_722_402_8,
-        771.323_428_777_653_1,
-        -176.615_029_162_140_6,
-        12.507_343_278_686_905,
-        -0.138_571_095_265_720_12,
-        9.984_369_578_019_572e-6,
-        1.505_632_735_149_311_6e-7,
-    ];
-    if x < 0.5 {
-        // Reflection: Γ(x) Γ(1 − x) = π / sin(πx).
-        let pi = std::f64::consts::PI;
-        return (pi / (pi * x).sin()).ln() - ln_gamma(1.0 - x);
-    }
-    let x = x - 1.0;
-    let mut sum = C[0];
-    for (k, c) in C.iter().enumerate().skip(1) {
-        sum += c / (x + k as f64);
-    }
-    let t = x + G + 0.5;
-    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + sum.ln()
 }
 
 #[cfg(test)]

@@ -2037,6 +2037,12 @@ class ParameterCovariance:
     ``None`` when the views scatter no more than the noise predicts, and
     below six views.
 
+    :attr:`variance_factor` is the a-posteriori variance factor ``c`` of a
+    covariance from one residual family with an estimated noise level and no
+    prior: ``covariance = view_scatter · c · (JᵀJ)⁻¹`` (``σ̂²`` under least
+    squares). ``None`` for a covariance that combines residual families,
+    priors or other solves.
+
     :attr:`second_order` predicts how far the error of the shared
     parameters departs from the covariance once its second-order term is
     counted (:class:`SecondOrderError`); ``None`` when not analysed.
@@ -2057,6 +2063,7 @@ class ParameterCovariance:
     num_residuals: int = 0
     dof: int = 0
     view_scatter: float | None = None
+    variance_factor: float | None = None
     second_order: SecondOrderError | None = None
     reason: str | None = None
     reason_labels: list[str] = field(default_factory=list)
@@ -2095,6 +2102,11 @@ class ParameterCovariance:
                 None
                 if payload.get("view_scatter") is None
                 else float(payload["view_scatter"])
+            ),
+            variance_factor=(
+                None
+                if payload.get("variance_factor") is None
+                else float(payload["variance_factor"])
             ),
             second_order=(
                 None

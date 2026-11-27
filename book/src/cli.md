@@ -266,17 +266,20 @@ run-002 vs run-001: nested (run-002 has the subset); residuals not comparable (o
   configuration: the same
   camera cam0
     parameter                 run-001                run-002            Δ   Δ/σ_ref  test
-    fx           2058.455812 ±4.90e-1   2058.471129 ±5.37e-1    +0.015317     +0.03  nested z +0.09 (p 0.931)
+    fx           2058.455812 ±4.90e-1   2058.471129 ±5.37e-1    +0.015317     +0.03  none (mixed_residuals)
     ...
-    k1             -0.113737 ±3.50e-4     -0.113956 ±3.74e-4    -0.000218     -0.62  nested z -2.26 (p 0.024)
-    k2              0.143408 ±1.48e-3      0.144637 ±1.61e-3    +0.001229     +0.83  nested z +2.49 (p 0.013)
+    k2              0.143408 ±1.48e-3      0.144637 ±1.61e-3    +0.001229     +0.83  none (mixed_residuals)
     ...
+    all parameters: none (mixed_residuals)
     projection difference: 0.0045 px RMS over 1890 covered nodes (max 0.0365; 0.079 over the image), rotation 0.0019°
-  gripper_se3_cam0: rotation 0.0061°, translation 0.042 mm, 0.26 σ_ref, nested χ² 0.64 (6 dof, p 0.996)
+  gripper_se3_cam0: rotation 0.0061°, translation 0.042 mm, 0.26 σ_ref, none (mixed_residuals)
 ```
 
-The columns are explained in [Comparing Calibrations](comparing_calibrations.md);
-`--json` prints the `RunComparison`.
+The hand-eye's robot-pose corrections enter its covariance as priors, so
+this pair has no nested test (`mixed_residuals`): the change is read as
+materiality. The columns are explained in
+[Comparing Calibrations](comparing_calibrations.md); `--json` prints the
+`RunComparison`.
 
 ## Sample datasets
 

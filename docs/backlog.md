@@ -560,12 +560,36 @@ Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
 - [ ] COMPARE-VIEWS - Per-view RMS of the views two runs both used, matched
   by image content (`CalibratedRun::images`), as a `RunDifference` field;
   per-view poses stay uncompared (they describe a capture).
-- [ ] COMPARE-COMMON-NOISE - The nested (Hausman) test with both covariances
-  on one estimated noise level. Measured: with 20 % of the features left out
-  the nested z std is about 1.07 (rates up to 7.5 %), from each run's own
-  noise estimate. Needs the variance factor a covariance used in the export
-  (a robust loss's is a moment ratio, not the MAD noise level); gate:
-  `compare_runs_gates` with the feature-exclusion z std within 0.035 of 1.
+- [ ] COMPARE-SMALL-EXCLUSIONS - The nested test when the left-out data
+  are a small share of the information (1 of 25 views, 6 of ~2000
+  features). On one noise level the per-parameter rejection rate stays
+  within 5–8 %, but some `z` have heavy tails (std 1.14–1.35 measured, pinned
+  by `nested_small_exclusions_have_heavier_tails`): each run's information
+  is evaluated at its own estimate, and the difference of two nearly equal
+  informations is dominated by that mismatch. A relative-growth cut was
+  measured and rejected (it removes the 1 %-outlier exclusions the test
+  exists for, and biases what remains). Candidates: the excluded data's
+  information at the full run's estimate (needs the session, not the
+  export), or a second-order correction. Gate: the 1-of-25-views and
+  6-features cells under the strict `gate_null`.
+- [ ] COMPARE-NESTED-JOINT - A joint test of a camera's parameters between
+  nested runs. Through a generalized inverse it rejects 7.7 % (1 of 8 views
+  left out) to 15.7 % (6 features) at 5 %, so it is not offered
+  (`NoTest::NestedJoint`); each parameter's nested test and the poses'
+  nested `χ²` remain. Depends on COMPARE-SMALL-EXCLUSIONS.
+- [ ] COMPARE-MIXED-RESIDUALS - The nested test for covariances of several
+  residual families or with priors (hand-eye with robot-pose priors, laser
+  and reprojection, the per-camera rig laser covariances whose view scatter
+  is merged as a maximum over cameras): the sandwich `H⁻¹ G H⁻¹` is not a
+  multiple of one information matrix, so the Hausman premise fails. Today
+  `NoTest::MixedResiduals`. Needs each family's variance factor (or the
+  information per family) in the export and its own Monte-Carlo gate.
+- [ ] COMPARE-SCREENING - Exclusions chosen from the residuals (the worst
+  1–5 % of features, the worst views). A nested test of such a pair rejects
+  25–43 % under a correct model (measured in review), so `compare_runs`
+  states that the nested test does not apply to them. A screening step that
+  chooses outliers with a test of its own (a studentized-residual rule with
+  a family-wise level) is the tool for that question.
 - [ ] COMPARE-GAUGE - A pose test between rig runs that held different
   cameras fixed: propagate the other run's covariance through its rig
   camera's mount (the cross-covariance is in its export). Today
