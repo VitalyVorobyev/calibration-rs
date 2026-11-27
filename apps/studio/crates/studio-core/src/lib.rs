@@ -10,7 +10,8 @@
 //! - [`runs`] — runs as commands name them (project folder and run id) and
 //!   the cache of their parsed exports.
 //! - [`epipolar`], [`uncertainty`], [`disparity`] — the math behind the
-//!   viewers' commands.
+//!   viewers' commands; [`maps`] — a run's diagnostic maps as value planes
+//!   and its per-feature residuals.
 //! - [`laser`] — the laser-line extractor the laser topologies use.
 //! - [`images`], [`blobs`], [`planes`] — what resources serve: source
 //!   images (passed through, transcoded, thumbnails, in an on-disk cache),
@@ -27,6 +28,7 @@ pub mod disparity;
 pub mod epipolar;
 pub mod images;
 pub mod laser;
+pub mod maps;
 pub mod planes;
 pub mod runs;
 pub mod scope;

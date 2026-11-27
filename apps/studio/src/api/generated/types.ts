@@ -10,6 +10,45 @@
  */
 export type UserPath = string;
 /**
+ * How [`residual_map`] chooses the kernel's bandwidth.
+ */
+export type Bandwidth =
+  | "auto"
+  | {
+      pixels: number;
+    };
+/**
+ * How [`residual_map`] chose its bandwidth.
+ */
+export type BandwidthSelection =
+  | {
+      kind: "given";
+    }
+  | {
+      /**
+       * The number of folds.
+       */
+      folds: number;
+      kind: "cross_validated";
+      /**
+       * The scored ladder entries, pixels, ascending. Empty when no
+       * entry predicted any held-out record; the bandwidth is then
+       * `0.1·diagonal`.
+       */
+      ladder_px: number[];
+      /**
+       * The standard error of each score, from its per-fold scores, px².
+       */
+      score_std_errors_px2: number[];
+      /**
+       * The mean squared held-out error at each scored entry, px².
+       */
+      scores_px2: number[];
+    }
+  | {
+      kind: "few_views";
+    };
+/**
  * The configuration of one calibration, tagged by the manifest topology it
  * applies to.
  *
@@ -639,7 +678,70 @@ export type RejectReason =
   | "turned_chessboard"
   | "ambiguous_chessboard_turn"
   | "excluded";
-export type CameraParameterValuesReply = (number | null)[];
+/**
+ * Which stage of the camera model a parameter belongs to.
+ */
+export type ParameterGroup = "intrinsics" | "projection" | "distortion" | "sensor";
+/**
+ * A parameter's standard deviation, or why it has none.
+ */
+export type ParameterSigma =
+  | {
+      kind: "estimated";
+      sigma: number;
+    }
+  | {
+      kind: "unavailable";
+      reason: SigmaUnavailable;
+    };
+/**
+ * Why a parameter (or a camera's projection) has no σ.
+ */
+export type SigmaUnavailable =
+  | {
+      kind: "no_covariance";
+      reason: UncertaintyUnavailable;
+    }
+  | {
+      kind: "fixed";
+    }
+  | {
+      kind: "not_listed";
+    }
+  | {
+      kind: "unsupported_model";
+      message: string;
+    };
+/**
+ * Why a result has no covariance.
+ */
+export type UncertaintyUnavailable =
+  | {
+      kind: "not_converged";
+    }
+  | {
+      kind: "rank_deficient";
+      /**
+       * Labels of the parameters involved.
+       */
+      unobservable: string[];
+    }
+  | {
+      kind: "at_bound";
+      /**
+       * Labels of the parameters on a bound.
+       */
+      labels: string[];
+    }
+  | {
+      kind: "no_redundancy";
+    }
+  | {
+      kind: "not_computed";
+    }
+  | {
+      kind: "calibration_without_covariance";
+    };
 /**
  * Serializable projection model parameters.
  */
@@ -931,36 +1033,6 @@ export type ResidualNoise1 =
       sigma0: number;
     };
 /**
- * Why a result has no covariance.
- */
-export type UncertaintyUnavailable =
-  | {
-      kind: "not_converged";
-    }
-  | {
-      kind: "rank_deficient";
-      /**
-       * Labels of the parameters involved.
-       */
-      unobservable: string[];
-    }
-  | {
-      kind: "at_bound";
-      /**
-       * Labels of the parameters on a bound.
-       */
-      labels: string[];
-    }
-  | {
-      kind: "no_redundancy";
-    }
-  | {
-      kind: "not_computed";
-    }
-  | {
-      kind: "calibration_without_covariance";
-    };
-/**
  * What a listing shows.
  */
 export type Show = "all" | "dirs";
@@ -1022,6 +1094,21 @@ export type Progress =
        */
       max_iters: number;
     };
+/**
+ * A camera's projection σ on the maps' grid, or why it has none.
+ */
+export type ProjectionSigmaMap =
+  | {
+      camera: number;
+      grid: MapGrid;
+      plane: MapPlane;
+      status: "available";
+    }
+  | {
+      camera: number;
+      reason: SigmaUnavailable;
+      status: "unavailable";
+    };
 export type RecentProjectsReply = string[];
 export type ResolveConfigReply = unknown;
 /**
@@ -1071,6 +1158,8 @@ export type UndistortPointsReply = ([number, number] | null)[];
 
 export interface StudioApiTypes {
   AddRootArgs?: AddRootArgs;
+  Bandwidth?: Bandwidth;
+  BandwidthSelection?: BandwidthSelection;
   BlobQuery?: BlobQuery;
   BlobRef?: BlobRef;
   CalibrateArgs?: CalibrateArgs;
@@ -1080,12 +1169,16 @@ export interface StudioApiTypes {
   CameraFix?: CameraFix;
   CameraModelSpec?: CameraModelSpec;
   CameraOverride?: CameraOverride;
+  CameraParameter?: CameraParameter;
+  CameraParameterSet?: CameraParameterSet;
   CameraParameterValuesArgs?: CameraParameterValuesArgs;
-  CameraParameterValuesReply?: CameraParameterValuesReply;
+  CameraParameters?: CameraParameters;
   CameraParams?: CameraParams;
   CameraSource?: CameraSource;
+  CameraStats?: CameraStats;
   CameraSummary?: CameraSummary;
   CancelJobArgs?: CancelJobArgs;
+  CellStats?: CellStats;
   CheckKind?: CheckKind;
   CheckStatus?: CheckStatus;
   ChessCornersDetectorSpec?: ChessCornersDetectorSpec;
@@ -1115,6 +1208,8 @@ export interface StudioApiTypes {
   DisparityParams?: DisparityParams;
   DisparityResult?: DisparityResult;
   DistortionKind?: DistortionKind;
+  DistortionMap?: DistortionMap;
+  DistortionMapArgs?: DistortionMapArgs;
   DistortionParams?: DistortionParams;
   EntryKind?: EntryKind;
   EpipolarOverlay?: EpipolarOverlay;
@@ -1170,14 +1265,19 @@ export interface StudioApiTypes {
   ListJobsReply?: ListJobsReply;
   ListRunsArgs?: ListRunsArgs;
   ListRunsReply?: ListRunsReply;
+  MapGrid?: MapGrid;
+  MapPlane?: MapPlane;
   Measurement?: Measurement;
   OpenProjectArgs?: OpenProjectArgs;
   ParameterCovariance?: ParameterCovariance;
+  ParameterGroup?: ParameterGroup;
+  ParameterSigma?: ParameterSigma;
   PerFeatureResiduals?: PerFeatureResiduals;
   PixelRect?: PixelRect;
   PlanarIntrinsicsConfig?: PlanarIntrinsicsConfig;
   PlanarIntrinsicsExport?: PlanarIntrinsicsExport;
   PlanarOptimizeConfig?: PlanarOptimizeConfig;
+  PlaneChannel?: PlaneChannel;
   PlaneOptimizeConfig?: PlaneOptimizeConfig;
   PoseColumnMap?: PoseColumnMap;
   PoseConvention?: PoseConvention;
@@ -1192,6 +1292,8 @@ export interface StudioApiTypes {
   ProjectViewsArgs?: ProjectViewsArgs;
   ProjectionKind?: ProjectionKind;
   ProjectionParams?: ProjectionParams;
+  ProjectionSigmaMap?: ProjectionSigmaMap;
+  ProjectionSigmaMapArgs?: ProjectionSigmaMapArgs;
   ProjectionUncertainty?: ProjectionUncertainty;
   ProjectionUncertaintyArgs?: ProjectionUncertaintyArgs;
   QualityCheck?: QualityCheck;
@@ -1203,8 +1305,16 @@ export interface StudioApiTypes {
   RejectReason?: RejectReason;
   RemoveRootArgs?: RemoveRootArgs;
   ReportQuery?: ReportQuery;
+  ReprojectionStats?: ReprojectionStats;
   ResidualKind?: ResidualKind;
+  ResidualMap?: ResidualMap;
+  ResidualMapArgs?: ResidualMapArgs;
+  ResidualMapOptions?: ResidualMapOptions;
   ResidualNoise?: ResidualNoise;
+  ResidualRecords?: ResidualRecords;
+  ResidualRecordsArgs?: ResidualRecordsArgs;
+  ResidualStats?: ResidualStats;
+  ResidualStatsArgs?: ResidualStatsArgs;
   ResolveConfigArgs?: ResolveConfigArgs;
   ResolveConfigReply?: ResolveConfigReply;
   RigConfig?: RigConfig;
@@ -1256,6 +1366,7 @@ export interface StudioApiTypes {
   ServerInfoArgs?: ServerInfoArgs;
   SetRunNotesArgs?: SetRunNotesArgs;
   Show?: Show;
+  SigmaUnavailable?: SigmaUnavailable;
   SingleCamHandeyeConfig?: SingleCamHandeyeConfig;
   SingleCamHandeyeExport?: SingleCamHandeyeExport;
   SingleCamHandeyeOptimizeConfig?: SingleCamHandeyeOptimizeConfig;
@@ -1282,6 +1393,7 @@ export interface StudioApiTypes {
   ViewExclusion?: ViewExclusion;
   ViewRef?: ViewRef;
   ViewRow?: ViewRow;
+  ViewStats?: ViewStats;
 }
 /**
  * Add the folder `path` to the root folders (the desktop: the folder the
@@ -2793,11 +2905,56 @@ export interface LeftOutImage {
   reason: RejectReason;
 }
 /**
- * The value of each labelled parameter of the run's export that is a
- * camera parameter, aligned with `labels`; `null` for poses and planes.
+ * One parameter of a camera.
+ */
+export interface CameraParameter {
+  /**
+   * The solve ended with it on a box bound (the reason the run has no
+   * covariance). The bounds themselves are the workflow's own and not
+   * recorded in the export.
+   */
+  at_bound: boolean;
+  group: ParameterGroup;
+  /**
+   * Its label in the export's uncertainty (`fx`, `cam1.k1`).
+   */
+  label: string;
+  /**
+   * Its name in the camera model (`fx`, `k1`, `tilt_x`).
+   */
+  name: string;
+  sigma: ParameterSigma;
+  /**
+   * `px` (intrinsics), `rad` (sensor tilt) or empty (a coefficient).
+   */
+  unit: string;
+  value: number;
+}
+/**
+ * One camera's model and parameters.
+ */
+export interface CameraParameterSet {
+  camera: number;
+  distortion: DistortionKind;
+  /**
+   * Its parameters in the solver's order; empty for a model the solver
+   * does not estimate (`unsupported` says why).
+   */
+  parameters: CameraParameter[];
+  projection: ProjectionKind;
+  /**
+   * `null` for a general sensor homography.
+   */
+  sensor?: SensorKind | null;
+  unsupported?: string | null;
+}
+/**
+ * Every parameter of every camera of the run, whatever its model: its
+ * label in the export's uncertainty, name, group, value and unit, its σ
+ * or why it has none (no covariance and the library's reason, held fixed,
+ * not listed), and whether the solve ended with it on a bound.
  */
 export interface CameraParameterValuesArgs {
-  labels: string[];
   run: RunRef;
 }
 /**
@@ -2813,6 +2970,12 @@ export interface RunRef {
    * The run's id, as `run-007`.
    */
   id: string;
+}
+/**
+ * Every camera's parameters, in camera order.
+ */
+export interface CameraParameters {
+  cameras: CameraParameterSet[];
 }
 /**
  * Serializable camera parameters for building a runtime model.
@@ -2834,6 +2997,46 @@ export interface CameraParams {
    * Sensor model parameters.
    */
   sensor: SensorParams;
+}
+/**
+ * One camera's statistics.
+ */
+export interface CameraStats {
+  camera: number;
+  /**
+   * Mean, RMS and largest error length `|observed − projected|`, pixels,
+   * over the records with a projection (all zero when there is none).
+   */
+  stats: ReprojectionStats;
+  /**
+   * Records without a projection (it diverged), not in `stats`.
+   */
+  unprojected: number;
+  /**
+   * The views it has records in.
+   */
+  views: number;
+}
+/**
+ * Summary statistics for reprojection errors.
+ */
+export interface ReprojectionStats {
+  /**
+   * Number of points evaluated.
+   */
+  count: number;
+  /**
+   * Maximum reprojection error in pixels.
+   */
+  max: number;
+  /**
+   * Mean reprojection error in pixels.
+   */
+  mean: number;
+  /**
+   * Root mean square error in pixels.
+   */
+  rms: number;
 }
 /**
  * One camera of a [`RunSummary`].
@@ -2863,6 +3066,22 @@ export interface CameraSummary {
  */
 export interface CancelJobArgs {
   id: string;
+}
+/**
+ * One camera's statistics in one view.
+ */
+export interface CellStats {
+  camera: number;
+  /**
+   * Mean, RMS and largest error length `|observed − projected|`, pixels,
+   * over the records with a projection (all zero when there is none).
+   */
+  stats: ReprojectionStats;
+  /**
+   * Records without a projection (it diverged), not in `stats`.
+   */
+  unprojected: number;
+  view: number;
 }
 /**
  * One term of a combination of parameters: a parameter and its weight, in
@@ -3287,6 +3506,93 @@ export interface DisparityResult {
    * Matched (downscaled) image width.
    */
   width: number;
+}
+/**
+ * A camera's distortion map (see `distortion_map`).
+ */
+export interface DistortionMap {
+  camera: number;
+  distortion: MapPlane;
+  grid: MapGrid;
+  /**
+   * Whether the sensor model can add a layer (a tilted or homography
+   * sensor); without one `sensor` is zero.
+   */
+  has_sensor_layer: boolean;
+  sensor: MapPlane;
+  total: MapPlane;
+  /**
+   * Nodes with a value (the others are `NaN` in every layer).
+   */
+  valid_nodes: number;
+}
+/**
+ * A value plane of a map: a `VAM1` blob (the `blob` resource) whose
+ * channels, in order, are `channels`. `NaN` marks a node without a value.
+ */
+export interface MapPlane {
+  blob: BlobRef;
+  channels: PlaneChannel[];
+}
+/**
+ * One channel of a [`MapPlane`].
+ */
+export interface PlaneChannel {
+  /**
+   * `[min, max]` of its finite values; `null` when no node has one.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  domain?: [number, number] | null;
+  /**
+   * What the channel holds (`dx`, `dy`, `magnitude`, `rms`, …).
+   */
+  name: string;
+  /**
+   * Its unit: `px`, `chi` (a significance), `samples`, `views`.
+   */
+  unit: string;
+}
+/**
+ * The nodes every plane of a map is sampled at: the centres of
+ * `stride × stride` pixel blocks over the camera's image (its region of
+ * interest for a tiled camera), row-major from the top-left. Pixel
+ * centres are at integer coordinates; block `(c, r)`'s node is at
+ * `x = (c·stride + min((c + 1)·stride, width) − 1) / 2` (likewise `y`), so
+ * a trailing partial block is centred on its in-image pixels. The
+ * `VAM1` header of every plane carries `columns`, `rows` and `stride`.
+ */
+export interface MapGrid {
+  columns: number;
+  /**
+   * `[width, height]` of the camera's image, pixels.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  image_size: [number, number];
+  rows: number;
+  /**
+   * The block size, pixels.
+   */
+  stride: number;
+}
+/**
+ * The lens and sensor displacement of camera `camera` of the run over its
+ * image: three layers, each a plane of `dx`, `dy` and `magnitude` in
+ * pixels, `actual − reference` at the same ray (where the ray lands minus
+ * where it would land without the stage), indexed by the camera's own
+ * pixel. `distortion` is the lens alone (the camera without its sensor
+ * tilt minus the camera without distortion), `sensor` what the sensor
+ * model adds (zero for an untilted sensor), `total` their sum. `NaN` where
+ * no ray reaches a node. `columns` (default 64, at most 1024) sets the
+ * grid every map of the camera shares.
+ */
+export interface DistortionMapArgs {
+  camera: number;
+  columns?: number | null;
+  run: RunRef;
 }
 /**
  * Result of a single epipolar overlay computation.
@@ -4227,6 +4533,19 @@ export interface ProjectViewsArgs {
   spec?: ProjectSpec | null;
 }
 /**
+ * The projection uncertainty of camera `camera` on the maps' grid: one
+ * plane, `sigma`, the major-axis σ in pixels of where the camera-frame ray
+ * through each node lands, from the covariance of the camera's
+ * parameters; `NaN` where no ray reaches a node. `unavailable`, with the
+ * reason, for a run without a covariance or whose camera parameters were
+ * all held fixed. `columns` as `distortion_map`'s.
+ */
+export interface ProjectionSigmaMapArgs {
+  camera: number;
+  columns?: number | null;
+  run: RunRef;
+}
+/**
  * The projection uncertainty of one camera over its image.
  *
  * Grid nodes are evenly spaced from pixel `(0, 0)` to
@@ -4349,6 +4668,195 @@ export interface RemoveRootArgs {
  * `io` when the run has none.
  */
 export interface ReportQuery {
+  run: RunRef;
+}
+/**
+ * A camera's residual map (see `residual_map`). The residual is
+ * `observed − projected`, the sign of a distortion map's layer.
+ */
+export interface ResidualMap {
+  /**
+   * The Gaussian kernel's σ the map used, pixels.
+   */
+  bandwidth_px: number;
+  bandwidth_selection: BandwidthSelection;
+  camera: number;
+  /**
+   * Whether the run's board poses come through a rig or robot chain
+   * (rig and hand-eye workflows): the residuals then include the chain's
+   * pose error, with a smooth pattern per view, besides the camera
+   * model's misfit.
+   */
+  chain_level: boolean;
+  grid: MapGrid;
+  /**
+   * The options as used (`views` sorted): `min_effective_samples` is
+   * the support boundary, the `effective_samples` level where the map
+   * ends; `min_effective_views` where `std_error` and `significance`
+   * end.
+   */
+  options: ResidualMapOptions;
+  /**
+   * The records left out as outliers, as indices into the export's
+   * `per_feature_residuals.target` (and `residual_records`' `index`).
+   */
+  outliers: number[];
+  plane: MapPlane;
+  /**
+   * The selected records without a projection, left out.
+   */
+  unprojected: number;
+  /**
+   * The records mapped.
+   */
+  used: number;
+  /**
+   * The number of views mapped.
+   */
+  views: number;
+}
+/**
+ * Options of [`residual_map`].
+ */
+export interface ResidualMapOptions {
+  /**
+   * The kernel's bandwidth. Default [`Bandwidth::Auto`]: a field's scale
+   * differs from capture to capture, and cross-validation over views
+   * finds it without fitting each view's pose error as a field.
+   */
+  bandwidth?: Bandwidth & string;
+  /**
+   * The fewest effective samples `1/Σ l_k²` a node needs for a value;
+   * finite, ≥ 1. Default 8: below it the local fit is mostly one or two
+   * records' noise.
+   */
+  min_effective_samples?: number;
+  /**
+   * The fewest effective views a node needs for a standard error and a
+   * significance; finite, ≥ 2. Default 5: the view-clustered standard
+   * error is estimated from that many independent captures, and with
+   * fewer it understates the scatter.
+   */
+  min_effective_views?: number;
+  /**
+   * Records with `|e|` above this many robust σ (`median |e| / 1.1774`,
+   * the Rayleigh median) are left out as outliers; finite, > 0. Default
+   * 8, a tail of `exp(−32)` under Gaussian noise: a genuine systematic
+   * field at the corners can reach several σ, and a global threshold must
+   * not clip the signal the map is meant to show.
+   */
+  outlier_factor?: number;
+  /**
+   * The views to map, by their index in the input; `None` (the default)
+   * maps all. With one view (or fewer effective views than
+   * [`min_effective_views`](Self::min_effective_views)) the mean includes
+   * that view's pose error and has no significance.
+   */
+  views?: number[] | null;
+}
+/**
+ * The systematic part of camera `camera`'s reprojection residuals over its
+ * image, the library's local-linear residual map: one plane of eight
+ * channels, `mean_dx`, `mean_dy`, `mean_magnitude` (the smoothed mean of
+ * `observed − projected`, px), `rms` (px), `std_error` (px, view-clustered),
+ * `significance` (χ: above 3.03 is p < 0.01), `effective_samples` and
+ * `effective_views`. Records sit at their projection. `NaN` where the
+ * support is too thin (`effective_samples` below
+ * `options.min_effective_samples`) and, for `std_error` and
+ * `significance`, with too few effective views. `options.views` maps a
+ * subset of the views (their indices in the export); one view, or too few
+ * effective views, gives a mean that includes the views' pose error and no
+ * significance. `columns` as `distortion_map`'s. `invalid` for a run
+ * without per-feature residuals of the camera.
+ */
+export interface ResidualMapArgs {
+  camera: number;
+  columns?: number | null;
+  options?: ResidualMapOptions;
+  run: RunRef;
+}
+/**
+ * A camera's per-feature residual records, one column per field; entry
+ * `i` of every column is one record.
+ */
+export interface ResidualRecords {
+  /**
+   * Its feature's index in the view's detection.
+   */
+  feature: number[];
+  /**
+   * The record's index in the export's `per_feature_residuals.target`
+   * (what `residual_map`'s `outliers` name).
+   */
+  index: number[];
+  /**
+   * The detected pixel.
+   */
+  observed_px: [number, number][];
+  /**
+   * The model's projection of the target point; `null` where it
+   * diverged.
+   */
+  projected_px: ([number, number] | null)[];
+  /**
+   * `observed − projected`, pixels; `null` where the projection
+   * diverged.
+   */
+  residual_px: ([number, number] | null)[];
+  /**
+   * The target point, metres, as the calibration used it.
+   */
+  target_xyz_m: [number, number, number][];
+  /**
+   * Its view.
+   */
+  view: number[];
+}
+/**
+ * Camera `camera`'s per-feature residual records (of one `view`, when
+ * given), one column per field, in the export's order: each record's
+ * index in the export, view, feature, target point, observed and
+ * projected pixel and `observed − projected`. The target point is the one
+ * the calibration used: an exclusion names a feature by its detection's
+ * `world_xyz` (`detection_detail`), which a rig of plain chessboards may
+ * have relabelled.
+ */
+export interface ResidualRecordsArgs {
+  camera: number;
+  run: RunRef;
+  view?: number | null;
+}
+/**
+ * The reprojection statistics of a run's per-feature records: per camera,
+ * per view (cameras pooled) and per (camera, view), each ascending.
+ */
+export interface ResidualStats {
+  cameras: CameraStats[];
+  cells: CellStats[];
+  views: ViewStats[];
+}
+/**
+ * One view's statistics, over every camera that saw it.
+ */
+export interface ViewStats {
+  /**
+   * Mean, RMS and largest error length `|observed − projected|`, pixels,
+   * over the records with a projection (all zero when there is none).
+   */
+  stats: ReprojectionStats;
+  /**
+   * Records without a projection (it diverged), not in `stats`.
+   */
+  unprojected: number;
+  view: number;
+}
+/**
+ * The run's reprojection statistics from its per-feature residuals (the
+ * library's mean, RMS, largest error and count of `|observed −
+ * projected|`, px), per camera, per view over every camera, and per
+ * camera and view, with the records whose projection diverged.
+ */
+export interface ResidualStatsArgs {
   run: RunRef;
 }
 /**

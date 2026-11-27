@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Ctx;
-use super::commands::{files, forms, jobs, project, resources, runs, session, setup, viewer};
+use super::commands::{files, forms, jobs, maps, project, resources, runs, session, setup, viewer};
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
 use super::resource::Resource;
@@ -188,9 +188,15 @@ pub fn table() -> Vec<CommandSpec> {
             "epipolar_overlay_undistorted",
             viewer::epipolar_overlay_undistorted,
         ),
-        plain("camera_parameter_values", viewer::camera_parameter_values),
+        plain("camera_parameter_values", maps::camera_parameter_values),
         plain("projection_uncertainty", viewer::projection_uncertainty),
         job("disparity", Lane::Heavy, viewer::disparity),
+        // A run's diagnostic maps (one grid per camera) and residuals.
+        plain("distortion_map", maps::distortion_map),
+        plain("residual_map", maps::residual_map),
+        plain("projection_sigma_map", maps::projection_sigma_map),
+        plain("residual_records", maps::residual_records),
+        plain("residual_stats", maps::residual_stats),
         // Resources: the bytes behind the frontend's URLs.
         resource("image", resources::image),
         resource("undistorted_image", resources::undistorted_image),

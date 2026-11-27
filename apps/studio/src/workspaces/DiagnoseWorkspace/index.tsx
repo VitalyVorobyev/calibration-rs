@@ -42,6 +42,7 @@ export function DiagnoseWorkspace() {
   const laserFrames = useStore((s) => s.laserFrames);
   const poseValues = useStore((s) => s.poseValues);
   const cameraValues = useStore((s) => s.cameraValues);
+  const run = useStore((s) => s.run);
   const selectedPose = useStore((s) => s.selectedPose);
   const selectedPoseB = useStore((s) => s.selectedPoseB);
   const cameraA = useStore((s) => s.cameraA);
@@ -338,9 +339,9 @@ export function DiagnoseWorkspace() {
                   imageSize={imageSize}
                 />
               )}
-              {showStats && hasStats && (
+              {showStats && hasStats && run && (
                 <ResidualStatsPanels
-                  residuals={targetResiduals}
+                  run={run}
                   selectedPose={selectedPose}
                   selectedCamera={cameraA}
                   onSelectPose={(pose) => setSelectedPose(pose, "A")}

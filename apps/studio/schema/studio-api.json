@@ -354,18 +354,11 @@
       "args": {
         "$ref": "#/definitions/CameraParameterValuesArgs"
       },
-      "doc": "The value of each labelled parameter of the run's export that is a\ncamera parameter, aligned with `labels`; `null` for poses and planes.",
+      "doc": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound.",
       "kind": "plain",
       "name": "camera_parameter_values",
       "reply": {
-        "items": {
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "type": "array"
+        "$ref": "#/definitions/CameraParameters"
       }
     },
     {
@@ -392,6 +385,61 @@
       "name": "disparity",
       "output": {
         "$ref": "#/definitions/DisparityResult"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DistortionMapArgs"
+      },
+      "doc": "The lens and sensor displacement of camera `camera` of the run over its\nimage: three layers, each a plane of `dx`, `dy` and `magnitude` in\npixels, `actual − reference` at the same ray (where the ray lands minus\nwhere it would land without the stage), indexed by the camera's own\npixel. `distortion` is the lens alone (the camera without its sensor\ntilt minus the camera without distortion), `sensor` what the sensor\nmodel adds (zero for an untilted sensor), `total` their sum. `NaN` where\nno ray reaches a node. `columns` (default 64, at most 1024) sets the\ngrid every map of the camera shares.",
+      "kind": "plain",
+      "name": "distortion_map",
+      "reply": {
+        "$ref": "#/definitions/DistortionMap"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ResidualMapArgs"
+      },
+      "doc": "The systematic part of camera `camera`'s reprojection residuals over its\nimage, the library's local-linear residual map: one plane of eight\nchannels, `mean_dx`, `mean_dy`, `mean_magnitude` (the smoothed mean of\n`observed − projected`, px), `rms` (px), `std_error` (px, view-clustered),\n`significance` (χ: above 3.03 is p < 0.01), `effective_samples` and\n`effective_views`. Records sit at their projection. `NaN` where the\nsupport is too thin (`effective_samples` below\n`options.min_effective_samples`) and, for `std_error` and\n`significance`, with too few effective views. `options.views` maps a\nsubset of the views (their indices in the export); one view, or too few\neffective views, gives a mean that includes the views' pose error and no\nsignificance. `columns` as `distortion_map`'s. `invalid` for a run\nwithout per-feature residuals of the camera.",
+      "kind": "plain",
+      "name": "residual_map",
+      "reply": {
+        "$ref": "#/definitions/ResidualMap"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ProjectionSigmaMapArgs"
+      },
+      "doc": "The projection uncertainty of camera `camera` on the maps' grid: one\nplane, `sigma`, the major-axis σ in pixels of where the camera-frame ray\nthrough each node lands, from the covariance of the camera's\nparameters; `NaN` where no ray reaches a node. `unavailable`, with the\nreason, for a run without a covariance or whose camera parameters were\nall held fixed. `columns` as `distortion_map`'s.",
+      "kind": "plain",
+      "name": "projection_sigma_map",
+      "reply": {
+        "$ref": "#/definitions/ProjectionSigmaMap"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ResidualRecordsArgs"
+      },
+      "doc": "Camera `camera`'s per-feature residual records (of one `view`, when\ngiven), one column per field, in the export's order: each record's\nindex in the export, view, feature, target point, observed and\nprojected pixel and `observed − projected`. The target point is the one\nthe calibration used: an exclusion names a feature by its detection's\n`world_xyz` (`detection_detail`), which a rig of plain chessboards may\nhave relabelled.",
+      "kind": "plain",
+      "name": "residual_records",
+      "reply": {
+        "$ref": "#/definitions/ResidualRecords"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ResidualStatsArgs"
+      },
+      "doc": "The run's reprojection statistics from its per-feature residuals (the\nlibrary's mean, RMS, largest error and count of `|observed −\nprojected|`, px), per camera, per view over every camera, and per\ncamera and view, with the records whose projection diverged.",
+      "kind": "plain",
+      "name": "residual_stats",
+      "reply": {
+        "$ref": "#/definitions/ResidualStats"
       }
     },
     {
@@ -476,6 +524,108 @@
         "path"
       ],
       "type": "object"
+    },
+    "Bandwidth": {
+      "description": "How [`residual_map`] chooses the kernel's bandwidth.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "K-fold cross-validation over views on a ladder of fractions of the\nimage diagonal (see [`residual_map`]).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The Gaussian kernel's σ, pixels (finite, > 0).",
+          "properties": {
+            "pixels": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "pixels"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "BandwidthSelection": {
+      "description": "How [`residual_map`] chose its bandwidth.",
+      "oneOf": [
+        {
+          "description": "The options gave it ([`Bandwidth::Pixels`]).",
+          "properties": {
+            "kind": {
+              "const": "given",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cross-validated over views ([`Bandwidth::Auto`]).",
+          "properties": {
+            "folds": {
+              "description": "The number of folds.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "cross_validated",
+              "type": "string"
+            },
+            "ladder_px": {
+              "description": "The scored ladder entries, pixels, ascending. Empty when no\nentry predicted any held-out record; the bandwidth is then\n`0.1·diagonal`.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "score_std_errors_px2": {
+              "description": "The standard error of each score, from its per-fold scores, px².",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "scores_px2": {
+              "description": "The mean squared held-out error at each scored entry, px².",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "folds",
+            "ladder_px",
+            "scores_px2",
+            "score_std_errors_px2"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fewer than four views to cross-validate: `0.1·diagonal`.",
+          "properties": {
+            "kind": {
+              "const": "few_views",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "BlobQuery": {
       "additionalProperties": false,
@@ -887,23 +1037,119 @@
       ],
       "type": "object"
     },
-    "CameraParameterValuesArgs": {
-      "additionalProperties": false,
-      "description": "The value of each labelled parameter of the run's export that is a\ncamera parameter, aligned with `labels`; `null` for poses and planes.",
+    "CameraParameter": {
+      "description": "One parameter of a camera.",
       "properties": {
-        "labels": {
+        "at_bound": {
+          "description": "The solve ended with it on a box bound (the reason the run has no\ncovariance). The bounds themselves are the workflow's own and not\nrecorded in the export.",
+          "type": "boolean"
+        },
+        "group": {
+          "$ref": "#/definitions/ParameterGroup"
+        },
+        "label": {
+          "description": "Its label in the export's uncertainty (`fx`, `cam1.k1`).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Its name in the camera model (`fx`, `k1`, `tilt_x`).",
+          "type": "string"
+        },
+        "sigma": {
+          "$ref": "#/definitions/ParameterSigma"
+        },
+        "unit": {
+          "description": "`px` (intrinsics), `rad` (sensor tilt) or empty (a coefficient).",
+          "type": "string"
+        },
+        "value": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "name",
+        "group",
+        "value",
+        "unit",
+        "sigma",
+        "at_bound"
+      ],
+      "type": "object"
+    },
+    "CameraParameterSet": {
+      "description": "One camera's model and parameters.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "distortion": {
+          "$ref": "#/definitions/DistortionKind"
+        },
+        "parameters": {
+          "description": "Its parameters in the solver's order; empty for a model the solver\ndoes not estimate (`unsupported` says why).",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/CameraParameter"
           },
           "type": "array"
         },
+        "projection": {
+          "$ref": "#/definitions/ProjectionKind"
+        },
+        "sensor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SensorKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`null` for a general sensor homography."
+        },
+        "unsupported": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "camera",
+        "projection",
+        "distortion",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "CameraParameterValuesArgs": {
+      "additionalProperties": false,
+      "description": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound.",
+      "properties": {
         "run": {
           "$ref": "#/definitions/RunRef"
         }
       },
       "required": [
-        "run",
-        "labels"
+        "run"
+      ],
+      "type": "object"
+    },
+    "CameraParameters": {
+      "description": "Every camera's parameters, in camera order.",
+      "properties": {
+        "cameras": {
+          "items": {
+            "$ref": "#/definitions/CameraParameterSet"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cameras"
       ],
       "type": "object"
     },
@@ -999,6 +1245,43 @@
       ],
       "type": "object"
     },
+    "CameraStats": {
+      "description": "One camera's statistics.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReprojectionStats"
+            }
+          ],
+          "description": "Mean, RMS and largest error length `|observed − projected|`, pixels,\nover the records with a projection (all zero when there is none)."
+        },
+        "unprojected": {
+          "description": "Records without a projection (it diverged), not in `stats`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "The views it has records in.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "stats",
+        "unprojected",
+        "views"
+      ],
+      "type": "object"
+    },
     "CameraSummary": {
       "description": "One camera of a [`RunSummary`].",
       "properties": {
@@ -1044,6 +1327,42 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "CellStats": {
+      "description": "One camera's statistics in one view.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReprojectionStats"
+            }
+          ],
+          "description": "Mean, RMS and largest error length `|observed − projected|`, pixels,\nover the records with a projection (all zero when there is none)."
+        },
+        "unprojected": {
+          "description": "Records without a projection (it diverged), not in `stats`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "view",
+        "stats",
+        "unprojected"
       ],
       "type": "object"
     },
@@ -1930,6 +2249,76 @@
           "type": "string"
         }
       ]
+    },
+    "DistortionMap": {
+      "description": "A camera's distortion map (see `distortion_map`).",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "distortion": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "grid": {
+          "$ref": "#/definitions/MapGrid"
+        },
+        "has_sensor_layer": {
+          "description": "Whether the sensor model can add a layer (a tilted or homography\nsensor); without one `sensor` is zero.",
+          "type": "boolean"
+        },
+        "sensor": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "total": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "valid_nodes": {
+          "description": "Nodes with a value (the others are `NaN` in every layer).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "grid",
+        "valid_nodes",
+        "has_sensor_layer",
+        "distortion",
+        "sensor",
+        "total"
+      ],
+      "type": "object"
+    },
+    "DistortionMapArgs": {
+      "additionalProperties": false,
+      "description": "The lens and sensor displacement of camera `camera` of the run over its\nimage: three layers, each a plane of `dx`, `dy` and `magnitude` in\npixels, `actual − reference` at the same ray (where the ray lands minus\nwhere it would land without the stage), indexed by the camera's own\npixel. `distortion` is the lens alone (the camera without its sensor\ntilt minus the camera without distortion), `sensor` what the sensor\nmodel adds (zero for an untilted sensor), `total` their sum. `NaN` where\nno ray reaches a node. `columns` (default 64, at most 1024) sets the\ngrid every map of the camera shares.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columns": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
     },
     "DistortionParams": {
       "description": "Serializable distortion model parameters.",
@@ -3927,6 +4316,64 @@
       ],
       "type": "object"
     },
+    "MapGrid": {
+      "description": "The nodes every plane of a map is sampled at: the centres of\n`stride × stride` pixel blocks over the camera's image (its region of\ninterest for a tiled camera), row-major from the top-left. Pixel\ncentres are at integer coordinates; block `(c, r)`'s node is at\n`x = (c·stride + min((c + 1)·stride, width) − 1) / 2` (likewise `y`), so\na trailing partial block is centred on its in-image pixels. The\n`VAM1` header of every plane carries `columns`, `rows` and `stride`.",
+      "properties": {
+        "columns": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image_size": {
+          "description": "`[width, height]` of the camera's image, pixels.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stride": {
+          "description": "The block size, pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "image_size",
+        "stride",
+        "columns",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "MapPlane": {
+      "description": "A value plane of a map: a `VAM1` blob (the `blob` resource) whose\nchannels, in order, are `channels`. `NaN` marks a node without a value.",
+      "properties": {
+        "blob": {
+          "$ref": "#/definitions/BlobRef"
+        },
+        "channels": {
+          "items": {
+            "$ref": "#/definitions/PlaneChannel"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "blob",
+        "channels"
+      ],
+      "type": "object"
+    },
     "Measurement": {
       "description": "A check's measured value and the limit that decided its status.",
       "properties": {
@@ -4051,6 +4498,70 @@
         "dof"
       ],
       "type": "object"
+    },
+    "ParameterGroup": {
+      "description": "Which stage of the camera model a parameter belongs to.",
+      "oneOf": [
+        {
+          "const": "intrinsics",
+          "description": "`fx`, `fy`, `cx`, `cy`.",
+          "type": "string"
+        },
+        {
+          "const": "projection",
+          "description": "The projection's own parameters.",
+          "type": "string"
+        },
+        {
+          "const": "distortion",
+          "description": "The distortion coefficients.",
+          "type": "string"
+        },
+        {
+          "const": "sensor",
+          "description": "The sensor's (a Scheimpflug tilt).",
+          "type": "string"
+        }
+      ]
+    },
+    "ParameterSigma": {
+      "description": "A parameter's standard deviation, or why it has none.",
+      "oneOf": [
+        {
+          "description": "Estimated: its σ, in the parameter's unit.",
+          "properties": {
+            "kind": {
+              "const": "estimated",
+              "type": "string"
+            },
+            "sigma": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "sigma"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "unavailable",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/SigmaUnavailable"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PerFeatureResiduals": {
       "description": "Container bundled into every `*Export` carrying the per-feature drill-down\ndata the diagnose UI consumes.\n\nEmpty `Vec`s mean \"this problem type does not produce observations of that\nflavor\" (e.g., `PlanarIntrinsicsExport.per_feature_residuals.laser` is\nalways empty). The histogram fields are `Option`: `None` means the problem\ntype chose not to produce a per-camera aggregate; `Some(vec)` length must\nmatch `num_cameras`.",
@@ -4293,6 +4804,37 @@
       "required": [
         "reprojection_loss",
         "fix_poses"
+      ],
+      "type": "object"
+    },
+    "PlaneChannel": {
+      "description": "One channel of a [`MapPlane`].",
+      "properties": {
+        "domain": {
+          "description": "`[min, max]` of its finite values; `null` when no node has one.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "What the channel holds (`dx`, `dy`, `magnitude`, `rms`, …).",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Its unit: `px`, `chi` (a significance), `samples`, `views`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
       ],
       "type": "object"
     },
@@ -4930,6 +5472,87 @@
         }
       ]
     },
+    "ProjectionSigmaMap": {
+      "description": "A camera's projection σ on the maps' grid, or why it has none.",
+      "oneOf": [
+        {
+          "properties": {
+            "camera": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "grid": {
+              "$ref": "#/definitions/MapGrid"
+            },
+            "plane": {
+              "$ref": "#/definitions/MapPlane"
+            },
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "camera",
+            "grid",
+            "plane"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "camera": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "$ref": "#/definitions/SigmaUnavailable"
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "camera",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectionSigmaMapArgs": {
+      "additionalProperties": false,
+      "description": "The projection uncertainty of camera `camera` on the maps' grid: one\nplane, `sigma`, the major-axis σ in pixels of where the camera-frame ray\nthrough each node lands, from the covariance of the camera's\nparameters; `NaN` where no ray reaches a node. `unavailable`, with the\nreason, for a run without a covariance or whose camera parameters were\nall held fixed. `columns` as `distortion_map`'s.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columns": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
+    },
     "ProjectionUncertainty": {
       "description": "The projection uncertainty of one camera over its image.\n\nGrid nodes are evenly spaced from pixel `(0, 0)` to\n`(width − 1, height − 1)`, corners included, and listed row by row from\nthe top-left. Each value is the major-axis standard deviation, in pixels,\nof where the ray through the node projects.",
       "properties": {
@@ -5248,6 +5871,39 @@
       ],
       "type": "object"
     },
+    "ReprojectionStats": {
+      "description": "Summary statistics for reprojection errors.",
+      "properties": {
+        "count": {
+          "description": "Number of points evaluated.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max": {
+          "description": "Maximum reprojection error in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "mean": {
+          "description": "Mean reprojection error in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "rms": {
+          "description": "Root mean square error in pixels.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mean",
+        "rms",
+        "max",
+        "count"
+      ],
+      "type": "object"
+    },
     "ResidualKind": {
       "description": "A kind of residual, which sets its unit.",
       "oneOf": [
@@ -5280,6 +5936,172 @@
           "type": "object"
         }
       ]
+    },
+    "ResidualMap": {
+      "description": "A camera's residual map (see `residual_map`). The residual is\n`observed − projected`, the sign of a distortion map's layer.",
+      "properties": {
+        "bandwidth_px": {
+          "description": "The Gaussian kernel's σ the map used, pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "bandwidth_selection": {
+          "$ref": "#/definitions/BandwidthSelection"
+        },
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chain_level": {
+          "description": "Whether the run's board poses come through a rig or robot chain\n(rig and hand-eye workflows): the residuals then include the chain's\npose error, with a smooth pattern per view, besides the camera\nmodel's misfit.",
+          "type": "boolean"
+        },
+        "grid": {
+          "$ref": "#/definitions/MapGrid"
+        },
+        "options": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResidualMapOptions"
+            }
+          ],
+          "description": "The options as used (`views` sorted): `min_effective_samples` is\nthe support boundary, the `effective_samples` level where the map\nends; `min_effective_views` where `std_error` and `significance`\nend."
+        },
+        "outliers": {
+          "description": "The records left out as outliers, as indices into the export's\n`per_feature_residuals.target` (and `residual_records`' `index`).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "plane": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "unprojected": {
+          "description": "The selected records without a projection, left out.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "used": {
+          "description": "The records mapped.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "The number of views mapped.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "grid",
+        "plane",
+        "bandwidth_px",
+        "bandwidth_selection",
+        "options",
+        "chain_level",
+        "used",
+        "unprojected",
+        "outliers",
+        "views"
+      ],
+      "type": "object"
+    },
+    "ResidualMapArgs": {
+      "additionalProperties": false,
+      "description": "The systematic part of camera `camera`'s reprojection residuals over its\nimage, the library's local-linear residual map: one plane of eight\nchannels, `mean_dx`, `mean_dy`, `mean_magnitude` (the smoothed mean of\n`observed − projected`, px), `rms` (px), `std_error` (px, view-clustered),\n`significance` (χ: above 3.03 is p < 0.01), `effective_samples` and\n`effective_views`. Records sit at their projection. `NaN` where the\nsupport is too thin (`effective_samples` below\n`options.min_effective_samples`) and, for `std_error` and\n`significance`, with too few effective views. `options.views` maps a\nsubset of the views (their indices in the export); one view, or too few\neffective views, gives a mean that includes the views' pose error and no\nsignificance. `columns` as `distortion_map`'s. `invalid` for a run\nwithout per-feature residuals of the camera.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columns": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "options": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResidualMapOptions"
+            }
+          ],
+          "default": {
+            "bandwidth": "auto",
+            "min_effective_samples": 8.0,
+            "min_effective_views": 5.0,
+            "outlier_factor": 8.0,
+            "views": null
+          }
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
+    },
+    "ResidualMapOptions": {
+      "additionalProperties": false,
+      "description": "Options of [`residual_map`].",
+      "properties": {
+        "bandwidth": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Bandwidth"
+            }
+          ],
+          "default": "auto",
+          "description": "The kernel's bandwidth. Default [`Bandwidth::Auto`]: a field's scale\ndiffers from capture to capture, and cross-validation over views\nfinds it without fitting each view's pose error as a field."
+        },
+        "min_effective_samples": {
+          "default": 8.0,
+          "description": "The fewest effective samples `1/Σ l_k²` a node needs for a value;\nfinite, ≥ 1. Default 8: below it the local fit is mostly one or two\nrecords' noise.",
+          "format": "double",
+          "type": "number"
+        },
+        "min_effective_views": {
+          "default": 5.0,
+          "description": "The fewest effective views a node needs for a standard error and a\nsignificance; finite, ≥ 2. Default 5: the view-clustered standard\nerror is estimated from that many independent captures, and with\nfewer it understates the scatter.",
+          "format": "double",
+          "type": "number"
+        },
+        "outlier_factor": {
+          "default": 8.0,
+          "description": "Records with `|e|` above this many robust σ (`median |e| / 1.1774`,\nthe Rayleigh median) are left out as outliers; finite, > 0. Default\n8, a tail of `exp(−32)` under Gaussian noise: a genuine systematic\nfield at the corners can reach several σ, and a global threshold must\nnot clip the signal the map is meant to show.",
+          "format": "double",
+          "type": "number"
+        },
+        "views": {
+          "default": null,
+          "description": "The views to map, by their index in the input; `None` (the default)\nmaps all. With one view (or fewer effective views than\n[`min_effective_views`](Self::min_effective_views)) the mean includes\nthat view's pose error and has no significance.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "ResidualNoise": {
       "description": "The estimated noise level of one kind of residual.",
@@ -5339,6 +6161,176 @@
       "required": [
         "kind",
         "count"
+      ],
+      "type": "object"
+    },
+    "ResidualRecords": {
+      "description": "A camera's per-feature residual records, one column per field; entry\n`i` of every column is one record.",
+      "properties": {
+        "feature": {
+          "description": "Its feature's index in the view's detection.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "index": {
+          "description": "The record's index in the export's `per_feature_residuals.target`\n(what `residual_map`'s `outliers` name).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "observed_px": {
+          "description": "The detected pixel.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "projected_px": {
+          "description": "The model's projection of the target point; `null` where it\ndiverged.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "residual_px": {
+          "description": "`observed − projected`, pixels; `null` where the projection\ndiverged.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "target_xyz_m": {
+          "description": "The target point, metres, as the calibration used it.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "view": {
+          "description": "Its view.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "index",
+        "view",
+        "feature",
+        "target_xyz_m",
+        "observed_px",
+        "projected_px",
+        "residual_px"
+      ],
+      "type": "object"
+    },
+    "ResidualRecordsArgs": {
+      "additionalProperties": false,
+      "description": "Camera `camera`'s per-feature residual records (of one `view`, when\ngiven), one column per field, in the export's order: each record's\nindex in the export, view, feature, target point, observed and\nprojected pixel and `observed − projected`. The target point is the one\nthe calibration used: an exclusion names a feature by its detection's\n`world_xyz` (`detection_detail`), which a rig of plain chessboards may\nhave relabelled.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        },
+        "view": {
+          "default": null,
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
+    },
+    "ResidualStats": {
+      "description": "The reprojection statistics of a run's per-feature records: per camera,\nper view (cameras pooled) and per (camera, view), each ascending.",
+      "properties": {
+        "cameras": {
+          "items": {
+            "$ref": "#/definitions/CameraStats"
+          },
+          "type": "array"
+        },
+        "cells": {
+          "items": {
+            "$ref": "#/definitions/CellStats"
+          },
+          "type": "array"
+        },
+        "views": {
+          "items": {
+            "$ref": "#/definitions/ViewStats"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cameras",
+        "views",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "ResidualStatsArgs": {
+      "additionalProperties": false,
+      "description": "The run's reprojection statistics from its per-feature residuals (the\nlibrary's mean, RMS, largest error and count of `|observed −\nprojected|`, px), per camera, per view over every camera, and per\ncamera and view, with the records whose projection diverged.",
+      "properties": {
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run"
       ],
       "type": "object"
     },
@@ -7311,6 +8303,71 @@
         }
       ]
     },
+    "SigmaUnavailable": {
+      "description": "Why a parameter (or a camera's projection) has no σ.",
+      "oneOf": [
+        {
+          "description": "The run has no covariance, for the library's reason.",
+          "properties": {
+            "kind": {
+              "const": "no_covariance",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/UncertaintyUnavailable"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The final solve held it fixed (for a projection: every parameter of\nthe camera): exact by assumption.",
+          "properties": {
+            "kind": {
+              "const": "fixed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The covariance lists it neither as estimated nor as fixed.",
+          "properties": {
+            "kind": {
+              "const": "not_listed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A camera model the solver does not estimate (a general sensor\nhomography).",
+          "properties": {
+            "kind": {
+              "const": "unsupported_model",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SingleCamHandeyeConfig": {
       "additionalProperties": false,
       "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped by stage, in the order the steps run: the camera model, the\nintrinsics linear init and refinement, the hand-eye linear init and\nbundle adjustment, and the solver engine. Every group's own `Default` is\nthe plain workspace default (no per-problem override is needed here,\nunlike `PlanarIntrinsicsConfig`'s iteration cap).\n\nTwo stages solve the target corners, each with its own\n`reprojection_loss`: `intrinsics_optimize` and `handeye_optimize`. A\nrobust calibration sets both; the final stage's loss is the estimator.",
@@ -8425,6 +9482,36 @@
       "required": [
         "token",
         "images"
+      ],
+      "type": "object"
+    },
+    "ViewStats": {
+      "description": "One view's statistics, over every camera that saw it.",
+      "properties": {
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReprojectionStats"
+            }
+          ],
+          "description": "Mean, RMS and largest error length `|observed − projected|`, pixels,\nover the records with a projection (all zero when there is none)."
+        },
+        "unprojected": {
+          "description": "Records without a projection (it diverged), not in `stats`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "stats",
+        "unprojected"
       ],
       "type": "object"
     }

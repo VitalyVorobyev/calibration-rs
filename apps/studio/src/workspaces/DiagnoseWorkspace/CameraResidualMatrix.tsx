@@ -1,14 +1,32 @@
 import { cn, focusRing, Panel } from "@vitavision/ui";
 import { useMemo } from "react";
+import type { ResidualStats } from "../../api/generated/types";
 import { colorForError } from "../../lib/errorColors";
-import { computeCameraPoseMatrix } from "../../lib/residualStats";
-import type { TargetFeatureResidual } from "../../types";
 
 /** Pins the camera column while the pose axis scrolls horizontally. */
 const STICKY = "sticky left-0 z-10 bg-surface";
 
+/** The `(camera, pose)` grid of `residual_stats`' cells: their cameras and
+ * poses ascending, each cell's mean (`null` where every corner diverged). */
+function matrixOf(stats: ResidualStats) {
+  const cameras = [...new Set(stats.cells.map((c) => c.camera))].sort((a, b) => a - b);
+  const poses = [...new Set(stats.cells.map((c) => c.view))].sort((a, b) => a - b);
+  const cells = new Map<string, { mean: number | null; count: number }>();
+  for (const c of stats.cells) {
+    cells.set(`${c.camera}:${c.view}`, {
+      mean: c.stats.count > 0 ? c.stats.mean : null,
+      count: c.stats.count,
+    });
+  }
+  return {
+    cameras,
+    poses,
+    cell: (camera: number, pose: number) => cells.get(`${camera}:${pose}`),
+  };
+}
+
 interface CameraResidualMatrixProps {
-  residuals: TargetFeatureResidual[];
+  stats: ResidualStats;
   selectedPose: number;
   selectedCamera: number;
   onSelect: (pose: number, camera: number) => void;
@@ -19,12 +37,12 @@ interface CameraResidualMatrixProps {
  * exports; click a cell to jump the viewer to that `(pose, camera)`
  *. Tooltip carries the exact numbers. */
 export function CameraResidualMatrix({
-  residuals,
+  stats,
   selectedPose,
   selectedCamera,
   onSelect,
 }: CameraResidualMatrixProps) {
-  const matrix = useMemo(() => computeCameraPoseMatrix(residuals), [residuals]);
+  const matrix = useMemo(() => matrixOf(stats), [stats]);
 
   if (matrix.cameras.length < 2 || matrix.poses.length === 0) {
     // Single-camera exports get nothing useful from a 1-row matrix; the
@@ -83,7 +101,7 @@ export function CameraResidualMatrix({
                     {camera}
                   </th>
                   {matrix.poses.map((pose) => {
-                    const cell = matrix.cells.get(camera)?.get(pose);
+                    const cell = matrix.cell(camera, pose);
                     const active = pose === selectedPose && camera === selectedCamera;
                     return (
                       <td key={pose} className="p-0.5">

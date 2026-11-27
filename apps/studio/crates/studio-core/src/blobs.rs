@@ -1,5 +1,5 @@
 //! Derived blobs — a disparity job's planes, point cloud and rectified
-//! pair — kept in memory and served by the `blob` resource. A blob's id is
+//! pair, a run's map planes — kept in memory and served by the `blob` resource. A blob's id is
 //! the SHA-256 of what made it (the command, its canonical arguments, the
 //! calibration's fingerprint, the part), so the same request finds its
 //! blobs again: the store memoizes as well as it serves. Least recently
@@ -122,6 +122,15 @@ impl BlobStore {
         let entry = inner.entries.get_mut(id)?;
         entry.used = now;
         Some((entry.media_type, Arc::clone(&entry.bytes)))
+    }
+
+    /// Drop blob `id`, as the cap would (tests of expiry).
+    #[cfg(test)]
+    pub fn forget(&self, id: &str) {
+        let mut inner = self.lock();
+        if let Some(gone) = inner.entries.remove(id) {
+            inner.total -= gone.bytes.len();
+        }
     }
 
     /// Whether every blob of `refs` is still kept.

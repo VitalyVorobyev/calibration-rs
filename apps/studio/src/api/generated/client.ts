@@ -43,12 +43,17 @@ export interface Commands {
   };
   camera_parameter_values: {
     args: T.CameraParameterValuesArgs;
-    reply: T.CameraParameterValuesReply;
+    reply: T.CameraParameters;
   };
   projection_uncertainty: {
     args: T.ProjectionUncertaintyArgs;
     reply: T.ProjectionUncertainty;
   };
+  distortion_map: { args: T.DistortionMapArgs; reply: T.DistortionMap };
+  residual_map: { args: T.ResidualMapArgs; reply: T.ResidualMap };
+  projection_sigma_map: { args: T.ProjectionSigmaMapArgs; reply: T.ProjectionSigmaMap };
+  residual_records: { args: T.ResidualRecordsArgs; reply: T.ResidualRecords };
+  residual_stats: { args: T.ResidualStatsArgs; reply: T.ResidualStats };
   list_jobs: { args: T.ListJobsArgs; reply: T.ListJobsReply };
   job_status: { args: T.JobStatusArgs; reply: T.JobInfo };
   cancel_job: { args: T.CancelJobArgs; reply: T.JobInfo };
@@ -272,13 +277,15 @@ export function createClient(t: Transport, hub: JobHub) {
     ): Promise<T.EpipolarOverlay> =>
       t.invoke("epipolar_overlay_undistorted", args) as Promise<T.EpipolarOverlay>,
     /**
-     * The value of each labelled parameter of the run's export that is a
-     * camera parameter, aligned with `labels`; `null` for poses and planes.
+     * Every parameter of every camera of the run, whatever its model: its
+     * label in the export's uncertainty, name, group, value and unit, its σ
+     * or why it has none (no covariance and the library's reason, held fixed,
+     * not listed), and whether the solve ended with it on a bound.
      */
     cameraParameterValues: (
       args: T.CameraParameterValuesArgs,
-    ): Promise<T.CameraParameterValuesReply> =>
-      t.invoke("camera_parameter_values", args) as Promise<T.CameraParameterValuesReply>,
+    ): Promise<T.CameraParameters> =>
+      t.invoke("camera_parameter_values", args) as Promise<T.CameraParameters>,
     /**
      * The projection uncertainty of `camera` of the run over an image of
      * `image_width` × `image_height` pixels.
@@ -287,6 +294,65 @@ export function createClient(t: Transport, hub: JobHub) {
       args: T.ProjectionUncertaintyArgs,
     ): Promise<T.ProjectionUncertainty> =>
       t.invoke("projection_uncertainty", args) as Promise<T.ProjectionUncertainty>,
+    /**
+     * The lens and sensor displacement of camera `camera` of the run over its
+     * image: three layers, each a plane of `dx`, `dy` and `magnitude` in
+     * pixels, `actual − reference` at the same ray (where the ray lands minus
+     * where it would land without the stage), indexed by the camera's own
+     * pixel. `distortion` is the lens alone (the camera without its sensor
+     * tilt minus the camera without distortion), `sensor` what the sensor
+     * model adds (zero for an untilted sensor), `total` their sum. `NaN` where
+     * no ray reaches a node. `columns` (default 64, at most 1024) sets the
+     * grid every map of the camera shares.
+     */
+    distortionMap: (args: T.DistortionMapArgs): Promise<T.DistortionMap> =>
+      t.invoke("distortion_map", args) as Promise<T.DistortionMap>,
+    /**
+     * The systematic part of camera `camera`'s reprojection residuals over its
+     * image, the library's local-linear residual map: one plane of eight
+     * channels, `mean_dx`, `mean_dy`, `mean_magnitude` (the smoothed mean of
+     * `observed − projected`, px), `rms` (px), `std_error` (px, view-clustered),
+     * `significance` (χ: above 3.03 is p < 0.01), `effective_samples` and
+     * `effective_views`. Records sit at their projection. `NaN` where the
+     * support is too thin (`effective_samples` below
+     * `options.min_effective_samples`) and, for `std_error` and
+     * `significance`, with too few effective views. `options.views` maps a
+     * subset of the views (their indices in the export); one view, or too few
+     * effective views, gives a mean that includes the views' pose error and no
+     * significance. `columns` as `distortion_map`'s. `invalid` for a run
+     * without per-feature residuals of the camera.
+     */
+    residualMap: (args: T.ResidualMapArgs): Promise<T.ResidualMap> =>
+      t.invoke("residual_map", args) as Promise<T.ResidualMap>,
+    /**
+     * The projection uncertainty of camera `camera` on the maps' grid: one
+     * plane, `sigma`, the major-axis σ in pixels of where the camera-frame ray
+     * through each node lands, from the covariance of the camera's
+     * parameters; `NaN` where no ray reaches a node. `unavailable`, with the
+     * reason, for a run without a covariance or whose camera parameters were
+     * all held fixed. `columns` as `distortion_map`'s.
+     */
+    projectionSigmaMap: (args: T.ProjectionSigmaMapArgs): Promise<T.ProjectionSigmaMap> =>
+      t.invoke("projection_sigma_map", args) as Promise<T.ProjectionSigmaMap>,
+    /**
+     * Camera `camera`'s per-feature residual records (of one `view`, when
+     * given), one column per field, in the export's order: each record's
+     * index in the export, view, feature, target point, observed and
+     * projected pixel and `observed − projected`. The target point is the one
+     * the calibration used: an exclusion names a feature by its detection's
+     * `world_xyz` (`detection_detail`), which a rig of plain chessboards may
+     * have relabelled.
+     */
+    residualRecords: (args: T.ResidualRecordsArgs): Promise<T.ResidualRecords> =>
+      t.invoke("residual_records", args) as Promise<T.ResidualRecords>,
+    /**
+     * The run's reprojection statistics from its per-feature residuals (the
+     * library's mean, RMS, largest error and count of `|observed −
+     * projected|`, px), per camera, per view over every camera, and per
+     * camera and view, with the records whose projection diverged.
+     */
+    residualStats: (args: T.ResidualStatsArgs): Promise<T.ResidualStats> =>
+      t.invoke("residual_stats", args) as Promise<T.ResidualStats>,
     /**
      * Every job the back end still knows of, live or recently finished, in
      * start order.

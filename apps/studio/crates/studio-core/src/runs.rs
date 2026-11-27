@@ -6,11 +6,12 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use schemars::JsonSchema;
 use serde::Deserialize;
 use sha2::Digest;
+use vision_calibration::common::{CalibratedCameras, calibrated_cameras};
 use vision_calibration::project::{Project, RunInfo, RunSource, RunState};
 
 use crate::api::{Ctx, StudioError};
@@ -28,7 +29,6 @@ pub struct RunRef {
 }
 
 /// A run's export, parsed, with what derived results of it are keyed by.
-#[derive(Debug)]
 pub struct CachedRun {
     /// The export JSON.
     pub export: serde_json::Value,
@@ -40,6 +40,22 @@ pub struct CachedRun {
     /// dataset fixes every run), else the manifest's own root restated from
     /// the run folder. `None` without an image manifest.
     pub image_root: Option<PathBuf>,
+    /// The export as the library reads it, parsed on first use.
+    cameras: OnceLock<Result<Box<dyn CalibratedCameras>, String>>,
+}
+
+impl CachedRun {
+    /// The export as the library reads it: its cameras, uncertainty and
+    /// per-feature residuals (parsed once per cached run).
+    pub fn cameras(&self) -> Result<&dyn CalibratedCameras, StudioError> {
+        self.cameras
+            .get_or_init(|| {
+                calibrated_cameras(&self.export.to_string())
+                    .map_err(|e| format!("the export is unreadable: {e}"))
+            })
+            .as_deref()
+            .map_err(|e| StudioError::new(crate::api::ErrorKind::Parse, e.clone()))
+    }
 }
 
 /// How many parsed exports the cache keeps.
@@ -158,6 +174,7 @@ fn read(run: &ResolvedRun) -> Result<CachedRun, StudioError> {
         image_root: image_root(run, &export),
         export,
         fingerprint,
+        cameras: OnceLock::new(),
     })
 }
 

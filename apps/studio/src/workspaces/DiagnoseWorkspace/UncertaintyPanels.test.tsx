@@ -7,7 +7,24 @@ import { setTransport } from "../../api";
 import { createMockTransport } from "../../api/transport/mock";
 import { useStore } from "../../store";
 import { UncertaintyPanels } from "./UncertaintyPanels";
-import type { ProjectionUncertainty, Uncertainty } from "../../api/generated/types";
+import type {
+  CameraParameter,
+  ParameterSigma,
+  ProjectionUncertainty,
+  Uncertainty,
+} from "../../api/generated/types";
+
+function parameter(name: string, value: number, sigma: ParameterSigma): CameraParameter {
+  return {
+    label: name,
+    name,
+    group: "intrinsics",
+    value,
+    unit: "px",
+    sigma,
+    at_bound: false,
+  };
+}
 
 const AVAILABLE: Uncertainty = {
   status: "available",
@@ -38,7 +55,24 @@ beforeEach(() => {
   setTransport(
     createMockTransport({
       commands: {
-        camera_parameter_values: () => [812.25, 319.5],
+        camera_parameter_values: () => ({
+          cameras: [
+            {
+              camera: 0,
+              projection: "pinhole",
+              distortion: "none",
+              sensor: "identity",
+              parameters: [
+                parameter("fx", 812.25, { kind: "estimated", sigma: 2 }),
+                parameter("cx", 319.5, { kind: "estimated", sigma: 0.5 }),
+                parameter("fy", 811.0, {
+                  kind: "unavailable",
+                  reason: { kind: "fixed" },
+                }),
+              ],
+            },
+          ],
+        }),
         projection_uncertainty: () => MAP,
       },
     }),
