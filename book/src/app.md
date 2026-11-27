@@ -31,20 +31,17 @@ It serves only the folders given with `--root` (or a project folder given alone,
 
 ## Mental Model
 
-- **Five workspaces**, reachable from the left rail (hotkeys `⌘1` to `⌘5`): Diagnose, 3D viewer, Epipolar, Depth and Run calibration.
+- **Screens** in the left rail, in workflow order (hotkeys `⌘1` to `⌘7`): Library, Dataset, Detect, Calibrate, Inspect, Compare and Device. Inspect is a row of tabs (Scene, Frames, Parameters, Distortion, Residuals, Projection σ, Quality, Epipolar, Depth).
 - **One run at a time.** The viewers show one run of the open [project](projects.md): its export plus derived pose and camera indices. Every workspace except Run reads it; they all react to the same run, the selected pose and the selected camera.
 - **Three ways to a run.** Choose one of the project's runs in the panel on the left. Running a calibration from the **Run** workspace writes the project's next run and hands off to **Diagnose** with it. **Import Export…** in the top bar adds an export calibrated elsewhere (a `*Export.json`, or a `vcal run -o` folder) to the open project as its next run.
 - **The export needs `diagnostics.image_manifest` to render anything visual.** An export with residual numbers but no manifest produces an error banner ("This export has no image_manifest field") instead of a blank viewer. Runs launched from the Calibrate screen fill it in, as do `vcal run` and the library's `calibrate_dataset`; a hand-written export may not have one.
 
 ## What Is Where
 
-| Workspace | Hotkey | Use it to |
+| Screen | Hotkey | Use it to |
 |---|---|---|
-| **Run** | `⌘5` | set up and run a calibration of the open project ([Running Calibrations](app_run.md)) |
-| **Diagnose** | `⌘1` | look at per-corner residuals on the source images, per-pose statistics and the parameter uncertainty ([Inspecting Results](app_inspect.md)) |
-| **3D viewer** | `⌘2` | see the calibrated rig: camera frustums, target boards, laser planes |
-| **Epipolar** | `⌘3` | click a point in one image, see its epipolar line in another |
-| **Depth** | `⌘4` | rectify a stereo pair and compute disparity, depth and a point cloud |
+| **Calibrate** | `⌘4` | set up and run a calibration of the open project ([Running Calibrations](app_run.md)) |
+| **Inspect** | `⌘5` | judge a run: parameters with σ, distortion, residual and projection-σ maps, per-feature residuals, quality checks, the frames, the rig in 3D, epipolar lines and depth, each a tab ([Inspecting Results](app_inspect.md)) |
 
 The Calibrate screen is where a run is set up and started; the other screens work on any run of a project, calibrated by the app, by `vcal run` or imported.
 

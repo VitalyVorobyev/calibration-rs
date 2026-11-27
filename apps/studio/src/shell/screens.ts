@@ -42,8 +42,19 @@ export function screenById(id: ScreenId): Screen {
   return SCREENS.find((s) => s.id === id) ?? SCREENS[0]!;
 }
 
-/** Inspect's tabs, as they are built. `maps` joins when its screen does. */
-export const INSPECT_TABS = ["scene", "frames", "epipolar", "depth"] as const;
+/** Inspect's tabs, in the order they are offered: the viewers, then the
+ * per-camera panels of a run. */
+export const INSPECT_TABS = [
+  "scene",
+  "frames",
+  "parameters",
+  "distortion",
+  "residuals",
+  "sigma",
+  "quality",
+  "epipolar",
+  "depth",
+] as const;
 export type InspectTab = (typeof INSPECT_TABS)[number];
 
 /** The tab Inspect opens on: the frame viewer (what the app opened on

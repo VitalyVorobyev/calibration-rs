@@ -25,7 +25,9 @@ import type {
   TargetFeatureResidual,
   ViewportTransform,
 } from "../types";
+import { useSelection } from "../session/selection";
 import {
+  buildFeatureRing,
   buildLaserOverlay,
   buildResidualArrows,
   LASER_LINE_STROKE,
@@ -130,6 +132,11 @@ function ResidualLayer({
         : null,
     [laser, pose, camera, unit],
   );
+  const feature = useSelection((s) => s.selection.feature);
+  const ring = useMemo(
+    () => buildFeatureRing(residuals, { pose, camera }, feature, unit),
+    [residuals, pose, camera, feature, unit],
+  );
   const stroke = STROKE_PX * unit;
   return (
     <svg
@@ -141,6 +148,15 @@ function ResidualLayer({
         <path key={a.color} d={a.d} fill="none" stroke={a.color} strokeWidth={stroke} />
       ))}
       {arrows.dots && <path d={arrows.dots} fill={OBSERVED_DOT_FILL} />}
+      {ring && (
+        <path
+          d={ring}
+          fill="none"
+          stroke="var(--signal)"
+          strokeWidth={2 * unit}
+          data-testid="selected-feature"
+        />
+      )}
       {laserPaths?.line && (
         <path
           d={laserPaths.line}

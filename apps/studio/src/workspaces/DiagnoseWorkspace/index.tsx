@@ -1,4 +1,4 @@
-import { DensityProvider, ErrorBox, ToggleChip } from "@vitavision/ui";
+import { ErrorBox, ToggleChip } from "@vitavision/ui";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { CompareViewer, type CompareViewerHandle } from "../../components/CompareViewer";
 import {
@@ -8,6 +8,7 @@ import {
 } from "../../components/FrameCanvas";
 import { NoImageList } from "../../components/NoImageList";
 import { PoseCameraStepper } from "../../components/PoseCameraStepper";
+import { ToolbarGroup, ViewerToolbar } from "../../components/ViewerToolbar";
 import { ZoomControls } from "../../components/ZoomControls";
 import { useImageData } from "../../hooks/useImageData";
 import { useKeyboardNav } from "../../hooks/useKeyboardNav";
@@ -17,7 +18,6 @@ import {
   type ZoomCommands,
 } from "../../hooks/useZoomShortcuts";
 import { getPixelLum, rectHistogram } from "../../lib/imagePixels";
-import { exportUncertainty } from "../../lib/uncertainty";
 import { useStore } from "../../store";
 import type {
   CursorReadout,
@@ -25,9 +25,7 @@ import type {
   LaserFeatureResidual,
   TargetFeatureResidual,
 } from "../../types";
-import { ResidualStatsPanels } from "./ResidualStatsPanels";
 import { FrameFooter } from "./FrameFooter";
-import { UncertaintyPanels } from "./UncertaintyPanels";
 
 const HISTOGRAM_BINS = 64;
 
@@ -42,7 +40,6 @@ export function DiagnoseWorkspace() {
   const laserFrames = useStore((s) => s.laserFrames);
   const poseValues = useStore((s) => s.poseValues);
   const cameraValues = useStore((s) => s.cameraValues);
-  const run = useStore((s) => s.run);
   const selectedPose = useStore((s) => s.selectedPose);
   const selectedPoseB = useStore((s) => s.selectedPoseB);
   const cameraA = useStore((s) => s.cameraA);
@@ -60,10 +57,6 @@ export function DiagnoseWorkspace() {
   // frame for the active (pose, camera). Mutually exclusive with
   // compare mode — both repurpose the single canvas area.
   const [laserView, setLaserView] = useState<boolean>(false);
-  // Residual stats side panel: per-pose table + cross-camera matrix.
-  const [showStats, setShowStats] = useState<boolean>(false);
-  // Parameter uncertainty side panel: value ± σ, correlations, projection σ.
-  const [showUncertainty, setShowUncertainty] = useState<boolean>(false);
   const [activePane, setActivePane] = useState<"left" | "right">("left");
   const [cursor, setCursor] = useState<CursorReadout | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,17 +86,7 @@ export function DiagnoseWorkspace() {
   );
   const hasLaser = laserFrames.length > 0 || laserResiduals.length > 0;
 
-  const targetResiduals = useMemo<TargetFeatureResidual[]>(
-    () => data?.diagnostics.per_feature_residuals.target ?? NO_TARGET_RESIDUALS,
-    [data],
-  );
-  const hasStats = targetResiduals.length > 0;
   const hasImages = frames.some((f) => f.abs_path !== null);
-
-  // A non-target export (or one loaded while stats are open) must not
-  // strand the workspace on an empty panel. Adjusting state during render
-  // (rather than in an effect) avoids painting the stale panel first.
-  if (!hasStats && showStats) setShowStats(false);
 
   // Loading a non-laser export while laser view is active would strand
   // the workspace on a mode with no data — drop back to target view.
@@ -121,14 +104,6 @@ export function DiagnoseWorkspace() {
   const activeFrame = showLaser ? laserFrame : frame;
 
   const imageData = useImageData(activeFrame, setError);
-
-  const uncertainty = useMemo(() => (data ? exportUncertainty(data) : null), [data]);
-  // The camera's own image: its ROI in a tiled frame, else the whole image.
-  const imageSize = useMemo<[number, number] | null>(() => {
-    if (!imageData || !activeFrame) return null;
-    const roi = activeFrame.roi;
-    return roi ? [roi.w, roi.h] : [imageData.naturalWidth, imageData.naturalHeight];
-  }, [imageData, activeFrame]);
 
   // Static ROI histogram — recomputed only when the frame's image data
   // changes, which is the cheap path. (A viewport-tracking variant
@@ -207,83 +182,71 @@ export function DiagnoseWorkspace() {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2.5">
-      <div className="flex flex-wrap items-center gap-3">
+      <ViewerToolbar label="Frame display">
         {data && (
-          <PoseCameraStepper
-            poseValues={poseValues}
-            selectedPose={which === "B" ? selectedPoseB : selectedPose}
-            onSelectPose={(next) => setSelectedPose(next, which)}
-            cameraValues={cameraValues}
-            selectedCamera={which === "B" ? cameraB : cameraA}
-            onSelectCamera={(next) => setCamera(next, which)}
-          />
-        )}
-        {data && (
-          <ZoomControls
-            hints
-            onFit={zoom.fit}
-            onOneToOne={zoom.oneToOne}
-            onZoomIn={() => zoom.zoomBy(ZOOM_STEP)}
-            onZoomOut={() => zoom.zoomBy(1 / ZOOM_STEP)}
-          />
+          <ToolbarGroup label="Frame">
+            <PoseCameraStepper
+              poseValues={poseValues}
+              selectedPose={which === "B" ? selectedPoseB : selectedPose}
+              onSelectPose={(next) => setSelectedPose(next, which)}
+              cameraValues={cameraValues}
+              selectedCamera={which === "B" ? cameraB : cameraA}
+              onSelectCamera={(next) => setCamera(next, which)}
+            />
+          </ToolbarGroup>
         )}
         {data && (
-          <ToggleChip
-            checked={compare}
-            onCheckedChange={(next) => {
-              if (next) setLaserView(false);
-              setCompare(next);
-            }}
-            title="Toggle compare mode"
-          >
-            Compare
-          </ToggleChip>
-        )}
-        {data && hasLaser && (
-          <ToggleChip
-            checked={laserView}
-            onCheckedChange={(next) => {
-              if (next) setCompare(false);
-              setLaserView(next);
-            }}
-            title="Show the laser frame with point-to-plane residuals"
-          >
-            Laser
-          </ToggleChip>
-        )}
-        {data && compare && (
-          <ToggleChip
-            checked={linked}
-            onCheckedChange={setLinked}
-            title="Toggle linked viewport (L)"
-          >
-            Linked
-          </ToggleChip>
-        )}
-        {data && hasStats && (
-          <ToggleChip
-            checked={showStats}
-            onCheckedChange={setShowStats}
-            title="Per-pose residual stats + cross-camera matrix"
-          >
-            Stats
-          </ToggleChip>
+          <ToolbarGroup label="Zoom">
+            <ZoomControls
+              hints
+              onFit={zoom.fit}
+              onOneToOne={zoom.oneToOne}
+              onZoomIn={() => zoom.zoomBy(ZOOM_STEP)}
+              onZoomOut={() => zoom.zoomBy(1 / ZOOM_STEP)}
+            />
+          </ToolbarGroup>
         )}
         {data && (
-          <ToggleChip
-            checked={showUncertainty}
-            onCheckedChange={setShowUncertainty}
-            title="Parameter values ± σ, correlations and projection σ"
-          >
-            Uncertainty
-          </ToggleChip>
+          <ToolbarGroup label="Layers">
+            <ToggleChip
+              checked={compare}
+              onCheckedChange={(next) => {
+                if (next) setLaserView(false);
+                setCompare(next);
+              }}
+              title="Toggle compare mode"
+            >
+              Compare
+            </ToggleChip>
+            {hasLaser && (
+              <ToggleChip
+                checked={laserView}
+                onCheckedChange={(next) => {
+                  if (next) setCompare(false);
+                  setLaserView(next);
+                }}
+                title="Show the laser frame with point-to-plane residuals"
+              >
+                Laser
+              </ToggleChip>
+            )}
+            {compare && (
+              <ToggleChip
+                checked={linked}
+                onCheckedChange={setLinked}
+                title="Toggle linked viewport (L)"
+              >
+                Linked
+              </ToggleChip>
+            )}
+          </ToolbarGroup>
         )}
         {data && typeof data.mean_reproj_error === "number" && (
           <span className="ml-auto font-mono text-xs text-fg-muted">
             mean reproj: {data.mean_reproj_error.toFixed(3)} px
           </span>
         )}
-      </div>
+      </ViewerToolbar>
 
       {error && <ErrorBox>{error}</ErrorBox>}
 
@@ -328,32 +291,6 @@ export function DiagnoseWorkspace() {
             </div>
           )}
         </div>
-
-        {data && ((showStats && hasStats) || showUncertainty) && (
-          <DensityProvider value="compact">
-            <aside className="flex min-h-0 w-[19rem] shrink-0 flex-col gap-2.5 overflow-y-auto">
-              {showUncertainty && (
-                <UncertaintyPanels
-                  uncertainty={uncertainty}
-                  camera={cameraA}
-                  imageSize={imageSize}
-                />
-              )}
-              {showStats && hasStats && run && (
-                <ResidualStatsPanels
-                  run={run}
-                  selectedPose={selectedPose}
-                  selectedCamera={cameraA}
-                  onSelectPose={(pose) => setSelectedPose(pose, "A")}
-                  onSelectFrame={(pose, camera) => {
-                    setSelectedPose(pose, "A");
-                    setCamera(camera, "A");
-                  }}
-                />
-              )}
-            </aside>
-          </DensityProvider>
-        )}
       </div>
 
       {data && activeFrame && (

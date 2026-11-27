@@ -3,7 +3,6 @@
 // for an unavailable reason.
 
 import type {
-  CameraParameters,
   ParameterCovariance,
   ResidualKind,
   Uncertainty,
@@ -47,20 +46,6 @@ export interface ParameterRow {
   /** Standard deviation in display units. */
   sigma: number;
   unit: string;
-}
-
-/** The value of each of `labels` that is a camera parameter of
- * `parameters` (`camera_parameter_values`' reply), aligned with `labels`;
- * `null` for a pose or plane coordinate. */
-export function valuesOf(
-  parameters: CameraParameters,
-  labels: readonly string[],
-): (number | null)[] {
-  const byLabel = new Map<string, number>();
-  for (const camera of parameters.cameras) {
-    for (const p of camera.parameters) byLabel.set(p.label, p.value);
-  }
-  return labels.map((label) => byLabel.get(label) ?? null);
 }
 
 /** One row per shared parameter, `values` aligned with `cov.labels`. */

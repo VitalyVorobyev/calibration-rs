@@ -23,6 +23,8 @@ export const STROKE_PX = 1.5;
 export const ARROW_HEAD_PX = 4;
 /** On-screen px: radius of the observed dot under an arrow. */
 export const OBSERVED_DOT_PX = 1.6;
+/** On-screen px: radius of the ring around the selected feature. */
+export const SELECTION_RING_PX = 7;
 /** On-screen px: radius of a laser observation dot. */
 export const LASER_DOT_PX = 1.4;
 /** Fill of the observed dots. */
@@ -114,6 +116,20 @@ export function buildResidualArrows(
     dots += circle(ox, oy, dotR);
   }
   return { arrows: bucket(arrows), dots };
+}
+
+/** A ring around the observed corner of feature `feature` of the frame, for
+ * the feature the selection names; `null` when the frame has no such one. */
+export function buildFeatureRing(
+  all: readonly TargetFeatureResidual[],
+  frame: Pick<FrameKey, "pose" | "camera">,
+  feature: number | null,
+  unit: number,
+): string | null {
+  if (feature === null) return null;
+  const r = ofFrame(all, frame).find((x) => x.feature === feature);
+  if (!r) return null;
+  return circle(r.observed_px[0], r.observed_px[1], SELECTION_RING_PX * unit);
 }
 
 export function buildLaserOverlay(
