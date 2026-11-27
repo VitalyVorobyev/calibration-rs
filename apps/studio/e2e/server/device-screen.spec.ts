@@ -128,7 +128,9 @@ test("previews a seed, writes it to a file, and sets it on the open project and 
   await page.goto(`${DEVICE}&tab=seed&project=${enc(project)}`);
 
   await expect(page.getByText("A seed is a starting value")).toBeVisible();
-  await expect(page.getByText(/does not constrain the result/)).toBeVisible();
+  await expect(
+    page.getByText(/still estimates its values from its own images/),
+  ).toBeVisible();
   const values = page.getByRole("table", { name: "Values of the seed" });
   await expect(values.getByRole("row", { name: /cam0\.fx/ })).toContainText("200.6");
 

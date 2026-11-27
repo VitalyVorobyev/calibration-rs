@@ -1031,8 +1031,10 @@ class DeviceSeed(_DeviceSeedRequired, total=False):
     """The device quantities a calibration starts from, by camera id: a
     datasheet's nominal values or a previous calibration's estimates.
 
-    A seed is an initial value; nothing in it is a constraint or a prior,
-    and it carries no uncertainty. It holds what belongs to the hardware:
+    A seed is an initial value, not a prior, and it carries no uncertainty.
+    The one place it limits a solve is a Scheimpflug sensor's weakly
+    determined tilt: planar intrinsics refines within bounds around a seeded
+    tilt, and a laserline device holds it. It holds what belongs to the hardware:
     each camera's lens, its mount in the rig, its laser plane and the rig's
     hand-eye. Nothing of a capture is in it (no target poses, robot-pose
     corrections or residuals), and no configuration: the camera model is the
