@@ -35,10 +35,10 @@ const ADDRESSES: { hash: string; marker: RegExp }[] = [
   { hash: "#/library", marker: /^Library$/ },
   // Screens that work on a project say so while none is open.
   { hash: "#/dataset", marker: /Dataset works on a project/ },
+  { hash: "#/detect", marker: /Detect works on a project/ },
   { hash: "#/calibrate", marker: /Calibrate works on a project/ },
   { hash: "#/inspect/frames", marker: /Inspect works on a project/ },
   // Screens that are not built say so instead of breaking.
-  { hash: "#/detect", marker: /Coming in a later release/ },
   { hash: "#/compare", marker: /Coming in a later release/ },
   // The addresses of the screens before the redesign still open.
   { hash: "#/diagnose", marker: /Inspect works on a project/ },

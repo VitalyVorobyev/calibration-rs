@@ -140,6 +140,21 @@ describe("describeJob", () => {
     });
   });
 
+  it("counts the images of detect_all, whose report has no kind", () => {
+    const row = rowsOf(
+      event(
+        "1-a",
+        { kind: "running" },
+        { camera: 0, image: "a.png", done: 3, total: 12 },
+        "detect_all",
+      ),
+    )[0]!;
+    expect(describeJob(row)).toEqual({
+      stage: "Detecting 3/12",
+      progress: { done: 3, total: 12 },
+    });
+  });
+
   it("says the solver's iteration and cost", () => {
     expect(
       describeJob(running({ kind: "iteration", iter: 12, max_iters: 50, cost: 0.32 })),

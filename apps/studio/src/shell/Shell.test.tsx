@@ -45,9 +45,9 @@ describe("the rail", () => {
     backend();
     renderShell("/library");
     await screen.findByText("library body");
-    const detect = screen.getByRole("link", { name: "Detect" });
-    expect(detect.getAttribute("aria-disabled")).toBe("true");
-    expect(detect.getAttribute("title")).toMatch(/coming in a later release/i);
+    const compare = screen.getByRole("link", { name: "Compare" });
+    expect(compare.getAttribute("aria-disabled")).toBe("true");
+    expect(compare.getAttribute("title")).toMatch(/coming in a later release/i);
     const inspect = screen.getByRole("link", { name: "Inspect" });
     expect(inspect.getAttribute("aria-disabled")).toBe("true");
     expect(inspect.getAttribute("title")).toBe("Open a project first");
