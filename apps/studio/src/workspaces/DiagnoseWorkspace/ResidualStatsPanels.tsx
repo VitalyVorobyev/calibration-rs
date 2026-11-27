@@ -1,10 +1,13 @@
-import { Panel } from "@vitavision/ui";
-import type { TargetFeatureResidual } from "../../types";
+import { ErrorBox, Panel } from "@vitavision/ui";
+import { api } from "../../api";
+import type { RunRef } from "../../api/generated/types";
+import { useQuery } from "../../session/query";
 import { CameraResidualMatrix } from "./CameraResidualMatrix";
 import { PoseStatsTable } from "./PoseStatsTable";
 
 interface ResidualStatsPanelsProps {
-  residuals: TargetFeatureResidual[];
+  /** The run whose statistics (`residual_stats`) the panels show. */
+  run: RunRef;
   selectedPose: number;
   selectedCamera: number;
   onSelectPose: (pose: number) => void;
@@ -14,12 +17,15 @@ interface ResidualStatsPanelsProps {
 /** The residual statistics side panels: per-pose residuals, and the
  * cross-camera matrix for a rig. Clicking a row or cell jumps there. */
 export function ResidualStatsPanels({
-  residuals,
+  run,
   selectedPose,
   selectedCamera,
   onSelectPose,
   onSelectFrame,
 }: ResidualStatsPanelsProps) {
+  const stats = useQuery("residual_stats", { run }, () => api.residualStats({ run }));
+  if (stats.error) return <ErrorBox>{stats.error.message}</ErrorBox>;
+  if (!stats.data) return null;
   return (
     <>
       <Panel
@@ -29,14 +35,14 @@ export function ResidualStatsPanels({
         }
       >
         <PoseStatsTable
-          residuals={residuals}
+          views={stats.data.views}
           selectedPose={selectedPose}
           onSelectPose={onSelectPose}
         />
       </Panel>
       {/* Renders nothing (not even its panel) for a single-camera export. */}
       <CameraResidualMatrix
-        residuals={residuals}
+        stats={stats.data}
         selectedPose={selectedPose}
         selectedCamera={selectedCamera}
         onSelect={onSelectFrame}

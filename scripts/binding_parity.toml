@@ -211,6 +211,7 @@
 "dataset_runner::CalibrationExport" = "dataset_runner.CalibrationExport"
 "dataset_runner::DatasetCalibration" = "dataset_runner.DatasetCalibration"
 "dataset_runner::calibrate_dataset" = "calibrate_dataset"
+"dataset_runner::calibrate_dataset_with_seed" = "calibrate_dataset"
 "dataset_runner::camera_image_sizes" = "dataset_runner.camera_image_sizes"
 "dataset_runner::input_files" = "dataset_runner.input_files"
 "project::Project" = "project.Project"

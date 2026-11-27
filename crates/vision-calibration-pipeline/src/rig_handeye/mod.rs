@@ -43,6 +43,8 @@ mod problem;
 mod state;
 mod steps;
 
+pub(crate) use steps::{RigHandeyeSeed, run_seeded};
+
 // Re-export types
 pub use problem::{
     HandeyeOptimizeConfig, RigHandeyeConfig, RigHandeyeExport, RigHandeyeInput, RigHandeyeProblem,

@@ -45,17 +45,17 @@ describe("the page's back end", () => {
 
   it("is the test's transport while one is set", async () => {
     const mock = createMockTransport({
-      commands: { camera_parameter_values: (args) => args.labels.map(() => 1) },
+      commands: { residual_stats: () => ({ cameras: [], views: [], cells: [] }) },
       nativeFolder: () => "/picked",
     });
     setTransport(mock);
     const run = { dir: "/p", id: "run-001" };
-    expect(await api.cameraParameterValues({ run, labels: ["fx", "fy"] })).toEqual([
-      1, 1,
-    ]);
+    expect(await api.residualStats({ run })).toEqual({
+      cameras: [],
+      views: [],
+      cells: [],
+    });
     expect(await pickNativeFolder()).toBe("/picked");
-    expect(mock.calls).toEqual([
-      { command: "camera_parameter_values", args: { run, labels: ["fx", "fy"] } },
-    ]);
+    expect(mock.calls).toEqual([{ command: "residual_stats", args: { run } }]);
   });
 });

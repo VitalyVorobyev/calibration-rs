@@ -91,26 +91,6 @@ pub fn epipolar_overlay_undistorted(
     )?)
 }
 
-/// The value of each labelled parameter of the run's export that is a
-/// camera parameter, aligned with `labels`; `null` for poses and planes.
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CameraParameterValuesArgs {
-    pub run: RunRef,
-    pub labels: Vec<String>,
-}
-
-pub fn camera_parameter_values(
-    ctx: &Ctx,
-    args: CameraParameterValuesArgs,
-) -> Result<Vec<Option<f64>>, StudioError> {
-    let run = ctx.runs.get(ctx, &args.run)?;
-    Ok(uncertainty::camera_parameter_values(
-        &run.export,
-        &args.labels,
-    )?)
-}
-
 /// The projection uncertainty of `camera` of the run over an image of
 /// `image_width` × `image_height` pixels.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -128,7 +108,7 @@ pub fn projection_uncertainty(
 ) -> Result<ProjectionUncertainty, StudioError> {
     let run = ctx.runs.get(ctx, &args.run)?;
     Ok(uncertainty::projection_uncertainty(
-        &run.export,
+        run.cameras()?,
         args.camera,
         [args.image_width, args.image_height],
     )?)
@@ -310,12 +290,19 @@ mod tests {
             .unwrap();
         assert!((px[0][0].as_f64().unwrap() - 10.0).abs() < 1e-6, "{px}");
         let values = api
-            .invoke(
-                "camera_parameter_values",
-                json!({"run": run, "labels": ["cam1.fx", "cam0.cy"]}),
-            )
+            .invoke("camera_parameter_values", json!({"run": run}))
             .unwrap();
-        assert_eq!(values, json!([200.0, 59.5]));
+        let value = |camera: usize, name: &str| {
+            values["cameras"][camera]["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["name"] == name)
+                .map(|p| (p["label"].clone(), p["value"].clone()))
+                .unwrap()
+        };
+        assert_eq!(value(1, "fx"), (json!("cam1.fx"), json!(200.0)));
+        assert_eq!(value(0, "cy"), (json!("cam0.cy"), json!(59.5)));
         api.invoke(
             "projection_uncertainty",
             json!({"run": run, "camera": 0, "image_width": 160, "image_height": 120}),

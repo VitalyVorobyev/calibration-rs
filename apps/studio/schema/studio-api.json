@@ -354,18 +354,11 @@
       "args": {
         "$ref": "#/definitions/CameraParameterValuesArgs"
       },
-      "doc": "The value of each labelled parameter of the run's export that is a\ncamera parameter, aligned with `labels`; `null` for poses and planes.",
+      "doc": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound.",
       "kind": "plain",
       "name": "camera_parameter_values",
       "reply": {
-        "items": {
-          "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "type": "array"
+        "$ref": "#/definitions/CameraParameters"
       }
     },
     {
@@ -392,6 +385,109 @@
       "name": "disparity",
       "output": {
         "$ref": "#/definitions/DisparityResult"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DistortionMapArgs"
+      },
+      "doc": "The lens and sensor displacement of camera `camera` of the run over its\nimage: three layers, each a plane of `dx`, `dy` and `magnitude` in\npixels, `actual − reference` at the same ray (where the ray lands minus\nwhere it would land without the stage), indexed by the camera's own\npixel. `distortion` is the lens alone (the camera without its sensor\ntilt minus the camera without distortion), `sensor` what the sensor\nmodel adds (zero for an untilted sensor), `total` their sum. `NaN` where\nno ray reaches a node. `columns` (default 64, at most 1024) sets the\ngrid every map of the camera shares.",
+      "kind": "plain",
+      "name": "distortion_map",
+      "reply": {
+        "$ref": "#/definitions/DistortionMap"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ResidualMapArgs"
+      },
+      "doc": "The systematic part of camera `camera`'s reprojection residuals over its\nimage, the library's local-linear residual map: one plane of eight\nchannels, `mean_dx`, `mean_dy`, `mean_magnitude` (the smoothed mean of\n`observed − projected`, px), `rms` (px), `std_error` (px, view-clustered),\n`significance` (χ: above 3.03 is p < 0.01), `effective_samples` and\n`effective_views`. Records sit at their projection. `NaN` where the\nsupport is too thin (`effective_samples` below\n`options.min_effective_samples`) and, for `std_error` and\n`significance`, with too few effective views. `options.views` maps a\nsubset of the views (their indices in the export); one view, or too few\neffective views, gives a mean that includes the views' pose error and no\nsignificance. `columns` as `distortion_map`'s. `invalid` for a run\nwithout per-feature residuals of the camera.",
+      "kind": "plain",
+      "name": "residual_map",
+      "reply": {
+        "$ref": "#/definitions/ResidualMap"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ProjectionSigmaMapArgs"
+      },
+      "doc": "The projection uncertainty of camera `camera` on the maps' grid: one\nplane, `sigma`, the major-axis σ in pixels of where the camera-frame ray\nthrough each node lands, from the covariance of the camera's\nparameters; `NaN` where no ray reaches a node. `unavailable`, with the\nreason, for a run without a covariance or whose camera parameters were\nall held fixed. `columns` as `distortion_map`'s.",
+      "kind": "plain",
+      "name": "projection_sigma_map",
+      "reply": {
+        "$ref": "#/definitions/ProjectionSigmaMap"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ResidualRecordsArgs"
+      },
+      "doc": "Camera `camera`'s per-feature residual records (of one `view`, when\ngiven), one column per field, in the export's order: each record's\nindex in the export, view, feature, target point, observed and\nprojected pixel and `observed − projected`. The target point is the one\nthe calibration used: an exclusion names a feature by its detection's\n`world_xyz` (`detection_detail`), which a rig of plain chessboards may\nhave relabelled.",
+      "kind": "plain",
+      "name": "residual_records",
+      "reply": {
+        "$ref": "#/definitions/ResidualRecords"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ResidualStatsArgs"
+      },
+      "doc": "The run's reprojection statistics from its per-feature residuals (the\nlibrary's mean, RMS, largest error and count of `|observed −\nprojected|`, px), per camera, per view over every camera, and per\ncamera and view, with the records whose projection diverged.",
+      "kind": "plain",
+      "name": "residual_stats",
+      "reply": {
+        "$ref": "#/definitions/ResidualStats"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DetectionOverviewArgs"
+      },
+      "doc": "What the project's detection cache holds of every image, view by view\nand camera by camera (the views of `project_views`): the features found\nand the detector's outcome, or that the image has no cached detection\nwith the project's detector settings. No image is decoded or detected;\neach is read to find its cache entry. `left_out` gives why run `run`\n(default: the latest calibrated run) left an image out.",
+      "kind": "plain",
+      "name": "detection_overview",
+      "reply": {
+        "$ref": "#/definitions/DetectionOverview"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DetectionDetailArgs"
+      },
+      "doc": "Camera `camera`'s detection of `image` (relative to the data folder, as\n`project_views` lists it) with what an overlay needs: the features (in\nthe camera's region of interest when it has one), the target's per-kind\ndetail aligned with them, the candidates the detector left out and the\nimage's outcome. Read from the project's detection cache, or detected\nand stored there (features and detail) when it holds none: the\ndetection a calibration of the project uses. A feature is excluded by\nits `world_xyz`. `invalid` for an image that is not one of the\ncamera's.",
+      "kind": "plain",
+      "name": "detection_detail",
+      "reply": {
+        "$ref": "#/definitions/DetectionDetail"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DetectPreviewArgs"
+      },
+      "doc": "`detection_detail` of one image with `detector` in place of the\nproject's detector settings (the manifest's `detector` section; `{}` is\nthe detectors' defaults), to preview an edit: detected now, and nothing\nis written (neither the project nor its detection cache).",
+      "kind": "plain",
+      "name": "detect_preview",
+      "reply": {
+        "$ref": "#/definitions/DetectionDetail"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/DetectAllArgs"
+      },
+      "doc": "Detect every image of the project into its detection cache (images it\nalready holds are read from it, unless `redetect`), several at a time;\nits events count the images done, its output is the\n`detection_overview` of the result. An image that cannot be read or\ndetected is reported in the overview, not as the job's failure.\nCancelling stops between images; what was detected stays cached.",
+      "event": {
+        "$ref": "#/definitions/DetectProgress"
+      },
+      "kind": "job",
+      "lane": "heavy",
+      "name": "detect_all",
+      "output": {
+        "$ref": "#/definitions/DetectionOverview"
       }
     },
     {
@@ -476,6 +572,108 @@
         "path"
       ],
       "type": "object"
+    },
+    "Bandwidth": {
+      "description": "How [`residual_map`] chooses the kernel's bandwidth.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "K-fold cross-validation over views on a ladder of fractions of the\nimage diagonal (see [`residual_map`]).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The Gaussian kernel's σ, pixels (finite, > 0).",
+          "properties": {
+            "pixels": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "pixels"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "BandwidthSelection": {
+      "description": "How [`residual_map`] chose its bandwidth.",
+      "oneOf": [
+        {
+          "description": "The options gave it ([`Bandwidth::Pixels`]).",
+          "properties": {
+            "kind": {
+              "const": "given",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cross-validated over views ([`Bandwidth::Auto`]).",
+          "properties": {
+            "folds": {
+              "description": "The number of folds.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "cross_validated",
+              "type": "string"
+            },
+            "ladder_px": {
+              "description": "The scored ladder entries, pixels, ascending. Empty when no\nentry predicted any held-out record; the bandwidth is then\n`0.1·diagonal`.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "score_std_errors_px2": {
+              "description": "The standard error of each score, from its per-fold scores, px².",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "scores_px2": {
+              "description": "The mean squared held-out error at each scored entry, px².",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "folds",
+            "ladder_px",
+            "scores_px2",
+            "score_std_errors_px2"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fewer than four views to cross-validate: `0.1·diagonal`.",
+          "properties": {
+            "kind": {
+              "const": "few_views",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "BlobQuery": {
       "additionalProperties": false,
@@ -887,23 +1085,119 @@
       ],
       "type": "object"
     },
-    "CameraParameterValuesArgs": {
-      "additionalProperties": false,
-      "description": "The value of each labelled parameter of the run's export that is a\ncamera parameter, aligned with `labels`; `null` for poses and planes.",
+    "CameraParameter": {
+      "description": "One parameter of a camera.",
       "properties": {
-        "labels": {
+        "at_bound": {
+          "description": "The solve ended with it on a box bound (the reason the run has no\ncovariance). The bounds themselves are the workflow's own and not\nrecorded in the export.",
+          "type": "boolean"
+        },
+        "group": {
+          "$ref": "#/definitions/ParameterGroup"
+        },
+        "label": {
+          "description": "Its label in the export's uncertainty (`fx`, `cam1.k1`).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Its name in the camera model (`fx`, `k1`, `tilt_x`).",
+          "type": "string"
+        },
+        "sigma": {
+          "$ref": "#/definitions/ParameterSigma"
+        },
+        "unit": {
+          "description": "`px` (intrinsics), `rad` (sensor tilt) or empty (a coefficient).",
+          "type": "string"
+        },
+        "value": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "name",
+        "group",
+        "value",
+        "unit",
+        "sigma",
+        "at_bound"
+      ],
+      "type": "object"
+    },
+    "CameraParameterSet": {
+      "description": "One camera's model and parameters.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "distortion": {
+          "$ref": "#/definitions/DistortionKind"
+        },
+        "parameters": {
+          "description": "Its parameters in the solver's order; empty for a model the solver\ndoes not estimate (`unsupported` says why).",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/CameraParameter"
           },
           "type": "array"
         },
+        "projection": {
+          "$ref": "#/definitions/ProjectionKind"
+        },
+        "sensor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SensorKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`null` for a general sensor homography."
+        },
+        "unsupported": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "camera",
+        "projection",
+        "distortion",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "CameraParameterValuesArgs": {
+      "additionalProperties": false,
+      "description": "Every parameter of every camera of the run, whatever its model: its\nlabel in the export's uncertainty, name, group, value and unit, its σ\nor why it has none (no covariance and the library's reason, held fixed,\nnot listed), and whether the solve ended with it on a bound.",
+      "properties": {
         "run": {
           "$ref": "#/definitions/RunRef"
         }
       },
       "required": [
-        "run",
-        "labels"
+        "run"
+      ],
+      "type": "object"
+    },
+    "CameraParameters": {
+      "description": "Every camera's parameters, in camera order.",
+      "properties": {
+        "cameras": {
+          "items": {
+            "$ref": "#/definitions/CameraParameterSet"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cameras"
       ],
       "type": "object"
     },
@@ -999,6 +1293,43 @@
       ],
       "type": "object"
     },
+    "CameraStats": {
+      "description": "One camera's statistics.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReprojectionStats"
+            }
+          ],
+          "description": "Mean, RMS and largest error length `|observed − projected|`, pixels,\nover the records with a projection (all zero when there is none)."
+        },
+        "unprojected": {
+          "description": "Records without a projection (it diverged), not in `stats`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "The views it has records in.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "stats",
+        "unprojected",
+        "views"
+      ],
+      "type": "object"
+    },
     "CameraSummary": {
       "description": "One camera of a [`RunSummary`].",
       "properties": {
@@ -1044,6 +1375,82 @@
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "CellStats": {
+      "description": "One camera's statistics in one view.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReprojectionStats"
+            }
+          ],
+          "description": "Mean, RMS and largest error length `|observed − projected|`, pixels,\nover the records with a projection (all zero when there is none)."
+        },
+        "unprojected": {
+          "description": "Records without a projection (it diverged), not in `stats`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "view",
+        "stats",
+        "unprojected"
+      ],
+      "type": "object"
+    },
+    "CharucoDetail": {
+      "description": "A ChArUco board's overlay data.",
+      "properties": {
+        "corners": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/definitions/CornerDetail"
+          },
+          "type": "array"
+        },
+        "markers": {
+          "description": "The markers the board alignment kept.",
+          "items": {
+            "$ref": "#/definitions/MarkerDetail"
+          },
+          "type": "array"
+        },
+        "quality": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CornerQuality"
+            }
+          ],
+          "description": "How well the corners are localized."
+        },
+        "rejected_markers": {
+          "description": "Marker cells, of the board the detection was built from, whose bits\nmatch another marker of the board better than the one the chosen\nalignment places there: a misread or wrongly placed marker.",
+          "items": {
+            "$ref": "#/definitions/RejectedMarker"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "corners",
+        "markers",
+        "quality"
       ],
       "type": "object"
     },
@@ -1167,6 +1574,39 @@
       },
       "type": "object"
     },
+    "ChessboardDetail": {
+      "description": "A chessboard's overlay data.",
+      "properties": {
+        "cell_size_px": {
+          "description": "The board's cell size in pixels (median labelled edge length);\n`None` when no board was detected.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "corners": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/definitions/CornerDetail"
+          },
+          "type": "array"
+        },
+        "quality": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CornerQuality"
+            }
+          ],
+          "description": "How well the corners are localized."
+        }
+      },
+      "required": [
+        "corners",
+        "quality"
+      ],
+      "type": "object"
+    },
     "CombinationTerm": {
       "description": "One term of a combination of parameters: a parameter and its weight, in\nunits of the parameter's σ.",
       "properties": {
@@ -1269,6 +1709,92 @@
           "description": "The image noise that the propagated covariance is expressed in.\nDefaults to `estimate`: the noise is estimated from each image, which\nis unreliable on JPEG or demosaiced images; give `stated` for those."
         }
       },
+      "type": "object"
+    },
+    "CornerDetail": {
+      "description": "One labelled board corner, aligned with a [`Feature`].",
+      "properties": {
+        "axes_rad": {
+          "description": "Directions of the two grid lines through the corner, radians in\n`[0, 2π)`, as the corner stage measured them. Present on a chessboard\ncorner whose corner stage fitted at least one axis; `None` on ChArUco\nand PuzzleBoard corners, whose detectors do not report them.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "grid": {
+          "description": "The detector's lattice label `[u, v]`: `u` along the board's +x, `v`\nalong its +y. A plain chessboard labels each view from its own\ntop-left corner; a ChArUco board and a PuzzleBoard label it on the\nboard (the PuzzleBoard on its master pattern).",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "id": {
+          "description": "The ChArUco corner id, or the PuzzleBoard master corner id; `None`\non a chessboard.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "score": {
+          "description": "The detector's corner score: higher is better, not comparable across\ndetectors.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "grid",
+        "score"
+      ],
+      "type": "object"
+    },
+    "CornerQuality": {
+      "description": "How well a detection's corners are localized, as the detector measured\nit on the corners it returned.",
+      "properties": {
+        "local_residual_count": {
+          "description": "Number of corners with enough labelled neighbours (six of the eight)\nfor the leave-one-out check: each such corner's position is\npredicted from its neighbours.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "local_residual_rms_px": {
+          "description": "RMS length of the leave-one-out residuals (observed minus predicted\nposition) over those corners, px; `None` when no corner qualifies.\nThe detectors report this aggregate only, not each corner's residual.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "median_sigma_px": {
+          "description": "Median over the corners of their 1σ position uncertainty along the\nleast certain direction, px; `None` when no corner carries a\ncovariance.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "noise_sigma": {
+          "description": "The image noise level, gray levels (1σ), the corner covariances were\ncomputed with; `None` when no covariance was computed.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "local_residual_count"
+      ],
       "type": "object"
     },
     "CornerStrategySpec": {
@@ -1514,6 +2040,303 @@
       "required": [
         "dir",
         "id"
+      ],
+      "type": "object"
+    },
+    "DetectAllArgs": {
+      "additionalProperties": false,
+      "description": "Detect every image of the project into its detection cache (images it\nalready holds are read from it, unless `redetect`), several at a time;\nits events count the images done, its output is the\n`detection_overview` of the result. An image that cannot be read or\ndetected is reported in the overview, not as the job's failure.\nCancelling stops between images; what was detected stays cached.",
+      "properties": {
+        "dir": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            }
+          ],
+          "description": "The project folder."
+        },
+        "redetect": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dir"
+      ],
+      "type": "object"
+    },
+    "DetectPreviewArgs": {
+      "additionalProperties": false,
+      "description": "`detection_detail` of one image with `detector` in place of the\nproject's detector settings (the manifest's `detector` section; `{}` is\nthe detectors' defaults), to preview an edit: detected now, and nothing\nis written (neither the project nor its detection cache).",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "detector": {
+          "$ref": "#/definitions/DetectorSpec"
+        },
+        "dir": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            }
+          ],
+          "description": "The project folder."
+        },
+        "image": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dir",
+        "camera",
+        "image",
+        "detector"
+      ],
+      "type": "object"
+    },
+    "DetectProgress": {
+      "description": "How far `detect_all` is.",
+      "properties": {
+        "camera": {
+          "description": "The image last done: its camera and path (relative to the data\nfolder).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "done": {
+          "description": "Images done.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image": {
+          "type": "string"
+        },
+        "total": {
+          "description": "Images in all.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total",
+        "camera",
+        "image"
+      ],
+      "type": "object"
+    },
+    "DetectionDetail": {
+      "description": "What a detector found in one image: the correspondences\n[`DetectorConfig::detect`](crate::DetectorConfig::detect) returns, and\nwhat an overlay needs to judge them.",
+      "properties": {
+        "features": {
+          "description": "The features, equal bit for bit to what\n[`DetectorConfig::detect`](crate::DetectorConfig::detect) returns for\nthe same image and config.",
+          "items": {
+            "$ref": "#/definitions/Feature"
+          },
+          "type": "array"
+        },
+        "outcome": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DetectionOutcome"
+            }
+          ],
+          "description": "The image-level outcome."
+        },
+        "rejected": {
+          "description": "Point candidates the detector or this crate saw and did not keep,\neach with its reason. Empty when there were none, and on an\n[`DetectionOutcome::Ambiguous`] image (its dropped points are not\nlisted).",
+          "items": {
+            "$ref": "#/definitions/RejectedPoint"
+          },
+          "type": "array"
+        },
+        "target": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/TargetDetail"
+            }
+          ],
+          "description": "Target-specific overlay data. Its per-feature vector (`corners` or\n`rings`) holds one entry per feature, in the order of\n[`features`](Self::features)."
+        }
+      },
+      "required": [
+        "features",
+        "outcome",
+        "target"
+      ],
+      "type": "object"
+    },
+    "DetectionDetailArgs": {
+      "additionalProperties": false,
+      "description": "Camera `camera`'s detection of `image` (relative to the data folder, as\n`project_views` lists it) with what an overlay needs: the features (in\nthe camera's region of interest when it has one), the target's per-kind\ndetail aligned with them, the candidates the detector left out and the\nimage's outcome. Read from the project's detection cache, or detected\nand stored there (features and detail) when it holds none: the\ndetection a calibration of the project uses. A feature is excluded by\nits `world_xyz`. `invalid` for an image that is not one of the\ncamera's.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dir": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            }
+          ],
+          "description": "The project folder."
+        },
+        "image": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dir",
+        "camera",
+        "image"
+      ],
+      "type": "object"
+    },
+    "DetectionOutcome": {
+      "description": "The outcome of one image's detection.",
+      "oneOf": [
+        {
+          "description": "The target was found and [`DetectionDetail::features`] is not empty.",
+          "properties": {
+            "status": {
+              "const": "detected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The detector found no target; `reason` is its own account (for a\nChArUco board, with each grid component's rejection by the marker\nmatcher).",
+          "properties": {
+            "reason": {
+              "description": "The detector's reason, for a reader.",
+              "type": "string"
+            },
+            "status": {
+              "const": "not_found",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The detection repeated an image point or a target point, so its\nlabels are not trustworthy and it was dropped whole\n([`reject_ambiguous_detection`](crate::reject_ambiguous_detection)).",
+          "properties": {
+            "repeated_pixels": {
+              "description": "Features whose pixel repeats an earlier feature's.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "repeated_points": {
+              "description": "Features whose target point repeats an earlier feature's.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "const": "ambiguous",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "repeated_pixels",
+            "repeated_points"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A target was detected, but this crate's filters removed every\nfeature: see [`DetectionDetail::rejected`].",
+          "properties": {
+            "status": {
+              "const": "filtered",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DetectionOverview": {
+      "description": "The project's images as its detection cache knows them.",
+      "properties": {
+        "cameras": {
+          "description": "The cameras' ids, in manifest order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expected": {
+          "description": "The features a complete detection of the board has (corners of a\nchessboard or ChArUco board, markers of a ring grid); `null` for a\nPuzzleBoard, which is made to be seen in part.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run": {
+          "description": "The run whose `left_out` reasons are given: the one asked for, else\nthe project's latest calibrated run; `null` when there is none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "views": {
+          "description": "The views, in pairing order.",
+          "items": {
+            "$ref": "#/definitions/ViewDetections"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cameras",
+        "views"
+      ],
+      "type": "object"
+    },
+    "DetectionOverviewArgs": {
+      "additionalProperties": false,
+      "description": "What the project's detection cache holds of every image, view by view\nand camera by camera (the views of `project_views`): the features found\nand the detector's outcome, or that the image has no cached detection\nwith the project's detector settings. No image is decoded or detected;\neach is read to find its cache entry. `left_out` gives why run `run`\n(default: the latest calibrated run) left an image out.",
+      "properties": {
+        "dir": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            }
+          ],
+          "description": "The project folder."
+        },
+        "run": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dir"
       ],
       "type": "object"
     },
@@ -1931,6 +2754,76 @@
         }
       ]
     },
+    "DistortionMap": {
+      "description": "A camera's distortion map (see `distortion_map`).",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "distortion": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "grid": {
+          "$ref": "#/definitions/MapGrid"
+        },
+        "has_sensor_layer": {
+          "description": "Whether the sensor model can add a layer (a tilted or homography\nsensor); without one `sensor` is zero.",
+          "type": "boolean"
+        },
+        "sensor": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "total": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "valid_nodes": {
+          "description": "Nodes with a value (the others are `NaN` in every layer).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "grid",
+        "valid_nodes",
+        "has_sensor_layer",
+        "distortion",
+        "sensor",
+        "total"
+      ],
+      "type": "object"
+    },
+    "DistortionMapArgs": {
+      "additionalProperties": false,
+      "description": "The lens and sensor displacement of camera `camera` of the run over its\nimage: three layers, each a plane of `dx`, `dy` and `magnitude` in\npixels, `actual − reference` at the same ray (where the ray lands minus\nwhere it would land without the stage), indexed by the camera's own\npixel. `distortion` is the lens alone (the camera without its sensor\ntilt minus the camera without distortion), `sensor` what the sensor\nmodel adds (zero for an untilted sensor), `total` their sum. `NaN` where\nno ray reaches a node. `columns` (default 64, at most 1024) sets the\ngrid every map of the camera shares.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columns": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
+    },
     "DistortionParams": {
       "description": "Serializable distortion model parameters.",
       "oneOf": [
@@ -2203,6 +3096,85 @@
           "type": "object"
         }
       ]
+    },
+    "EdgeBitDetail": {
+      "description": "One code bit read on a PuzzleBoard edge.",
+      "properties": {
+        "bit": {
+          "description": "The bit read: the dot on the edge is black (`0`) or white (`1`).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "confidence": {
+          "description": "The read's confidence, in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "endpoints_px": {
+          "description": "The two corners the edge joins, image pixels. An edge is listed only\nwhen both are features.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "matches_master": {
+          "description": "Whether the bit equals the master pattern's bit at this edge under\nthe decoded alignment.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "endpoints_px",
+        "bit",
+        "confidence",
+        "matches_master"
+      ],
+      "type": "object"
+    },
+    "EllipseDetail": {
+      "description": "An ellipse in image pixels.",
+      "properties": {
+        "angle_rad": {
+          "description": "The direction of the major axis, radians.",
+          "format": "double",
+          "type": "number"
+        },
+        "center_px": {
+          "description": "The centre, px.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "semi_axes_px": {
+          "description": "The semi-axes `[a, b]`, `a ≥ b`, px.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "center_px",
+        "semi_axes_px",
+        "angle_rad"
+      ],
+      "type": "object"
     },
     "EntryKind": {
       "enum": [
@@ -2566,6 +3538,95 @@
           "description": "The reprojection (and, for a laser workflow, laser) residual of every\nfeature, with per-camera histograms."
         }
       },
+      "type": "object"
+    },
+    "Feature": {
+      "description": "Single 2D-3D feature correspondence in canonical units.\n\n`image_xy` is in source-image pixels (pre-ROI-crop if a ROI is\ndeclared in the manifest, the converter adjusts as needed).\n`world_xyz` is in metres, expressed in the calibration target's\nown frame (target origin at `(0, 0, 0)`, target plane at `z = 0`).",
+      "properties": {
+        "blur": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FeatureBlur"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The blur the detector measured at this feature, with its covariance\n([`FeatureBlur`]). Present when the detector was asked to measure one\n(`measure_blur` on the chessboard and PuzzleBoard configs) and the\nestimate at this corner was not declined; `None` otherwise.\n\nA measurement only: no calibration reads it."
+        },
+        "cov_px": {
+          "description": "Covariance of `image_xy` as `[xx, xy, yy]` in px², in the image\nframe of `image_xy`. Present only when the detector was asked for it\n(`ChessCornersConfig::covariance`) and measured one; `None` otherwise.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "image_xy": {
+          "description": "Pixel coordinates `[x, y]` (column, row).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "world_xyz": {
+          "description": "World coordinates `[x, y, z]` in metres in the target frame.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "image_xy",
+        "world_xyz"
+      ],
+      "type": "object"
+    },
+    "FeatureBlur": {
+      "description": "The blur a detector measured at one feature: the Gaussian point-spread\nfunction (PSF) that best explains the blurred print around the feature,\nand the covariance of that estimate.\n\n**`psf_px`** is the PSF's covariance matrix `Σ = [[xx, xy], [xy, yy]]`\nin px², stored as `[xx, xy, yy]` (the layout of\n[`Feature::cov_px`]), in the image frame of `image_xy`. Its principal\naxes are the directions of least and most blur, and `√(tr Σ / 2) =\n√((xx + yy) / 2)` is the PSF's width σ in pixels.\n\n`Σ` is the blur **as the image shows it, including the pixel's area\nintegration**: for a Gaussian optical PSF of covariance `Σ_o` seen by\nsquare pixels, `Σ = Σ_o + I/12`, so a perfectly focused camera has\n`Σ = I/12`. A model of the optics that predicts `Σ_o` adds `I/12` to its\nprediction before comparing it with `psf_px`. The constant is not\nsubtracted here: it is what the detector measured, its covariance is\nunchanged by a constant shift, and on a sharp feature `Σ − I/12` is\nwithin the estimate's error of zero and need not be positive definite.\n\n**`cov`** is the 3×3 covariance of `(xx, xy, yy)`, px⁴, row-major. How\nfar it can be trusted is the detector's statement. For chessboard and\nPuzzleBoard corners it allows for residuals correlated between\nneighbouring pixels, and a combination of `Σ` the print around the\ncorner constrains weakly (with one edge direction, the width along that\nedge) shows as a large variance.\n\nUnder a non-Gaussian PSF (a defocus disc, a halo) `Σ` is the covariance\nof the Gaussian that blurs the print most like the lens does, not the\nPSF's second moment; it then depends on the cell size and the pattern,\nso compare values measured on the same board.",
+      "properties": {
+        "cov": {
+          "description": "The covariance of `psf_px`, px⁴, row-major.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "psf_px": {
+          "description": "The PSF covariance `[xx, xy, yy]`, px², including the pixel's area\nintegration.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "psf_px",
+        "cov"
+      ],
       "type": "object"
     },
     "FeatureExclusion": {
@@ -2970,6 +4031,98 @@
             "mode",
             "rig_se3_base",
             "gripper_se3_target"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ImageDetection": {
+      "description": "One camera's image of a view.",
+      "properties": {
+        "image": {
+          "description": "The image, relative to the data folder (absolute outside it),\n`/`-separated: as `project_views` lists it, and as an exclusion\nnames it.",
+          "type": "string"
+        },
+        "left_out": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RejectReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the overview's run left the image out; `null` when it used it\n(or there is no run)."
+        },
+        "state": {
+          "$ref": "#/definitions/ImageDetectionState"
+        }
+      },
+      "required": [
+        "image",
+        "state"
+      ],
+      "type": "object"
+    },
+    "ImageDetectionState": {
+      "description": "What the cache holds of one camera's image.",
+      "oneOf": [
+        {
+          "description": "No detection of the image with the project's detector settings is\ncached: it was never detected, or the image or the settings changed\nsince.",
+          "properties": {
+            "kind": {
+              "const": "not_detected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Detected: the features found, and the detector's outcome. `outcome`\nis `detected` when features were found; when none were, the cached\ndetail's account, or `null` when only the (empty) features are\ncached (a calibration caches no detail).",
+          "properties": {
+            "features": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "detected",
+              "type": "string"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/DetectionOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "features"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The image could not be read or detected.",
+          "properties": {
+            "error": {
+              "$ref": "#/definitions/StudioError"
+            },
+            "kind": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "error"
           ],
           "type": "object"
         }
@@ -3927,6 +5080,128 @@
       ],
       "type": "object"
     },
+    "MapGrid": {
+      "description": "The nodes every plane of a map is sampled at: the centres of\n`stride × stride` pixel blocks over the camera's image (its region of\ninterest for a tiled camera), row-major from the top-left. Pixel\ncentres are at integer coordinates; block `(c, r)`'s node is at\n`x = (c·stride + min((c + 1)·stride, width) − 1) / 2` (likewise `y`), so\na trailing partial block is centred on its in-image pixels. The\n`VAM1` header of every plane carries `columns`, `rows` and `stride`.",
+      "properties": {
+        "columns": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "image_size": {
+          "description": "`[width, height]` of the camera's image, pixels.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stride": {
+          "description": "The block size, pixels.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "image_size",
+        "stride",
+        "columns",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "MapPlane": {
+      "description": "A value plane of a map: a `VAM1` blob (the `blob` resource) whose\nchannels, in order, are `channels`. `NaN` marks a node without a value.",
+      "properties": {
+        "blob": {
+          "$ref": "#/definitions/BlobRef"
+        },
+        "channels": {
+          "items": {
+            "$ref": "#/definitions/PlaneChannel"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "blob",
+        "channels"
+      ],
+      "type": "object"
+    },
+    "MarkerDetail": {
+      "description": "One decoded ArUco marker of a ChArUco board.",
+      "properties": {
+        "cell": {
+          "description": "The board square it sits in, `[column, row]`.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "hamming": {
+          "description": "Bits read in the image that differ from the marker's code.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "The marker's dictionary id.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quad_px": {
+          "description": "The square's corners in image pixels, in the board's order: the\nsquare's top-left on the board (the marker's own top-left) first,\nthen clockwise on the board.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "rotation": {
+          "description": "The rotation, in quarter turns, that aligns the bits read in the\nimage with the dictionary's code.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "score": {
+          "description": "The decoding's confidence, in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "cell",
+        "quad_px",
+        "rotation",
+        "hamming",
+        "score"
+      ],
+      "type": "object"
+    },
     "Measurement": {
       "description": "A check's measured value and the limit that decided its status.",
       "properties": {
@@ -4051,6 +5326,70 @@
         "dof"
       ],
       "type": "object"
+    },
+    "ParameterGroup": {
+      "description": "Which stage of the camera model a parameter belongs to.",
+      "oneOf": [
+        {
+          "const": "intrinsics",
+          "description": "`fx`, `fy`, `cx`, `cy`.",
+          "type": "string"
+        },
+        {
+          "const": "projection",
+          "description": "The projection's own parameters.",
+          "type": "string"
+        },
+        {
+          "const": "distortion",
+          "description": "The distortion coefficients.",
+          "type": "string"
+        },
+        {
+          "const": "sensor",
+          "description": "The sensor's (a Scheimpflug tilt).",
+          "type": "string"
+        }
+      ]
+    },
+    "ParameterSigma": {
+      "description": "A parameter's standard deviation, or why it has none.",
+      "oneOf": [
+        {
+          "description": "Estimated: its σ, in the parameter's unit.",
+          "properties": {
+            "kind": {
+              "const": "estimated",
+              "type": "string"
+            },
+            "sigma": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "sigma"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "unavailable",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/SigmaUnavailable"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PerFeatureResiduals": {
       "description": "Container bundled into every `*Export` carrying the per-feature drill-down\ndata the diagnose UI consumes.\n\nEmpty `Vec`s mean \"this problem type does not produce observations of that\nflavor\" (e.g., `PlanarIntrinsicsExport.per_feature_residuals.laser` is\nalways empty). The histogram fields are `Option`: `None` means the problem\ntype chose not to produce a per-camera aggregate; `Some(vec)` length must\nmatch `num_cameras`.",
@@ -4296,6 +5635,37 @@
       ],
       "type": "object"
     },
+    "PlaneChannel": {
+      "description": "One channel of a [`MapPlane`].",
+      "properties": {
+        "domain": {
+          "description": "`[min, max]` of its finite values; `null` when no node has one.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "What the channel holds (`dx`, `dy`, `magnitude`, `rms`, …).",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Its unit: `px`, `chi` (a significance), `samples`, `views`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
+      ],
+      "type": "object"
+    },
     "PlaneOptimizeConfig": {
       "additionalProperties": false,
       "description": "The laser-plane refinement of a rig laserline calibration\n(`step_optimize`): each camera's plane fitted to its laser pixels, the\ncameras and the target poses held at the upstream calibration. The\ntarget corners only place the target; with everything they constrain\nheld, they have no loss or weight here.",
@@ -4322,6 +5692,81 @@
         "laser_loss"
       ],
       "type": "object"
+    },
+    "PointRejection": {
+      "description": "Why a point candidate was left out.",
+      "oneOf": [
+        {
+          "description": "A chessboard corner candidate no labelled grid took. Listed within\nthe labelled corners' bounding box widened by two cells, or, when\nnothing was labelled, the strongest 1 000. ChArUco and PuzzleBoard\ndetails list none: their detectors do not say which candidates they\ntook.",
+          "properties": {
+            "kind": {
+              "const": "unlabelled",
+              "type": "string"
+            },
+            "strength": {
+              "description": "The corner detector's response.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "strength"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Labelled outside the declared board.",
+          "properties": {
+            "kind": {
+              "const": "outside_board",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A ring marker with no board position: a view the detector could not\nplace on the board, or a marker off it.",
+          "properties": {
+            "confidence": {
+              "description": "The detector's confidence in the centre, in `[0, 1]`.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "unanchored",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "confidence"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A ring marker whose photometric fit fell back to an ellipse centre,\nwith photometric centres requested.",
+          "properties": {
+            "confidence": {
+              "description": "The detector's confidence in the centre, in `[0, 1]`.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "uncorrected_center",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "confidence"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PoseColumnMap": {
       "additionalProperties": false,
@@ -4930,6 +6375,87 @@
         }
       ]
     },
+    "ProjectionSigmaMap": {
+      "description": "A camera's projection σ on the maps' grid, or why it has none.",
+      "oneOf": [
+        {
+          "properties": {
+            "camera": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "grid": {
+              "$ref": "#/definitions/MapGrid"
+            },
+            "plane": {
+              "$ref": "#/definitions/MapPlane"
+            },
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "camera",
+            "grid",
+            "plane"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "camera": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "$ref": "#/definitions/SigmaUnavailable"
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "camera",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectionSigmaMapArgs": {
+      "additionalProperties": false,
+      "description": "The projection uncertainty of camera `camera` on the maps' grid: one\nplane, `sigma`, the major-axis σ in pixels of where the camera-frame ray\nthrough each node lands, from the covariance of the camera's\nparameters; `NaN` where no ray reaches a node. `unavailable`, with the\nreason, for a run without a covariance or whose camera parameters were\nall held fixed. `columns` as `distortion_map`'s.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columns": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
+    },
     "ProjectionUncertainty": {
       "description": "The projection uncertainty of one camera over its image.\n\nGrid nodes are evenly spaced from pixel `(0, 0)` to\n`(width − 1, height − 1)`, corners included, and listed row by row from\nthe top-left. Each value is the major-axis standard deviation, in pixels,\nof where the ray through the node projects.",
       "properties": {
@@ -5024,6 +6550,100 @@
         "camera",
         "image_width",
         "image_height"
+      ],
+      "type": "object"
+    },
+    "PuzzleboardDecode": {
+      "description": "How a PuzzleBoard decoded.",
+      "properties": {
+        "bit_error_rate": {
+          "description": "Fraction of the read bits that disagree with the master pattern.",
+          "format": "double",
+          "type": "number"
+        },
+        "dot_dissent_rate": {
+          "description": "Fraction of the read confidence that lost its majority vote; high\nmeans noisy dots or a mislabelled grid.",
+          "format": "double",
+          "type": "number"
+        },
+        "edges_matched": {
+          "description": "Edges whose bit matched the master pattern after alignment.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges_observed": {
+          "description": "Edges whose bit was read.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "logical_bit_error_rate": {
+          "description": "The same, over the distinct master bits the view reads, after the\nrepeated reads of each were majority-voted.",
+          "format": "double",
+          "type": "number"
+        },
+        "master_origin": {
+          "description": "Where the view's local corner `(0, 0)` lies on the master pattern,\n`[row, column]`.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "edges_observed",
+        "edges_matched",
+        "bit_error_rate",
+        "logical_bit_error_rate",
+        "dot_dissent_rate",
+        "master_origin"
+      ],
+      "type": "object"
+    },
+    "PuzzleboardDetail": {
+      "description": "A PuzzleBoard's overlay data.",
+      "properties": {
+        "corners": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/definitions/CornerDetail"
+          },
+          "type": "array"
+        },
+        "decode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PuzzleboardDecode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The decode summary; `None` when no board was decoded."
+        },
+        "edge_bits": {
+          "description": "The code bits read on the edges between two kept corners.",
+          "items": {
+            "$ref": "#/definitions/EdgeBitDetail"
+          },
+          "type": "array"
+        },
+        "quality": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CornerQuality"
+            }
+          ],
+          "description": "How well the corners are localized."
+        }
+      },
+      "required": [
+        "corners",
+        "quality"
       ],
       "type": "object"
     },
@@ -5222,6 +6842,113 @@
         }
       ]
     },
+    "RejectedMarker": {
+      "description": "A ChArUco marker cell whose bits match another marker of the board\nbetter than the one the board places there.",
+      "properties": {
+        "decoded_id": {
+          "description": "The board marker the cell's bits match best, over every marker of the\nboard and every rotation.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_id": {
+          "description": "The marker the board places in this cell under the chosen alignment.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quad_px": {
+          "description": "The cell's corners in image pixels, in the board's order (as\n[`MarkerDetail::quad_px`]).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "score": {
+          "description": "The matcher's log-likelihood of the cell's bits under the decoded\nmarker: higher is better, comparable within one image.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "quad_px",
+        "decoded_id",
+        "expected_id",
+        "score"
+      ],
+      "type": "object"
+    },
+    "RejectedPoint": {
+      "description": "A point candidate the detector or this crate saw and did not keep.",
+      "properties": {
+        "grid": {
+          "description": "Its lattice label, when it had one.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Its id (a ring's codebook id, a PuzzleBoard master corner id), when\nit had one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "image_xy": {
+          "description": "Its position, image pixels.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "reason": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PointRejection"
+            }
+          ],
+          "description": "Why it was left out."
+        },
+        "world_xyz": {
+          "description": "The target point it would have had, metres, when it had a label.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "image_xy",
+        "reason"
+      ],
+      "type": "object"
+    },
     "RemoveRootArgs": {
       "additionalProperties": false,
       "description": "Remove `path` from the root folders (the desktop). The samples' folder\nis always a root.",
@@ -5245,6 +6972,39 @@
       },
       "required": [
         "run"
+      ],
+      "type": "object"
+    },
+    "ReprojectionStats": {
+      "description": "Summary statistics for reprojection errors.",
+      "properties": {
+        "count": {
+          "description": "Number of points evaluated.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max": {
+          "description": "Maximum reprojection error in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "mean": {
+          "description": "Mean reprojection error in pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "rms": {
+          "description": "Root mean square error in pixels.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mean",
+        "rms",
+        "max",
+        "count"
       ],
       "type": "object"
     },
@@ -5280,6 +7040,172 @@
           "type": "object"
         }
       ]
+    },
+    "ResidualMap": {
+      "description": "A camera's residual map (see `residual_map`). The residual is\n`observed − projected`, the sign of a distortion map's layer.",
+      "properties": {
+        "bandwidth_px": {
+          "description": "The Gaussian kernel's σ the map used, pixels.",
+          "format": "double",
+          "type": "number"
+        },
+        "bandwidth_selection": {
+          "$ref": "#/definitions/BandwidthSelection"
+        },
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chain_level": {
+          "description": "Whether the run's board poses come through a rig or robot chain\n(rig and hand-eye workflows): the residuals then include the chain's\npose error, with a smooth pattern per view, besides the camera\nmodel's misfit.",
+          "type": "boolean"
+        },
+        "grid": {
+          "$ref": "#/definitions/MapGrid"
+        },
+        "options": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResidualMapOptions"
+            }
+          ],
+          "description": "The options as used (`views` sorted): `min_effective_samples` is\nthe support boundary, the `effective_samples` level where the map\nends; `min_effective_views` where `std_error` and `significance`\nend."
+        },
+        "outliers": {
+          "description": "The records left out as outliers, as indices into the export's\n`per_feature_residuals.target` (and `residual_records`' `index`).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "plane": {
+          "$ref": "#/definitions/MapPlane"
+        },
+        "unprojected": {
+          "description": "The selected records without a projection, left out.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "used": {
+          "description": "The records mapped.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "The number of views mapped.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "camera",
+        "grid",
+        "plane",
+        "bandwidth_px",
+        "bandwidth_selection",
+        "options",
+        "chain_level",
+        "used",
+        "unprojected",
+        "outliers",
+        "views"
+      ],
+      "type": "object"
+    },
+    "ResidualMapArgs": {
+      "additionalProperties": false,
+      "description": "The systematic part of camera `camera`'s reprojection residuals over its\nimage, the library's local-linear residual map: one plane of eight\nchannels, `mean_dx`, `mean_dy`, `mean_magnitude` (the smoothed mean of\n`observed − projected`, px), `rms` (px), `std_error` (px, view-clustered),\n`significance` (χ: above 3.03 is p < 0.01), `effective_samples` and\n`effective_views`. Records sit at their projection. `NaN` where the\nsupport is too thin (`effective_samples` below\n`options.min_effective_samples`) and, for `std_error` and\n`significance`, with too few effective views. `options.views` maps a\nsubset of the views (their indices in the export); one view, or too few\neffective views, gives a mean that includes the views' pose error and no\nsignificance. `columns` as `distortion_map`'s. `invalid` for a run\nwithout per-feature residuals of the camera.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columns": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "options": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResidualMapOptions"
+            }
+          ],
+          "default": {
+            "bandwidth": "auto",
+            "min_effective_samples": 8.0,
+            "min_effective_views": 5.0,
+            "outlier_factor": 8.0,
+            "views": null
+          }
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
+    },
+    "ResidualMapOptions": {
+      "additionalProperties": false,
+      "description": "Options of [`residual_map`].",
+      "properties": {
+        "bandwidth": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Bandwidth"
+            }
+          ],
+          "default": "auto",
+          "description": "The kernel's bandwidth. Default [`Bandwidth::Auto`]: a field's scale\ndiffers from capture to capture, and cross-validation over views\nfinds it without fitting each view's pose error as a field."
+        },
+        "min_effective_samples": {
+          "default": 8.0,
+          "description": "The fewest effective samples `1/Σ l_k²` a node needs for a value;\nfinite, ≥ 1. Default 8: below it the local fit is mostly one or two\nrecords' noise.",
+          "format": "double",
+          "type": "number"
+        },
+        "min_effective_views": {
+          "default": 5.0,
+          "description": "The fewest effective views a node needs for a standard error and a\nsignificance; finite, ≥ 2. Default 5: the view-clustered standard\nerror is estimated from that many independent captures, and with\nfewer it understates the scatter.",
+          "format": "double",
+          "type": "number"
+        },
+        "outlier_factor": {
+          "default": 8.0,
+          "description": "Records with `|e|` above this many robust σ (`median |e| / 1.1774`,\nthe Rayleigh median) are left out as outliers; finite, > 0. Default\n8, a tail of `exp(−32)` under Gaussian noise: a genuine systematic\nfield at the corners can reach several σ, and a global threshold must\nnot clip the signal the map is meant to show.",
+          "format": "double",
+          "type": "number"
+        },
+        "views": {
+          "default": null,
+          "description": "The views to map, by their index in the input; `None` (the default)\nmaps all. With one view (or fewer effective views than\n[`min_effective_views`](Self::min_effective_views)) the mean includes\nthat view's pose error and has no significance.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "ResidualNoise": {
       "description": "The estimated noise level of one kind of residual.",
@@ -5339,6 +7265,176 @@
       "required": [
         "kind",
         "count"
+      ],
+      "type": "object"
+    },
+    "ResidualRecords": {
+      "description": "A camera's per-feature residual records, one column per field; entry\n`i` of every column is one record.",
+      "properties": {
+        "feature": {
+          "description": "Its feature's index in the view's detection.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "index": {
+          "description": "The record's index in the export's `per_feature_residuals.target`\n(what `residual_map`'s `outliers` name).",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "observed_px": {
+          "description": "The detected pixel.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "projected_px": {
+          "description": "The model's projection of the target point; `null` where it\ndiverged.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "residual_px": {
+          "description": "`observed − projected`, pixels; `null` where the projection\ndiverged.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "target_xyz_m": {
+          "description": "The target point, metres, as the calibration used it.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "view": {
+          "description": "Its view.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "index",
+        "view",
+        "feature",
+        "target_xyz_m",
+        "observed_px",
+        "projected_px",
+        "residual_px"
+      ],
+      "type": "object"
+    },
+    "ResidualRecordsArgs": {
+      "additionalProperties": false,
+      "description": "Camera `camera`'s per-feature residual records (of one `view`, when\ngiven), one column per field, in the export's order: each record's\nindex in the export, view, feature, target point, observed and\nprojected pixel and `observed − projected`. The target point is the one\nthe calibration used: an exclusion names a feature by its detection's\n`world_xyz` (`detection_detail`), which a rig of plain chessboards may\nhave relabelled.",
+      "properties": {
+        "camera": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        },
+        "view": {
+          "default": null,
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run",
+        "camera"
+      ],
+      "type": "object"
+    },
+    "ResidualStats": {
+      "description": "The reprojection statistics of a run's per-feature records: per camera,\nper view (cameras pooled) and per (camera, view), each ascending.",
+      "properties": {
+        "cameras": {
+          "items": {
+            "$ref": "#/definitions/CameraStats"
+          },
+          "type": "array"
+        },
+        "cells": {
+          "items": {
+            "$ref": "#/definitions/CellStats"
+          },
+          "type": "array"
+        },
+        "views": {
+          "items": {
+            "$ref": "#/definitions/ViewStats"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cameras",
+        "views",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "ResidualStatsArgs": {
+      "additionalProperties": false,
+      "description": "The run's reprojection statistics from its per-feature residuals (the\nlibrary's mean, RMS, largest error and count of `|observed −\nprojected|`, px), per camera, per view over every camera, and per\ncamera and view, with the records whose projection diverged.",
+      "properties": {
+        "run": {
+          "$ref": "#/definitions/RunRef"
+        }
+      },
+      "required": [
+        "run"
       ],
       "type": "object"
     },
@@ -6198,6 +8294,106 @@
       ],
       "type": "object"
     },
+    "RingCenter": {
+      "description": "Which estimator produced a ring marker's centre.",
+      "oneOf": [
+        {
+          "const": "outer_ellipse",
+          "description": "The centre of the fitted outer ellipse.",
+          "type": "string"
+        },
+        {
+          "const": "projective",
+          "description": "The projective centre recovered from the inner and outer ellipses.",
+          "type": "string"
+        },
+        {
+          "const": "photometric",
+          "description": "A photometric fit of the blurred marker pattern.",
+          "type": "string"
+        }
+      ]
+    },
+    "RingDetail": {
+      "description": "One ring marker, aligned with a [`Feature`].",
+      "properties": {
+        "center": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RingCenter"
+            }
+          ],
+          "description": "Which estimator produced the feature's position."
+        },
+        "center_cov_px": {
+          "description": "The covariance of the centre as the detector stated it, `[xx, xy,\nyy]` px²: photometric centres only. The calibration does not read it\n([`Feature::cov_px`] stays `None` for ring markers).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "confidence": {
+          "description": "The detector's confidence in the centre, in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "grid": {
+          "description": "The lattice cell `[u, v]` (axial coordinates on a hex lattice).",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "The decoded codebook id (coded boards); `None` on a plain board.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "inner": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/EllipseDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fitted inner ellipse."
+        },
+        "outer": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/EllipseDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fitted outer ellipse."
+        }
+      },
+      "required": [
+        "confidence",
+        "center"
+      ],
+      "type": "object"
+    },
     "RinggridCenterSpec": {
       "description": "The ring-grid centre estimator: the manifest's own copy of the detector's\ncentre method, which has the same JSON spelling.",
       "oneOf": [
@@ -6242,6 +8438,47 @@
           "type": "object"
         }
       ]
+    },
+    "RinggridDetail": {
+      "description": "A ring grid's overlay data.",
+      "properties": {
+        "anchored": {
+          "description": "Whether the labels are absolute board positions: always for a coded\nboard that was labelled, for a plain one when its origin dots placed\nthe view on the board.",
+          "type": "boolean"
+        },
+        "board_complete": {
+          "description": "Whether every marker of the board was detected; `None` when nothing\nwas labelled.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "origin_dots_px": {
+          "description": "The origin dots of a plain board, predicted through the board-to-image\nhomography (no lens model), image pixels. The detector does not\nreport the dots it found, so these are where the board places them.\nEmpty for a coded board and for a view not placed on the board.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "rings": {
+          "description": "One per feature, in feature order.",
+          "items": {
+            "$ref": "#/definitions/RingDetail"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rings",
+        "anchored"
+      ],
+      "type": "object"
     },
     "RinggridLatticeSpec": {
       "description": "The ring-grid marker lattice: the manifest's own copy of the detector's\nlattice, which has the same JSON spelling.",
@@ -7311,6 +9548,71 @@
         }
       ]
     },
+    "SigmaUnavailable": {
+      "description": "Why a parameter (or a camera's projection) has no σ.",
+      "oneOf": [
+        {
+          "description": "The run has no covariance, for the library's reason.",
+          "properties": {
+            "kind": {
+              "const": "no_covariance",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/UncertaintyUnavailable"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The final solve held it fixed (for a projection: every parameter of\nthe camera): exact by assumption.",
+          "properties": {
+            "kind": {
+              "const": "fixed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The covariance lists it neither as estimated nor as fixed.",
+          "properties": {
+            "kind": {
+              "const": "not_listed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A camera model the solver does not estimate (a general sensor\nhomography).",
+          "properties": {
+            "kind": {
+              "const": "unsupported_model",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SingleCamHandeyeConfig": {
       "additionalProperties": false,
       "description": "Configuration for single-camera hand-eye calibration.\n\nGrouped by stage, in the order the steps run: the camera model, the\nintrinsics linear init and refinement, the hand-eye linear init and\nbundle adjustment, and the solver engine. Every group's own `Default` is\nthe plain workspace default (no per-problem override is needed here,\nunlike `PlanarIntrinsicsConfig`'s iteration cap).\n\nTwo stages solve the target corners, each with its own\n`reprojection_loss`: `intrinsics_optimize` and `handeye_optimize`. A\nrobust calibration sets both; the final stage's loss is the estimator.",
@@ -7696,6 +9998,83 @@
         "message"
       ],
       "type": "object"
+    },
+    "TargetDetail": {
+      "description": "Overlay data of one target kind.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ChessboardDetail"
+            }
+          ],
+          "description": "A plain chessboard.",
+          "properties": {
+            "kind": {
+              "const": "chessboard",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CharucoDetail"
+            }
+          ],
+          "description": "A ChArUco board.",
+          "properties": {
+            "kind": {
+              "const": "charuco",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PuzzleboardDetail"
+            }
+          ],
+          "description": "A PuzzleBoard.",
+          "properties": {
+            "kind": {
+              "const": "puzzleboard",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RinggridDetail"
+            }
+          ],
+          "description": "A ring grid, coded or plain, on a hex or rect lattice.",
+          "properties": {
+            "kind": {
+              "const": "ringgrid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "TargetFeatureResidual": {
       "description": "Reprojection record for a single target feature in a single view.",
@@ -8348,6 +10727,34 @@
       ],
       "type": "object"
     },
+    "ViewDetections": {
+      "description": "One view: each camera's image.",
+      "properties": {
+        "images": {
+          "description": "One entry per camera; `null` where the camera has no image of the\nview.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/ImageDetection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "token": {
+          "description": "The view's pairing token (as `project_views` lists it).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "images"
+      ],
+      "type": "object"
+    },
     "ViewExclusion": {
       "additionalProperties": false,
       "description": "A view left out, with every camera's image of it.",
@@ -8425,6 +10832,36 @@
       "required": [
         "token",
         "images"
+      ],
+      "type": "object"
+    },
+    "ViewStats": {
+      "description": "One view's statistics, over every camera that saw it.",
+      "properties": {
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReprojectionStats"
+            }
+          ],
+          "description": "Mean, RMS and largest error length `|observed − projected|`, pixels,\nover the records with a projection (all zero when there is none)."
+        },
+        "unprojected": {
+          "description": "Records without a projection (it diverged), not in `stats`.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "stats",
+        "unprojected"
       ],
       "type": "object"
     }

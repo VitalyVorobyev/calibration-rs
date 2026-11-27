@@ -759,6 +759,124 @@ fn a_project_run_is_the_manifest_s_run_kept_in_the_project() {
     assert!(!dir.join("runs/run-003").exists());
 }
 
+/// `--seed` starts a manifest's run from a previous calibration and
+/// `--device-spec` from a datasheet; a good seed lands where the unseeded
+/// run does. A seed that does not fit is an error; with a project, or the
+/// two options together, a usage error.
+#[test]
+fn a_seeded_run_starts_from_a_previous_calibration_or_a_datasheet() {
+    use vision_calibration::device_seed::{CameraDeviceSpec, DeviceSeed, DeviceSpec};
+    use vision_calibration::planar_intrinsics::PlanarIntrinsicsExport;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let manifest = manifest_folder(dir);
+    let out = dir.join("out");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 0);
+    let unseeded = read_json(&out.join("calibration.json"));
+    let export: PlanarIntrinsicsExport = serde_json::from_value(unseeded.clone()).unwrap();
+    let id = read_toml(&manifest)["cameras"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let seed_for = |ids: &[String], size: [u32; 2], name: &str| {
+        let seed = DeviceSeed::from_calibration(&export, ids, &[size]).unwrap();
+        let file = dir.join(name);
+        std::fs::write(&file, serde_json::to_string(&seed).unwrap()).unwrap();
+        file
+    };
+    let close = |seeded: &serde_json::Value| {
+        for name in ["fx", "fy", "cx", "cy"] {
+            let a = unseeded["camera"]["intrinsics"][name].as_f64().unwrap();
+            let b = seeded["camera"]["intrinsics"][name].as_f64().unwrap();
+            assert!((a - b).abs() < 0.01, "{name}: {a} vs {b}");
+        }
+    };
+
+    let seed = seed_for(std::slice::from_ref(&id), [WIDTH, HEIGHT], "seed.json");
+    let seeded = dir.join("seeded");
+    assert_eq!(
+        vcal(&[
+            "run",
+            path(&manifest),
+            "-o",
+            path(&seeded),
+            "--seed",
+            path(&seed)
+        ]),
+        0
+    );
+    close(&read_json(&seeded.join("calibration.json")));
+
+    let mut camera = CameraDeviceSpec::new(id.clone(), 3.0, 5.0, [WIDTH, HEIGHT]);
+    camera.principal_point_px = Some([f64::from(WIDTH) / 2.0, f64::from(HEIGHT) / 2.0]);
+    let spec_file = dir.join("spec.json");
+    std::fs::write(
+        &spec_file,
+        serde_json::to_string(&DeviceSpec::new(vec![camera])).unwrap(),
+    )
+    .unwrap();
+    let from_spec = dir.join("from_spec");
+    assert_eq!(
+        vcal(&[
+            "run",
+            path(&manifest),
+            "-o",
+            path(&from_spec),
+            "--device-spec",
+            path(&spec_file)
+        ]),
+        0
+    );
+    close(&read_json(&from_spec.join("calibration.json")));
+
+    // Seeds that do not fit: other cameras, other images.
+    let other = seed_for(&["other".to_string()], [WIDTH, HEIGHT], "other.json");
+    let binned = seed_for(
+        std::slice::from_ref(&id),
+        [WIDTH / 2, HEIGHT / 2],
+        "binned.json",
+    );
+    for bad in [&other, &binned] {
+        let out = dir.join("bad");
+        assert_eq!(
+            vcal(&[
+                "run",
+                path(&manifest),
+                "-o",
+                path(&out),
+                "--seed",
+                path(bad)
+            ]),
+            1
+        );
+        assert!(!out.join("calibration.json").exists());
+    }
+
+    // Both options, or either with a project: usage errors.
+    assert_eq!(
+        vcal(&[
+            "run",
+            path(&manifest),
+            "--seed",
+            path(&seed),
+            "--device-spec",
+            path(&spec_file)
+        ]),
+        2
+    );
+    assert_eq!(
+        vcal(&["project", "init", path(dir), "--manifest", path(&manifest)]),
+        0
+    );
+    assert_eq!(vcal(&["run", path(dir), "--seed", path(&seed)]), 2);
+    assert_eq!(
+        vcal(&["run", path(dir), "--device-spec", path(&spec_file)]),
+        2
+    );
+    assert!(!dir.join("runs/run-001").exists());
+}
+
 fn read_toml(path: &Path) -> toml::Table {
     toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }

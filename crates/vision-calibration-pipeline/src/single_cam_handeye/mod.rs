@@ -37,6 +37,8 @@ mod problem;
 mod state;
 mod steps;
 
+pub(crate) use steps::{SingleCamSeed, run_seeded};
+
 // Re-export types
 pub use problem::{
     SingleCamHandeyeConfig, SingleCamHandeyeExport, SingleCamHandeyeInput,

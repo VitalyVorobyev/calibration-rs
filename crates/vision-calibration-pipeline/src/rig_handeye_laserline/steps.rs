@@ -4,7 +4,7 @@ use crate::Error;
 use crate::common::ProblemKind;
 use crate::rig_family::inverse_poses;
 use crate::rig_handeye::{
-    RigHandeyeExport, RigHandeyeProblem, run_calibration as run_rig_handeye_calibration,
+    RigHandeyeExport, RigHandeyeProblem, RigHandeyeSeed, run_seeded as run_rig_handeye_seeded,
 };
 use crate::rig_laserline_device::{
     PlaneManualInit, RigLaserlineDeviceInput, RigLaserlineDeviceProblem, step_init_with_seed,
@@ -92,6 +92,17 @@ pub fn run_calibration_with_seed(
     session: &mut CalibrationSession<RigHandeyeLaserlineProblem>,
     manual: JointManualInit,
 ) -> Result<(), Error> {
+    run_seeded(session, manual, None)
+}
+
+/// The steps of [`run_calibration_with_seed`], the rig hand-eye warm start
+/// seeded from `rig_seed` when one is given (and `manual.rig_handeye` is
+/// not): the one step list of the workflow, seeded or not.
+pub(crate) fn run_seeded(
+    session: &mut CalibrationSession<RigHandeyeLaserlineProblem>,
+    manual: JointManualInit,
+    rig_seed: Option<RigHandeyeSeed>,
+) -> Result<(), Error> {
     session.validate()?;
     let input = session.require_input()?.clone();
     let config = session.config.clone();
@@ -108,6 +119,11 @@ pub fn run_calibration_with_seed(
     if manual.laser_planes_cam.is_some() {
         seeded.push("laser_planes_cam");
     }
+    // An explicit warm-start export replaces the warm start, seeded or not.
+    let rig_seed = rig_seed.filter(|_| manual.rig_handeye.is_none());
+    if rig_seed.is_some() {
+        seeded.push("rig_handeye warm start");
+    }
 
     // The warm-start runs report their own steps after these.
     let rig_export = match manual.rig_handeye {
@@ -120,7 +136,7 @@ pub fn run_calibration_with_seed(
             handeye_session.set_input(input.handeye_dataset()?)?;
             handeye_session.set_config(config.handeye.clone())?;
             handeye_session.set_control(session.control().clone());
-            run_rig_handeye_calibration(&mut handeye_session)?;
+            run_rig_handeye_seeded(&mut handeye_session, rig_seed)?;
             handeye_session.export()?
         }
     };

@@ -149,6 +149,7 @@ impl Project {
             laser_extractor,
             control,
             &prepared.options,
+            None,
         )?;
         // Cancelled after the last check: still stop before writing.
         if control.is_cancelled() {

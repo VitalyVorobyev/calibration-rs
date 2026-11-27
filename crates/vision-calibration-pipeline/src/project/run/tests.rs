@@ -239,6 +239,7 @@ fn the_detections_digest_covers_every_image_read() {
         None,
         &RunControl::default(),
         &prepared.options,
+        None,
     )
     .unwrap();
     assert_eq!(recording.keys().len(), 8);
@@ -258,6 +259,7 @@ fn the_detections_digest_covers_every_image_read() {
         None,
         &RunControl::default(),
         &prepared.options,
+        None,
     )
     .unwrap();
     assert_eq!(recording.keys().len(), 7);

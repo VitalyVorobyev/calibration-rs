@@ -64,6 +64,19 @@ Division1's `lambda`). The staging fix lists are named the same way.
 Unseeded `step_init` remains, documented as experimental with a warning in
 the init log; it shares the cold-start staged solver with the rig path.
 
+**A seeded `k1` is not a Phase A candidate, and that does not matter.** A
+calibrated seed (`DeviceSeed::from_calibration`) carries the whole lens, but
+Phase A replaces its `k1` by the sweep's best start. Measured on synthetic
+planar Scheimpflug data (tilt 0.087 rad, 10 views, 0.1 px noise), true
+`k1 ∈ {−0.30, −0.45, −0.60}`, both backends: a run seeded with the result
+of a datasheet-seeded run (coarse focal, nominal tilt) lands on that run's
+optimum within 5.4e-4 σ (every camera parameter; at most 1e-4 σ but one
+cell), seeded `k1` −0.2975 / −0.4475 / −0.5974, 2.2–2.3 σ from the truth
+like the reference run. The sweep's `−0.40` start reaches even the `−0.60`
+lens's basin, so no fourth candidate was added. Pinned by
+`dataset_runner::seed::tests::a_seeded_scheimpflug_k1_lands_on_the_optimum`
+(release-only, `scripts/uncertainty_gates.py`).
+
 ## Convergence basin
 
 `calib-bench basin` (`crates/vision-calibration-bench/src/basin.rs`)

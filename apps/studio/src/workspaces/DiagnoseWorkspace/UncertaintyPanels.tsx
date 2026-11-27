@@ -9,6 +9,7 @@ import {
   residualKindName,
   residualKindUnit,
   unavailableText,
+  valuesOf,
   type ParameterRow,
 } from "../../lib/uncertainty";
 import type {
@@ -111,9 +112,9 @@ function ParametersPanel({ cov }: { cov: ParameterCovariance }) {
     if (run === null) return;
     let cancelled = false;
     api
-      .cameraParameterValues({ run, labels })
-      .then((values) => {
-        if (!cancelled) setFetched({ labels, values });
+      .cameraParameterValues({ run })
+      .then((parameters) => {
+        if (!cancelled) setFetched({ labels, values: valuesOf(parameters, labels) });
       })
       // Values are a convenience next to σ; without them the table still
       // shows every σ.

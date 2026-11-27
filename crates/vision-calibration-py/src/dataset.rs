@@ -13,6 +13,7 @@ use vision_calibration::dataset::{
 };
 use vision_calibration::dataset_runner::{self as runner, Detection, LaserPixelExtractor};
 use vision_calibration::detect::GrayImageView;
+use vision_calibration::device_seed::DeviceSeed;
 
 use crate::control::PyRunControl;
 use crate::detect::{DetailParts, PyFsDetectionCache, detail_parts};
@@ -392,9 +393,10 @@ fn dataset_err(py: Python<'_>, err: runner::CalibrateDatasetError) -> PyErr {
 /// `dataset_runner::calibrate_dataset`: the manifest's topology picks the
 /// converter and the problem; `config` is that problem's config payload,
 /// tagged as `config_topology` when the caller knows it (a mismatch with the
-/// manifest is an error) and otherwise taken for the manifest's own.
+/// manifest is an error) and otherwise taken for the manifest's own. With a
+/// `seed` payload (a `DeviceSeed`), `calibrate_dataset_with_seed`.
 #[pyfunction]
-#[pyo3(signature = (manifest, config=None, config_topology=None, base_dir=None, cache=None, force_redetect=false, laser_extractor=None, progress=None))]
+#[pyo3(signature = (manifest, config=None, config_topology=None, base_dir=None, cache=None, force_redetect=false, laser_extractor=None, progress=None, seed=None))]
 #[allow(clippy::too_many_arguments)] // The Python keyword arguments.
 pub(crate) fn calibrate_dataset(
     py: Python<'_>,
@@ -406,8 +408,13 @@ pub(crate) fn calibrate_dataset(
     force_redetect: bool,
     laser_extractor: Option<&Bound<'_, PyAny>>,
     progress: Option<Py<PyAny>>,
+    seed: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let (spec, base) = resolve_manifest(manifest, base_dir)?;
+    let seed: Option<DeviceSeed> = seed
+        .filter(|seed| !seed.is_none())
+        .map(|seed| parse_payload(seed, "seed"))
+        .transpose()?;
     let config = match config {
         Some(config) if !config.is_none() => {
             reject_non_finite("config", config)?;
@@ -436,14 +443,15 @@ pub(crate) fn calibrate_dataset(
         force_redetect,
         progress,
         |detection, control| {
-            runner::calibrate_dataset(
-                &spec,
-                &base,
-                config,
-                detection,
-                extractor.as_ref().map(|e| e as &dyn LaserPixelExtractor),
-                control,
-            )
+            let extractor = extractor.as_ref().map(|e| e as &dyn LaserPixelExtractor);
+            match &seed {
+                Some(seed) => runner::calibrate_dataset_with_seed(
+                    &spec, &base, config, seed, detection, extractor, control,
+                ),
+                None => {
+                    runner::calibrate_dataset(&spec, &base, config, detection, extractor, control)
+                }
+            }
         },
         |err| dataset_err(py, err),
     )?;

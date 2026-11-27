@@ -1,13 +1,25 @@
 import { cn, focusRing, Table, type Column } from "@vitavision/ui";
 import { useMemo, useState } from "react";
+import type { ViewStats } from "../../api/generated/types";
 import { colorForError } from "../../lib/errorColors";
-import { computePoseResidualStats, type PoseResidualStat } from "../../lib/residualStats";
-import type { TargetFeatureResidual } from "../../types";
 
-type SortKey = "pose" | "count" | "mean" | "median" | "max";
+type SortKey = "pose" | "count" | "mean" | "rms" | "max";
+
+/** One pose's row: the back end's statistics of its residuals over every
+ * camera (`residual_stats`' `views`). */
+interface PoseResidualStat {
+  pose: number;
+  /** Corners with a projection. */
+  count: number;
+  /** Corners whose projection diverged. */
+  diverged: number;
+  mean: number;
+  rms: number;
+  max: number;
+}
 
 interface PoseStatsTableProps {
-  residuals: TargetFeatureResidual[];
+  views: ViewStats[];
   selectedPose: number;
   onSelectPose: (pose: number) => void;
 }
@@ -16,9 +28,20 @@ const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: "pose", label: "pose", numeric: false },
   { key: "count", label: "n", numeric: true },
   { key: "mean", label: "mean", numeric: true },
-  { key: "median", label: "med", numeric: true },
+  { key: "rms", label: "rms", numeric: true },
   { key: "max", label: "max", numeric: true },
 ];
+
+function rowOf(v: ViewStats): PoseResidualStat {
+  return {
+    pose: v.view,
+    count: v.stats.count,
+    diverged: v.unprojected,
+    mean: v.stats.mean,
+    rms: v.stats.rms,
+    max: v.stats.max,
+  };
+}
 
 /** Sort per-pose stats by one column. Pose sorts ascending by default;
  * the error/count columns sort descending (worst first) by default —
@@ -36,11 +59,11 @@ function sortStats(
  * header to sort, click a row (or Tab to it and press Enter) to jump the
  * viewer to that pose; the selected pose's row is `aria-current`. */
 export function PoseStatsTable({
-  residuals,
+  views,
   selectedPose,
   onSelectPose,
 }: PoseStatsTableProps) {
-  const stats = useMemo(() => computePoseResidualStats(residuals), [residuals]);
+  const stats = useMemo(() => views.map(rowOf), [views]);
   const [sortKey, setSortKey] = useState<SortKey>("mean");
   // Pose ascending, everything else descending (worst first) initially.
   const [desc, setDesc] = useState(true);

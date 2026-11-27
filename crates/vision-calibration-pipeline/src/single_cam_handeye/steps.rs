@@ -380,12 +380,38 @@ pub fn step_handeye_optimize(
 pub fn run_calibration(
     session: &mut CalibrationSession<SingleCamHandeyeProblem>,
 ) -> Result<(), Error> {
+    run_seeded(session, None)
+}
+
+/// The seeds of a seeded run of the workflow: the camera's, and the
+/// hand-eye's when the device seed has one.
+#[derive(Debug, Clone)]
+pub(crate) struct SingleCamSeed {
+    /// The intrinsics stage's seed.
+    pub intrinsics: IntrinsicsManualInit,
+    /// The hand-eye stage's seed; `None` runs the closed-form solve.
+    pub handeye: Option<HandeyeManualInit>,
+}
+
+/// The steps of [`run_calibration`], each initialization from `seed` when
+/// one is given: the one step list of the workflow, seeded or not.
+pub(crate) fn run_seeded(
+    session: &mut CalibrationSession<SingleCamHandeyeProblem>,
+    seed: Option<SingleCamSeed>,
+) -> Result<(), Error> {
+    let (intrinsics, handeye) = match seed {
+        Some(seed) => (seed.intrinsics, seed.handeye),
+        None => (IntrinsicsManualInit::default(), None),
+    };
     session.begin_step("intrinsics_init")?;
-    let _ = step_intrinsics_init(session, None)?;
+    let _ = step_intrinsics_init_with_seed(session, intrinsics, None)?;
     session.begin_step("intrinsics_optimize")?;
     let _ = step_intrinsics_optimize(session, None)?;
     session.begin_step("handeye_init")?;
-    let _ = step_handeye_init(session, None)?;
+    let _ = match handeye {
+        Some(manual) => step_handeye_init_with_seed(session, manual, None)?,
+        None => step_handeye_init(session, None)?,
+    };
     session.begin_step("handeye_optimize")?;
     let _ = step_handeye_optimize(session, None)?;
     Ok(())

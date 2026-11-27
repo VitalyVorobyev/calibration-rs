@@ -14,7 +14,10 @@ use crate::common::{
     IntrinsicsInitOptions, IntrinsicsOptimizeOptions, RigInitOptions, RigInitResult,
     RigIntrinsicsInitResult, RigIntrinsicsManualInit, RigManualInit, RigOptimizeOptions,
 };
-use crate::rig_family::{self, init_handeye, inverse_poses, optimize_handeye_stage, rig_ba_notes};
+use crate::rig_family::{
+    self, RigSeed, init_handeye, inverse_poses, optimize_handeye_stage, rig_ba_notes,
+    seeded_rig_init,
+};
 use crate::session::CalibrationSession;
 
 use super::problem::RigHandeyeProblem;
@@ -361,16 +364,49 @@ pub fn step_handeye_optimize(
 ///
 /// Any error from the constituent steps.
 pub fn run_calibration(session: &mut CalibrationSession<RigHandeyeProblem>) -> Result<(), Error> {
+    run_seeded(session, None)
+}
+
+/// The seeds of a seeded run of the workflow: the rig stages', and the
+/// hand-eye's when the device seed has one (in the frame of the configured
+/// reference camera).
+#[derive(Debug, Clone)]
+pub(crate) struct RigHandeyeSeed {
+    /// The rig stages' seed.
+    pub rig: RigSeed,
+    /// The hand-eye stage's seed; `None` runs the closed-form solve.
+    pub handeye: Option<HandeyeManualInit>,
+}
+
+/// The steps of [`run_calibration`], each initialization from `seed` when
+/// one is given: the one step list of the workflow, seeded or not. A seed's
+/// per-camera intrinsics replace the config's `manual_init`, as
+/// [`step_intrinsics_init_all_with_seed`]'s do.
+pub(crate) fn run_seeded(
+    session: &mut CalibrationSession<RigHandeyeProblem>,
+    seed: Option<RigHandeyeSeed>,
+) -> Result<(), Error> {
+    let (rig, handeye) = match seed {
+        Some(seed) => (Some(seed.rig), seed.handeye),
+        None => (None, None),
+    };
     session.begin_step("intrinsics_init_all")?;
-    let _ = step_intrinsics_init_all(session, None)?;
+    let _ = match &rig {
+        Some(rig) => step_intrinsics_init_all_with_seed(session, rig.intrinsics.clone(), None)?,
+        None => step_intrinsics_init_all(session, None)?,
+    };
     session.begin_step("intrinsics_optimize_all")?;
     let _ = step_intrinsics_optimize_all(session, None)?;
     session.begin_step("rig_init")?;
-    let _ = step_rig_init(session, None)?;
+    let manual = seeded_rig_init(session, rig.as_ref())?;
+    let _ = step_rig_init_with_seed(session, manual, None)?;
     session.begin_step("rig_optimize")?;
     let _ = step_rig_optimize(session, None)?;
     session.begin_step("handeye_init")?;
-    let _ = step_handeye_init(session, None)?;
+    let _ = match handeye {
+        Some(manual) => step_handeye_init_with_seed(session, manual, None)?,
+        None => step_handeye_init(session, None)?,
+    };
     session.begin_step("handeye_optimize")?;
     let _ = step_handeye_optimize(session, None)?;
     Ok(())

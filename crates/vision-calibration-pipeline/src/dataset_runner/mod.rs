@@ -5,7 +5,9 @@
 //!
 //! [`calibrate_dataset`] runs a manifest end to end: it picks the converter
 //! and the problem type by the manifest's topology and returns the export as
-//! a [`CalibrationExport`].
+//! a [`CalibrationExport`]; [`calibrate_dataset_with_seed`] runs it from a
+//! [`DeviceSeed`](crate::device_seed::DeviceSeed), a previous calibration
+//! of the device or its datasheet.
 //! [`camera_image_sizes`] reads each camera's image size, which the
 //! image-wide analyses take; [`input_files`] lists every file a run reads.
 //! [`detection_detail`] returns what a run's detection of one image looked
@@ -84,12 +86,13 @@ mod pairing;
 mod planar;
 mod poses;
 mod rig;
+mod seed;
 mod view_filter;
 
 pub(crate) use calibrate::calibrate_dataset_with;
 pub use calibrate::{
     CalibrateDatasetError, CalibrationConfig, CalibrationExport, DatasetCalibration,
-    calibrate_dataset,
+    calibrate_dataset, calibrate_dataset_with_seed,
 };
 pub use config_patch::ConfigPatch;
 pub(crate) use convert_options::ConvertOptions;

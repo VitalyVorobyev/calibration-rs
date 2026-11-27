@@ -39,6 +39,8 @@ mod problem;
 mod state;
 mod steps;
 
+pub(crate) use steps::run_seeded;
+
 // Re-export types
 pub use problem::{
     RigExtrinsicsConfig, RigExtrinsicsExport, RigExtrinsicsInput, RigExtrinsicsProblem,

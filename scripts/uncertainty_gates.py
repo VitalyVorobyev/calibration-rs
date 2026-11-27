@@ -66,6 +66,7 @@ GATES: list[tuple[str, str, tuple[str, ...]]] = [
     ("vision-calibration-optim", "robot_pose_priors", ("estimated_robot_sigma",)),  # 50 s
     ("vision-calibration-bench", "split_half_honesty", ()),  # 50 s
     ("vision-calibration", "compose_pipeline", ()),  # 40 s
+    ("vision-calibration-pipeline", "lib", ("dataset_runner::seed",)),  # 35 s
     ("vision-calibration-pipeline", "lib", ("analysis::next_view",)),  # 40 s
     ("vision-calibration", "quality_tilt_conditioning", ()),  # 20 s
     ("vision-mvg", "triangulation_cov", ()),  # 20 s
