@@ -26,7 +26,8 @@ import {
   openSample,
 } from "../../project/projectActions";
 import { useProject } from "../../project/projectStore";
-import { useSession } from "../../shell/session";
+import { useReadOnly } from "../../session/jobs";
+import { useSession } from "../../session/session";
 import { AskUserDialog } from "./AskUserDialog";
 import { applyAskUserChoice, clearUnresolved, unresolvedPaths } from "./manifestFields";
 import { QuickStartGrid } from "./QuickStart";
@@ -132,6 +133,7 @@ function ProjectSetup({ status, onRun, onCancel }: ProjectSetupProps) {
   const setManifest = useDraft((s) => s.setManifest);
   const setConfig = useDraft((s) => s.setConfig);
   const [saving, setSaving] = useState(false);
+  const readOnly = useReadOnly();
 
   const isRunning = status.kind === "running";
   const topology = topologyOf(manifest) ?? "";
@@ -172,7 +174,7 @@ function ProjectSetup({ status, onRun, onCancel }: ProjectSetupProps) {
         <div className="flex items-center gap-2">
           <Button
             onClick={() => void save()}
-            disabled={!dirty || isRunning}
+            disabled={!dirty || isRunning || readOnly}
             loading={saving}
             title="Write the edits to the project file"
           >
@@ -183,7 +185,7 @@ function ProjectSetup({ status, onRun, onCancel }: ProjectSetupProps) {
             className="px-5"
             loading={isRunning}
             onClick={() => void onRun()}
-            disabled={isRunning || blockReason !== undefined}
+            disabled={isRunning || readOnly || blockReason !== undefined}
             title={
               blockReason ?? (dirty ? "Save the edits and run the project" : undefined)
             }

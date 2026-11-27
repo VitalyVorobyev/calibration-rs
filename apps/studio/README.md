@@ -7,11 +7,14 @@ the results without leaving a GUI. It calls the same solvers as the
 
 ## What it does
 
-Five workspaces (left rail, `⌘1` to `⌘5`) share the run shown and the
-selected pose and camera: **Run** (configure and launch any of the seven
-problem types on a project), **Diagnose** (residual
-overlays, per-pose statistics, parameter uncertainty), **3D** (rig frustums,
-target poses, laser planes), **Epipolar** and **Depth**. A **project** folder
+A rail of seven screens (`⌘1` to `⌘7`: Library, Dataset, Detect, Calibrate,
+Inspect, Compare, Device) around one context bar that names the project, the
+current run and what that run is (its state, its verdict, whether the
+project changed since). Calibrate configures and launches any of the seven
+problem types on a project; Inspect has the residual overlays, per-pose
+statistics and parameter uncertainty (**Frames**), the rig's frustums, target
+poses and laser planes (**Scene**), **Epipolar** and **Depth**, all sharing the
+run shown and the selected pose and camera. A **project** folder
 keeps a dataset, its settings and every run calibrated from it (the library's
 projects, which `vcal` and Python read and write too), so the work can be
 closed and reopened. The

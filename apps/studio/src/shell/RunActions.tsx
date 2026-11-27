@@ -5,6 +5,7 @@ import { api } from "../api";
 import type { ProjectView, RunInfo } from "../api/generated/types";
 import { staleParts } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
+import { useReadOnly } from "../session/jobs";
 
 /** The chosen run's notes (label, star), its report page, whether it was
  * made from the project's current inputs, and its deletion. */
@@ -13,6 +14,7 @@ export function RunActions({ project, run }: { project: ProjectView; run: RunInf
   const [confirm, setConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const stale = staleParts(run, project.input_digest);
+  const readOnly = useReadOnly();
 
   const saveNotes = (next: { label?: string; starred?: boolean }) => {
     const notes = {
@@ -47,11 +49,13 @@ export function RunActions({ project, run }: { project: ProjectView; run: RunInf
           onKeyDown={(e) => {
             if (e.key === "Enter") saveNotes({ label });
           }}
+          disabled={readOnly}
           className="h-7 text-[11px]"
         />
         <ToggleChip
           title="Starred: a run to keep"
           checked={run.notes.starred ?? false}
+          disabled={readOnly}
           onCheckedChange={(starred) => saveNotes({ starred })}
         >
           <Star aria-hidden className="size-3.5" />
@@ -79,6 +83,7 @@ export function RunActions({ project, run }: { project: ProjectView; run: RunInf
           size="sm"
           variant="ghost"
           className="ml-auto"
+          disabled={readOnly}
           onClick={() => setConfirm(true)}
         >
           <Trash2 aria-hidden className="size-3.5" />

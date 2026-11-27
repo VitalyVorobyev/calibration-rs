@@ -43,12 +43,16 @@ one the page says no back end answers.
   `apps/studio/Cargo.lock`, builds into `apps/studio/target/` and is built from
   inside `apps/studio/`; `cargo test --workspace` at the repo root does not
   cover it.
-- Frontend (`apps/studio/src/`): `shell/` (the workbench frame: header, project
-  menu, workspace rail, project navigator with the chosen run's actions,
-  status line; the session with the back end, `session.ts`; Settings),
-  `project/` (the open project, `projectStore.ts`; its unsaved edits,
+- Frontend (`apps/studio/src/`): `shell/` (the workbench frame: the rail of
+  seven screens, the context bar, the run list, the job tray, the status
+  line, Settings, the keys; see "The shell"), `screens/` (one folder per
+  screen: Library, Calibrate, Inspect; the ones not built yet are a
+  "coming" page), `session/` (the stores every screen shares: the session
+  with the back end, the selection, the jobs and the connection, the query
+  cache, the pure rules of a job row), `project/` (the open project, `projectStore.ts`; its unsaved edits,
   `draftStore.ts`; the ways to a project, `projectActions.ts`; pure rules,
-  `projectModel.ts`), `workspaces/` (one folder per workspace),
+  `projectModel.ts`), `workspaces/` (the viewers built before the screens,
+  mounted by them),
   `components/` (among them `PathPicker/`), `hooks/`, `lib/`, `store/` (the
   run the viewers show and the selection, `index.ts`), `api/` (the back
   end: see "The back end and its client"). The Run workspace's forms carry
@@ -73,16 +77,74 @@ one the page says no back end answers.
   excepted). Split by responsibility: pure logic in a `.ts` module with its
   own unit test, views in `.tsx`, effects in a `use…` hook.
 
-## Shell and projects
+## The shell
 
-`shell/Shell.tsx` is `@vitavision/workbench`'s `AppShell`: `ShellHeader`
-(project menu, the run shown, Import Export…, Settings, theme),
-`WorkspaceRail` (a `NavRail` of router links; `⌘1`…`⌘5` from
-`shell/workspaces.ts`), `ProjectPanel` in the left slot while a project is
-open (its runs as a `TreeView`, and `RunActions` for the chosen run: its
-label and star, its report page, whether it is stale, its deletion), the
-routed workspace, and a `StatusBar`. The workbench has no router; the rail
-items render react-router `Link`s through `asChild`.
+`shell/Shell.tsx` is `@vitavision/workbench`'s `AppShell`. The **rail**
+(`ScreenRail`) holds the seven screens in workflow order (Library, Dataset,
+Detect, Calibrate, Inspect, Compare, Device), `⌘1`…`⌘7`; `shell/screens.ts`
+is the one table of them. A screen that is not built, or needs a project
+that is not open, is disabled and says why on hover; its address still opens
+a "coming in a later release" page. The **context bar** (`ContextBar`) holds
+`Breadcrumb` (the project's device and name; the project is the menu that
+opens, creates and reopens projects), `RunSelector` (the current run, newest
+first, with pills from `runPills.ts`: the state of its files, its verdict in
+words, `Stale` with the inputs that changed), the job indicator, the
+shortcut list, the theme and Settings. Under it, `ConnectionStrip`: "No back
+end answers" with Retry, or "Connection lost" while the event stream is down
+(what writes is disabled through `useReadOnly`; it clears itself). The
+`RunList` is the left panel of Calibrate, Inspect and Compare: the runs as a
+`TreeView` and, for the current run, its label, star, report and deletion.
+The `JobTray` is the bottom panel: a row per job (the running one, the queue,
+the last three that ended, every failure until dismissed) with its stage, its
+bar, Cancel, a plot of the solver's cost, and the run a calibration wrote.
+`StatusLine` is the foot. While the server wants its token the page is
+`LoginPanel` and nothing else. The workbench has no router; the rail items
+render react-router `Link`s through `asChild`.
+
+**The address** is `#/<screen>[/<tab>]?project=<dir>&run=<id>`
+(`screens.ts`: `parsePlace`, `placePath`). `useUrlSync` keeps it and the
+open project and run the same thing in both directions (a link opens the
+project and run; choosing either writes the address; a project opened without
+a run opens on its newest). Inspect's tabs are `Scene`, `Frames`, `Epipolar`
+and `Depth` (the viewers built before the screens); a tab a run cannot have
+is absent (`screens/inspect/tabs.ts`). The old addresses (`#/diagnose`,
+`#/viewer3d`, `#/epipolar`, `#/depth`, `#/run`) redirect. Calibrate is the
+Run workspace until its own screen replaces it.
+
+**Keys** are pure rules in `keymap.ts` (a keystroke and whether the user is
+typing become an action) carried out by `useShellKeys`: `⌘1`…`⌘7`, `⌘K` (the
+palette, `CommandPalette`, searched by `lib/palette.ts`), `⌘S`, `[` `]`
+views, `,` `.` cameras, `⇧[` `⇧]` runs, `Esc` (the selection, then the
+tray), `?`. A bare key never fires while a text field has focus, and nothing
+but `⌘K` while a dialog is open. The window's frame puts the context bar and
+the rail before the screen in the tab order; `SkipLink` is the first stop.
+
+**The stores** (`src/session/`): `session.ts` (the back end: token, roots,
+what it serves), `selection.ts` (`{ camera, view, feature }` and a transient
+hover, rules in `lib/selection.ts`; `startSelectionBridge` keeps it in step
+with the export store's slots the older viewers still read), `jobs.ts` (the
+jobs and the connection, from the one **standing** event stream opened for as
+long as a session is ready; `list_jobs` fills in what ran before the page or
+while the stream was down), `sync.ts` (starts the watch; `project_changed {
+dir }` marks the cached answers stale and re-reads the open project, so a
+change from another tab or program arrives without a reload; after a drop
+everything is read again), `query.ts` (a cache of `(command, arguments)`
+answers shared by panels, stale rather than dropped on a change), `ui.ts`
+(which shell dialog is open). `lib/format.ts` writes every number: `value ± σ`
+at the decimals of σ (`formatWithSigma`), `value ·` with the reason on hover
+when there is none, units. The client's part is in `src/api/`:
+`events.connect/listen/onConnection/onUnreachable`, and a transport's
+`subscribe` reports the stream dropping and returning (the browser reopens one
+it gave up on); a command that never reached the back end is a `StudioError`
+with `network` set.
+
+Component tests build the shell over placeholder screens and a mock back end
+(`src/test/shellKit.tsx`); the Playwright specs on the real server are
+`e2e/server/shell.spec.ts` (the rail, deep links, another client's change,
+the tray and its Cancel, the keys, a dropped stream) with `auth.spec.ts`
+(sign-in).
+
+## Projects
 
 **Projects are the library's** (`vision_calibration::project`, the book's
 Projects chapter): `calibration-project.toml` (or `.json`) with the
@@ -132,14 +194,14 @@ drops off it. Rust tests for the commands are in studio-core
 the cache holds); the store against a mock transport in
 `project/projectStore.test.tsx`.
 
-**Session, roots and the path picker.** `shell/session.ts` starts once:
+**Session, roots and the path picker.** `session/session.ts` starts once:
 it takes the start-up fragment (`#token=…&project=…`, captured by
 `shell/captureStart.ts` before the hash router reads the address), logs in
 with its token, asks `server_info`, and opens the fragment's project. The
-shell then shows (`SessionNotice.tsx`) the token field when the server
-answers `unauthorized` (instead of the workspace), the connection error when
-no back end answers (above the workspace), and on the desktop's first run —
-editable roots and none but the samples' folder — "Add a folder to start".
+shell then shows the sign-in panel when the server answers `unauthorized`
+(instead of everything), the connection strip when no back end answers, and
+on the desktop's first run — editable roots and none but the samples' folder
+— the Library's one prompt, "Add a folder that holds your projects".
 The roots are the only folders the back end reads and writes. The desktop's
 start empty and live in `<config>/calibration-studio/settings.json`; the one
 native dialog left, "Add folder…" (`AddRootButton.tsx`, the transport's
@@ -421,12 +483,15 @@ open it, or make one of its folder or manifest.
   with `setTransport(createMockTransport({ commands, jobs }))`
   (`src/api/transport/mock.ts`): handlers typed by the command table, jobs
   that announce their states and events as the back end does, and every
-  call recorded; `nativeFolder` gives it the desktop's dialog. The
+  call recorded; `nativeFolder` gives it the desktop's dialog, `emit`
+  sends it an event, `setConnected` and `setReachable` drop the stream or the
+  back end. The
   transports have contract tests of their own (`src/api/transport/*.test.ts`,
   Tauri's against `mockIPC`), and `src/api/seam.test.ts` fails when a module
   outside `src/api/` imports `@tauri-apps/*`, calls `.invoke(` or
   `.resourceUrl(`, or writes an `/api/` URL (oxlint cannot express the
-  calls). `src/test/setupTests.ts` stubs `ResizeObserver`.
+  calls). `src/test/setupTests.ts` stubs `ResizeObserver` and
+  `scrollIntoView`.
 - **Playwright (`bun run test:e2e`)** — `e2e/server/` against the real
   back end: `scripts/e2e-server.mjs` copies the committed fixture library
   (`e2e/fixtures/library/`: `planar-demo/`, a version 2 project of six
@@ -442,13 +507,15 @@ open it, or make one of its folder or manifest.
   its run with its images, recent projects, refused paths, and
   `planar-demo` opened through the picker, run as the `calibrate` job with
   its progress over SSE, its run listed, labelled and deleted (and the
-  earlier-format project's run failing as the library says). Install the
+  earlier-format project's run failing as the library says), and the
+  shell's (`shell.spec.ts`, see "The shell"). Install the
   browser once with
   `bunx playwright install chromium --with-deps`.
 - **Smoke (`bun run test:e2e:smoke`)** — `e2e/smoke.spec.ts` on the plain
   Vite dev server with its `/api` proxy pointing nowhere (no Rust
-  toolchain): every workspace mounts, says no back end answers, and logs no
-  error of its own.
+  toolchain): every screen's address mounts (the not-built and the
+  need-a-project ones say so), says no back end answers, and logs no error of
+  its own.
 - **Rust.** studio-core's tests cover the commands (the project commands
   on a synthetic project: open, create, save and a stale revision, the
   views of a draft, a calibration job and its run read, noted and deleted,
@@ -467,7 +534,7 @@ open it, or make one of its folder or manifest.
   `target/debug/calibration-studio`.
 - **Screenshots (`bun run test:screens`)** — `e2e/screens.spec.ts`
   (`playwright.screens.config.ts`, the real server on port 1433) captures
-  every workspace; the
+  every screen's address, empty, and Inspect with the fixture run; the
   baseline in `e2e/.screens/` is local and uncommitted (`--update-snapshots`
   before a change, compare after). Not run in CI.
 

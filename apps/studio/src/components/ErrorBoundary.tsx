@@ -34,6 +34,34 @@ export function RouteErrorFallback() {
   );
 }
 
+/** A screen's `errorElement`: the shell around it stays, the screen says it
+ * failed, and the details can be reloaded or copied for a report. */
+export function ScreenErrorFallback() {
+  const error = useRouteError();
+  const details = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  return (
+    <div className="grid h-full place-items-center p-6">
+      <div className="w-full max-w-lg space-y-3">
+        <Callout tone="error" title="This screen failed">
+          <p className="font-mono text-xs break-words">{messageOf(error)}</p>
+        </Callout>
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void navigator.clipboard?.writeText(details)}
+          >
+            Copy details
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface ErrorBoundaryProps {
   children: ReactNode;
 }

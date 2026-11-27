@@ -22,9 +22,9 @@ test("runs a project as a job, lists the run, notes it and deletes it", async ({
   await picker.getByRole("option", { name: /planar-demo/ }).click();
   await picker.getByRole("button", { name: "Choose", exact: true }).click();
   await expect(picker).toHaveCount(0);
-  await expect(page.getByText("No runs yet.")).toBeVisible();
 
-  await page.getByRole("link", { name: "Run calibration" }).click();
+  await page.getByRole("link", { name: "Calibrate" }).click();
+  await expect(page.getByText("No runs yet.")).toBeVisible();
   const run = page.getByRole("button", { name: "Run", exact: true });
   await expect(run).toBeEnabled();
   await run.click();
@@ -33,10 +33,14 @@ test("runs a project as a job, lists the run, notes it and deletes it", async ({
     page.getByText(/6\/6 usable views · saved as runs\/run-001/),
   ).toBeVisible();
 
-  // The run is listed, and shown in Diagnose (the hand-off).
+  // The run is listed, and shown in Inspect (the hand-off), with its pills
+  // in the context bar and its job in the tray's indicator.
   const runs = page.getByRole("tree", { name: "Saved runs" });
   await expect(runs.getByText("run-001")).toBeVisible();
-  await expect(page).toHaveURL(/#\/diagnose$/);
+  await expect(page).toHaveURL(/#\/inspect\/frames\?project=.*&run=run-001$/);
+  await expect(page.getByRole("combobox", { name: "Run" })).toContainText("run-001");
+  await expect(page.getByText("Recorded", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Jobs/ })).toBeVisible();
   await expect(page.getByText("Planar intrinsics")).toBeVisible();
 
   // The job's record on the server: its last progress came from the

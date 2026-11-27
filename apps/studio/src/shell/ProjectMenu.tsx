@@ -24,15 +24,18 @@ import {
 } from "../project/projectActions";
 import { folderName } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
+import { useReadOnly } from "../session/jobs";
 
-/** The header's project commands: new (from a dataset folder or a
- * manifest), open, save the unsaved edits, reload, import an export as a
- * run, close, and reopen a recent project (the back end's list). A failure
- * lands in the project store's `error`, which the shell shows. */
+/** The project commands: open, new (from a dataset folder or a manifest),
+ * save the unsaved edits, reload, import an export as a run, close, and
+ * reopen a recent project (the back end's list). What writes is disabled
+ * while the connection is lost. A failure lands in the project store's
+ * `error`, which the shell shows. */
 export function ProjectMenu() {
   const project = useProject((s) => s.project);
   const recent = useProject((s) => s.recent);
   const dirty = useDraft(isDirty);
+  const readOnly = useReadOnly();
 
   const handleSave = async () => {
     if (await useDraft.getState().save()) {
@@ -42,12 +45,16 @@ export function ProjectMenu() {
 
   return (
     <DropdownMenu
-      align="end"
+      align="start"
       trigger={
-        <Button size="sm" title={project?.dir ?? "No project open"}>
-          <span className="max-w-[14rem] truncate">
-            {project ? project.name : "Project"}
-            {dirty ? " •" : ""}
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label="Project"
+          title={project?.dir ?? "No project open"}
+        >
+          <span className="max-w-[16rem] truncate font-semibold">
+            {project ? project.name : "No project"}
           </span>
           <ChevronDown aria-hidden className="size-3.5" />
         </Button>
@@ -56,16 +63,24 @@ export function ProjectMenu() {
       <MenuItem icon={<FolderOpen />} onSelect={() => void openProject()}>
         Open project…
       </MenuItem>
-      <MenuItem icon={<FolderPlus />} onSelect={() => void newProjectFromFolder()}>
+      <MenuItem
+        icon={<FolderPlus />}
+        disabled={readOnly}
+        onSelect={() => void newProjectFromFolder()}
+      >
         New project from a dataset folder…
       </MenuItem>
-      <MenuItem icon={<FolderPlus />} onSelect={() => void newProjectFromManifest()}>
+      <MenuItem
+        icon={<FolderPlus />}
+        disabled={readOnly}
+        onSelect={() => void newProjectFromManifest()}
+      >
         New project from a manifest…
       </MenuItem>
       <MenuSeparator />
       <MenuItem
         icon={<Save />}
-        disabled={!project || !dirty}
+        disabled={!project || !dirty || readOnly}
         onSelect={() => void handleSave()}
       >
         Save project
@@ -79,7 +94,7 @@ export function ProjectMenu() {
       </MenuItem>
       <MenuItem
         icon={<FileInput />}
-        disabled={!project}
+        disabled={!project || readOnly}
         onSelect={() => void importExport()}
       >
         Import an export as a run…

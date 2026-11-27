@@ -1,24 +1,27 @@
-import { DensityProvider, Empty, Panel } from "@vitavision/ui";
+import { DensityProvider, Empty } from "@vitavision/ui";
 import { TreeView, type TreeNode } from "@vitavision/workbench";
 import { FlaskConical } from "lucide-react";
 import { useMemo } from "react";
 import type { ProjectView, RunInfo } from "../api/generated/types";
-import { runLabel, runMeta, staleParts } from "../project/projectModel";
+import { runLabel, runMeta, runsNewestFirst, staleParts } from "../project/projectModel";
 import { useProject } from "../project/projectStore";
 import { useStore } from "../store";
 import { RunActions } from "./RunActions";
 
-/** The navigator of an open project: its name, its data folder, and its
- * runs. Choosing a run loads its export into the viewers; the chosen run's
- * label, star, report and deletion are below the list. */
-export function ProjectPanel({ project }: { project: ProjectView }) {
+/** The persistent list of the open project's runs, newest first, beside
+ * every screen that reads runs. Choosing one makes it the current run (the
+ * same choice as the context bar's); the current run's label, star, report
+ * and deletion are below the list. */
+export function RunList({ project }: { project: ProjectView | null }) {
   const shown = useStore((s) => s.run);
   const openRun = useProject((s) => s.openRun);
 
   const nodes = useMemo<TreeNode[]>(
-    () => project.runs.map((run) => runNode(run, project)),
+    () =>
+      project ? runsNewestFirst(project.runs).map((run) => runNode(run, project)) : [],
     [project],
   );
+  if (!project) return null;
   const selected =
     shown !== null && shown.dir === project.dir
       ? (project.runs.find((r) => r.id === shown.id) ?? null)
@@ -26,30 +29,28 @@ export function ProjectPanel({ project }: { project: ProjectView }) {
 
   return (
     <DensityProvider value="compact">
-      <div className="flex flex-col gap-2.5 p-2.5">
+      <div className="flex flex-col gap-3 p-2.5">
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-xs font-semibold text-fg" title={project.dir}>
-            {project.name}
-          </span>
+          <h2 className="text-[10px] font-semibold tracking-wider text-fg-muted uppercase">
+            Runs
+          </h2>
           <span
-            className="truncate font-mono text-[10px] text-fg-muted"
+            className="truncate font-mono text-[10px] text-fg-subtle"
             title={project.data_root}
           >
             data {project.data_root === project.dir ? "." : project.data_root}
           </span>
         </div>
-        <Panel title="Runs">
-          {nodes.length === 0 ? (
-            <Empty>No runs yet. Run a calibration from the Run workspace.</Empty>
-          ) : (
-            <TreeView
-              aria-label="Saved runs"
-              nodes={nodes}
-              selectedId={selected?.id ?? null}
-              onSelect={(id) => void openRun(id)}
-            />
-          )}
-        </Panel>
+        {nodes.length === 0 ? (
+          <Empty className="py-6">No runs yet. Run a calibration from Calibrate.</Empty>
+        ) : (
+          <TreeView
+            aria-label="Saved runs"
+            nodes={nodes}
+            selectedId={selected?.id ?? null}
+            onSelect={(id) => void openRun(id)}
+          />
+        )}
         {selected && <RunActions key={selected.id} project={project} run={selected} />}
       </div>
     </DensityProvider>
