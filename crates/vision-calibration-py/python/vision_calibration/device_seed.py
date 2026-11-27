@@ -4,9 +4,10 @@ A :class:`DeviceSeed` holds, by camera id, what belongs to the hardware rather
 than to a capture: each camera's lens, its mount in the rig, its laser plane
 and the rig's hand-eye. It comes from a datasheet (a device spec,
 :meth:`DeviceSeed.from_spec`) or from a previous calibration of the device or
-of one of its type (:meth:`DeviceSeed.from_export`). A seed is an initial
-value: nothing in it constrains the solve or acts as a prior, and it carries
-no uncertainty.
+of one of its type (:meth:`DeviceSeed.from_export`, :meth:`DeviceSeed.from_run`).
+:meth:`DeviceSeed.aggregate` makes the seed of a device type from several
+units' seeds (:class:`SeedAggregate`). A seed is an initial value: nothing in
+it constrains the solve or acts as a prior, and it carries no uncertainty.
 """
 
 from __future__ import annotations
@@ -100,6 +101,67 @@ class DeviceSeed:
         return cls(cast(_types.DeviceSeed, payload))
 
     @classmethod
+    def from_run(cls, run: str | os.PathLike[str]) -> DeviceSeed:
+        """The seed of a project's run: :meth:`from_export` of its export,
+        the cameras' ids and image sizes read from its record (``run.json``).
+
+        Parameters
+        ----------
+        run:
+            The run's folder (``runs/run-003``) or the ``export.json`` in it.
+            A run recorded without image sizes has them read from the headers
+            of the images its export names.
+
+        Raises
+        ------
+        vision_calibration.project.ProjectError
+            With ``kind == "seed_unresolved"`` (``field == "seed"``) when the
+            path is not a run, its record does not name its cameras (a run of
+            the desktop app's earlier format) or their image sizes and the
+            images cannot be read, or the export makes no seed.
+        """
+        return cls(cast(_types.DeviceSeed, _native.device_seed_from_run(os.fspath(run))))
+
+    @staticmethod
+    def aggregate(seeds: Sequence[DeviceSeed | Mapping[str, Any]]) -> SeedAggregate:
+        """A starting point for a device type from the seeds of several of its
+        units: each value the median across them.
+
+        Give one seed per unit, each from a calibration, with the same camera
+        ids, image sizes, camera models and hand-eye mode. Every seed is first
+        re-expressed in the frame of the camera with the smallest id. Each
+        camera parameter is the median of its values; a rotation the chordal
+        mean of the rotations corrected by the componentwise median of the
+        rotation vectors about it; a translation the componentwise median; a
+        laser plane (its sign made ``distance > 0``) the median normal,
+        renormalized, and the median distance. A mount, laser plane or
+        hand-eye only some seeds have is left out and listed in
+        :attr:`SeedAggregate.omitted`. The result does not depend on the
+        seeds' order.
+
+        The aggregate is not a calibration of any unit, and its spread is
+        descriptive, not a prior.
+
+        Raises
+        ------
+        ValueError
+            If a seed does not validate, the seeds differ in cameras, image
+            sizes, models or hand-eye modes, a lens is a datasheet's, no seed
+            is given, or an aggregated lens folds inside the image where every
+            seed's is valid.
+        """
+        payloads = [
+            seed.to_payload() if isinstance(seed, DeviceSeed) else dict(seed) for seed in seeds
+        ]
+        payload = cast(_types.SeedAggregate, _native.device_seed_aggregate(payloads))
+        return SeedAggregate(
+            seed=DeviceSeed(payload["seed"]),
+            units=payload["units"],
+            spread=list(payload["spread"]),
+            omitted=list(payload["omitted"]),
+        )
+
+    @classmethod
     def from_spec(cls, spec: str | os.PathLike[str] | Mapping[str, Any]) -> DeviceSeed:
         """The datasheet seed of a device spec (``spec.json``): each camera's
         intrinsics (``fx = fy = focal_mm * 1000 / pixel_pitch_um``, the
@@ -154,4 +216,40 @@ class DeviceSeed:
         return DeviceSeed(cast(_types.DeviceSeed, payload))
 
 
-__all__ = ["DeviceSeed"]
+@dataclass(frozen=True, slots=True)
+class SeedAggregate:
+    """A device type's seed from several units' seeds
+    (:meth:`DeviceSeed.aggregate`).
+
+    ``spread`` holds one :class:`vision_calibration.types.SeedSpread` per
+    aggregated value: its ``label`` (``"cam0.fx"``, ``"cam1.cam_se3_rig.rx"``,
+    ``"cam0.laser_plane.distance"``, ``"handeye.tz"``), each seed's value in
+    the order given (``values``), their ``median`` (the aggregate's value),
+    ``mad_sigma`` (``1.4826 * median(|x - median|)``, a standard deviation
+    for normally spread values, 0 for one value), ``min`` and ``max``. A pose
+    is spread as its rotation vector about the seeds' chordal mean (``rx``,
+    ``ry``, ``rz``, radians) and its translation (``tx``, ``ty``, ``tz``,
+    metres).
+    """
+
+    seed: DeviceSeed
+    """The aggregated seed, its cameras in id order."""
+    units: int
+    """How many seeds were aggregated."""
+    spread: list[_types.SeedSpread]
+    """Each aggregated value's spread across the seeds."""
+    omitted: list[str]
+    """What only some seeds have, left out: ``"cam0.laser_plane"``,
+    ``"cam1.cam_se3_rig"``, ``"handeye"``."""
+
+    def to_payload(self) -> dict[str, Any]:
+        """The aggregate's JSON form (:class:`vision_calibration.types.SeedAggregate`)."""
+        return {
+            "seed": self.seed.to_payload(),
+            "units": self.units,
+            "spread": [dict(spread) for spread in self.spread],
+            "omitted": list(self.omitted),
+        }
+
+
+__all__ = ["DeviceSeed", "SeedAggregate"]

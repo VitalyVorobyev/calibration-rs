@@ -295,6 +295,77 @@ The run checks the seed before it reads any image, and fails with `CalibrateData
 
 A camera whose images are of another size than its seed's (`ImageSizeMismatch`: another binning or region of the sensor halves `fx`) fails once the images' headers are read, before any detection. The run's step log notes what each stage took from the seed; a laserline device's init notes a tilt held at the seed.
 
+### A seed for a device type
+
+A unit of a device type starts better from what its siblings calibrated
+to than from a datasheet. `DeviceSeed::aggregate` makes that start from
+several units' seeds, one per unit, each from a calibration (a datasheet
+lens is refused): the same camera ids, image sizes, camera models and
+hand-eye mode.
+
+```rust,no_run
+use vision_calibration::device_seed::DeviceSeed;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let units = ["unit_0001/runs/run-002", "unit_0002/runs/run-001", "unit_0003/runs/run-004"]
+    .into_iter()
+    .map(DeviceSeed::from_run)
+    .collect::<Result<Vec<_>, _>>()?;
+let aggregate = DeviceSeed::aggregate(&units)?;
+for spread in &aggregate.spread {
+    println!(
+        "{}: {:.4} (MAD σ {:.4}, {:.4} … {:.4})",
+        spread.label, spread.median, spread.mad_sigma, spread.min, spread.max
+    );
+}
+println!("left out: {:?}", aggregate.omitted);
+std::fs::write("type-seed.json", serde_json::to_string_pretty(&aggregate.seed)?)?;
+# Ok(())
+# }
+```
+
+How each value is aggregated:
+
+- **The frame first.** Every unit is re-expressed in the frame of the camera
+  with the smallest id, so it does not matter which camera each unit's run
+  took as its reference; the hand-eye moves with the frame.
+- **Camera parameters and translations**: the median of each, across the
+  units.
+- **Rotations** (a mount's, the hand-eye's): the chordal mean `R̄` (the top
+  eigenvector of `Σ qᵢqᵢᵀ` over the units' quaternions `qᵢ`), corrected by
+  the componentwise median `δ̃` of the rotation vectors `Log(R̄ᵀRᵢ)`:
+  `R̄·Exp(δ̃)`.
+- **Laser planes**: each signed so its distance is positive (a laser plane
+  does not pass through its camera's centre), then the median normal,
+  renormalized, and the median distance.
+- **What some units lack** (a laser plane, the mounts, a hand-eye) is left
+  out and listed in `omitted`, never filled in.
+
+The result is the same, bit for bit, whatever the order of the units. With
+the values `x₁ … xₙ` of one quantity, its `SeedSpread` holds them (in the
+order given), their `median` (the mean of the two middle values for an even
+count), `mad_sigma = 1.4826 · median(|xᵢ − median|)` (a standard deviation
+for normally spread values; 0 for one unit), `min` and `max`. A pose is
+spread as its rotation vector about the chordal mean (`rx`, `ry`, `rz`,
+radians) and its translation (`tx`, `ty`, `tz`, metres). One outlying unit
+moves neither the median nor `mad_sigma` much; with two units the median is
+their mean, with no robustness. The componentwise rotation median is not
+the inliers' mean when an outlier pulls the chordal mean: it lands within
+the inliers' spread.
+
+The medians of coupled coefficients (`k1`, `k2`, `k3`) are a lens no unit
+has. Each aggregated lens is checked on a grid over its image: where every
+unit's lens has a projection, the aggregate's must too, or the aggregate
+fails with `AggregateFolds`; seed from one unit's run instead.
+
+What the aggregate is not: a calibration of any unit (never deploy it), an
+estimate of a "true" camera of the type, or a prior. Its spread describes
+the units; it is not the seed's uncertainty, and a seed of either kind is
+an initial value only.
+
+In Python, `DeviceSeed.aggregate(seeds)` returns a `SeedAggregate` with the
+seed, `units`, `spread` and `omitted`; `vcal seed from-runs` with several
+runs writes the type's seed and prints the spread.
+
 ### Rig poses (rig stage)
 
 `cam_se3_rig` and `rig_se3_target` are geometrically coupled, so the rig stage's `RigManualInit` seeds them together: its `poses` is `None` (the linear fit) or a `RigPoses` holding both. A length that does not match the cameras or views is a typed `Error::InvalidInput`.
@@ -393,6 +464,16 @@ datasheet = vc.DeviceSeed.from_spec("spec.json")
 
 ```python
 run = vc.calibrate_dataset("unit_0008/dataset.toml", seed=seed)
+```
+
+A project's run makes one too, and several units' seeds make a type's:
+
+```python
+seed = vc.DeviceSeed.from_run("unit_0007/runs/run-003")
+runs = ["unit_0001/runs/run-002", "unit_0002/runs/run-001", "unit_0003/runs/run-004"]
+aggregate = vc.DeviceSeed.aggregate([vc.DeviceSeed.from_run(r) for r in runs])
+print(aggregate.units, aggregate.omitted)
+type_seed = aggregate.seed
 ```
 
 The staged rig laser calibration takes the rig hand-eye session's export as it is:

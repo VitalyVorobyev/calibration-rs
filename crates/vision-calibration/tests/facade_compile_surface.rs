@@ -355,6 +355,37 @@ fn diagnostic_maps_surface_compiles() {
 }
 
 #[test]
+fn device_history_and_project_seed_surface_compiles() {
+    use device_seed::{DeviceSeed, DeviceSeedError, SeedAggregate, SeedSpread};
+    use project::{DeviceHistory, DeviceRun, ProjectError, RunSeed, SeedSource};
+
+    let _aggregate: fn(&[DeviceSeed]) -> Result<SeedAggregate, DeviceSeedError> =
+        DeviceSeed::aggregate;
+    let _from_run =
+        |run: &std::path::Path| -> Result<DeviceSeed, ProjectError> { DeviceSeed::from_run(run) };
+    let _representative: fn(&DeviceHistory) -> Option<&DeviceRun> =
+        DeviceHistory::representative_run;
+    let _spread = |s: &SeedSpread| (s.median, s.mad_sigma, s.min, s.max, s.values.len());
+    let _kept = |s: &RunSeed| {
+        (
+            s.source.clone(),
+            s.value.clone(),
+            s.applied.len(),
+            s.ignored.len(),
+        )
+    };
+    let sources = [
+        SeedSource::Run("runs/run-001".into()),
+        SeedSource::DeviceSpec("spec.json".into()),
+        SeedSource::File("seed.json".into()),
+    ];
+    let mut options = project::ProjectRunOptions::new("tool");
+    options.seed = Some(sources[2].clone());
+    let mut spec = project::ProjectSpec::for_manifest("dataset.toml");
+    spec.seed = Some(sources[0].clone());
+}
+
+#[test]
 fn projection_difference_surface_compiles() {
     use analysis::{
         Compensation, FitRegion, ImageGrid, ProjectionDifference, ProjectionDifferenceOptions,

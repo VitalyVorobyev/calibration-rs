@@ -94,6 +94,9 @@
       "max_view_residual": 3.0,
       "variance_test_alpha": 0.01
     },
+    "seed": {
+      "run": "../SN-0041/runs/run-002"
+    },
     "version": 2
   },
   {

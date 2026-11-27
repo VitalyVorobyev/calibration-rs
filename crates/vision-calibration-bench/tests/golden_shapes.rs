@@ -123,6 +123,7 @@ enum Bump {
     RunRecord,
     DetectionDetail,
     DeviceSeed,
+    SeedAggregate,
 }
 
 impl Bump {
@@ -143,6 +144,10 @@ impl Bump {
                  other one a major release"
                 .to_string(),
             Self::DeviceSeed => "bump `DEVICE_SEED_VERSION` (the seed's `version`)".to_string(),
+            Self::SeedAggregate => "the seed aggregate carries no version of its own (its seed \
+                 has `DEVICE_SEED_VERSION`): an added optional field is a minor change, any other \
+                 one a major release"
+                .to_string(),
         }
     }
 }
@@ -374,7 +379,7 @@ fn project_spec() {
     use vision_calibration_pipeline::dataset_runner::ConfigPatch;
     use vision_calibration_pipeline::project::{
         DatasetSource, DeviceIdentity, FeatureExclusion, ImageExclusion, PROJECT_VERSION,
-        ProjectSpec, ViewExclusion, ViewRef,
+        ProjectSpec, SeedSource, ViewExclusion, ViewRef,
     };
 
     let manifest = DatasetSpec::from_path(
@@ -390,6 +395,7 @@ fn project_spec() {
     device.product = Some("bench camera".into());
     device.label = Some("left".into());
     inline.device = Some(device);
+    inline.seed = Some(SeedSource::Run("../SN-0041/runs/run-002".into()));
     inline.config = ConfigPatch::from_toml_str("solver.max_iters = 80").unwrap();
     inline.quality = Some(QualityThresholds::default());
     let mut view = ViewExclusion::new(ViewRef::Token("12".into()));
@@ -413,8 +419,9 @@ fn project_spec() {
 }
 
 /// A run record, calibrated (with an excluded image, a left-out detection
-/// and a feature exclusion that matched nothing) and imported: a project
-/// of eight blank images whose detections its cache holds.
+/// and a feature exclusion that matched nothing), imported, and calibrated
+/// from a seed (the first run): a project of eight blank images whose
+/// detections its cache holds.
 #[test]
 fn run_record() {
     use vision_calibration::control::RunControl;
@@ -427,6 +434,7 @@ fn run_record() {
     use vision_calibration_pipeline::project::{
         DETECTIONS_DIR, DatasetSource, FeatureExclusion, ImageExclusion, Project,
         ProjectRunOptions, ProjectSpec, RUN_RECORD_FILE, RUN_RECORD_VERSION, RunNotes, RunRecord,
+        SeedSource,
     };
 
     let dir = std::env::temp_dir().join(format!("golden-run-record-{}", std::process::id()));
@@ -510,7 +518,79 @@ fn run_record() {
         Bump::RunRecord,
     );
     check_reads_back::<RunRecord>("run.record.imported.json", &golden);
+
+    let mut options = ProjectRunOptions::new("golden");
+    options.seed = Some(SeedSource::Run("runs/run-001".into()));
+    let seeded = project
+        .calibrate(&options, None, &RunControl::default())
+        .unwrap();
+    let golden = check(
+        "run.record.seeded.json",
+        &read(&seeded.dir),
+        Bump::RunRecord,
+    );
+    check_reads_back::<RunRecord>("run.record.seeded.json", &golden);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A device type's seed from three units: two-camera rigs with a hand-eye,
+/// one of them without laser planes, so they are omitted.
+#[test]
+fn seed_aggregate() {
+    use vision_calibration::core::{
+        BrownConrady5, FxFyCxCy, Iso3, LaserPlane, make_pinhole_camera, pinhole_camera_params,
+    };
+    use vision_calibration::device_seed::{DeviceSeed, SeedCamera, SeedHandeye, SeedLens};
+    use vision_calibration::nalgebra::{Translation3, UnitQuaternion, Vector3};
+
+    let unit = |fx: f64, planes: bool| {
+        let k = FxFyCxCy {
+            fx,
+            fy: fx,
+            cx: 640.0,
+            cy: 480.0,
+        };
+        let distortion = BrownConrady5 {
+            k1: -0.2,
+            iters: 8,
+            ..Default::default()
+        };
+        let lens = || SeedLens::Calibrated {
+            camera: pinhole_camera_params(&make_pinhole_camera(k, distortion)),
+        };
+        let mut cam0 = SeedCamera::new("cam0", [1280, 960], lens());
+        cam0.cam_se3_rig = Some(Iso3::identity());
+        let mut cam1 = SeedCamera::new("cam1", [1280, 960], lens());
+        cam1.cam_se3_rig = Some(Iso3::from_parts(
+            Translation3::new(-0.1, 0.0, 0.0),
+            UnitQuaternion::from_euler_angles(0.0, 0.1, 0.0),
+        ));
+        if planes {
+            for camera in [&mut cam0, &mut cam1] {
+                camera.laser_plane =
+                    Some(LaserPlane::new(Vector3::new(0.0, 0.6, 0.8), 0.3).unwrap());
+            }
+        }
+        let mut seed = DeviceSeed::new(vec![cam0, cam1]);
+        seed.handeye = Some(SeedHandeye::EyeInHand {
+            gripper_se3_rig: Iso3::from_parts(
+                Translation3::new(0.0, 0.05, 0.2),
+                UnitQuaternion::from_euler_angles(0.2, 0.0, 0.1),
+            ),
+        });
+        seed
+    };
+    let aggregate =
+        DeviceSeed::aggregate(&[unit(1500.0, true), unit(1510.0, false), unit(1490.0, true)])
+            .unwrap();
+    let value = serde_json::to_value(&aggregate).unwrap();
+    let golden = check("seed.aggregate.json", &value, Bump::SeedAggregate);
+    let typed: vision_calibration::device_seed::SeedAggregate =
+        serde_json::from_value(golden.clone()).unwrap();
+    assert_eq!(
+        shape(&serde_json::to_value(&typed).unwrap()),
+        shape(&golden)
+    );
 }
 
 /// A detection detail of every target kind and outcome, with every optional

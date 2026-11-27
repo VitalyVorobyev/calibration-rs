@@ -11,7 +11,7 @@ use vision_calibration::dataset_runner::{
 };
 use vision_calibration::project::{
     DeviceHistory, LibraryScan, LibraryScanOptions, Project, ProjectError, ProjectRunOptions,
-    ProjectSpec, RunNotes, scan_library,
+    ProjectSpec, RunNotes, SeedSource, scan_library,
 };
 
 use crate::control::PyRunControl;
@@ -280,7 +280,7 @@ impl PyProject {
     }
 
     /// Calibrate the dataset into the next run; returns its `RunInfo`.
-    #[pyo3(signature = (tool, label=None, notes_text=None, starred=false, config_patch=None, redetect=false, report_html=false, laser_extractor=None, progress=None))]
+    #[pyo3(signature = (tool, label=None, notes_text=None, starred=false, config_patch=None, redetect=false, report_html=false, laser_extractor=None, progress=None, seed=None))]
     #[allow(clippy::too_many_arguments)] // The Python keyword arguments.
     fn calibrate(
         &self,
@@ -294,11 +294,15 @@ impl PyProject {
         report_html: bool,
         laser_extractor: Option<&Bound<'_, PyAny>>,
         progress: Option<Py<PyAny>>,
+        seed: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let mut options = ProjectRunOptions::new(tool);
         options.notes = notes(label, notes_text, starred);
         if let Some(patch) = config_patch.filter(|p| !p.is_none()) {
             options.config_patch = parse_checked::<ConfigPatch>(patch, "config_patch")?;
+        }
+        if let Some(seed) = seed.filter(|s| !s.is_none()) {
+            options.seed = Some(parse_checked::<SeedSource>(seed, "seed")?);
         }
         options.redetect = redetect;
         options.report_html = report_html;
@@ -383,10 +387,22 @@ pub(crate) fn project_scan_library(
     )
 }
 
+/// `DeviceHistory::representative_run`: the `DeviceRun` payload that stands
+/// for the device of the `DeviceHistory` payload `device`, or `None`.
+#[pyfunction]
+pub(crate) fn project_representative_run(
+    py: Python<'_>,
+    device: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let history: DeviceHistory = parse_payload(device, "device")?;
+    to_py(py, &history.representative_run())
+}
+
 /// Register the project class and functions.
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyProject>()?;
     m.add_function(wrap_pyfunction!(project_scan_library, m)?)?;
+    m.add_function(wrap_pyfunction!(project_representative_run, m)?)?;
     m.add(
         "ProjectError",
         m.py().get_type::<crate::errors::ProjectError>(),

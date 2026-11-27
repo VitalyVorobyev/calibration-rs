@@ -22,15 +22,16 @@ use super::fs::{TempDir, json_text, read, unique_name, write_atomic};
 use super::{
     CalibratedRun, CameraSummary, DatasetSource, EXPORT_FILE, FeatureExclusion, LeftOutImage,
     Project, ProjectError, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
-    RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSource, RunState,
-    RunSummary, UnrecordedRun,
+    RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSeed, RunSource,
+    RunState, RunSummary, SeedSource, UnrecordedRun,
 };
 use crate::analysis::{QualityThresholds, ReportOptions, assess, html_report};
 use crate::common::{CalibratedCameras, calibrated_cameras};
 use crate::dataset_runner::{
     CalibrateDatasetError, CalibrationConfig, ConfigPatch, ConvertOptions, Detection,
-    LaserPixelExtractor, RunError, calibrate_dataset_with, require_pose_pairing,
+    LaserPixelExtractor, RunError, calibrate_dataset_with, check_seed, require_pose_pairing,
 };
+use crate::device_seed::DeviceSeed;
 
 /// How many run ids a writer tries before it gives up: each failed try is
 /// a run another writer claimed in between.
@@ -55,11 +56,15 @@ pub struct ProjectRunOptions {
     /// The program making the run, as the record names it
     /// (`vcal 1.1.0`).
     pub tool: String,
+    /// A seed for this run only, in place of the project's `[seed]`; its
+    /// path relative to the project folder unless absolute. The record
+    /// keeps it.
+    pub seed: Option<SeedSource>,
 }
 
 impl ProjectRunOptions {
     /// The options of a run made by `tool`: no notes, no configuration
-    /// changes of its own, the detection cache read, no page.
+    /// changes or seed of its own, the detection cache read, no page.
     pub fn new(tool: impl Into<String>) -> Self {
         Self {
             tool: tool.into(),
@@ -76,12 +81,25 @@ pub(crate) struct Prepared {
     pub(crate) config: CalibrationConfig,
     pub(crate) quality: QualityThresholds,
     pub(crate) options: ConvertOptions,
+    /// The seed the run starts from: where it came from and its values.
+    pub(crate) seed: Option<(SeedSource, DeviceSeed)>,
 }
 
 impl Project {
     /// Resolve and check what a run of the project with the configuration
     /// changes `extra` would be given; no image is read.
     pub(crate) fn prepare(&self, extra: &ConfigPatch) -> Result<Prepared, ProjectError> {
+        self.prepare_with(extra, None)
+    }
+
+    /// [`prepare`](Self::prepare), with the seed `seed` in place of the
+    /// project's when one is given. The seed is resolved and checked
+    /// against the dataset and the configuration.
+    pub(crate) fn prepare_with(
+        &self,
+        extra: &ConfigPatch,
+        seed: Option<&SeedSource>,
+    ) -> Result<Prepared, ProjectError> {
         super::file::validate(self.spec(), self.file())?;
         let dataset = self.dataset()?;
         let data_root = self.data_root()?;
@@ -92,6 +110,15 @@ impl Project {
             CalibrationConfig::patched(dataset.topology, &patch).map_err(ProjectError::Config)?;
         let quality = self.spec().quality.unwrap_or_default();
         let options = self.spec().exclude.resolve(&dataset, &data_root)?;
+        let seed = match seed.or(self.spec().seed.as_ref()) {
+            Some(source) => {
+                let value = super::seed::resolve(self.dir(), source)?;
+                check_seed(&value, &dataset, &config)
+                    .map_err(|e| ProjectError::Calibrate(CalibrateDatasetError::Seed(e)))?;
+                Some((source.clone(), value))
+            }
+            None => None,
+        };
         Ok(Prepared {
             dataset,
             data_root,
@@ -99,6 +126,7 @@ impl Project {
             config,
             quality,
             options,
+            seed,
         })
     }
 
@@ -107,7 +135,11 @@ impl Project {
     /// `notes.json` and `report.html` when asked for.
     ///
     /// Everything [`check`](Self::check) checks fails before any image is
-    /// read. Detection goes through the project's cache
+    /// read, the seed included: the project's `[seed]`, or
+    /// [`ProjectRunOptions::seed`] in its place, is resolved, checked
+    /// against the dataset and the configuration, and the run starts from
+    /// it as [`calibrate_dataset_with_seed`] does; the record keeps it
+    /// ([`RunInputs::seed`]). Detection goes through the project's cache
     /// ([`detection_cache_dir`](Self::detection_cache_dir)). The export's
     /// image manifest is restated for the run folder: relative when the data
     /// lies inside the project, the absolute folder otherwise.
@@ -117,11 +149,14 @@ impl Project {
     /// cancelled run writes nothing.
     ///
     /// [`calibrate_dataset`]: crate::dataset_runner::calibrate_dataset
+    /// [`calibrate_dataset_with_seed`]: crate::dataset_runner::calibrate_dataset_with_seed
     ///
     /// # Errors
     ///
-    /// What [`check`](Self::check) returns; [`ProjectError::Calibrate`]
-    /// when detection or the calibration fails; [`ProjectError::Cancelled`];
+    /// What [`check`](Self::check) returns, for the run's own seed too;
+    /// [`ProjectError::Calibrate`] when detection or the calibration fails,
+    /// or a seeded camera's images are of another size than its seed's;
+    /// [`ProjectError::Cancelled`];
     /// [`ProjectError::Io`] when the run cannot be written.
     pub fn calibrate(
         &self,
@@ -131,7 +166,7 @@ impl Project {
     ) -> Result<RunInfo, ProjectError> {
         // For display only: never part of a digest, the export or the report.
         let started = Instant::now();
-        let prepared = self.prepare(&options.config_patch)?;
+        let prepared = self.prepare_with(&options.config_patch, options.seed.as_ref())?;
         let cache_dir = self.detection_cache_dir();
         ensure_cache_dir(&cache_dir)?;
         let fs_cache = FsDetectionCache::new(&cache_dir);
@@ -149,7 +184,7 @@ impl Project {
             laser_extractor,
             control,
             &prepared.options,
-            None,
+            prepared.seed.as_ref().map(|(_, seed)| seed),
         )?;
         // Cancelled after the last check: still stop before writing.
         if control.is_cancelled() {
@@ -170,7 +205,7 @@ impl Project {
         let summary = RunSummary {
             kind: run.export.kind(),
             verdict: Some(quality.verdict),
-            cameras: camera_summaries(&run.export, &ids),
+            cameras: camera_summaries(&run.export, &ids, &run.image_sizes),
         };
         let left_out = run
             .rejected
@@ -190,8 +225,18 @@ impl Project {
             config: &prepared.config,
             quality: &prepared.quality,
             detections: &detections,
+            seed: prepared.seed.as_ref().map(|(_, seed)| seed),
         }
         .digest()?;
+        let seed = prepared.seed.as_ref().map(|(source, value)| {
+            let (applied, ignored) = super::seed::seed_use(value, prepared.dataset.topology);
+            RunSeed {
+                source: source.clone(),
+                value: value.clone(),
+                applied,
+                ignored,
+            }
+        });
         let record = RunRecord {
             version: RUN_RECORD_VERSION,
             timestamp: unix_now(),
@@ -205,6 +250,7 @@ impl Project {
                     config_patch: prepared.patch.clone(),
                     config: prepared.config.clone(),
                     quality: prepared.quality,
+                    seed,
                 },
                 digest,
                 usable_views: run.usable_views,
@@ -338,7 +384,7 @@ impl Project {
             summary: RunSummary {
                 kind,
                 verdict: quality.as_ref().map(|q| q.verdict),
-                cameras: camera_summaries(cameras.as_ref(), &ids),
+                cameras: camera_summaries(cameras.as_ref(), &ids, &image_sizes),
             },
         };
         let runs_dir = self.dir().join(RUNS_DIR);
@@ -572,7 +618,7 @@ fn is_plain_name(id: &str) -> bool {
 
 /// The run in `dir`, as its files say; `None` when the folder holds no
 /// run.
-fn read_run(dir: &Path, id: String) -> Option<RunInfo> {
+pub(crate) fn read_run(dir: &Path, id: String) -> Option<RunInfo> {
     let record_path = dir.join(RUN_RECORD_FILE);
     let state = if record_path.is_file() {
         match std::fs::read(&record_path)
@@ -625,7 +671,7 @@ fn unrecorded_run(dir: &Path) -> UnrecordedRun {
             Some(RunSummary {
                 kind,
                 verdict: None,
-                cameras: camera_summaries(cameras.as_ref(), &ids),
+                cameras: camera_summaries(cameras.as_ref(), &ids, &[]),
             })
         });
     UnrecordedRun {
@@ -636,7 +682,11 @@ fn unrecorded_run(dir: &Path) -> UnrecordedRun {
 }
 
 /// Each camera's summary from the export's residuals.
-fn camera_summaries(export: &dyn CalibratedCameras, ids: &[String]) -> Vec<CameraSummary> {
+fn camera_summaries(
+    export: &dyn CalibratedCameras,
+    ids: &[String],
+    image_sizes: &[[u32; 2]],
+) -> Vec<CameraSummary> {
     let residuals = &export.diagnostics().per_feature_residuals.target;
     (0..export.camera_params().len())
         .map(|camera| {
@@ -650,6 +700,7 @@ fn camera_summaries(export: &dyn CalibratedCameras, ids: &[String]) -> Vec<Camer
                 rms_px,
                 features: mine.len(),
                 views: views.len(),
+                image_size: image_sizes.get(camera).copied(),
             }
         })
         .collect()
@@ -664,7 +715,7 @@ fn camera_id(ids: &[String], camera: usize) -> String {
 /// Each camera's image size, from the first target frame of the camera the
 /// manifest names (its region, when it has one); empty unless every camera
 /// has one.
-fn sizes_of(images: &ImageManifest, source_dir: &Path, cameras: usize) -> Vec<[u32; 2]> {
+pub(crate) fn sizes_of(images: &ImageManifest, source_dir: &Path, cameras: usize) -> Vec<[u32; 2]> {
     let root = source_dir.join(&images.root);
     let sizes: Option<Vec<[u32; 2]>> = (0..cameras)
         .map(|camera| {

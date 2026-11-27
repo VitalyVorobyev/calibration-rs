@@ -640,3 +640,5 @@ fn a_project_run_is_the_dataset_runner_s_run() {
     let written: serde_json::Value = serde_json::from_slice(&bytes(&run.export_path())).unwrap();
     assert_eq!(written, direct);
 }
+
+mod seeded;

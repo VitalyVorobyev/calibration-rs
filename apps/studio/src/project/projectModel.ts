@@ -77,7 +77,13 @@ export function staleParts(
   if (!current || run.state.kind !== "recorded") return null;
   const source = run.state.source;
   if (source.kind !== "calibrated") return null;
-  const parts: (keyof ProjectDigest)[] = ["dataset", "exclusions", "config", "quality"];
+  const parts: (keyof ProjectDigest)[] = [
+    "dataset",
+    "exclusions",
+    "config",
+    "quality",
+    "seed",
+  ];
   return parts.filter((part) => source.digest[part] !== current[part]);
 }
 

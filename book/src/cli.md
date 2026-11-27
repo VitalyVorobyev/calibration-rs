@@ -23,6 +23,8 @@ The Rust crate and the Python package install the same program.
 | `vcal project import <project> <export>` | adds an export calibrated elsewhere as a run |
 | `vcal project note <project> <run>` | labels, annotates or stars a run |
 | `vcal project scan <folder>...` | lists the projects under folders, each device's runs together |
+| `vcal seed from-runs <run>...` | writes the seed of a calibrated run, or of a device type from several units' runs |
+| `vcal seed from-spec <spec.json>` | writes the datasheet seed of a device spec |
 | `vcal sample list` | lists the sample datasets |
 | `vcal sample fetch <id>` | downloads a sample dataset and prints its manifest's path |
 
@@ -154,7 +156,28 @@ estimates everything, and a good seed ends where the unseeded run ends. Its
 cameras must be the manifest's, each for images of the same size and, for a
 calibrated lens, of the configured camera model; anything else fails before
 any detection with a message that says which. The two options exclude each
-other and are for a manifest's run.
+other and are for a manifest's run; a project names its seed in its
+`[seed]` ([Starting from a Seed](projects.md#starting-from-a-seed)).
+
+`vcal seed` writes seed files, JSON (TOML by a `.toml` extension):
+
+```bash
+vcal seed from-runs unit_0007/runs/run-003 -o unit_0007/seed.json
+vcal seed from-runs unit_0001/runs/run-002 unit_0002/runs/run-001 unit_0003/runs/run-004 -o type.json
+vcal seed from-spec spec.json -o datasheet.json
+```
+
+`from-runs` takes project run folders, whose records name the cameras and
+their image sizes. One run gives its seed. Several runs, one per unit of a
+device type, give the type's seed: each value the median across the units,
+printed with its spread (median, MAD σ, min and max); quantities only some
+units have are left out and listed; `--json` prints the whole aggregate
+instead. The type's seed is a starting point for the next unit, not a
+calibration of any unit
+([A seed for a device type](manual_init.md#a-seed-for-a-device-type)). An
+export file outside a project (or a `vcal run -o` folder) needs its cameras'
+ids and image sizes: `--camera-ids cam0,cam1 --image-sizes
+1920x1200,1920x1200`.
 
 ## Projects
 
@@ -201,6 +224,10 @@ command-line error (status 2). Detections are cached in the project's
   never forks a manifest you keep by hand.
 - `--name`, and `--device-id` with `--device-product` and `--device-label`,
   fill in the project's name and the device it calibrates.
+- `--seed-run <run>`, `--seed-file <file>` or `--seed-spec <spec.json>`
+  (one of them) writes the project's `[seed]`: every run starts from that
+  run's calibration, that seed file or that datasheet. The path must exist;
+  `vcal check` checks that it makes a seed that fits.
 
 The other commands:
 
@@ -213,7 +240,8 @@ $ vcal project scan ~/calibrations
 ```
 
 `runs` lists each run's id, time (UTC), verdict, views, each camera's RMS
-reprojection error, star and label (`--json` prints the records); `note`
+reprojection error, the seed it started from (`seed: run ../unit/runs/run-002`),
+star and label (`--json` prints the records); `note`
 sets a run's label (`--label`), text (`--notes`) and star (`--star`,
 `--unstar`), an empty text clearing a field; `import` adds an export file
 or a `vcal run -o` folder whose workflow and camera count are the

@@ -18,6 +18,7 @@ from vision_calibration.project import (
     PROJECT_VERSION,
     Project,
     ProjectError,
+    representative_run,
     scan_library,
 )
 
@@ -242,6 +243,53 @@ class ProjectRunTest(unittest.TestCase):
             self.assertEqual(len(scan["devices"]), 1)
             self.assertEqual(scan["devices"][0]["device"]["id"], "SN-7")
             self.assertEqual([r["run"]["id"] for r in scan["devices"][0]["runs"]], ["run-001", "run-002"])
+
+    def test_a_seeded_project_and_the_representative_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = planar_project(root / "lib" / "unit-1", device={"product": "rig", "id": "SN-1"})
+            run = first.calibrate(starred=True)
+            seed = vc.DeviceSeed.from_run(run["dir"])
+            self.assertEqual(seed.camera_ids, ["cam0"])
+            self.assertEqual(seed.payload["description"], "the calibrated run run-001")
+
+            # The next unit's project starts every run from the first's run.
+            spec = first.spec
+            spec["seed"] = {"run": str(Path(run["dir"]))}
+            spec["device"] = {"product": "rig", "id": "SN-2"}
+            spec["dataset"] = {**spec["dataset"], "root": str(root / "lib" / "unit-1" / "data")}
+            second = Project.create(root / "lib" / "unit-2", spec)
+            second.check()
+            self.assertIn("seed", second.input_digest())
+            seeded = second.calibrate()
+            kept = seeded["state"]["source"]["inputs"]["seed"]
+            self.assertEqual(kept["source"], {"run": str(Path(run["dir"]))})
+            self.assertEqual(kept["value"], seed.to_payload())
+            self.assertEqual(kept["applied"], ["cam0.lens"])
+            self.assertIn("seed", seeded["state"]["source"]["digest"])
+
+            # A run's own seed replaces the project's; a missing one is an
+            # error before any image is read.
+            seed_file = root / "seed.json"
+            seed_file.write_text(json.dumps(seed.to_payload()))
+            own = second.calibrate(seed={"file": seed_file})
+            self.assertEqual(
+                own["state"]["source"]["inputs"]["seed"]["source"], {"file": str(seed_file)}
+            )
+            with self.assertRaises(ProjectError) as caught:
+                second.calibrate(seed={"run": "runs/run-404"})
+            self.assertEqual((caught.exception.kind, caught.exception.field), ("seed_unresolved", "seed"))
+            with self.assertRaises(ProjectError) as caught:
+                vc.DeviceSeed.from_run(root)
+            self.assertEqual(caught.exception.kind, "seed_unresolved")
+
+            # The starred run stands for the first unit.
+            devices = scan_library([root / "lib"])["devices"]
+            self.assertEqual([d["device"]["id"] for d in devices], ["SN-1", "SN-2"])
+            chosen = representative_run(devices[0])
+            self.assertIsNotNone(chosen)
+            assert chosen is not None
+            self.assertEqual(chosen["run"]["id"], "run-001")
 
     def test_input_files_lists_without_reading(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

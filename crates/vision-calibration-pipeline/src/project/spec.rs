@@ -7,7 +7,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vision_calibration_dataset::DatasetSpec;
 
-use super::{Exclusions, PROJECT_VERSION};
+use super::{Exclusions, PROJECT_VERSION, SeedSource};
 use crate::analysis::QualityThresholds;
 use crate::dataset_runner::ConfigPatch;
 
@@ -26,6 +26,9 @@ use crate::dataset_runner::ConfigPatch;
 /// [device]
 /// product = "line scanner"
 /// id = "SN-0042"
+///
+/// [seed]
+/// run = "../SN-0041/runs/run-002"
 ///
 /// [dataset]
 /// manifest = "captures/dataset.toml"
@@ -54,6 +57,10 @@ pub struct ProjectSpec {
     /// across projects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<DeviceIdentity>,
+    /// The seed every run starts from instead of the closed-form
+    /// initialization; `None` for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<SeedSource>,
     /// The dataset: its manifest, written in the project file or kept in a
     /// file of its own.
     pub dataset: DatasetSource,
@@ -71,13 +78,14 @@ pub struct ProjectSpec {
 
 impl ProjectSpec {
     /// A project of `dataset` at the current version, with no name,
-    /// device, configuration changes, thresholds or exclusions.
+    /// device, seed, configuration changes, thresholds or exclusions.
     pub fn new(dataset: DatasetSource) -> Self {
         Self {
             version: PROJECT_VERSION,
             name: None,
             description: None,
             device: None,
+            seed: None,
             dataset,
             config: ConfigPatch::default(),
             quality: None,
@@ -372,6 +380,7 @@ mod tests {
         device.product = Some("line scanner".into());
         device.label = Some("left".into());
         spec.device = Some(device);
+        spec.seed = Some(SeedSource::Run("../SN-0041/runs/run-002".into()));
         spec.config = ConfigPatch::from_toml_str("solver.max_iters = 80").unwrap();
         spec.quality = Some(QualityThresholds::default());
         spec.exclude

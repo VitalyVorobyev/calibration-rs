@@ -44,7 +44,7 @@ use vision_calibration_pipeline::analysis::{
     PredictedRigUncertainty, PredictedUncertainty, QualityReport, QualityThresholds,
     RankedCandidate, RankedRobotPose,
 };
-use vision_calibration_pipeline::device_seed::DeviceSeed;
+use vision_calibration_pipeline::device_seed::{DeviceSeed, SeedAggregate};
 use vision_calibration_pipeline::laserline_device::{
     LaserlineDeviceConfig, LaserlineDeviceExport, LaserlineDeviceInput,
 };
@@ -224,6 +224,7 @@ pub fn run(workspace_root: &Path, check: bool) -> Result<()> {
         writes::<DetectionDetail>("detection_detail", "DetectionDetail"),
         plain("device_spec", schema_value::<DeviceSpec>()),
         reads::<DeviceSeed>("device_seed", "DeviceSeed", &[]),
+        writes::<SeedAggregate>("seed_aggregate", "SeedAggregate"),
     ];
     let suite = vec![
         plain("observation_set", schema_value::<ObservationSet>()),

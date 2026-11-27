@@ -90,6 +90,35 @@ class DeviceSeedTest(unittest.TestCase):
         self.assertEqual(lens["kind"], "nominal")
         self.assertAlmostEqual(lens["intrinsics"]["fx"], 16.0e-3 / 4.8e-6, places=6)
 
+    def test_aggregate_takes_the_median_of_each_value(self) -> None:
+        def unit(fx: float) -> vc.DeviceSeed:
+            export = json.loads(json.dumps(RIG_EXPORT))
+            export["cameras"][0]["intrinsics"]["fx"] = fx
+            return vc.DeviceSeed.from_export(export, ["left", "right"], [(1280, 960)] * 2)
+
+        seeds = [unit(1500.0), unit(1502.0), unit(1600.0)]
+        aggregate = vc.DeviceSeed.aggregate(seeds)
+        self.assertIsInstance(aggregate, vc.SeedAggregate)
+        self.assertEqual(aggregate.units, 3)
+        self.assertEqual(aggregate.omitted, [])
+        self.assertEqual(aggregate.seed.camera_ids, ["left", "right"])
+        lens = aggregate.seed.payload["cameras"][0]["lens"]
+        self.assertEqual(lens["camera"]["intrinsics"]["fx"], 1502.0)
+        fx = next(s for s in aggregate.spread if s["label"] == "left.fx")
+        self.assertEqual(fx["values"], [1500.0, 1502.0, 1600.0])
+        self.assertEqual((fx["median"], fx["min"], fx["max"]), (1502.0, 1500.0, 1600.0))
+        # |fx - 1502| = 2, 0, 98: the middle one is 2.
+        self.assertAlmostEqual(fx["mad_sigma"], 2 * 1.482602218505602, places=9)
+        # The order of the seeds does not matter; payloads work as well.
+        again = vc.DeviceSeed.aggregate([s.to_payload() for s in reversed(seeds)])
+        self.assertEqual(again.seed.to_payload(), aggregate.seed.to_payload())
+        self.assertEqual(json.loads(json.dumps(aggregate.to_payload()))["units"], 3)
+
+        with self.assertRaisesRegex(ValueError, "nominal lens is not aggregated"):
+            vc.DeviceSeed.aggregate([seeds[0], seeds[1].nominal()])
+        with self.assertRaisesRegex(ValueError, "no seed"):
+            vc.DeviceSeed.aggregate([])
+
     def test_errors(self) -> None:
         with self.assertRaisesRegex(ValueError, "2 cameras but 1 camera ids"):
             vc.DeviceSeed.from_export(RIG_EXPORT, ["left"], [(1280, 960)] * 2)

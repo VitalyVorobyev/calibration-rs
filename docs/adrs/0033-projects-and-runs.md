@@ -56,8 +56,23 @@ the library only:
   convention, with a `.gitignore` of `*`. A project folder that is also its
   manifest's folder shares one cache between `vcal run dataset.toml` and
   `vcal run .`.
-- **D8 — no `device_spec` or seed source yet.** They arrive with the
-  seeding work; a field that `calibrate` silently ignored would be a lie.
+- **D8 — `[seed]` names the seed every run starts from** (`SeedSource`:
+  `run`, `device_spec` or `file`, one key, paths relative to the project).
+  It is resolved and checked against the dataset and the configuration in
+  `prepare`, before any image; a seed that is missing, unreadable or does
+  not fit is a typed error (`ProjectError::SeedUnresolved`, or
+  `Calibrate(Seed(_))`), never a run without it. `ProjectRunOptions::seed`
+  replaces it for one run. `run.json`'s `inputs.seed` (`RunSeed`) keeps the
+  source as written, the resolved values (so a seed file that changes later
+  does not change what a run says it started from) and what the workflow
+  `applied`/`ignored`. `InputDigest.seed` hashes the values only, and
+  `inputs` covers it **only when present**: an unseeded run's digests are
+  the ones it had before seeds were recorded. `CameraSummary.image_size`
+  lets `DeviceSeed::from_run` make a run's seed without the images (an older
+  record reads the image headers). `DeviceHistory::representative_run`
+  (latest starred, else latest calibrated `pass` run) is the one stated
+  policy for which run stands for a device. An older library refuses a
+  project with `[seed]` (`deny_unknown_fields`) rather than run it unseeded.
 - **D9 — the configuration patch is a library type** (`ConfigPatch` in
   `dataset_runner`), not a `serde_json::Value` on a public field.
 

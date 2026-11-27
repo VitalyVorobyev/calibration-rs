@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use vision_calibration_dataset::{DatasetSpec, ProblemKind};
 
-use super::{EXPORT_FILE, Exclusions, FeatureExclusion, QUALITY_FILE, REPORT_FILE};
+use super::{EXPORT_FILE, Exclusions, FeatureExclusion, QUALITY_FILE, REPORT_FILE, RunSeed};
 use crate::analysis::{QualityThresholds, Verdict};
 use crate::dataset_runner::{CalibrationConfig, ConfigPatch, RejectReason};
 
@@ -97,6 +97,9 @@ pub struct RunInputs {
     pub config: CalibrationConfig,
     /// The thresholds the quality report was judged by.
     pub quality: QualityThresholds,
+    /// The seed the run started from, when it had one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<RunSeed>,
 }
 
 /// The digest of a calibrated run's inputs: each `sha256:<hex>` of the
@@ -105,11 +108,14 @@ pub struct RunInputs {
 /// Two runs with equal `inputs` digests, by the same library version, have
 /// byte-identical `export.json` and `quality.json`. The data root's
 /// location is not part of any digest: a dataset moved whole keeps them.
+/// A run without a seed has no `seed` digest, and its `inputs` digest is
+/// the one it would have had before seeds were recorded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct InputDigest {
-    /// Over the other five, in their order here.
+    /// Over the others, in their order here: the five, and `seed` when the
+    /// run had one.
     pub inputs: String,
     /// The manifest, and the content of the files it names other than
     /// images (the robot pose file, the upstream calibration).
@@ -125,6 +131,10 @@ pub struct InputDigest {
     /// image's content, its detector and detector configuration and the
     /// detector's version.
     pub detections: String,
+    /// The seed's values ([`RunSeed::value`]), when the run started from
+    /// one; where they were read from is not part of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<String>,
 }
 
 /// The digests of a project's inputs as they stand, for what is known
@@ -145,6 +155,9 @@ pub struct ProjectDigest {
     pub config: String,
     /// As [`InputDigest::quality`].
     pub quality: String,
+    /// As [`InputDigest::seed`], of the project's `[seed]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<String>,
 }
 
 /// An image a run left out, with the reason.
@@ -190,6 +203,10 @@ pub struct CameraSummary {
     pub features: usize,
     /// The views it saw.
     pub views: usize,
+    /// Its image size `[width, height]`, pixels (its region's, for a camera
+    /// cut from a larger image); `None` when the run did not record it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_size: Option<[u32; 2]>,
 }
 
 /// What a person notes on a run, `notes.json`: the only file of a run that

@@ -125,6 +125,19 @@ pub enum ProjectError {
     /// The run control's token was cancelled; nothing was written.
     #[error("cancelled")]
     Cancelled,
+    /// The seed a run is to start from cannot be made: what the project's
+    /// `[seed]` (or the run's own seed) names is missing, cannot be read,
+    /// or does not state what a seed needs. Raised before any image is
+    /// read; a seed that does not fit the dataset is a
+    /// [`Calibrate`](Self::Calibrate) error
+    /// ([`CalibrateDatasetError::Seed`]).
+    #[error("the seed {}: {message}", path.display())]
+    SeedUnresolved {
+        /// What the seed was to be read from.
+        path: PathBuf,
+        /// Why it cannot be.
+        message: String,
+    },
 }
 
 impl ProjectError {
@@ -134,7 +147,8 @@ impl ProjectError {
     /// The project's own errors name a field of the project file:
     /// `version`, the [`Invalid`](Self::Invalid) field (`device.id`),
     /// `config` for the configuration changes, the
-    /// [`Exclusion`](Self::Exclusion) entry (`exclude.images[0]`). The
+    /// [`Exclusion`](Self::Exclusion) entry (`exclude.images[0]`), `seed`
+    /// for a seed that cannot be made ([`SeedUnresolved`](Self::SeedUnresolved)). The
     /// dataset's errors name a field of its manifest, as
     /// [`RunError::field`](crate::dataset_runner::RunError::field) does
     /// (`target`, `cameras[cam0].images`); for a manifest written in the
@@ -145,6 +159,7 @@ impl ProjectError {
             Self::Invalid { field, .. } => Some(field.clone()),
             Self::Config(_) => Some("config".into()),
             Self::Exclusion { entry, .. } => Some(entry.clone()),
+            Self::SeedUnresolved { .. } => Some("seed".into()),
             Self::Manifest(e) => e.field(),
             Self::Calibrate(e) => e.field(),
             Self::NotAProject { .. }
@@ -276,6 +291,13 @@ mod tests {
                 None,
             ),
             (ProjectError::Cancelled, None),
+            (
+                ProjectError::SeedUnresolved {
+                    path: path(),
+                    message: "x".into(),
+                },
+                Some("seed"),
+            ),
         ];
         for (error, expected) in table {
             assert_eq!(error.field().as_deref(), expected, "{error:?}");

@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A project can start every run from a seed: the project file's optional
+  `[seed]` (`project::SeedSource`) names a calibrated run (`run`), a
+  device spec (`device_spec`) or a seed file (`file`), relative to the
+  project folder. `Project::calibrate` and `vcal run <project>` resolve it
+  and check it against the dataset and the configuration before any image
+  is read: a seed that is missing or does not fit is an error
+  (`ProjectError::SeedUnresolved`, field `seed`, or a `Calibrate` error),
+  never a run without it. `ProjectRunOptions::seed` starts one run from
+  another seed. The run's record keeps the seed it used
+  (`RunInputs::seed`, a `RunSeed`: the source, the values, and what the
+  workflow applied and ignored), and the input digest gains `seed`, the
+  digest of its values, present only for a seeded run: an unseeded run's
+  digests are unchanged. `Project::input_digest` includes the project
+  seed's. Each camera of a run's summary records its image size
+  (`CameraSummary::image_size`). All new fields are optional; the project
+  and record versions are unchanged. Python: `Project.calibrate(seed=...)`,
+  the `seed` key of `Project.spec`, `ProjectError.kind ==
+  "seed_unresolved"`.
+
+- `DeviceSeed::from_run` makes the seed of a project's run (its folder or
+  its `export.json`) from its export and the cameras' ids and image sizes
+  its record states. `DeviceSeed::aggregate` makes a device type's seed
+  from several units' seeds: every value the median across them (each unit
+  first expressed in the frame of its camera with the smallest id;
+  rotations by the chordal mean corrected by the median rotation vector;
+  laser planes signed to a positive distance), with each value's spread
+  (`SeedSpread`: the values, median, `1.4826·MAD`, min, max) and the
+  quantities only some units have, left out (`SeedAggregate`). The result
+  does not depend on the order of the units; a median lens that folds where
+  every unit's is valid is refused (`DeviceSeedError::AggregateFolds`). The
+  type's seed is a starting point, not a calibration or a prior.
+  `DeviceHistory::representative_run` picks the run that stands for a
+  device: its latest starred run, else its latest calibrated run that
+  passed. Python: `DeviceSeed.from_run`, `DeviceSeed.aggregate`
+  (`SeedAggregate`), `project.representative_run`.
+
+- `vcal seed from-runs <run>...` writes the seed of a run, or of a device
+  type from several units' runs with each value's spread printed (`--json`
+  prints the aggregate; `--camera-ids` and `--image-sizes` take exports
+  outside a project); `vcal seed from-spec` writes a device spec's seed.
+  `vcal project init --seed-run | --seed-file | --seed-spec` writes the
+  project's `[seed]`, and `vcal project runs` shows the seed each run
+  started from.
+
 - `analysis::ReprojectionStats` carries the `median` and the 95th
   percentile `p95` of the errors, interpolated linearly between order
   statistics (the numpy and pandas default). `from_errors` and the rig

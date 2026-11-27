@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use vision_calibration_dataset::ProblemKind;
 
-use super::{DeviceIdentity, PROJECT_FILE, PROJECT_FILE_JSON, Project, RunInfo, RunState};
+use super::{
+    DeviceIdentity, PROJECT_FILE, PROJECT_FILE_JSON, Project, RunInfo, RunSource, RunState,
+};
+use crate::analysis::Verdict;
 
 /// The options of [`scan_library`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +135,28 @@ impl LibraryScan {
             history.runs.sort_by_key(|r| timestamp(&r.run));
         }
         histories
+    }
+}
+
+impl DeviceHistory {
+    /// The run that stands for the device, to seed its next calibration or
+    /// a seed of its type from: its latest starred run, else its latest run
+    /// calibrated in a project (not imported) whose quality verdict is
+    /// pass; `None` when it has neither. "Latest" is the history's order
+    /// ([`runs`](Self::runs)).
+    pub fn representative_run(&self) -> Option<&DeviceRun> {
+        self.runs
+            .iter()
+            .rev()
+            .find(|entry| entry.run.notes.starred)
+            .or_else(|| {
+                self.runs.iter().rev().find(|entry| {
+                    entry.run.record().is_some_and(|record| {
+                        matches!(record.source, RunSource::Calibrated(_))
+                            && record.summary.verdict == Some(Verdict::Pass)
+                    })
+                })
+            })
     }
 }
 

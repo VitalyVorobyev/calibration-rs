@@ -13,6 +13,7 @@ use super::fs::{canonical_json, digest_of, read, sha256};
 use super::{Exclusions, InputDigest, ProjectDigest, ProjectError};
 use crate::analysis::QualityThresholds;
 use crate::dataset_runner::CalibrationConfig;
+use crate::device_seed::DeviceSeed;
 
 /// A detection cache that passes every call through and records each key
 /// a run looks up or stores: every image the run reads, with its detector
@@ -67,6 +68,7 @@ pub(crate) struct DigestInputs<'a> {
     pub(crate) config: &'a CalibrationConfig,
     pub(crate) quality: &'a QualityThresholds,
     pub(crate) detections: &'a BTreeSet<String>,
+    pub(crate) seed: Option<&'a DeviceSeed>,
 }
 
 impl DigestInputs<'_> {
@@ -79,15 +81,22 @@ impl DigestInputs<'_> {
             exclusions,
             config,
             quality,
+            seed,
         } = project_digest(
             self.dataset,
             self.data_root,
             self.exclusions,
             self.config,
             self.quality,
+            self.seed,
         )?;
         let detections = digest_of(self.detections);
-        let inputs = digest_of(&[&dataset, &exclusions, &config, &quality, &detections]);
+        // Without a seed, `inputs` covers the five parts alone, as it did
+        // before seeds were recorded.
+        let inputs = match &seed {
+            Some(seed) => digest_of(&[&dataset, &exclusions, &config, &quality, &detections, seed]),
+            None => digest_of(&[&dataset, &exclusions, &config, &quality, &detections]),
+        };
         Ok(InputDigest {
             inputs,
             dataset,
@@ -95,6 +104,7 @@ impl DigestInputs<'_> {
             config,
             quality,
             detections,
+            seed,
         })
     }
 }
@@ -108,6 +118,7 @@ pub(crate) fn project_digest(
     exclusions: &Exclusions,
     config: &CalibrationConfig,
     quality: &QualityThresholds,
+    seed: Option<&DeviceSeed>,
 ) -> Result<ProjectDigest, ProjectError> {
     #[derive(Serialize)]
     struct Dataset<'a> {
@@ -134,6 +145,7 @@ pub(crate) fn project_digest(
         exclusions: digest_of(&normalized(exclusions)),
         config: digest_of(config),
         quality: digest_of(quality),
+        seed: seed.map(digest_of),
     })
 }
 
