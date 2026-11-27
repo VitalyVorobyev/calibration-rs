@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over the fitted nodes and over the image; nodes where either camera has no
   ray or projection are NaN and take no part in the fit. Python:
   `vision_calibration.projection_difference` (numpy planes).
+- Calibration Studio's Calibrate screen: a parameter editor generated from
+  the workflow's configuration schema (the camera model and per-camera
+  overrides, what is fixed, the robust losses, the solver, the
+  initialization, and every other field folded behind them; every field that
+  differs from the library default, the project or a past run is marked, with
+  a reset), a check by the library after each edit with its message on the
+  field, and a run that takes the edits as a one-off change recorded with the
+  run. Saving them as the project's configuration is a separate action. The
+  run list is the project's history: a card per run with its verdict, RMS,
+  views, features, the settings it changed and whether the project moved on,
+  a star, a label and notes, a tick for comparison, **Rerun from this run**
+  and deletion with a confirmation. A failed run says what failed, where and
+  what to try. This replaces the Run workspace.
 
 - Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
   returns a `DetectionDetail` with the features `detect` returns (bit for

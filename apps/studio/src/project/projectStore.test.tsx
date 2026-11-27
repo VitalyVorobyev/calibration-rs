@@ -127,6 +127,25 @@ describe("useProject", () => {
     expect(useStore.getState().run).toBeNull();
   });
 
+  it("keeps a star and a label asked together: each is written on the other's notes", async () => {
+    backend({
+      open_project: () => PROJECT,
+      // Slow, so the second is asked while the first is in flight.
+      set_run_notes: async (args) => {
+        await new Promise((r) => setTimeout(r, 20));
+        return { ...RUN, notes: args.notes };
+      },
+    });
+    await useProject.getState().open("/p");
+    const star = useProject.getState().patchNotes("run-001", { starred: true });
+    const label = useProject.getState().patchNotes("run-001", { label: "kept" });
+    await Promise.all([star, label]);
+    expect(useProject.getState().project?.runs[0]?.notes).toEqual({
+      starred: true,
+      label: "kept",
+    });
+  });
+
   it("imports an export as the next run and shows it", async () => {
     const imported = calibratedRun("/p", "run-002");
     backend({

@@ -87,7 +87,7 @@ test("another client's change reaches this page through the standing event strea
   const root = await libraryRoot(request);
   await openLoggedIn(page);
   await page.goto(`/#/inspect/frames?project=${enc(`${root}/rig-demo`)}&run=run-001`);
-  const runs = page.getByRole("tree", { name: "Saved runs" });
+  const runs = page.getByRole("list", { name: "Saved runs" });
   await expect(runs.getByText("run-001", { exact: true })).toBeVisible();
 
   // A second client labels the run: this page was not asked to reload.
@@ -96,7 +96,7 @@ test("another client's change reaches this page through the standing event strea
     id: "run-001",
     notes: { label: "from elsewhere" },
   });
-  await expect(runs.getByText("run-001 · from elsewhere")).toBeVisible({
+  await expect(runs.getByText("from elsewhere")).toBeVisible({
     timeout: 10_000,
   });
 });

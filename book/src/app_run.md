@@ -1,45 +1,39 @@
 # Running Calibrations
 
-The **Run calibration** workspace (`⌘5`) drives a calibration of the open [project](projects.md) end to end without leaving the app: review the manifest and the configuration, click **Run**, and the run lands in the project's `runs/` beside every other. It runs any of the seven problem types and all four target detectors; the manifest it edits is the [dataset manifest](manifest.md).
+The **Calibrate** screen (`⌘4`) sets up what to estimate, runs it and keeps the history of attempts of the open [project](projects.md). Its left panel is the project's run list, the centre is the parameter editor and the right is **This run**: what pressing **Run** will do, and its progress. It runs any of the seven problem types and all four target detectors; the dataset is the project's [manifest](manifest.md).
 
-## Choosing a Dataset
+## The Parameter Editor
 
-A calibration runs on a project. With none open, the workspace offers the ways to one.
+The editor shows the configuration the next run takes. It is generated from the JSON Schema of the workflow's configuration, served by the app's back end with the library's defaults, so it works for every problem type with no form of its own. The fields that matter most come first, in groups found by the configuration's structure:
 
-### Quick Start
+- **Camera**: the camera model (projection, distortion, sensor) and, for a rig, **per-camera overrides**, a row per camera whose model differs from the rig's;
+- **Fix and free**: which parameters are held fixed in the solve (chips for the intrinsics, the distortion terms and the sensor tilt; a list left out means the model's default, which the chips show) and the switches that free or fix an estimate;
+- **Robust loss**: the loss of each stage that has one;
+- **Solver and iterations**; **Initialization**;
+- **All other fields**, folded: the rest of the schema, so the curated view never hides a real option.
 
-A card grid of the library's public sample datasets, among them:
+**Compare with** chooses what changes are measured from: the library default (the default), the project's configuration, or the configuration a run recorded. Every field that differs is marked with what it was, with a reset per field and a **Reset all**. Each edit is checked by the library after a short pause; a value it rejects shows the library's message on its field and disables **Run**. **Resulting patch** shows the changes from the library defaults that the run will record, as TOML, with a copy button.
 
-- `kuka_1`: single-camera hand-eye, a KUKA arm with a 17×28 chessboard;
-- `ds8`: a three-camera rig hand-eye dataset, published as open data ([doi:10.15482/USDA.ADC/1340592](https://doi.org/10.15482/USDA.ADC/1340592)).
+## Running
 
-The app carries no dataset. The first click on a card downloads the sample from its publisher into the app's samples folder (`VISION_CALIBRATION_DATA` overrides the location on the desktop), checks every file against its SHA-256 and makes that folder a project referencing the sample's manifest; later clicks reopen it with its runs. The first click needs a network connection, and a failed download is reported. A server built without the samples shows no cards.
+**Run** (`⌘↵`) calibrates with the editor's configuration as a one-off change over the project's: the run records it, and the project file is not touched. **Save as project default** is the separate, explicit way to write the editor's configuration into the project file. An optional label names the run; **Re-detect images** detects every image again instead of reading the project's [detection cache](detection.md#the-detection-cache).
 
-### A Dataset Folder or a Manifest
+While the solve runs, the right panel shows a stage checklist (detecting, solving, writing the run) with the images detected so far, the solver iteration and its cost, the cost curve, the elapsed time and **Cancel**, which stops the run at its next image or solver iteration and writes nothing. The same progress is in the job indicator and the job tray. A run that fails says what failed in the library's words, where it stopped and what to try; the editor keeps the settings that failed.
 
-**New project from a dataset folder…** makes the folder a project whose manifest the [folder sniffer](manifest.md#the-folder-sniffer) drafts from file names and structure only. Fields it cannot determine are left unresolved and **block Run** until you fill them in; a red badge marks each one. This is the unresolved-fields rule of the manifest in action. **New project from a manifest…** makes the manifest's folder a project referencing the file; the app shows that manifest but never rewrites it, so edit it where it is and reload the project. A folder that already holds a project is opened instead.
+## The History
 
-## Reviewing the Setup
+Every run of the project is a card in the left panel: its verdict in words, its reprojection RMS (and per camera for a rig), the views and features it used, how many settings it changed from the project's, when it was made and whether the project's dataset, exclusions or thresholds changed since. **Lowest RMS** marks the run with the lowest error among those that did not fail; a lower error is not a better model by itself, so a star is how you mark the run you accept. The tick on a card collects runs for comparison.
 
-The **Manifest** and **Calibration config** sections are collapsible, schema-driven forms generated from the JSON Schema the Rust types derive, served by the app's back end together with the library's defaults. They show the project's manifest and its configuration (the workflow's defaults with the project's changes); every field shows its description. An **Advanced JSON editor** is available for anything the forms do not expose.
-
-Edits are the project's until saved: **Save** writes them to the project file, the configuration as its changes from the defaults, and **Run** saves them first. Changing the workflow (the manifest's topology) starts the configuration from that workflow's defaults.
-
-## Run
-
-While the solve runs, a **stage checklist** (detecting features, solving, exporting) with a live elapsed clock replaces a plain spinner; beside the active stage it shows the images detected so far, then the calibration step and its solver iteration with the cost. A **Cancel** button stops the run at its next image or solver iteration. A cancelled run shows a distinct "Run cancelled" banner, not an error, and writes nothing.
-
-On success the run is the project's next `runs/run-NNN/` (its record, export, quality report and `report.html`); the banner names it, and the app navigates to Diagnose with it after a short delay. Detection goes through the project's [detection cache](detection.md#the-detection-cache), so a second run on the same images skips it.
-
-When the runner meets an ambiguity it refuses to guess (a hand-eye dataset with no `pose_pairing`, for example), a dialog asks you to pick one of the suggested options, which goes into the manifest, instead of continuing. Other errors appear inline, with the field they are about.
+Choosing a card opens its details: its label and notes (saved when the field is left), the settings it changed, and how they differ from the editor's now. The card's menu opens the run in Inspect, opens its report, copies its id, deletes it after a confirmation, and **Rerun from this run**, which loads the run's recorded configuration into the editor and compares with it. If the project's exclusions are no longer those of that run, the editor offers to restore them or to keep the current ones. A run of an earlier format or an imported export has no record of its configuration and cannot be rerun.
 
 ## Walkthrough: Calibrate the KUKA Dataset
 
-1. Open the Run workspace and click **Use** on the **kuka_1** card.
-2. Review the manifest (a chessboard of 17x28 corners with 20 mm squares and `by_index` pairing) and the config (eye-in-hand is the default).
-3. Click **Run**.
-4. On success you land in Diagnose with the run loaded: the intrinsics, the hand-eye transform and the reprojection error (well under a pixel on this dataset) are in the numbers, and the residual heatmap is on the images.
+1. Open the `kuka_1` project from the Library and go to Calibrate.
+2. Change **Max iters** to 30 and release `k3` in **Fix and free**; the editor marks both as changed.
+3. Click **Run**. The new run appears at the top of the list with "2 changes".
+4. Choose **Rerun from this run** in its menu, change the robust loss of the hand-eye stage to Huber and run again; the two runs sit side by side with their RMS.
+5. Star the one you accept.
 
 ## Laser Datasets
 
-Laser datasets run in two stages (`rig_handeye`, then `rig_laserline_device`); the manifest shape is described in [Laser Datasets](manifest_laser.md). Such setups usually need non-default configuration (Scheimpflug sensors, eye-to-hand mounting, point-to-plane laser residuals); set it in the config form and save it with the project.
+Laser datasets run in two stages (`rig_handeye`, then `rig_laserline_device`); the manifest shape is described in [Laser Datasets](manifest_laser.md). Such setups usually need non-default configuration (Scheimpflug sensors, eye-to-hand mounting, point-to-plane laser residuals); set it in the editor and save it as the project default.

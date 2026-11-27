@@ -22,7 +22,8 @@ export function RunSelector() {
     project && shown && shown.dir === project.dir
       ? (project.runs.find((r) => r.id === shown.id) ?? null)
       : null;
-  const pills = run && project ? runPills(run, project.input_digest) : null;
+  const pills =
+    run && project ? runPills(run, project.input_digest, project.spec.config) : null;
 
   if (!project) return null;
   return (
@@ -32,7 +33,7 @@ export function RunSelector() {
       </span>
       <Select
         aria-label="Run"
-        className="w-56"
+        className="w-56 [&>span:first-child]:truncate [&>span:first-child]:text-left"
         value={run?.id ?? ""}
         onValueChange={(id) => void openRun(id)}
         disabled={runs.length === 0}
