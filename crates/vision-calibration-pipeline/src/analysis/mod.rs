@@ -101,6 +101,13 @@ use vision_calibration_core::{
 use vision_calibration_linear::planar_pose::estimate_planar_pose_from_bearings;
 use vision_geometry::pnp;
 
+mod compare;
+pub use compare::{
+    CameraDifference, CameraEvidence, CompareRunsOptions, ComparedRun, ConfigChange,
+    CovarianceStatus, DataRelation, DifferenceTest, NoTest, ParameterComparison,
+    ParameterDifference, PlaneDifference, PoseDifference, PoseTest, ProjectionComparison,
+    RunComparison, RunDifference, RunEvidence, RunSide, compare_runs,
+};
 mod cross_validation;
 pub use cross_validation::{
     CrossValidationOptions, FoldScore, HeldOutScore, ModelComparison, ModelOutcome, ModelScore,

@@ -861,6 +861,98 @@ fn projection_difference(
     Ok(out.into_any().unbind())
 }
 
+/// Calibrations of one rig side by side against the first, the reference.
+///
+/// Parameters
+/// ----------
+/// runs:
+///     ``[{"name": str, "export": dict, "camera_ids": [str, ...],
+///     "image_sizes": [[width, height], ...], "config": dict | None}, ...]``:
+///     each run's export (any problem type, all of one), its cameras' ids and
+///     image sizes in camera order, and optionally the serde payload of its
+///     `CalibrationConfig`.
+/// options:
+///     Serde payload of `CompareRunsOptions`; `None` for the defaults.
+///
+/// Returns
+/// -------
+/// dict
+///     Serde payload of `RunComparison`.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If fewer than two runs are given, the runs are of different
+///     workflows, the ids or sizes are not one per camera, a run shares no
+///     camera id with the reference, a shared camera's image sizes differ, or
+///     the relations are not one per run after the first.
+/// TypeError
+///     If an export or a payload has the wrong shape.
+#[pyfunction(signature = (runs, options=None))]
+fn compare_runs(
+    py: Python<'_>,
+    runs: &Bound<'_, pyo3::types::PyList>,
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use pyo3::types::PyDictMethods;
+    use vision_calibration::analysis::{CompareRunsOptions, ComparedRun};
+    use vision_calibration::dataset_runner::CalibrationConfig;
+
+    struct Parsed {
+        name: String,
+        export: Box<dyn vision_calibration::common::CalibratedCameras>,
+        camera_ids: Vec<String>,
+        image_sizes: Vec<[u32; 2]>,
+        config: Option<CalibrationConfig>,
+    }
+    let options: CompareRunsOptions =
+        parse_optional_payload(options, "options")?.unwrap_or_default();
+    let mut parsed = Vec::with_capacity(runs.len());
+    for (i, run) in runs.iter().enumerate() {
+        let run = run
+            .cast::<pyo3::types::PyDict>()
+            .map_err(|_| PyTypeError::new_err(format!("runs[{i}] is not a dict")))?;
+        let item = |key: &str| -> PyResult<Bound<'_, PyAny>> {
+            run.get_item(key)?
+                .ok_or_else(|| PyTypeError::new_err(format!("runs[{i}] has no {key:?}")))
+        };
+        let config = match run.get_item("config")? {
+            Some(c) if !c.is_none() => Some(session::parse_checked(&c, "config")?),
+            _ => None,
+        };
+        parsed.push(Parsed {
+            name: item("name")?.extract()?,
+            export: parse_cameras(&item("export")?, "export")?,
+            camera_ids: parse_payload(&item("camera_ids")?, "camera_ids")?,
+            image_sizes: parse_payload(&item("image_sizes")?, "image_sizes")?,
+            config,
+        });
+    }
+    let comparison = py
+        .detach(|| {
+            let compared: Vec<ComparedRun<'_>> = parsed
+                .iter()
+                .map(|p| {
+                    let run = ComparedRun::new(
+                        p.name.clone(),
+                        p.export.as_ref(),
+                        p.camera_ids.clone(),
+                        p.image_sizes.clone(),
+                    );
+                    match &p.config {
+                        Some(c) => run.with_config(c.clone()),
+                        None => run,
+                    }
+                })
+                .collect();
+            vision_calibration::analysis::compare_runs(&compared, &options)
+        })
+        .map_err(analysis_err)?;
+    let output = pythonize(py, &comparison)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
 /// The systematic part of one camera's reprojection residuals over its
 /// image.
 ///
@@ -967,6 +1059,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(distortion_map, m)?)?;
     m.add_function(wrap_pyfunction!(residual_map, m)?)?;
     m.add_function(wrap_pyfunction!(projection_difference, m)?)?;
+    m.add_function(wrap_pyfunction!(compare_runs, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;

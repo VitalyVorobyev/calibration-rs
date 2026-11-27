@@ -70,6 +70,8 @@ Every work the book cites, once. Chapters link here by author and year.
 
 - <a id="cameron-miller-2015"></a>**Cameron, A.C. & Miller, D.L.** (2015). "A Practitioner's Guide to Cluster-Robust Inference." *Journal of Human Resources*, 50(2), 317-372. — Standard errors when observations are correlated within clusters, including the few-cluster case.
 
+- <a id="hausman-1978"></a>**Hausman, J.A.** (1978). "Specification Tests in Econometrics." *Econometrica*, 46(6), 1251-1271. — Two estimators consistent under the hypothesis, one of them efficient: the variance of their difference is the difference of their variances.
+
 ## Non-Linear Optimization
 
 - <a id="levenberg-1944"></a>**Levenberg, K.** (1944). "A Method for the Solution of Certain Non-Linear Problems in Least Squares." *Quarterly of Applied Mathematics*, 2(2), 164-168.

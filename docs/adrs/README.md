@@ -41,6 +41,7 @@ them; layouts, commands and component wiring go to rustdoc or
 - [0031 — A Scheimpflug tilt is estimated only when the data determine it](0031-tilt-determination.md) (proposed)
 - [0032 — Camera models are compared on held-out views](0032-held-out-model-comparison.md)
 - [0034 — Diagnostic maps share one sign, one grid, and are derived](0034-diagnostic-maps.md)
+- [0035 — Comparing calibrations reports evidence, and a test only where one is valid](0035-comparing-calibrations.md)
 
 ## Data and tools
 

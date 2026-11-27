@@ -1,0 +1,609 @@
+{
+  "differences": [
+    {
+      "cameras": [
+        {
+          "id": "cam0",
+          "parameters": {
+            "kind": "same_model",
+            "parameters": [
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "fx",
+                "other": 849.7739116367317,
+                "other_sigma": 0.6560692640099388,
+                "reference": 849.7739116367317,
+                "reference_sigma": 0.6560692640099388,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.9278220510189902,
+                  "z": 0.0
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "fy",
+                "other": 844.8513322273452,
+                "other_sigma": 0.6396127349787079,
+                "reference": 844.8513322273452,
+                "reference_sigma": 0.6396127349787079,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.9045490044734368,
+                  "z": 0.0
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "cx",
+                "other": 639.8232140860546,
+                "other_sigma": 0.20202026459705263,
+                "reference": 639.8232140860546,
+                "reference_sigma": 0.20202026459705263,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.2856997980673531,
+                  "z": 0.0
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "cy",
+                "other": 480.1152020193346,
+                "other_sigma": 0.30417037869050145,
+                "reference": 480.1152020193346,
+                "reference_sigma": 0.30417037869050145,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.4301618748162674,
+                  "z": 0.0
+                }
+              }
+            ]
+          },
+          "projection": {
+            "compensation": "rotation",
+            "fit_nodes": 375,
+            "max_fit_px": 1.1368683772161603e-13,
+            "max_valid_px": 1.6077746776921858e-13,
+            "rms_fit_px": 1.0983191976712259e-14,
+            "rms_valid_px": 2.9012317830032465e-14,
+            "rotation_deg": 0.0,
+            "status": "compared",
+            "valid_nodes": 3072
+          }
+        },
+        {
+          "id": "cam1",
+          "parameters": {
+            "kind": "same_model",
+            "parameters": [
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "fx",
+                "other": 819.918166454317,
+                "other_sigma": 0.6467884909786499,
+                "reference": 819.918166454317,
+                "reference_sigma": 0.6467884909786499,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.9146970559288349,
+                  "z": 0.0
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "fy",
+                "other": 814.8856794206207,
+                "other_sigma": 0.6305452750496269,
+                "reference": 814.8856794206207,
+                "reference_sigma": 0.6305452750496269,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.8917256796654558,
+                  "z": 0.0
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "cx",
+                "other": 650.3890245710787,
+                "other_sigma": 0.19221710684355667,
+                "reference": 650.3890245710787,
+                "reference_sigma": 0.19221710684355667,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.2718360394182761,
+                  "z": 0.0
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "cy",
+                "other": 470.1153147152178,
+                "other_sigma": 0.2837672659060206,
+                "reference": 470.1153147152178,
+                "reference_sigma": 0.2837672659060206,
+                "test": {
+                  "kind": "independent",
+                  "p_value": 1.0,
+                  "sigma": 0.4013075160018267,
+                  "z": 0.0
+                }
+              }
+            ]
+          },
+          "projection": {
+            "compensation": "rotation",
+            "fit_nodes": 384,
+            "max_fit_px": 1.1368683772161603e-13,
+            "max_valid_px": 1.7053025658242404e-13,
+            "rms_fit_px": 1.7644747204967998e-14,
+            "rms_valid_px": 3.19538568093284e-14,
+            "rotation_deg": 0.0,
+            "status": "compared",
+            "valid_nodes": 3072
+          }
+        }
+      ],
+      "config_changes": [],
+      "fit_comparable": false,
+      "handeye": {
+        "delta_over_reference_sigma": 1.7418490809021423e-14,
+        "label": "gripper_se3_cam0",
+        "rotation_deg": 1.1181637552020177e-16,
+        "tangent": [
+          0.0,
+          1.951563910473908e-18,
+          0.0,
+          0.0
+        ],
+        "test": {
+          "chi2": 1.5170191103198194e-28,
+          "dof": 6,
+          "kind": "independent",
+          "p_value": 1.0
+        },
+        "translation_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "translation_norm_m": 0.0
+      },
+      "laser_planes": [
+        {
+          "camera": "cam0",
+          "distance_delta_m": 0.0,
+          "distance_other_m": -0.8603219467674361,
+          "distance_over_reference_sigma": 0.0,
+          "distance_reference_m": -0.8603219467674361,
+          "distance_test": {
+            "kind": "independent",
+            "p_value": 1.0,
+            "sigma": 0.0009654515500019334,
+            "z": 0.0
+          },
+          "normal_angle_deg": 0.0
+        },
+        {
+          "camera": "cam1",
+          "distance_delta_m": 0.0,
+          "distance_other_m": 0.9117771990689443,
+          "distance_over_reference_sigma": 0.0,
+          "distance_reference_m": 0.9117771990689443,
+          "distance_test": {
+            "kind": "independent",
+            "p_value": 1.0,
+            "sigma": 0.0010177042615874452,
+            "z": 0.0
+          },
+          "normal_angle_deg": 0.0
+        }
+      ],
+      "model_changes": [],
+      "relation": {
+        "kind": "independent"
+      },
+      "rig": [
+        {
+          "delta_over_reference_sigma": 7.20480684482221e-17,
+          "label": "cam1_se3_cam0",
+          "rotation_deg": 5.295089956917039e-19,
+          "tangent": [
+            0.0,
+            -9.241675393748702e-21,
+            0.0,
+            0.0
+          ],
+          "test": {
+            "chi2": 2.5954620835598483e-33,
+            "dof": 6,
+            "kind": "independent",
+            "p_value": 1.0
+          },
+          "translation_m": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "translation_norm_m": 0.0
+        }
+      ],
+      "run": 1,
+      "unmatched_cameras": []
+    },
+    {
+      "cameras": [
+        {
+          "id": "cam0",
+          "parameters": {
+            "kind": "different_models"
+          },
+          "projection": {
+            "compensation": "rotation",
+            "fit_nodes": 375,
+            "max_fit_px": 0.04661434051321234,
+            "max_valid_px": 0.053517470212341,
+            "rms_fit_px": 0.008370646966677105,
+            "rms_valid_px": 0.014059706754877102,
+            "rotation_deg": 0.0005840476541466625,
+            "status": "compared",
+            "valid_nodes": 3072
+          }
+        },
+        {
+          "id": "cam1",
+          "parameters": {
+            "kind": "same_model",
+            "parameters": [
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "fx",
+                "other": 819.918166454317,
+                "other_sigma": 0.6467884909786499,
+                "reference": 819.918166454317,
+                "reference_sigma": 0.6467884909786499,
+                "test": {
+                  "kind": "not_available",
+                  "reason": "shared_data"
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "fy",
+                "other": 814.8856794206207,
+                "other_sigma": 0.6305452750496269,
+                "reference": 814.8856794206207,
+                "reference_sigma": 0.6305452750496269,
+                "test": {
+                  "kind": "not_available",
+                  "reason": "shared_data"
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "cx",
+                "other": 650.3890245710787,
+                "other_sigma": 0.19221710684355667,
+                "reference": 650.3890245710787,
+                "reference_sigma": 0.19221710684355667,
+                "test": {
+                  "kind": "not_available",
+                  "reason": "shared_data"
+                }
+              },
+              {
+                "delta": 0.0,
+                "delta_over_reference_sigma": 0.0,
+                "label": "cy",
+                "other": 470.1153147152178,
+                "other_sigma": 0.2837672659060206,
+                "reference": 470.1153147152178,
+                "reference_sigma": 0.2837672659060206,
+                "test": {
+                  "kind": "not_available",
+                  "reason": "shared_data"
+                }
+              }
+            ]
+          },
+          "projection": {
+            "compensation": "rotation",
+            "fit_nodes": 384,
+            "max_fit_px": 1.1368683772161603e-13,
+            "max_valid_px": 1.7053025658242404e-13,
+            "rms_fit_px": 1.7644747204967998e-14,
+            "rms_valid_px": 3.19538568093284e-14,
+            "rotation_deg": 0.0,
+            "status": "compared",
+            "valid_nodes": 3072
+          }
+        }
+      ],
+      "config_changes": [],
+      "fit_comparable": true,
+      "handeye": {
+        "delta_over_reference_sigma": 1.7418490809021423e-14,
+        "label": "gripper_se3_cam0",
+        "rotation_deg": 1.1181637552020177e-16,
+        "tangent": [
+          0.0,
+          1.951563910473908e-18,
+          0.0,
+          0.0
+        ],
+        "test": {
+          "kind": "not_available",
+          "reason": "shared_data"
+        },
+        "translation_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "translation_norm_m": 0.0
+      },
+      "laser_planes": [
+        {
+          "camera": "cam0",
+          "distance_delta_m": 0.0,
+          "distance_other_m": -0.8603219467674361,
+          "distance_over_reference_sigma": 0.0,
+          "distance_reference_m": -0.8603219467674361,
+          "distance_test": {
+            "kind": "not_available",
+            "reason": "shared_data"
+          },
+          "normal_angle_deg": 0.0
+        },
+        {
+          "camera": "cam1",
+          "distance_delta_m": 0.0,
+          "distance_other_m": 0.9117771990689443,
+          "distance_over_reference_sigma": 0.0,
+          "distance_reference_m": 0.9117771990689443,
+          "distance_test": {
+            "kind": "not_available",
+            "reason": "shared_data"
+          },
+          "normal_angle_deg": 0.0
+        }
+      ],
+      "model_changes": [
+        "cam0"
+      ],
+      "relation": {
+        "kind": "same_data"
+      },
+      "rig": [
+        {
+          "delta_over_reference_sigma": 7.20480684482221e-17,
+          "label": "cam1_se3_cam0",
+          "rotation_deg": 5.295089956917039e-19,
+          "tangent": [
+            0.0,
+            -9.241675393748702e-21,
+            0.0,
+            0.0
+          ],
+          "test": {
+            "kind": "not_available",
+            "reason": "shared_data"
+          },
+          "translation_m": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "translation_norm_m": 0.0
+        }
+      ],
+      "run": 2,
+      "unmatched_cameras": []
+    }
+  ],
+  "runs": [
+    {
+      "cameras": [
+        {
+          "features": 504,
+          "id": "cam0",
+          "image_size": [
+            1280,
+            960
+          ],
+          "max_projection_sigma_px": 0.8069024980241827,
+          "model": {
+            "distortion": "brown_conrady5",
+            "projection": "pinhole",
+            "sensor": "identity"
+          },
+          "reprojection": {
+            "count": 504,
+            "max": 0.2574643771639976,
+            "mean": 0.13405090520171353,
+            "median": 0.13686280546061486,
+            "p95": 0.21015719683423556,
+            "rms": 0.14326671429111984
+          },
+          "unprojected": 0,
+          "views": 8
+        },
+        {
+          "features": 504,
+          "id": "cam1",
+          "image_size": [
+            1280,
+            960
+          ],
+          "max_projection_sigma_px": 0.849549862773515,
+          "model": {
+            "distortion": "brown_conrady5",
+            "projection": "pinhole",
+            "sensor": "identity"
+          },
+          "reprojection": {
+            "count": 504,
+            "max": 0.25146825925682265,
+            "mean": 0.1333947028689307,
+            "median": 0.13344358801308845,
+            "p95": 0.21277670574745589,
+            "rms": 0.14174174112901128
+          },
+          "unprojected": 0,
+          "views": 8
+        }
+      ],
+      "covariance": {
+        "shared_parameters": 38,
+        "status": "available",
+        "view_scatter": 2.581458409530069
+      },
+      "kind": "rig_handeye_laserline",
+      "name": "run-001",
+      "reference_camera": "cam0",
+      "verdict": "pass"
+    },
+    {
+      "cameras": [
+        {
+          "features": 504,
+          "id": "cam0",
+          "image_size": [
+            1280,
+            960
+          ],
+          "max_projection_sigma_px": 0.8069024980241827,
+          "model": {
+            "distortion": "brown_conrady5",
+            "projection": "pinhole",
+            "sensor": "identity"
+          },
+          "reprojection": {
+            "count": 504,
+            "max": 0.2574643771639976,
+            "mean": 0.13405090520171353,
+            "median": 0.13686280546061486,
+            "p95": 0.21015719683423556,
+            "rms": 0.14326671429111984
+          },
+          "unprojected": 0,
+          "views": 8
+        },
+        {
+          "features": 504,
+          "id": "cam1",
+          "image_size": [
+            1280,
+            960
+          ],
+          "max_projection_sigma_px": 0.849549862773515,
+          "model": {
+            "distortion": "brown_conrady5",
+            "projection": "pinhole",
+            "sensor": "identity"
+          },
+          "reprojection": {
+            "count": 504,
+            "max": 0.25146825925682265,
+            "mean": 0.1333947028689307,
+            "median": 0.13344358801308845,
+            "p95": 0.21277670574745589,
+            "rms": 0.14174174112901128
+          },
+          "unprojected": 0,
+          "views": 8
+        }
+      ],
+      "covariance": {
+        "shared_parameters": 38,
+        "status": "available",
+        "view_scatter": 2.581458409530069
+      },
+      "kind": "rig_handeye_laserline",
+      "name": "run-002",
+      "reference_camera": "cam0",
+      "verdict": "pass"
+    },
+    {
+      "cameras": [
+        {
+          "features": 504,
+          "id": "cam0",
+          "image_size": [
+            1280,
+            960
+          ],
+          "max_projection_sigma_px": 0.8069158100339849,
+          "model": {
+            "distortion": "rational8",
+            "projection": "pinhole",
+            "sensor": "identity"
+          },
+          "reprojection": {
+            "count": 504,
+            "max": 0.2574643771639976,
+            "mean": 0.13405090520171353,
+            "median": 0.13686280546061486,
+            "p95": 0.21015719683423556,
+            "rms": 0.14326671429111984
+          },
+          "unprojected": 0,
+          "views": 8
+        },
+        {
+          "features": 504,
+          "id": "cam1",
+          "image_size": [
+            1280,
+            960
+          ],
+          "max_projection_sigma_px": 0.849549862773515,
+          "model": {
+            "distortion": "brown_conrady5",
+            "projection": "pinhole",
+            "sensor": "identity"
+          },
+          "reprojection": {
+            "count": 504,
+            "max": 0.25146825925682265,
+            "mean": 0.1333947028689307,
+            "median": 0.13344358801308845,
+            "p95": 0.21277670574745589,
+            "rms": 0.14174174112901128
+          },
+          "unprojected": 0,
+          "views": 8
+        }
+      ],
+      "covariance": {
+        "shared_parameters": 38,
+        "status": "available",
+        "view_scatter": 2.581458409530069
+      },
+      "kind": "rig_handeye_laserline",
+      "name": "run-003",
+      "reference_camera": "cam0",
+      "verdict": "pass"
+    }
+  ]
+}

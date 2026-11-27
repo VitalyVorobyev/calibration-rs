@@ -536,7 +536,7 @@ pub fn stated_covariance<'a>(
 /// two. They are present when the statistics were computed from the errors
 /// ([`from_errors`](Self::from_errors)), and absent when built from
 /// aggregates ([`from_summary`](Self::from_summary)).
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ReprojectionStats {

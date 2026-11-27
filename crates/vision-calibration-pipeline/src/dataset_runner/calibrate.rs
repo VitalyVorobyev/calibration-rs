@@ -190,6 +190,10 @@ impl crate::common::sealed::Sealed for CalibrationExport {}
 /// Every problem's export reports its cameras, so [`assess`](crate::analysis::assess)
 /// and the other analyses take a `CalibrationExport` directly.
 impl CalibratedCameras for CalibrationExport {
+    fn kind(&self) -> ProblemKind {
+        CalibrationExport::kind(self)
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras().camera_params()
     }

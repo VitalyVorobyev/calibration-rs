@@ -420,6 +420,55 @@ fn projection_difference_surface_compiles() {
 }
 
 #[test]
+fn compare_runs_surface_compiles() {
+    use analysis::{
+        CameraDifference, CameraEvidence, CompareRunsOptions, ComparedRun, ConfigChange,
+        CovarianceStatus, DataRelation, DifferenceTest, NoTest, ParameterComparison,
+        ParameterDifference, PlaneDifference, PoseDifference, PoseTest, ProjectionComparison,
+        RunComparison, RunDifference, RunEvidence, RunSide,
+    };
+
+    type Compare = fn(
+        &[ComparedRun<'_>],
+        &CompareRunsOptions,
+    ) -> Result<RunComparison, vision_calibration::Error>;
+    let _compare: Compare = analysis::compare_runs;
+    let options = CompareRunsOptions::new().with_relations(vec![
+        DataRelation::Independent,
+        DataRelation::Nested {
+            smaller: RunSide::Other,
+        },
+    ]);
+    assert_eq!(options.grid_columns, 64);
+    assert_eq!(options.compensation, analysis::Compensation::Rotation);
+    let export: Option<planar_intrinsics::PlanarIntrinsicsExport> = None;
+    if let Some(export) = &export {
+        let run = ComparedRun::new("run-001", export, vec!["cam".into()], vec![[1280, 960]]);
+        let _: &str = &run.name;
+    }
+    let result: Option<RunComparison> = None;
+    if let Some(result) = result {
+        let evidence: &RunEvidence = &result.runs[0];
+        let _: (&CovarianceStatus, &[CameraEvidence]) = (&evidence.covariance, &evidence.cameras);
+        let difference: &RunDifference = &result.differences[0];
+        let _: (&[CameraDifference], &[PoseDifference], &[PlaneDifference]) = (
+            &difference.cameras,
+            &difference.rig,
+            &difference.laser_planes,
+        );
+        let _: Option<&Vec<ConfigChange>> = difference.config_changes.as_ref();
+        if let ParameterComparison::SameModel { parameters } = &difference.cameras[0].parameters {
+            let p: &ParameterDifference = &parameters[0];
+            if let DifferenceTest::NotAvailable { reason } = &p.test {
+                let _: NoTest = *reason;
+            }
+        }
+        let _: &ProjectionComparison = &difference.cameras[0].projection;
+        let _: &PoseTest = &difference.rig[0].test;
+    }
+}
+
+#[test]
 fn focus_surface_compiles() {
     use analysis::{
         DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,

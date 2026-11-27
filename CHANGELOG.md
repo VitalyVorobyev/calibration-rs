@@ -91,6 +91,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is read and the laser folders listed; no image is read. Python:
   `Project.views()` returns them as `robot_poses` and `laser_frames`, with
   the error in place of a listing that cannot be made.
+- `analysis::compare_runs` puts calibrations of one rig side by side against
+  the first, the reference, and returns evidence, not a score
+  (`RunComparison`): each run's quality verdict, covariance status and
+  per-camera fit (`RunEvidence`), and for each later run, cameras matched by
+  id, every camera parameter with its σ in both runs, `delta` and
+  `delta_over_reference_sigma` (materiality, not a test), the projection
+  difference over the image fitted on the covered region, the rig poses
+  relative to the reference's rig camera (so they do not depend on which
+  camera each run held fixed), the hand-eye, the laser planes, the camera
+  models and configuration settings that differ (`RunDifference`). A test is
+  reported only where the stated data relation (`DataRelation`) makes one
+  valid: independent captures (`σ_Δ² = σ_ref² + σ_other²`, a 6-dof χ² for a
+  pose) and nested observations under one configuration (the Hausman form
+  `σ_Δ² = σ_smaller² − σ_larger²`); otherwise `not_available` with the
+  reason. Python: `vision_calibration.compare_runs`.
+- `common::CalibratedCameras::kind`, the workflow that produced an export.
+- `analysis::Compensation` serializes (`"rotation"`, `"none"`); `ReprojectionStats` compares with `==`.
 
 - `analysis::projection_difference` compares two calibrations of one camera,
   of the same model or of different ones, through where they put the same

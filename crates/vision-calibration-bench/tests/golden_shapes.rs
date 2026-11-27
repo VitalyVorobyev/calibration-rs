@@ -124,6 +124,7 @@ enum Bump {
     DetectionDetail,
     DeviceSeed,
     SeedAggregate,
+    RunComparison,
 }
 
 impl Bump {
@@ -147,6 +148,10 @@ impl Bump {
             Self::SeedAggregate => "the seed aggregate carries no version of its own (its seed \
                  has `DEVICE_SEED_VERSION`): an added optional field is a minor change, any other \
                  one a major release"
+                .to_string(),
+            Self::RunComparison => "a run comparison carries no version (it is computed, \
+                 never stored): an added optional field is a minor change, any other one a \
+                 major release"
                 .to_string(),
         }
     }
@@ -765,4 +770,54 @@ fn device_seed() {
     let value = serde_json::to_value(&seed).unwrap();
     let golden = check("device_seed.json", &value, Bump::DeviceSeed);
     check_reads_back::<DeviceSeed>("device_seed.json", &golden);
+}
+
+/// A comparison of three runs of a rig hand-eye laserline calibration: one
+/// against itself as an independent capture (parameter, rig, hand-eye and
+/// plane tests), one with another camera model (projection only), each with
+/// its configuration.
+#[test]
+fn run_comparison() {
+    use vision_calibration::analysis::{
+        CompareRunsOptions, ComparedRun, DataRelation, RunComparison, compare_runs,
+    };
+    use vision_calibration::core::{DistortionKind, DistortionParams};
+    use vision_calibration::dataset_runner::CalibrationConfig;
+
+    let SceneData::RigHandeyeLaserline { input, config } = scene(Problem::RigHandeyeLaserline)
+    else {
+        panic!("rig hand-eye laserline scene");
+    };
+    let mut session = CalibrationSession::<RigHandeyeLaserlineProblem>::new();
+    session.set_config(config.clone()).unwrap();
+    session.set_input(input).unwrap();
+    run_rig_handeye_laserline(&mut session).unwrap();
+    let export = session.export().unwrap();
+    let mut rational = export.clone();
+    let k = rational.cameras[0].distortion.values();
+    let mut values = vec![0.0; 8];
+    values[..2].copy_from_slice(&k[..2]);
+    rational.cameras[0].distortion =
+        DistortionParams::from_values(DistortionKind::Rational8, &values).unwrap();
+    let ids: Vec<String> = (0..export.cameras.len())
+        .map(|i| format!("cam{i}"))
+        .collect();
+    let sizes = vec![[1280, 960]; export.cameras.len()];
+    let configured = CalibrationConfig::RigHandeyeLaserline(config);
+    let runs = [
+        ComparedRun::new("run-001", &export, ids.clone(), sizes.clone())
+            .with_config(configured.clone()),
+        ComparedRun::new("run-002", &export, ids.clone(), sizes.clone())
+            .with_config(configured.clone()),
+        ComparedRun::new("run-003", &rational, ids, sizes).with_config(configured),
+    ];
+    let options = CompareRunsOptions::new()
+        .with_relations(vec![DataRelation::Independent, DataRelation::SameData]);
+    let comparison = compare_runs(&runs, &options).unwrap();
+    let value = serde_json::to_value(&comparison).unwrap();
+    // Not read back from the fixture: its arrays are cut to four elements,
+    // and a pose tangent has six. The full value reads back.
+    check("run.comparison.json", &value, Bump::RunComparison);
+    let back: RunComparison = serde_json::from_value(value).unwrap();
+    assert_eq!(back, comparison);
 }

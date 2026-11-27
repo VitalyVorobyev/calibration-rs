@@ -863,6 +863,27 @@ pub mod synthetic {
 ///   ([`Compensation`](analysis::Compensation),
 ///   [`FitRegion`](analysis::FitRegion)), returning a
 ///   [`ProjectionDifference`](analysis::ProjectionDifference).
+/// - Calibrations of one rig side by side:
+///   [`compare_runs`](analysis::compare_runs) over
+///   [`ComparedRun`](analysis::ComparedRun)s with
+///   [`CompareRunsOptions`](analysis::CompareRunsOptions) (each run's
+///   [`DataRelation`](analysis::DataRelation) to the reference, a
+///   [`RunSide`](analysis::RunSide)), returning a
+///   [`RunComparison`](analysis::RunComparison): each run's
+///   [`RunEvidence`](analysis::RunEvidence)
+///   ([`CovarianceStatus`](analysis::CovarianceStatus),
+///   [`CameraEvidence`](analysis::CameraEvidence)) and each
+///   [`RunDifference`](analysis::RunDifference)
+///   ([`ConfigChange`](analysis::ConfigChange),
+///   [`CameraDifference`](analysis::CameraDifference),
+///   [`ParameterComparison`](analysis::ParameterComparison),
+///   [`ParameterDifference`](analysis::ParameterDifference),
+///   [`ProjectionComparison`](analysis::ProjectionComparison),
+///   [`PoseDifference`](analysis::PoseDifference),
+///   [`PlaneDifference`](analysis::PlaneDifference)) with its
+///   [`DifferenceTest`](analysis::DifferenceTest) or
+///   [`PoseTest`](analysis::PoseTest), or why there is none
+///   ([`NoTest`](analysis::NoTest)).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
@@ -873,15 +894,18 @@ pub mod synthetic {
 ///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram).
 pub mod analysis {
     pub use vision_calibration_pipeline::analysis::{
-        Bandwidth, BandwidthSelection, CandidateGrid, CheckKind, CheckStatus,
-        CrossValidationOptions, DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine,
-        FocusJackknife, FocusJackknifeCovariance, FocusOptions, FocusViewStats, FoldScore,
-        HeldOutScore, Measurement, ModelComparison, ModelOutcome, ModelScore,
-        PredictedRigUncertainty, PredictedUncertainty, QualityCheck, QualityReport,
-        QualityThresholds, RankedCandidate, RankedRobotPose, ReportOptions, ResidualMap,
-        ResidualMapOptions, Unit, Verdict, assess, candidate_poses, compare_camera_models,
-        fit_focus, html_report, predict_with_robot_poses, predict_with_views, rank_candidates,
-        rank_robot_poses, residual_map,
+        Bandwidth, BandwidthSelection, CameraDifference, CameraEvidence, CandidateGrid, CheckKind,
+        CheckStatus, CompareRunsOptions, ComparedRun, ConfigChange, CovarianceStatus,
+        CrossValidationOptions, DataRelation, DepthOfField, DifferenceTest, FocusDiagnostic,
+        FocusFit, FocusImageLine, FocusJackknife, FocusJackknifeCovariance, FocusOptions,
+        FocusViewStats, FoldScore, HeldOutScore, Measurement, ModelComparison, ModelOutcome,
+        ModelScore, NoTest, ParameterComparison, ParameterDifference, PlaneDifference,
+        PoseDifference, PoseTest, PredictedRigUncertainty, PredictedUncertainty,
+        ProjectionComparison, QualityCheck, QualityReport, QualityThresholds, RankedCandidate,
+        RankedRobotPose, ReportOptions, ResidualMap, ResidualMapOptions, RunComparison,
+        RunDifference, RunEvidence, RunSide, Unit, Verdict, assess, candidate_poses,
+        compare_camera_models, compare_runs, fit_focus, html_report, predict_with_robot_poses,
+        predict_with_views, rank_candidates, rank_robot_poses, residual_map,
     };
 
     pub use vision_calibration_core::{

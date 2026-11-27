@@ -34,7 +34,9 @@ const MIN_FIT_NODES: usize = 3;
 
 /// How the second camera's frame is aligned with the first's before their
 /// projections are compared.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum Compensation {
     /// Compare the rays as the two calibrations place them, without

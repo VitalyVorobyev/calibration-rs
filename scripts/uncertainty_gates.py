@@ -35,6 +35,14 @@ ROOT = Path(__file__).resolve().parent.parent
 # first (release times on a laptop, all gates at once): the pool starts them
 # in this order, so the long ones do not start last.
 GATES: list[tuple[str, str, tuple[str, ...]]] = [
+    # The compare_runs tests' Monte-Carlo gates, each on every core.
+    ("vision-calibration-pipeline", "compare_runs_gates", ("sweep_over",)),  # 400 s
+    ("vision-calibration-pipeline", "compare_runs_gates", ("rig_pose",)),  # 370 s
+    (
+        "vision-calibration-pipeline",
+        "compare_runs_gates",
+        ("independent_captures", "nested_runs"),
+    ),  # 80 s
     ("vision-calibration", "rig_extrinsics_scheimpflug", ()),  # 340 s
     ("vision-calibration", "second_order_error", ()),  # 250 s
     # 36 captures on their own threads: 230 s on 12 cores.
