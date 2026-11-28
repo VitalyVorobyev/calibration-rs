@@ -102,15 +102,15 @@ Output on `kuka_1` (30 chessboard views, eye-in-hand, the default mode), abridge
   Hand-eye |t|: 0.2806m
 
 --- Step 4: Hand-Eye Optimization ---
-  Final reprojection error: 0.1346 px
+  Final reprojection error: 0.1347 px
 
 Robot pose refinements (30 views):
-  Max rotation delta: 0.0022 rad (0.12°)
-  Max translation delta: 0.0013m (1.31mm)
-Estimated robot error: 0.043° / 0.45mm per axis
+  Max rotation delta: 0.0020 rad (0.11°)
+  Max translation delta: 0.0016m (1.62mm)
+Estimated robot error: 0.040° / 0.50mm per axis
 ```
 
-The joint hand-eye error matches the intrinsics-only error: every view is explained through one shared `gripper_se3_cam` and one shared `base_se3_target`, and the small per-view robot-pose corrections (0.12° and 1.3 mm at most) absorb the kinematic noise, and the solve estimates the arm's error from them: 0.043° and 0.45 mm per axis. A correction acts in the gripper frame, so its rotation and translation are the tool's orientation and position errors. A hand-eye error far above the intrinsics-only error points at robot-pose noise, mechanical play or a wrong pose convention.
+The joint hand-eye error matches the intrinsics-only error: every view is explained through one shared `gripper_se3_cam` and one shared `base_se3_target`, and the small per-view robot-pose corrections (0.11° and 1.6 mm at most) absorb the kinematic noise, and the solve estimates the arm's error from them: 0.040° and 0.50 mm per axis. A correction acts in the gripper frame, so its rotation and translation are the tool's orientation and position errors. A hand-eye error far above the intrinsics-only error points at robot-pose noise, mechanical play or a wrong pose convention.
 
 ## Interpreting Results
 

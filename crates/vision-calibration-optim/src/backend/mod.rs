@@ -39,7 +39,8 @@ use tiny_solver_backend::TinySolverBackend;
 pub enum SolverBackend {
     /// `tiny-solver`: forward-mode dual numbers on the stack, each residual
     /// block differentiated in passes of four directions; a robust loss
-    /// enters through the Triggs correction (second-order exact).
+    /// enters through the Triggs correction (second-order exact) where
+    /// `ρ″ > 0`, and as iterative reweighting where `ρ″ ≤ 0`, as in Ceres.
     #[default]
     TinySolver,
     /// `factrs`: static-size forward-mode dual numbers; a robust loss enters
@@ -57,11 +58,27 @@ pub struct BackendSolveOptions {
     pub max_iters: usize,
     /// Verbosity level (backend-specific).
     pub verbosity: usize,
-    /// Absolute error decrease threshold for early termination.
+    /// Stop once the Gauss–Newton step left to the minimum of the local
+    /// model is at most this many of the solution's standard deviations
+    /// (Mahalanobis length under `σ̂² = Σρ / (m − n)`, so the same bound
+    /// holds for every parameter), [`SolveTermination::SigmaStep`]. `0`
+    /// turns the rule off. Default `0.01`: a stop's distance from the
+    /// minimum is then a hundredth of the noise it is reported with.
+    #[serde(default = "default_sigma_tolerance")]
+    pub sigma_tolerance: f64,
+    /// Stop when an accepted step lowers the cost by less than this,
+    /// [`SolveTermination::MinAbsDecrease`]; `None` (the default) turns the
+    /// rule off. The cost is in the residuals' squared units, so the rule
+    /// has no scale of its own: it is for tests that set one.
     pub min_abs_decrease: Option<f64>,
-    /// Relative error decrease threshold for early termination.
+    /// Stop when an accepted step lowers the cost by less than this
+    /// fraction of it, [`SolveTermination::MinRelDecrease`]; `None` (the
+    /// default) turns the rule off. A fraction of the cost is
+    /// `(m − n)·fraction` standard deviations squared, so the rule loosens
+    /// as residuals are added.
     pub min_rel_decrease: Option<f64>,
-    /// Error threshold for early termination.
+    /// Stop when the cost falls below this, [`SolveTermination::MinError`]:
+    /// an exact fit.
     pub min_error: Option<f64>,
     /// Progress reports and cancellation: polled before every iteration,
     /// told each finished one. Not configuration, so never serialized.
@@ -75,17 +92,23 @@ impl Default for BackendSolveOptions {
             backend: SolverBackend::default(),
             max_iters: 100,
             verbosity: 0,
-            min_abs_decrease: Some(1e-5),
-            min_rel_decrease: Some(1e-5),
+            sigma_tolerance: default_sigma_tolerance(),
+            min_abs_decrease: None,
+            min_rel_decrease: None,
             min_error: Some(1e-10),
             control: RunControl::default(),
         }
     }
 }
 
+fn default_sigma_tolerance() -> f64 {
+    lm::DEFAULT_SIGMA_TOLERANCE
+}
+
 /// Why a Levenberg–Marquardt solve stopped.
 ///
-/// Every reason but [`MaxIters`](Self::MaxIters) is a stopping rule
+/// Every reason but [`MaxIters`](Self::MaxIters) and
+/// [`StalledStep`](Self::StalledStep) is convergence
 /// ([`is_converged`](Self::is_converged)): the loop could not improve the
 /// solution further, and only then is its covariance computed. A cancelled
 /// solve, or one whose cost is not finite, returns an error instead of a
@@ -102,11 +125,11 @@ pub enum SolveTermination {
     RelativeStep,
     /// The cost fell below its floor, `min_error` (10⁻¹⁰).
     MinError,
-    /// An accepted step lowered the cost by less than `min_abs_decrease`
-    /// (10⁻⁵).
+    /// An accepted step lowered the cost by less than `min_abs_decrease`.
+    /// Off by default.
     MinAbsDecrease,
     /// An accepted step lowered the cost by less than `min_rel_decrease`
-    /// (10⁻⁵) of the cost before it.
+    /// of the cost before it. Off by default.
     MinRelDecrease,
     /// No step lowered the cost, with the damping doubled on each of 32
     /// tries: a minimum to working precision, or a parameter held on its
@@ -117,14 +140,27 @@ pub enum SolveTermination {
     MaxIters,
     /// Every parameter is fixed: no iteration ran.
     AllParametersFixed,
+    /// The solution is within a hundredth of its standard deviation of the
+    /// minimum: the Gauss–Newton step left to it, in the Mahalanobis norm
+    /// of the solution's covariance, is at most `0.01`, and so is the
+    /// change it would make to any one parameter in units of that
+    /// parameter's σ. The step is taken when it lowers the cost.
+    SigmaStep,
+    /// An accepted step moved the solution by less than a thousandth of its
+    /// standard deviation while the step to the minimum was still longer
+    /// than a hundredth: progress has stalled, along a long curved valley
+    /// of a weakly determined parameter, or because the damping held the
+    /// step short. Not convergence: the solution has no covariance, as for
+    /// [`MaxIters`](Self::MaxIters).
+    StalledStep,
 }
 
 impl SolveTermination {
-    /// Whether a stopping rule ended the solve, rather than its iteration
-    /// budget: every reason but [`MaxIters`](Self::MaxIters). The
-    /// covariance of a solution is computed only then.
+    /// Whether the solve reached its minimum: every reason but
+    /// [`MaxIters`](Self::MaxIters) and [`StalledStep`](Self::StalledStep).
+    /// The covariance of a solution is computed only then.
     pub fn is_converged(self) -> bool {
-        !matches!(self, Self::MaxIters)
+        !matches!(self, Self::MaxIters | Self::StalledStep)
     }
 }
 
@@ -172,6 +208,12 @@ pub(crate) struct BackendSolution {
     pub noise: Vec<covariance::FamilyNoise>,
     /// Covariance of the free parameters at the solution.
     pub uncertainty: covariance::ParamUncertainty,
+    /// For a solve stopped by its iteration budget, the first-order
+    /// covariance at its last iterate: not an uncertainty (the iterate is
+    /// not a minimum) but what the normal equations there say about which
+    /// parameters the data separates. `None` otherwise, or when it cannot be
+    /// formed.
+    pub last_iterate: Option<Box<covariance::CovarianceEstimate>>,
 }
 
 /// Backend interface implemented by solver adapters.
@@ -253,6 +295,7 @@ fn solve_on<E: SolveEngine>(
             uncertainty: covariance::ParamUncertainty::Unavailable(
                 covariance::UnavailableReason::NotComputed,
             ),
+            last_iterate: None,
             params,
             solve_report: SolveReport {
                 final_cost: 0.5 * cost,
@@ -283,15 +326,27 @@ fn solve_on<E: SolveEngine>(
         )));
     }
     let second_order = cov_mode == CovarianceMode::Full;
+    let converged = termination.is_converged();
+    let noise = covariance::noise(ir, raw.as_ref());
+    let (uncertainty, last_iterate) = if converged {
+        let uncertainty = covariance::estimate(ir, &params, raw, true, second_order);
+        (uncertainty, None)
+    } else {
+        // The same estimate at the last iterate, kept apart: a diagnostic of
+        // conditioning for a solve that did not reach its minimum.
+        let at_last = match covariance::estimate(ir, &params, raw, true, false) {
+            covariance::ParamUncertainty::Available(estimate) => Some(estimate),
+            covariance::ParamUncertainty::Unavailable(_) => None,
+        };
+        (
+            covariance::ParamUncertainty::Unavailable(covariance::UnavailableReason::NotConverged),
+            at_last,
+        )
+    };
     Ok(BackendSolution {
-        noise: covariance::noise(ir, raw.as_ref()),
-        uncertainty: covariance::estimate(
-            ir,
-            &params,
-            raw,
-            termination.is_converged(),
-            second_order,
-        ),
+        noise,
+        uncertainty,
+        last_iterate,
         params,
         solve_report: SolveReport {
             final_cost: 0.5 * cost,

@@ -143,6 +143,7 @@ fn solve(
         backend,
         max_iters: 200,
         min_abs_decrease: Some(1e-30),
+        sigma_tolerance: 0.0,
         min_rel_decrease: Some(1e-15),
         min_error: Some(1e-30),
         ..Default::default()

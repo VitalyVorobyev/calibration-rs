@@ -23,8 +23,9 @@ use nalgebra::DVector;
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     BrownConrady5, CameraFix, CameraModel, CameraParams, CorrespondenceView, FixedParams, FxFyCxCy,
-    Iso3, PinholeCamera, PlanarDataset, Real, Uncertainty, compute_mean_reproj_error,
-    make_pinhole_camera, mean_finite_reproj_error, pinhole_camera_params,
+    Iso3, ParameterCovariance, PinholeCamera, PlanarDataset, Real, Uncertainty,
+    compute_mean_reproj_error, make_pinhole_camera, mean_finite_reproj_error,
+    pinhole_camera_params,
 };
 
 /// Optimization result for planar intrinsics.
@@ -118,6 +119,12 @@ pub struct PlanarIntrinsicsEstimate {
     /// Covariance of the estimated camera parameters and poses.
     #[serde(default)]
     pub uncertainty: Uncertainty,
+    /// When the solve stopped on its iteration budget (`uncertainty` then
+    /// unavailable, not converged): the first-order covariance at its last
+    /// iterate, a diagnostic of which parameters the data separates there.
+    /// Not an uncertainty: the iterate is not a minimum. `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_iterate_covariance: Option<ParameterCovariance>,
 }
 impl PlanarIntrinsicsEstimate {
     /// A [`PlanarIntrinsicsEstimate`] with the given fields.
@@ -132,6 +139,7 @@ impl PlanarIntrinsicsEstimate {
             report,
             mean_reproj_error,
             uncertainty,
+            last_iterate_covariance: None,
         }
     }
 }
@@ -367,11 +375,13 @@ pub(crate) fn optimize_planar_intrinsics_with_cov(
         .iter()
         .map(|block| uncertainty::planar_block_labels(block, spec))
         .collect();
+    let last_iterate_covariance = uncertainty::labelled_last_iterate(&ir, &solution, &labels);
     Ok(PlanarIntrinsicsEstimate {
         params: PlanarIntrinsicsParams::new(camera, poses)?,
         report: solution.solve_report,
         mean_reproj_error,
         uncertainty: uncertainty::labelled(&ir, &solution.uncertainty, &solution.noise, &labels),
+        last_iterate_covariance,
     })
 }
 

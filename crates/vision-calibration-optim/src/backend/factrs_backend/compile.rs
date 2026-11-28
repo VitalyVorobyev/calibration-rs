@@ -453,6 +453,41 @@ impl Compiled {
             .collect()
     }
 
+    /// The Jacobian columns (under `order`) of the bounded free components
+    /// that sit on a bound in `values`, each with `true` for its upper
+    /// bound.
+    pub(super) fn on_bounds(&self, values: &Values, order: &ValuesOrder) -> Vec<(usize, bool)> {
+        let mut out = Vec::new();
+        for (index, var) in self.vars.iter().enumerate() {
+            if var.bounds.is_empty() {
+                continue;
+            }
+            let VarKind::Vector { dim } = var.kind else {
+                unreachable!("bounds are only accepted on vector blocks");
+            };
+            let start = order
+                .get(Key(index as u64))
+                .expect("every variable is ordered")
+                .idx;
+            with_vector_dim!(dim, N => {
+                let v: &VectorVar<N> = values
+                    .get_unchecked(Key(index as u64))
+                    .expect("compiled variable");
+                for &(c, lower, upper) in &var.bounds {
+                    if var.fixed.contains(&c) {
+                        continue;
+                    }
+                    if v.0[c] <= lower {
+                        out.push((start + c, false));
+                    } else if v.0[c] >= upper {
+                        out.push((start + c, true));
+                    }
+                }
+            }, _ => unreachable!("vector dims are checked when the variable is created"));
+        }
+        out
+    }
+
     /// Clamp bounded components to their bounds.
     pub(super) fn clamp_bounds(&self, values: &mut Values) {
         for (index, var) in self.vars.iter().enumerate() {

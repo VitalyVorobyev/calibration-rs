@@ -151,7 +151,8 @@ Backlog entries, each with its evidence in a note: CAL-TILT-DETERMINE and
 CAM-PARAM-PRIOR (estimate the tilt only when the data determine it, else a
 prior, else zero with the tangential terms freed; with a systematics
 safeguard and a named quality message), CAL-TILT-FOCUS, CAL-TARGET-OFFSETS,
-SOLVER-VALLEY-STOP, CAL-TILT-BOUNDS, CAM-FIELD-ORIGIN. The ring-grid centre
+CAL-TILT-BOUNDS, CAM-FIELD-ORIGIN (the σ-unit stopping rule is done,
+`lm-stopping.md`). The ring-grid centre
 covariance is not passed into calibration.
 
 ## The study harness

@@ -151,6 +151,7 @@ fn planar(backend: SolverBackend, control: RunControl) -> Result<PlanarIntrinsic
         backend,
         max_iters: 100,
         min_abs_decrease: Some(1e-14),
+        sigma_tolerance: 0.0,
         min_rel_decrease: Some(1e-14),
         min_error: Some(1e-20),
         control,

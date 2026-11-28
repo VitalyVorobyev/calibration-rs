@@ -165,6 +165,7 @@ fn opts(backend: SolverBackend) -> BackendSolveOptions {
         backend,
         max_iters: 200,
         min_abs_decrease: Some(1e-14),
+        sigma_tolerance: 0.0,
         min_rel_decrease: Some(1e-14),
         min_error: Some(1e-20),
         ..BackendSolveOptions::default()

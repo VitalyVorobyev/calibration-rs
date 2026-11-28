@@ -177,6 +177,10 @@ impl LinearizationEngine for FactrsEngine<'_> {
     fn norm(&self, x: &Values) -> f64 {
         self.compiled.varying_norm(x)
     }
+
+    fn on_bounds(&self, x: &Values) -> Vec<(usize, bool)> {
+        self.compiled.on_bounds(x, &self.order)
+    }
 }
 
 impl SolveEngine for FactrsEngine<'_> {

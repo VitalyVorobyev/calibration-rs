@@ -97,11 +97,15 @@ fn make_dataset(sensor: ScheimpflugParams) -> PlanarDataset {
     PlanarDataset::new(views).expect("dataset")
 }
 
+/// [`make_dataset`]'s views with deterministic noise, through a lens with
+/// barrel distortion (`k1 = −0.1`): only the distortion, centred on the
+/// lens axis, observes a sensor tilt, so without it the noisy tilt is
+/// undetermined (its σ about 0.25 rad here).
 fn make_noisy_dataset(sensor: ScheimpflugParams, noise_px: f64) -> PlanarDataset {
     let camera = Camera::new(
         Pinhole,
         BrownConrady5 {
-            k1: 0.0,
+            k1: -0.1,
             k2: 0.0,
             k3: 0.0,
             p1: 0.0,
@@ -448,6 +452,49 @@ fn public_api_converges_with_deterministic_noise() {
     };
     assert!((sensor.tilt_x - sensor_gt.tilt_x).abs() < 0.03);
     assert!((sensor.tilt_y - sensor_gt.tilt_y).abs() < 0.03);
+    let cov = result
+        .uncertainty
+        .covariance()
+        .expect("a converged solve's covariance");
+    for (label, est, truth) in [
+        ("tilt_x", sensor.tilt_x, sensor_gt.tilt_x),
+        ("tilt_y", sensor.tilt_y, sensor_gt.tilt_y),
+    ] {
+        let z = (est - truth).abs() / cov.std_dev(label).unwrap();
+        assert!(z < 5.0, "{label}: {z:.2} σ off the truth");
+    }
+}
+
+/// A free tilt with every distortion term held at zero is not determined
+/// (without distortion a tilt is a rotation of the poses and a shift of the
+/// principal point): refused before the solve, naming both ways out. Held
+/// tilt, the same camera calibrates.
+#[test]
+fn a_free_tilt_with_the_distortion_held_at_zero_is_refused() {
+    let dataset = make_dataset(ScheimpflugParams {
+        tilt_x: 0.01,
+        tilt_y: -0.008,
+    });
+    let all_distortion = || {
+        ["k1", "k2", "k3", "p1", "p2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+    };
+    let mut config = tilted_config();
+    config.camera.fix.distortion = Some(all_distortion());
+    let err = run_pipeline(&dataset, config).expect_err("an undetermined tilt");
+    let message = format!("{err:#}");
+    assert!(message.contains("without lens distortion"), "{message}");
+    assert!(
+        message.contains("`k1`") && message.contains("tilt_x"),
+        "{message}"
+    );
+
+    let mut held = tilted_config();
+    held.camera.fix.distortion = Some(all_distortion());
+    held.camera.fix.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);
+    run_pipeline(&dataset, held).expect("a held tilt calibrates");
 }
 
 #[test]

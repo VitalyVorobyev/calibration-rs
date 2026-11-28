@@ -334,6 +334,17 @@
           ],
           "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
         },
+        "last_iterate_covariance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParameterCovariance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the final solve stopped on its iteration budget (the result's\nuncertainty then unavailable, not converged): the first-order\ncovariance at its last iterate. Not an uncertainty, as that iterate\nis not a minimum: it tells which parameters the data separates\nthere, and the quality report's parameter-conditioning check reads\nit. `None` otherwise, and in workflows that do not record it."
+        },
         "per_feature_residuals": {
           "$ref": "#/$defs/PerFeatureResiduals",
           "default": {},

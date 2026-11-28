@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
-    ImageManifest, PerFeatureResiduals, TargetFeatureResidual, build_feature_histogram,
+    ImageManifest, ParameterCovariance, PerFeatureResiduals, TargetFeatureResidual,
+    build_feature_histogram,
 };
 
 /// Evidence about how an export's result was reached: what a viewer or a
@@ -25,6 +26,14 @@ pub struct ExportDiagnostics {
     /// images were recorded (the dataset runner and the desktop app fill it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_manifest: Option<ImageManifest>,
+    /// When the final solve stopped on its iteration budget (the result's
+    /// uncertainty then unavailable, not converged): the first-order
+    /// covariance at its last iterate. Not an uncertainty, as that iterate
+    /// is not a minimum: it tells which parameters the data separates
+    /// there, and the quality report's parameter-conditioning check reads
+    /// it. `None` otherwise, and in workflows that do not record it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_iterate_covariance: Option<ParameterCovariance>,
 }
 
 impl ExportDiagnostics {
@@ -33,6 +42,7 @@ impl ExportDiagnostics {
         Self {
             per_feature_residuals,
             image_manifest: None,
+            last_iterate_covariance: None,
         }
     }
 }

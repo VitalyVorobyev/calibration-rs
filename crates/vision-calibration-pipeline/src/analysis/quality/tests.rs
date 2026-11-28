@@ -421,20 +421,31 @@ fn observability_follows_the_uncertainty_status() {
 #[test]
 fn convergence_reads_the_solve_status() {
     assert_eq!(
-        convergence(&unavailable(UncertaintyUnavailable::NotConverged)).status,
+        convergence(&unavailable(UncertaintyUnavailable::NotConverged), false).status,
         CheckStatus::Fail
     );
     assert_eq!(
-        convergence(&unavailable(UncertaintyUnavailable::NotComputed)).status,
+        convergence(&unavailable(UncertaintyUnavailable::NotComputed), false).status,
         CheckStatus::NotApplicable
     );
     // A rank-deficient covariance is analysed only after the solve converged.
     assert_eq!(
-        convergence(&unavailable(UncertaintyUnavailable::RankDeficient {
-            unobservable: vec![]
-        }))
+        convergence(
+            &unavailable(UncertaintyUnavailable::RankDeficient {
+                unobservable: vec![]
+            }),
+            false
+        )
         .status,
         CheckStatus::Pass
+    );
+    // A last iterate's conditioning is pointed at, and the check still fails.
+    let at_budget = convergence(&unavailable(UncertaintyUnavailable::NotConverged), true);
+    assert_eq!(at_budget.status, CheckStatus::Fail);
+    assert!(
+        at_budget.message.contains("last iterate"),
+        "{}",
+        at_budget.message
     );
 }
 
@@ -783,6 +794,36 @@ fn near_gauge(labels: [&str; 3], a: f64) -> Uncertainty {
 }
 
 #[test]
+fn a_solve_stopped_on_its_budget_is_diagnosed_at_its_last_iterate() {
+    let params = calibrate(&well_covered_poses()).camera;
+    let not_converged = unavailable(UncertaintyUnavailable::NotConverged);
+    let Uncertainty::Available(at_last) = near_gauge(["cx", "p1", "p2"], 0.9995) else {
+        unreachable!("a covariance");
+    };
+    let thresholds = QualityThresholds::default();
+    // Without the last iterate's covariance there is nothing to read.
+    let none = parameter_conditioning(&params, &not_converged, None, 0, &thresholds);
+    assert_eq!(none.status, CheckStatus::NotApplicable);
+    // With it, the same finding as a diagnostic, said to be one.
+    let c = parameter_conditioning(&params, &not_converged, Some(&at_last), 0, &thresholds);
+    assert_eq!(c.status, CheckStatus::Warn, "{}", c.message);
+    assert_eq!(c.subjects, vec!["cx", "p1", "p2"]);
+    assert!(
+        c.message.starts_with("at the last iterate"),
+        "{}",
+        c.message
+    );
+    // A converged result's own covariance wins over a stray last iterate.
+    let converged = Uncertainty::Available(at_last.clone());
+    let own = parameter_conditioning(&params, &converged, Some(&at_last), 0, &thresholds);
+    assert!(
+        !own.message.starts_with("at the last iterate"),
+        "{}",
+        own.message
+    );
+}
+
+#[test]
 fn a_three_way_near_gauge_warns_where_the_pairwise_check_passes() {
     let params = calibrate(&well_covered_poses()).camera;
     let a = 0.9995_f64;
@@ -791,7 +832,7 @@ fn a_three_way_near_gauge_warns_where_the_pairwise_check_passes() {
     let pairwise = parameter_correlation(&params, &uncertainty, 0, &thresholds);
     assert_eq!(pairwise.status, CheckStatus::Pass, "{}", pairwise.message);
 
-    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
+    let c = parameter_conditioning(&params, &uncertainty, None, 0, &thresholds);
     assert_eq!(c.status, CheckStatus::Warn, "{}", c.message);
     assert_eq!(c.subjects, vec!["cx", "p1", "p2"]);
     // R² of p2 on (cx, p1) is a², so its inflation is 1/√(1 − a²).
@@ -822,6 +863,7 @@ fn radial_coefficients_leave_their_own_family_out() {
     let c = parameter_conditioning(
         &params,
         &near_gauge(["k1", "k2", "k3"], 0.9995),
+        None,
         0,
         &thresholds,
     );
@@ -833,6 +875,7 @@ fn radial_coefficients_leave_their_own_family_out() {
     let c = parameter_conditioning(
         &params,
         &near_gauge(["k1", "k2", "cx"], 0.9995),
+        None,
         0,
         &thresholds,
     );
@@ -855,7 +898,13 @@ fn the_focal_pair_alone_is_not_a_conditioning_warning() {
     ];
     let m = scaled(&correlation, &[2.0, 2.0, 1.0]);
     let uncertainty = Uncertainty::Available(covariance(&["fx", "fy", "cx"], m, 0.1));
-    let c = parameter_conditioning(&params, &uncertainty, 0, &QualityThresholds::default());
+    let c = parameter_conditioning(
+        &params,
+        &uncertainty,
+        None,
+        0,
+        &QualityThresholds::default(),
+    );
     assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
     assert!(c.subjects.is_empty());
     assert!(c.measurement.unwrap().value < 1.1, "{:?}", c.measurement);
@@ -874,7 +923,7 @@ fn a_tilt_flagged_names_its_cause() {
     let assess_one = |labels: &[&str], correlation: Vec<Vec<f64>>, sigma: &[f64]| {
         let uncertainty =
             Uncertainty::Available(covariance(labels, scaled(&correlation, sigma), 0.1));
-        parameter_conditioning(&params, &uncertainty, 0, &thresholds)
+        parameter_conditioning(&params, &uncertainty, None, 0, &thresholds)
     };
 
     // Told apart from the principal point only by the distortion.
@@ -990,11 +1039,12 @@ fn a_covariance_without_positive_variances_has_no_conditioning() {
     assert!(Conditioning::new(cov, &[0]).is_some());
     assert!(Conditioning::new(cov, &[2]).is_none());
     let thresholds = QualityThresholds::default();
-    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
+    let c = parameter_conditioning(&params, &uncertainty, None, 0, &thresholds);
     assert_eq!(c.status, CheckStatus::NotApplicable);
     let c = parameter_conditioning(
         &params,
         &unavailable(UncertaintyUnavailable::NotComputed),
+        None,
         0,
         &thresholds,
     );
@@ -1095,7 +1145,7 @@ fn trade_offs_outside_the_camera_do_not_count() {
     let m = scaled(&correlation, &[1.0, 0.01, 1e-3, 1e-3]);
     let labels = ["cx", "k1", "cam_se3_rig.ry", "plane.d"];
     let uncertainty = Uncertainty::Available(covariance(&labels, m, 0.1));
-    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
+    let c = parameter_conditioning(&params, &uncertainty, None, 0, &thresholds);
     assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
     assert!((c.measurement.unwrap().value - 1.0).abs() < 1e-9);
 
@@ -1104,7 +1154,7 @@ fn trade_offs_outside_the_camera_do_not_count() {
         vec![vec![1.0, 0.999_999], vec![0.999_999, 1.0]],
         0.1,
     ));
-    let c = parameter_conditioning(&params, &uncertainty, 0, &thresholds);
+    let c = parameter_conditioning(&params, &uncertainty, None, 0, &thresholds);
     assert_eq!(c.status, CheckStatus::Pass, "{}", c.message);
     assert_eq!(c.measurement.unwrap().value, 1.0);
 }

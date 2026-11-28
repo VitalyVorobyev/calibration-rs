@@ -41,9 +41,11 @@ The workflow is a module, and the camera model is a config value
     and no tilt seed is given: the linear tilt sweep, then the staged tilt
     multi-start on the camera's own views;
   - the seeded route (ADR 0011);
-  - a tilted sensor needs a distortion model in the single-camera
-    workflows, whose radial terms tell the tilt apart from a
-    principal-point shift.
+  - a free tilt needs a lens distortion, in every workflow: a model
+    without distortion is refused in the shared camera-config validation,
+    and distortion held at zero when the solve's camera blocks are set up
+    (held at known non-zero values it determines the tilt; a rig or
+    hand-eye absorbs the rotation like a pose and does not).
 
   Each is defined once (`CameraModelSpec::default_fix`,
   `IntrinsicsInitConfig::distortion_fit_opts`,

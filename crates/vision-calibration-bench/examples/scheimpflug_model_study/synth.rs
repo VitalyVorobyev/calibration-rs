@@ -478,7 +478,7 @@ mod tests {
             poses,
             SIZE,
             Free::All,
-            100,
+            400,
         )
         .expect("a synthetic fit")
     }
@@ -487,6 +487,11 @@ mod tests {
     /// from the plain model it pulls `k1` far from the truth and returns a
     /// residual below the noise it was given. Evaluated at the model's own
     /// projection, the same field gains nothing and leaves `k1` alone.
+    ///
+    /// The fit at the projection crawls along a shallow valley before it
+    /// reaches that minimum (337 iterations here), so the fits run to 400.
+    /// Stopped at 100 it sat mid-valley, `k1` −0.474 against the truth's
+    /// −0.415; at its minimum `k1` is −0.418.
     #[test]
     fn a_field_at_the_observation_contracts_the_noise() {
         let plain = GenCfg::base("plain");

@@ -94,16 +94,49 @@ as its `termination`:
 
 | Rule | `termination` |
 |---|---|
+| the solution is within $0.01\sigma$ of the minimum (below) | `sigma_step` |
+| an accepted step moved the solution by less than $0.001\sigma$ while it was still further than $0.01\sigma$ from the minimum: progress has stalled | `stalled_step` |
 | a step can no longer change the parameters ($\lVert\boldsymbol{\delta}\rVert \le 10^{-8}(\lVert\mathbf{x}\rVert + 10^{-8})$) | `relative_step` |
 | no step is accepted after 32 retries: a minimum to working precision, or a parameter held on its bound | `no_accepted_step` |
 | after an accepted step, the cost $2F$ is below $10^{-10}$ | `min_error` |
-| an accepted step decreases $2F$ by less than $10^{-5}$ | `min_abs_decrease` |
-| an accepted step decreases $2F$ by less than $10^{-5}$ of its previous value | `min_rel_decrease` |
 | `max_iters` iterations ran without meeting a rule; the one threshold the solver settings set | `max_iters` |
 | every parameter is fixed, so no iteration runs | `all_parameters_fixed` |
 
-The three cost rules are checked in that order after each accepted step. A
-rule met on the last allowed iteration is convergence, not `max_iters`.
+The result is reported with a covariance that holds at the minimum, so
+the main rule measures how far the solution still is from it, in that
+covariance's units. With $m$ residuals, $n$ free parameters and
+$\hat\sigma^2 = 2F/(m-n)$, the covariance is about
+$\hat\sigma^2 (\tilde{J}^T\tilde{J})^{-1}$, and the undamped step to the
+minimum of the local model, $\boldsymbol{\delta}_N =
+-(\tilde{J}^T\tilde{J})^{-1}\tilde{J}^T\tilde{\mathbf{r}}$, has the
+Mahalanobis length
+
+$$d^2 = \frac{\tilde{\mathbf{r}}^T\tilde{J}\,(\tilde{J}^T\tilde{J})^{-1}\tilde{J}^T\tilde{\mathbf{r}}}{\hat\sigma^2},$$
+
+the distance to the minimum in standard deviations, which bounds every
+parameter's distance in units of its own $\sigma$. On the first iteration,
+and whenever the last accepted step moved the solution by at most one
+$\sigma$, the loop also solves for $\boldsymbol{\delta}_N$; when
+$d \le 0.01$ it takes that step if it lowers the cost and stops. Under a
+robust loss the linearization's curvature can exceed the objective's
+(where $\rho'' < 0$ both backends weight by $\rho'$ alone), so the step
+covers part of the way; its gain ratio $\varrho = 2 - a/b$ (curvatures of
+objective and model) tells how much, and the loop stops only when the
+distance the step leaves, $\lvert\varrho - 1\rvert\, d/\sqrt{2 - \varrho}$,
+is within $0.01$ too, iterating on otherwise. The rule needs redundancy
+($m > n$) and a nonzero cost; without them the other rules end the solve.
+A coordinate held on its bound is held out of $\boldsymbol{\delta}_N$, and
+with one held the step is taken whenever it lowers the cost, so a solve
+against a bound converges. A `stalled_step` happens where a weakly
+determined parameter lies along a long, curved valley, and a solve there may
+also run to `max_iters`: the result then states its covariance unavailable
+rather than claiming a minimum it has not reached.
+
+A rule on the decrease of the last step would measure the step taken,
+not the distance left: a fraction of the cost corresponds to more
+standard deviations the more residuals there are, and a step shortened by
+the damping reads as nearer the minimum than it is. A rule met on the last
+allowed iteration is convergence, not `max_iters`.
 Every reason but `max_iters` is convergence
 (`SolveTermination::is_converged`), and only a converged solve has a
 covariance; one stopped by its budget reports its uncertainty unavailable
@@ -118,7 +151,7 @@ results run to run.
 | | tiny-solver | factrs |
 |---|---|---|
 | Dual numbers | four directions, on the stack; a block takes one pass per four tangent coordinates | static size: the factor's tangent dimension, one pass |
-| Robust loss | Triggs correction: second-order exact in $\rho$ | iterative reweighting: block scaled by $\sqrt{\rho'}$ |
+| Robust loss | Triggs correction where $\rho'' > 0$ (second-order exact there); where $\rho'' \le 0$, as Ceres, the block scaled by $\sqrt{\rho'}$ | iterative reweighting: block scaled by $\sqrt{\rho'}$ |
 | Variables | one per parameter block | a camera's intrinsics, distortion and sensor fuse into one vector; a laser plane's normal and distance into one plane variable |
 | Fixed parameters | removed from the system | kept, with their Jacobian columns zeroed |
 
@@ -226,8 +259,7 @@ For a well-initialized planar intrinsics problem:
 
 - **Final cost**: $\sim 10^{-2}$–$10^0$ (sub-pixel residuals)
 - **Iterations**: 5–50 (depends on problem size and initial quality)
-- **Termination**: usually `min_rel_decrease`, the relative decrease
-  falling below $10^{-5}$
+- **Termination**: `sigma_step`, within $0.01\sigma$ of the minimum
 
 ## Error Handling
 

@@ -12,8 +12,8 @@ The program loads 20 views of a 7x11 chessboard (30 mm squares) seen by both cam
 
 ```text
 --- Step 2: Per-Camera Intrinsics Optimization ---
-  Camera 0: fx=713.8, fy=724.7, cx=523.4, cy=286.0, reproj_err=0.234px
-  Camera 1: fx=724.8, fy=735.6, cx=513.9, cy=293.0, reproj_err=0.244px
+  Camera 0: fx=713.8, fy=724.6, cx=523.4, cy=285.9, reproj_err=0.234px
+  Camera 1: fx=724.8, fy=735.6, cx=513.9, cy=292.9, reproj_err=0.244px
 
 --- Step 4: Rig Bundle Adjustment ---
   Rig BA mean reprojection error: 0.2461 px

@@ -114,8 +114,14 @@ defaults and both steps:
 - The default fix list leaves only the low-order radial terms free.
 - The linear stage holds the tangential terms while the tilt is
   estimated: a free tangential term is ill-posed next to the tilt there.
-- A Scheimpflug sensor needs a distortion model (`DistortionKind::None` is a
-  configuration error).
+- A free tilt needs a lens distortion to determine it: without distortion a
+  tilted camera is exactly a pinhole with a shifted principal point and
+  rotated poses, from any views. A Scheimpflug sensor with
+  `DistortionKind::None` and a free tilt is a configuration error, in every
+  workflow; with every distortion term held, the optimize step refuses the
+  tilt before solving when the held values are zero (held at known non-zero
+  values, they determine it). The ways out: free a radial term (`k1`), or
+  hold the tilt (`fix.sensor = ["tilt_x", "tilt_y"]`).
 
 `step_init_with_seed` takes an optional `sensor` seed in `IntrinsicsManualInit`
 (a typed error for an untilted camera). With a **seeded tilt** — the nominal
