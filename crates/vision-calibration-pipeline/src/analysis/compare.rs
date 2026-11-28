@@ -14,8 +14,8 @@ use nalgebra::{DMatrix, DVector, UnitQuaternion, Vector3, Vector6};
 use serde::{Deserialize, Serialize};
 use vision_calibration_core::{
     CameraModelSpec, CameraParams, Compensation, FitRegion, Handeye, ImageGrid, Iso3,
-    ParameterCovariance, ProjectionDifferenceOptions, ReprojectionStats, Uncertainty,
-    UncertaintyUnavailable, projection_difference,
+    ParameterCovariance, ProjectionDifference, ProjectionDifferenceOptions, ReprojectionStats,
+    Uncertainty, UncertaintyUnavailable, projection_difference,
 };
 use vision_calibration_dataset::ProblemKind;
 use vision_calibration_optim::camera_parameters;
@@ -782,6 +782,68 @@ pub fn compare_runs(
     })
 }
 
+/// Camera `camera`'s projection difference between two runs, its planes
+/// with it: the difference [`compare_runs`] summarizes in
+/// [`CameraDifference::projection`], by the same computation.
+///
+/// The grid is the reference's image of the camera at
+/// `options.grid_columns` columns; the difference is `other − reference` at
+/// the reference's rays after `options.compensation`, fitted on the grid
+/// blocks either run's features of the camera cover
+/// ([`FitRegion::Covered`] with their observed pixels). Each number of the
+/// camera's [`ProjectionComparison::Compared`] in a comparison of the two
+/// runs under the same options is a field of the returned
+/// [`ProjectionDifference`] (`rotation_deg` its
+/// [`rotation_angle`](ProjectionDifference::rotation_angle) in degrees);
+/// `Ok(Err(reason))` is the comparison's
+/// [`ProjectionComparison::Unavailable`] reason. The thresholds of
+/// `options`, and the runs' configurations and relations, are not read.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for runs of different workflows, camera ids or
+/// image sizes not one per camera, a camera id repeated in a run, `camera`
+/// missing from either run, its image sizes differing between the runs, or
+/// zero grid columns.
+pub fn run_projection_difference(
+    reference: &ComparedRun<'_>,
+    other: &ComparedRun<'_>,
+    camera: &str,
+    options: &CompareRunsOptions,
+) -> Result<Result<ProjectionDifference, ProjectionUnavailable>, Error> {
+    check_grid_columns(options)?;
+    if other.export.kind() != reference.export.kind() {
+        return Err(Error::invalid_input(format!(
+            "run {} is of another workflow than run {}",
+            other.name, reference.name
+        )));
+    }
+    let (a, b) = (
+        reference.export.camera_params(),
+        other.export.camera_params(),
+    );
+    check_cameras(reference, a.len())?;
+    check_cameras(other, b.len())?;
+    let index = |run: &ComparedRun<'_>| {
+        run.camera_ids
+            .iter()
+            .position(|id| id == camera)
+            .ok_or_else(|| Error::invalid_input(format!("run {} has no camera {camera}", run.name)))
+    };
+    let (i, j) = (index(reference)?, index(other)?);
+    if reference.image_sizes[i] != other.image_sizes[j] {
+        return Err(Error::invalid_input(format!(
+            "camera {camera} has images of {:?} in run {} and {:?} in run {}",
+            reference.image_sizes[i], reference.name, other.image_sizes[j], other.name
+        )));
+    }
+    Ok(camera_projection(
+        (reference, i, &a[i]),
+        (other, j, &b[j]),
+        options,
+    ))
+}
+
 /// What [`compare_runs`] reads of one run, once.
 struct Prepared {
     cameras: Vec<CameraParams>,
@@ -809,19 +871,53 @@ impl Prepared {
     }
 }
 
+/// The error of a comparison of fewer than two runs.
+pub(crate) fn check_run_count(runs: usize) -> Result<(), Error> {
+    if runs < 2 {
+        return Err(Error::invalid_input(format!(
+            "compare_runs needs at least two runs, got {runs}"
+        )));
+    }
+    Ok(())
+}
+
+fn check_grid_columns(options: &CompareRunsOptions) -> Result<(), Error> {
+    if options.grid_columns == 0 {
+        return Err(Error::invalid_input("grid_columns must be at least 1"));
+    }
+    Ok(())
+}
+
+/// The run's camera ids and image sizes checked against its `cameras`
+/// cameras: one per camera, no id repeated.
+fn check_cameras(run: &ComparedRun<'_>, cameras: usize) -> Result<(), Error> {
+    if run.camera_ids.len() != cameras || run.image_sizes.len() != cameras {
+        return Err(Error::invalid_input(format!(
+            "run {} has {} cameras but {} camera ids and {} image sizes",
+            run.name,
+            cameras,
+            run.camera_ids.len(),
+            run.image_sizes.len()
+        )));
+    }
+    let mut seen = BTreeSet::new();
+    for id in &run.camera_ids {
+        if !seen.insert(id.as_str()) {
+            return Err(Error::invalid_input(format!(
+                "run {} names camera {id} twice",
+                run.name
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate(
     runs: &[ComparedRun<'_>],
     options: &CompareRunsOptions,
 ) -> Result<Vec<Prepared>, Error> {
-    if runs.len() < 2 {
-        return Err(Error::invalid_input(format!(
-            "compare_runs needs at least two runs, got {}",
-            runs.len()
-        )));
-    }
-    if options.grid_columns == 0 {
-        return Err(Error::invalid_input("grid_columns must be at least 1"));
-    }
+    check_run_count(runs.len())?;
+    check_grid_columns(options)?;
     if runs[0].relation.is_some() {
         return Err(Error::invalid_input(format!(
             "run {} is the reference; a relation is stated on the runs compared with it",
@@ -838,24 +934,7 @@ fn validate(
             )));
         }
         let cameras = run.export.camera_params();
-        if run.camera_ids.len() != cameras.len() || run.image_sizes.len() != cameras.len() {
-            return Err(Error::invalid_input(format!(
-                "run {} has {} cameras but {} camera ids and {} image sizes",
-                run.name,
-                cameras.len(),
-                run.camera_ids.len(),
-                run.image_sizes.len()
-            )));
-        }
-        let mut seen = BTreeSet::new();
-        for id in &run.camera_ids {
-            if !seen.insert(id.as_str()) {
-                return Err(Error::invalid_input(format!(
-                    "run {} names camera {id} twice",
-                    run.name
-                )));
-            }
-        }
+        check_cameras(run, cameras.len())?;
         let cam_se3_rig = run.export.cam_se3_rig();
         let reference_camera = cam_se3_rig.iter().position(is_identity);
         prepared.push(Prepared {
@@ -1163,17 +1242,12 @@ fn projection_comparison(
     other: Side<'_, '_>,
     options: &CompareRunsOptions,
 ) -> ProjectionComparison {
-    let size = reference.0.image_sizes[i];
-    let Ok(grid) = ImageGrid::with_columns(size, options.grid_columns) else {
-        return ProjectionComparison::Unavailable {
-            reason: ProjectionUnavailable::InvalidImage,
-        };
-    };
-    let covered: Vec<[f64; 2]> = observed(reference.0, i)
-        .chain(observed(other.0, j))
-        .collect();
-    let fit = ProjectionDifferenceOptions::new(options.compensation, FitRegion::Covered(covered));
-    match projection_difference(&reference.1.cameras[i], &other.1.cameras[j], &grid, &fit) {
+    let difference = camera_projection(
+        (reference.0, i, &reference.1.cameras[i]),
+        (other.0, j, &other.1.cameras[j]),
+        options,
+    );
+    match difference {
         Ok(d) => ProjectionComparison::Compared {
             compensation: options.compensation,
             rotation_deg: d.rotation_angle().to_degrees(),
@@ -1184,18 +1258,35 @@ fn projection_comparison(
             rms_valid_px: d.rms_valid_px,
             max_valid_px: d.max_valid_px,
         },
-        Err(e) => ProjectionComparison::Unavailable {
-            reason: match e {
-                vision_calibration_core::Error::InsufficientData { .. } => {
-                    ProjectionUnavailable::TooFewNodes
-                }
-                vision_calibration_core::Error::InvalidInput { .. } => {
-                    ProjectionUnavailable::NotCentral
-                }
-                _ => ProjectionUnavailable::Singular,
-            },
-        },
+        Err(reason) => ProjectionComparison::Unavailable { reason },
     }
+}
+
+/// One camera of one run: the run, the camera's index in it and its
+/// parameters.
+type RunCamera<'r, 'a> = (&'r ComparedRun<'a>, usize, &'r CameraParams);
+
+/// The projection difference of a camera both runs have, on the
+/// reference's image of it, fitted on the blocks either run's features of
+/// the camera cover: what a [`ProjectionComparison`] summarizes.
+fn camera_projection(
+    reference: RunCamera<'_, '_>,
+    other: RunCamera<'_, '_>,
+    options: &CompareRunsOptions,
+) -> Result<ProjectionDifference, ProjectionUnavailable> {
+    let (ref_run, i, a) = reference;
+    let (oth_run, j, b) = other;
+    let grid = ImageGrid::with_columns(ref_run.image_sizes[i], options.grid_columns)
+        .map_err(|_| ProjectionUnavailable::InvalidImage)?;
+    let covered: Vec<[f64; 2]> = observed(ref_run, i).chain(observed(oth_run, j)).collect();
+    let fit = ProjectionDifferenceOptions::new(options.compensation, FitRegion::Covered(covered));
+    projection_difference(a, b, &grid, &fit).map_err(|e| match e {
+        vision_calibration_core::Error::InsufficientData { .. } => {
+            ProjectionUnavailable::TooFewNodes
+        }
+        vision_calibration_core::Error::InvalidInput { .. } => ProjectionUnavailable::NotCentral,
+        _ => ProjectionUnavailable::Singular,
+    })
 }
 
 /// The observed pixels of camera `camera`'s features in `run`.

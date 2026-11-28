@@ -64,8 +64,30 @@ class CompareRunsTest(unittest.TestCase):
         for p in difference["cameras"][0]["parameters"]["parameters"]:
             self.assertEqual(p["test"], {"kind": "not_available", "reason": "unknown_relation"})
 
+    def test_a_cameras_projection_difference_is_the_comparisons(self) -> None:
+        a, b = _run("a", 10), _run("b", 8)
+        summary = vc.compare_runs([a, b], compensation="none", grid_columns=32)[
+            "differences"
+        ][0]["cameras"][0]["projection"]
+        d = vc.run_projection_difference(a, b, "cam", compensation="none", grid_columns=32)
+        assert isinstance(d, vc.ProjectionDifference)
+        self.assertEqual(d.grid.columns, 32)
+        self.assertEqual(d.fit_nodes, summary["fit_nodes"])
+        self.assertEqual(d.valid_nodes, summary["valid_nodes"])
+        self.assertEqual(d.rms_fit_px, summary["rms_fit_px"])
+        self.assertEqual(d.max_valid_px, summary["max_valid_px"])
+        bare = dict(a, export=dict(a["export"].export))
+        bare["export"]["diagnostics"] = dict(
+            bare["export"]["diagnostics"], per_feature_residuals={"target": [], "laser": []}
+        )
+        self.assertEqual(vc.run_projection_difference(bare, bare, "cam"), "too_few_nodes")
+        with self.assertRaises(ValueError):
+            vc.run_projection_difference(a, b, "other")
+
     def test_rejects_bad_input(self) -> None:
         a = _run("a", 8)
+        with self.assertRaises(ValueError):
+            vc.compare_runs([])
         with self.assertRaises(ValueError):
             vc.compare_runs([a])
         with self.assertRaises(ValueError):
