@@ -51,7 +51,7 @@ cargo run -p vision-calibration --example mvg_two_view
 
 ```text
 scene: 36 correspondences visible in both views
-1. pose recovery : rotation Δ = 2.43e-15, |t·t_gt| = 1.000000, 36 points triangulated
+1. pose recovery : rotation Δ = 7.96e-16, |t·t_gt| = 1.000000, 36 points triangulated
 3. bundle adjust : RMS 0.0000 px over 2 captures, 36 points; worst point error 1.75e-7 m
 4. rectification : baseline = 0.610, max row disagreement = 1.14e-13 px
 ```
