@@ -240,6 +240,35 @@ fn a_project_may_name_only_paths_inside_the_roots() {
         .invoke("open_project", json!({ "dir": dir }))
         .unwrap_err();
     assert_eq!(err.kind, ErrorKind::ForbiddenPath);
+    // So does one whose relative path climbs out of them (`vcal project
+    // init` writes paths relative to the project folder) ...
+    std::fs::write(
+        lib.project.join("calibration-project.toml"),
+        "version = 2\n[dataset]\nmanifest = \"../../outside/dataset.json\"\n",
+    )
+    .unwrap();
+    let err = lib
+        .api
+        .invoke("open_project", json!({ "dir": dir }))
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::ForbiddenPath, "{err:?}");
+    // ... while a relative path to a sibling inside them opens.
+    let sibling = lib.root.join("captures");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(sibling.join("dataset.json"), manifest.to_string()).unwrap();
+    std::fs::write(
+        lib.project.join("calibration-project.toml"),
+        "version = 2\n[dataset]\nmanifest = \"../captures/dataset.json\"\n",
+    )
+    .unwrap();
+    let opened = lib
+        .api
+        .invoke("open_project", json!({ "dir": dir }))
+        .unwrap();
+    assert_eq!(
+        opened["spec"]["dataset"]["manifest"],
+        "../captures/dataset.json"
+    );
     // A folder that is no project says so.
     let plain = lib.root.join("plain");
     std::fs::create_dir(&plain).unwrap();

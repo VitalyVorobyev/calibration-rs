@@ -28,8 +28,10 @@ pub enum ImageDetectionState {
     NotDetected,
     /// Detected: the features found, and the detector's outcome. `outcome`
     /// is `detected` when features were found; when none were, the cached
-    /// detail's account, or `null` when only the (empty) features are
-    /// cached (a calibration caches no detail).
+    /// detail's account (`not_found` with the detector's reason, `ambiguous`
+    /// or `filtered`: a calibration caches it for an image it found nothing
+    /// in), or `null` when only the (empty) features are cached, by a cache
+    /// written before calibrations kept the detail.
     Detected {
         features: usize,
         outcome: Option<DetectionOutcome>,

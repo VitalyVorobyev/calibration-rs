@@ -24,6 +24,20 @@ fn vcal_with(args: &[&str], control: &RunControl) -> u8 {
     run(std::iter::once("vcal").chain(args.iter().copied()), control)
 }
 
+/// `vcal` run as its binary, for what it prints: the exit status, standard
+/// output and standard error.
+fn vcal_output(args: &[&str]) -> (i32, String, String) {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_vcal"))
+        .args(args)
+        .output()
+        .expect("vcal runs");
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
 fn path(p: &Path) -> &str {
     p.to_str().expect("temporary paths are UTF-8")
 }
@@ -201,6 +215,36 @@ fn init_check_run_calibrates_a_folder() {
     let export: serde_json::Value =
         serde_json::from_slice(&std::fs::read(out.join("calibration.json")).unwrap()).unwrap();
     assert_eq!(export["camera"]["distortion"]["type"], "none");
+
+    // A tilted sensor: the summary gives the distortion and the tilt, in
+    // degrees.
+    std::fs::write(
+        &config,
+        "camera.model = { projection = \"pinhole\", distortion = \"brown_conrady5\", sensor = \"scheimpflug\" }\n",
+    )
+    .unwrap();
+    let (status, stdout, stderr) = vcal_output(&[
+        "run",
+        path(&manifest),
+        "-o",
+        path(&dir.join("out_tilted")),
+        "-c",
+        path(&config),
+    ]);
+    assert!(status == 0 || status == 3, "{status}: {stderr}");
+    for label in ["fx", "k1", "k2", "k3", "p1", "p2", "tilt_x", "tilt_y"] {
+        assert!(
+            stdout
+                .lines()
+                .any(|l| l.starts_with(&format!("  {label} = "))),
+            "{label}:\n{stdout}"
+        );
+    }
+    let tilt = stdout.lines().find(|l| l.contains("tilt_x")).unwrap();
+    assert!(
+        tilt.ends_with('°') || tilt.contains("° (held fixed)"),
+        "{tilt}"
+    );
 }
 
 /// The rule `vcal run -c` merged a configuration file with before the
@@ -420,12 +464,28 @@ fn a_rig_run_recovers_the_baseline_and_writes_the_report() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
     let manifest = write_rig(dir);
+    // Camera 1 does not see the board in the last view.
+    GrayImage::from_pixel(WIDTH, HEIGHT, image::Luma([128]))
+        .save(dir.join("cam1/view07.png"))
+        .unwrap();
     assert_eq!(vcal(&["check", path(&manifest)]), 0);
 
     let out = dir.join("out");
-    assert_eq!(
-        vcal(&["run", path(&manifest), "-o", path(&out), "--report"]),
-        0
+    let (status, stdout, stderr) =
+        vcal_output(&["run", path(&manifest), "-o", path(&out), "--report"]);
+    assert_eq!(status, 0, "{stderr}");
+    // The views of the rig, and each camera's own.
+    assert!(
+        stdout.contains("rig_extrinsics: 8 of 8 views used"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("camera 0 (left), 640 × 480 px, 8 views:"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("camera 1 (right), 640 × 480 px, 7 views:"),
+        "{stdout}"
     );
     let export = read_json(&out.join("calibration.json"));
     assert_eq!(export["cameras"].as_array().unwrap().len(), 2);
@@ -811,24 +871,28 @@ fn a_seeded_run_starts_from_a_previous_calibration_or_a_datasheet() {
     let mut camera = CameraDeviceSpec::new(id.clone(), 3.0, 5.0, [WIDTH, HEIGHT]);
     camera.principal_point_px = Some([f64::from(WIDTH) / 2.0, f64::from(HEIGHT) / 2.0]);
     let spec_file = dir.join("spec.json");
-    std::fs::write(
-        &spec_file,
-        serde_json::to_string(&DeviceSpec::new(vec![camera])).unwrap(),
-    )
-    .unwrap();
+    let mut device = DeviceSpec::new(vec![camera]);
+    device.description = Some("drawing rev C\nwith a second line".to_string());
+    std::fs::write(&spec_file, serde_json::to_string(&device).unwrap()).unwrap();
     let from_spec = dir.join("from_spec");
-    assert_eq!(
-        vcal(&[
-            "run",
-            path(&manifest),
-            "-o",
-            path(&from_spec),
-            "--device-spec",
-            path(&spec_file)
-        ]),
-        0
-    );
+    let (status, stdout, stderr) = vcal_output(&[
+        "run",
+        path(&manifest),
+        "-o",
+        path(&from_spec),
+        "--device-spec",
+        path(&spec_file),
+    ]);
+    assert_eq!(status, 0, "{stderr}");
     close(&read_json(&from_spec.join("calibration.json")));
+    // The seed's source on one line, not the spec's description.
+    assert!(
+        stdout
+            .lines()
+            .any(|l| l == format!("started from the device spec {}", spec_file.display())),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("drawing rev C"), "{stdout}");
 
     // Seeds that do not fit: other cameras, other images.
     let other = seed_for(&["other".to_string()], [WIDTH, HEIGHT], "other.json");
@@ -893,8 +957,8 @@ fn seed_files_and_a_seeded_project() {
     );
     assert_eq!(vcal(&["run", path(&dir)]), 0);
     let run = dir.join("runs/run-001");
+    // The seeds' folder does not exist yet: `-o` makes it.
     let seeds = tmp.path().join("seeds");
-    std::fs::create_dir_all(&seeds).unwrap();
 
     // One run: the library's seed of it.
     let one = seeds.join("one.json");
@@ -1024,18 +1088,19 @@ fn seed_files_and_a_seeded_project() {
         0
     );
     let file = read_toml(&next.join("calibration-project.toml"));
-    // Compared as paths: the separators differ by platform.
+    // The sibling project's run, relative: the projects move together.
+    assert_eq!(file["seed"]["run"].as_str(), Some("../unit-1/runs/run-001"));
     assert_eq!(
-        file["seed"]["run"].as_str().map(Path::new),
-        Some(run.as_path())
+        file["dataset"]["manifest"].as_str(),
+        Some("../unit-1/dataset.toml")
     );
     assert_eq!(vcal(&["check", path(&next)]), 0);
     assert_eq!(vcal(&["run", path(&next)]), 0);
     let record = read_json(&next.join("runs/run-001/run.json"));
     let seed = &record["source"]["inputs"]["seed"];
     assert_eq!(
-        seed["source"]["run"].as_str().map(Path::new),
-        Some(run.as_path())
+        seed["source"]["run"].as_str(),
+        Some("../unit-1/runs/run-001")
     );
     assert_eq!(seed["value"], serde_json::to_value(&expected).unwrap());
     assert_eq!(seed["applied"], serde_json::json!([format!("{id}.lens")]));
@@ -1107,9 +1172,8 @@ fn project_init_drafts_references_or_embeds_and_refuses_a_fork() {
     assert_eq!(file["name"], "bench".into());
     assert_eq!(file["device"]["id"], "SN-1".into());
     assert_eq!(file["device"]["product"], "rig".into());
-    // The draft is outside the project: its root is absolute.
-    let root = file["dataset"]["root"].as_str().unwrap();
-    assert!(Path::new(root).is_absolute(), "{root}");
+    // The draft's images are beside the project: its root is relative.
+    assert_eq!(file["dataset"]["root"].as_str(), Some("../data"));
     assert!(file["dataset"]["manifest"]["_unresolved"].is_array());
     // The draft leaves the board open: the check fails until it is filled in.
     assert_eq!(vcal(&["check", path(&drafted)]), 1);
@@ -1335,4 +1399,167 @@ fn the_committed_projects_open() {
         project.dataset().unwrap_or_else(|e| panic!("{dir}: {e}"));
         assert!(project.data_root().unwrap().is_dir(), "{dir}");
     }
+}
+
+/// `--manifest` takes a manifest only: another tool's file is refused
+/// before any project file is written, with the manifest's error, and a
+/// folder holding one is drafted from its file names, saying so. A draft
+/// manifest is referenced as it is; a complete one must be valid.
+#[test]
+fn project_init_takes_only_a_manifest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("captures");
+    std::fs::create_dir_all(&dir).unwrap();
+    write_views(&dir);
+    let other = dir.join("dataset.json");
+    std::fs::write(&other, r#"{ "schema": "another tool", "frames": [] }"#).unwrap();
+
+    let (status, _, stderr) =
+        vcal_output(&["project", "init", path(&dir), "--manifest", path(&other)]);
+    assert_eq!(status, 1, "{stderr}");
+    assert!(stderr.contains("unknown field"), "{stderr}");
+    assert!(!dir.join("calibration-project.toml").exists());
+
+    // Without --manifest the folder's names are drafted, the file left alone.
+    let (status, stdout, stderr) = vcal_output(&["project", "init", path(&dir)]);
+    assert_eq!(status, 0, "{stderr}");
+    assert!(
+        stderr.contains("is not a dataset manifest") && !stderr.contains("--manifest"),
+        "{stderr}"
+    );
+    assert!(stdout.contains("_unresolved"), "{stdout}");
+    let file = read_toml(&dir.join("calibration-project.toml"));
+    assert!(file["dataset"]["manifest"]["_unresolved"].is_array());
+
+    // A draft referenced as it is, its open fields listed.
+    let drafts = tmp.path().join("drafts");
+    std::fs::create_dir_all(&drafts).unwrap();
+    write_views(&drafts);
+    assert_eq!(vcal(&["init", path(&drafts)]), 0);
+    let draft = drafts.join("dataset.toml");
+    let project = tmp.path().join("from-draft");
+    let (status, stdout, stderr) = vcal_output(&[
+        "project",
+        "init",
+        path(&project),
+        "--manifest",
+        path(&draft),
+    ]);
+    assert_eq!(status, 0, "{stderr}");
+    assert!(stdout.contains("_unresolved"), "{stdout}");
+    // A complete manifest that is not valid is refused.
+    complete_manifest(&drafts);
+    let mut spec = read_toml(&draft);
+    spec.insert("cameras".into(), toml::Value::Array(Vec::new()));
+    std::fs::write(&draft, toml::to_string(&spec).unwrap()).unwrap();
+    let invalid = tmp.path().join("invalid");
+    let (status, _, stderr) = vcal_output(&[
+        "project",
+        "init",
+        path(&invalid),
+        "--manifest",
+        path(&draft),
+    ]);
+    assert_eq!(status, 1, "{stderr}");
+    assert!(stderr.contains("invalid manifest"), "{stderr}");
+    assert!(!invalid.join("calibration-project.toml").exists());
+}
+
+/// A drafted project of device `id` in `folder`, its images in
+/// `folder/images`.
+fn drafted_project(folder: &Path, id: &str) {
+    let data = folder.join("images");
+    std::fs::create_dir_all(&data).unwrap();
+    write_views(&data);
+    assert_eq!(
+        vcal(&[
+            "project",
+            "init",
+            path(folder),
+            "--data",
+            path(&data),
+            "--device-id",
+            id,
+        ]),
+        0
+    );
+}
+
+/// A scan lists a device's project that has no runs yet, and names a
+/// project inside another project's folder as skipped.
+#[test]
+fn a_scan_lists_projects_without_runs_and_names_nested_ones() {
+    let tmp = tempfile::tempdir().unwrap();
+    let library = tmp.path().join("library");
+    let fresh = library.join("fresh");
+    drafted_project(&fresh, "SN-1");
+    drafted_project(&fresh.join("inner"), "SN-2");
+
+    let (status, stdout, stderr) = vcal_output(&["project", "scan", path(&library)]);
+    assert_eq!(status, 0, "{stderr}");
+    let lines: Vec<&str> = stdout.lines().collect();
+    let heading = lines
+        .iter()
+        .position(|l| *l == "SN-1:")
+        .unwrap_or_else(|| panic!("{stdout}"));
+    assert_eq!(
+        lines[heading + 1],
+        format!("  {}  no runs", fresh.display()),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("SN-2"), "{stdout}");
+    assert!(
+        stderr.contains(&format!("note: skipped {}", fresh.join("inner").display()))
+            && stderr.contains("inside the project"),
+        "{stderr}"
+    );
+}
+
+/// Runs of two projects with the same id are told apart by their projects.
+#[test]
+fn a_comparison_across_projects_names_runs_by_project() {
+    let tmp = tempfile::tempdir().unwrap();
+    let manifest = manifest_folder(&tmp.path().join("captures"));
+    let out = tmp.path().join("out");
+    assert_eq!(vcal(&["run", path(&manifest), "-o", path(&out)]), 0);
+    for unit in ["unit-1", "unit-2"] {
+        let dir = tmp.path().join(unit);
+        assert_eq!(
+            vcal(&["project", "init", path(&dir), "--manifest", path(&manifest)]),
+            0
+        );
+        assert_eq!(vcal(&["project", "import", path(&dir), path(&out)]), 0);
+    }
+    let unit1 = tmp.path().join("unit-1");
+    let other = tmp.path().join("unit-2/runs/run-001");
+    let (status, stdout, stderr) =
+        vcal_output(&["project", "compare", path(&unit1), "run-001", path(&other)]);
+    assert_eq!(status, 0, "{stderr}");
+    assert!(
+        stdout.starts_with("unit-1/run-001 (reference):"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("unit-2/run-001 vs unit-1/run-001"),
+        "{stdout}"
+    );
+    // Within one project the ids are unchanged.
+    assert_eq!(vcal(&["project", "import", path(&unit1), path(&out)]), 0);
+    let (status, stdout, _) =
+        vcal_output(&["project", "compare", path(&unit1), "run-001", "run-002"]);
+    assert_eq!(status, 0);
+    assert!(stdout.contains("run-002 vs run-001"), "{stdout}");
+}
+
+/// `-o` makes the folders it writes into, for every command that has it
+/// (`seed` and `run` are covered by their own tests).
+#[test]
+fn an_output_folder_is_made() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("captures");
+    std::fs::create_dir_all(&dir).unwrap();
+    write_views(&dir);
+    let drafted = tmp.path().join("new/folder/dataset.toml");
+    assert_eq!(vcal(&["init", path(&dir), "-o", path(&drafted)]), 0);
+    assert!(drafted.is_file());
 }

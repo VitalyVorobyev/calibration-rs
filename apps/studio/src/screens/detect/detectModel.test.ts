@@ -37,7 +37,10 @@ describe("cellStatus", () => {
   });
 
   it("is a defect when nothing was found or the detector says so", () => {
-    expect(cellStatus(detected(0), 20, false).tone).toBe("defect");
+    expect(cellStatus(detected(0), 20, false)).toMatchObject({
+      tone: "defect",
+      sentence: "No board found",
+    });
     const none = cellStatus(
       img({
         kind: "detected",

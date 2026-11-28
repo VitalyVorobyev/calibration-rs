@@ -715,7 +715,9 @@ pub fn detect_target_detail(
 /// detected, its features stored when the cache had none, and its detail
 /// stored beside them ([`DetectionCache::put_detail`]). [`Detection::Refresh`]
 /// detects again and overwrites both; [`Detection::Uncached`] reads and
-/// writes no cache. A calibration never reads the detail.
+/// writes no cache. A calibration never reads the detail; it stores the
+/// detail of an image it detects no target in, so that image's detail is
+/// read from the cache.
 ///
 /// The detail is in the pixels of the camera's region of interest when the
 /// manifest sets one, as the features are.
@@ -748,8 +750,12 @@ pub struct CachedDetection {
     pub feature_count: usize,
     /// The outcome of the detection detail stored beside the features, when
     /// one is stored and holds the same features: the detail
-    /// [`detection_detail`] returns without detecting. `None` when the
-    /// cache holds no such detail.
+    /// [`detection_detail`] returns without detecting. A run stores the
+    /// detail of each image it detects no target in, so an empty detection
+    /// has its outcome (not found with the detector's reason, ambiguous,
+    /// filtered); `None` when the cache holds no such detail (an image with
+    /// features whose detail was never asked for, or a cache written before
+    /// runs stored it).
     pub detail_outcome: Option<DetectionOutcome>,
 }
 
@@ -1431,13 +1437,21 @@ fn cached_or_detected(
     let gray = decode_gray(&bytes, image_path, roi)?;
     let view = GrayImageView::new(gray.width(), gray.height(), gray.as_raw())
         .expect("an image buffer holds width × height bytes");
-    let detected = config.detect(view).map_err(|e| RunError::Detection {
-        detector: config.name().to_string(),
-        path: image_path.to_path_buf(),
-        source: e,
-    })?;
-    detection.store(&key, &CachedFeatures::new(detected.clone()))?;
-    Ok((detected, false))
+    // The detailed detection's features are `detect`'s bit for bit; its
+    // outcome is kept for an image the detector found nothing in, so the
+    // cache says why without detecting again ([`cached_detection`]).
+    let detail = config
+        .detect_detailed(view)
+        .map_err(|e| RunError::Detection {
+            detector: config.name().to_string(),
+            path: image_path.to_path_buf(),
+            source: e,
+        })?;
+    detection.store(&key, &CachedFeatures::new(detail.features.clone()))?;
+    if detail.features.is_empty() {
+        detection.store_detail(&key, &detail)?;
+    }
+    Ok((detail.features, false))
 }
 
 /// The manifest's `pose_pairing`, or [`RunError::AskUser`] for a topology

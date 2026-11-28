@@ -77,14 +77,24 @@ camera 0 (left), 640 × 480 px:
   fy = 534.284 ± 0.963 px
   cx = 341.476 ± 1.026 px
   cy = 233.765 ± 1.132 px
+  k1 = -0.292422 ± 0.004881
+  k2 = 0.109198 ± 0.016918
+  k3 = 0.000000 (held fixed)
+  p1 = 0.000994 ± 0.000246
+  p2 = -0.000064 ± 0.000311
 verdict: warn
   not_applicable variance_factor: no expected feature noise was stated (expected_feature_noise_px)
   warn projection_sigma camera 0: projection σ up to 5.543 px over the 640×480 image (centre 1.133 px, corners 5.543 px)
 wrote ~/.cache/vision-calibration/opencv_left/calibration.json and ~/.cache/vision-calibration/opencv_left/quality.json
 ```
 
-Each parameter comes with its σ, and the verdict with the checks that did not
-pass ([Judging a Result](quality.md)). Here the 13 views leave the image
+Each parameter comes with its σ (the intrinsics in pixels, the distortion
+coefficients unitless, a tilted sensor's `tilt_x` and `tilt_y` in degrees),
+and the verdict with the checks that did not pass
+([Judging a Result](quality.md)). A parameter the configuration holds is
+marked `(held fixed)`. For a rig, each camera's heading also gives the
+views it saw the target in (`camera 1 (right), 640 × 480 px, 12 views:`):
+the first line counts the views any camera saw. Here the 13 views leave the image
 corners uncertain by 5 px; [Capturing Calibration Images](capture.md) says
 which views would fix that. A view left out of the calibration is listed with
 its reason, such as a chessboard whose corners do not reach every edge of the
@@ -94,7 +104,8 @@ board.
 the desktop app write, and `quality.json` is the quality report. `--report`
 adds `report.html`, all of it as one page with the residual and
 projection-σ figures ([The Calibration Report](report.md)). `-o <dir>`
-writes them elsewhere. Detections are cached in `.detections` next to the
+writes them elsewhere, making the folder when it is missing, as every
+`-o` does. Detections are cached in `.detections` next to the
 manifest, so a second run skips detection; `--redetect` detects again.
 
 The export names the image of every view and camera it used, in
@@ -201,6 +212,11 @@ camera 0 (cam0), 1928 × 1208 px:
   fy = 2058.940 ± 0.491 px
   cx = 961.989 ± 0.390 px
   cy = 610.066 ± 0.331 px
+  k1 = -0.113765 ± 0.000352
+  k2 = 0.143391 ± 0.001486
+  k3 = 0.000000 (held fixed)
+  p1 = 0.000282 ± 0.000032
+  p2 = 0.000261 ± 0.000041
 verdict: pass
   not_applicable variance_factor: no expected feature noise was stated (expected_feature_noise_px)
 wrote my-camera/runs/run-001 (run-001)
@@ -218,11 +234,19 @@ command-line error (status 2). Detections are cached in the project's
 
 - `--manifest <file>` references a manifest file, which stays the one
   source of the dataset; `--embed` copies it into the project file instead.
+  The file must be a manifest, and a valid one unless it is a draft that
+  still lists `_unresolved`: anything else is refused before the project
+  file is written.
 - Without `--manifest`, a manifest is drafted from the file names in
   `--data <folder>` (default: the project folder) and written into the
   project file; fill in what it lists under `_unresolved`. A folder that
-  already holds `dataset.toml` or `dataset.json` is refused, so the project
-  never forks a manifest you keep by hand.
+  already holds a manifest `dataset.toml` or `dataset.json` is refused, so
+  the project never forks a manifest you keep by hand; a file of that name
+  that is not a manifest is named on standard error and left alone.
+- The paths the project file names (the manifest, the data folder, the
+  seed) are written relative to the project folder, `../captures` for a
+  sibling, so the project moves with them; a path on another drive stays
+  absolute.
 - `--name`, and `--device-id` with `--device-product` and `--device-label`,
   fill in the project's name and the device it calibrates.
 - `--seed-run <run>`, `--seed-file <file>` or `--seed-spec <spec.json>`
@@ -247,8 +271,10 @@ sets a run's label (`--label`), text (`--notes`) and star (`--star`,
 `--unstar`), an empty text clearing a field; `import` adds an export file
 or a `vcal run -o` folder whose workflow and camera count are the
 project's; `scan` lists the projects under the folders, each device's runs
-together (`--json`, `--max-depth`), naming on standard error the folders it
-could not read and exiting 0 once the walk is done.
+together and its projects without runs as `no runs` (`--json`,
+`--max-depth`), naming on standard error the folders it could not read and
+the project files it skipped inside another project, and exiting 0 once
+the walk is done.
 
 `compare` takes two or more runs, by id or, for a run of another project,
 by its folder, the first the reference:
@@ -279,7 +305,9 @@ The hand-eye's robot-pose corrections enter its covariance as priors, so
 this pair has no nested test (`mixed_residuals`): the change is read as
 materiality. The columns are explained in
 [Comparing Calibrations](comparing_calibrations.md); `--json` prints the
-`RunComparison`.
+`RunComparison`. Runs are named by their ids; runs of two projects with the
+same id are named with their project's folder (`unit-2/run-001 vs
+unit-1/run-001`).
 
 ## Sample datasets
 

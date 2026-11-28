@@ -381,7 +381,8 @@ impl PyProject {
 }
 
 /// `project::scan_library`: the projects under `roots`, the folders that
-/// could not be read, and each device's history.
+/// could not be read, the nested project files skipped, and each device's
+/// history.
 #[pyfunction]
 #[pyo3(signature = (roots, max_depth=8))]
 pub(crate) fn project_scan_library(

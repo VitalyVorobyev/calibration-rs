@@ -3060,14 +3060,24 @@ class LeftOutImage(TypedDict):
     """Why it was left out."""
 
 
-class LibraryScan(TypedDict):
-    """What a scan found: the projects, and what it could not read."""
+class _LibraryScanRequired(TypedDict):
+    """The keys of `LibraryScan` that every payload has."""
 
     failures: list[ScanFailure]
     """The folders and projects that could not be read, sorted by path."""
 
     projects: list[ProjectEntry]
     """The projects, sorted by folder."""
+
+
+class LibraryScan(_LibraryScanRequired, total=False):
+    """What a scan found: the projects, and what it could not read."""
+
+    skipped: list[ScanFailure]
+    """The project files the scan found and did not read, sorted by path:
+    a project inside another project's folder (projects do not nest),
+    each with the reason (`inside the project <folder>`).
+    """
 
 
 class MarkerDetail(TypedDict):
@@ -6144,10 +6154,12 @@ class RunSummary(_RunSummaryRequired, total=False):
 
 
 class ScanFailure(TypedDict):
-    """A folder or project a scan could not read. A scan never fails on one."""
+    """A folder or project a scan could not read, or a project file it did not
+    read (`LibraryScan::skipped`). A scan never fails on one.
+    """
 
     message: str
-    """Why it could not be read."""
+    """Why it could not be read, or was not."""
 
     path: str
     """The folder."""

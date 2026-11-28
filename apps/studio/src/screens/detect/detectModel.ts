@@ -137,12 +137,16 @@ export function cellStatus(
         : !found || short || leftOut !== null
           ? "warn"
           : "normal";
+    // An empty detection cached without its outcome (a cache written
+    // before calibrations kept it) is still no board.
     const base =
       outcome !== null && outcome.status !== "detected"
         ? outcomeSentence(outcome)
-        : expected
-          ? `${formatCount(count)} of ${formatCount(expected)} features`
-          : `${formatCount(count)} features`;
+        : count === 0
+          ? "No board found"
+          : expected
+            ? `${formatCount(count)} of ${formatCount(expected)} features`
+            : `${formatCount(count)} features`;
     status = { tone, count, text: formatCount(count), sentence: base, fraction };
   }
   if (leftOut !== null && state.kind !== "failed") {

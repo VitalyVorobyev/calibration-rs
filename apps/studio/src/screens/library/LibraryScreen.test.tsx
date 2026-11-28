@@ -51,6 +51,12 @@ const SCAN: LibraryScan = {
   failures: [
     { path: "/data/broken", message: "calibration-project.toml: not valid TOML" },
   ],
+  skipped: [
+    {
+      path: "/data/bench/old",
+      message: "inside the project /data/bench: projects do not nest",
+    },
+  ],
   projects: [
     project("bench", { id: "SN1", product: "Stereo-X1", label: "Cell 3" }, [
       run("/data/bench", "run-001", "pass", 0.231),
@@ -135,6 +141,13 @@ describe("the Library", () => {
     const summary = await screen.findByText("1 folder could not be read");
     expect(summary).toBeTruthy();
     expect(screen.getByText("calibration-project.toml: not valid TOML")).toBeTruthy();
+    // Nor the project files it did not read, inside another project.
+    expect(
+      await screen.findByText("1 project inside another project, not read"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("inside the project /data/bench: projects do not nest"),
+    ).toBeTruthy();
   });
 
   it("opens New project from an empty library, and lists the samples", async () => {

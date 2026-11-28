@@ -538,7 +538,7 @@ the frontend asks `api.urls.<resource>(query)` for a URL and loads it in an
   end reads become an 8-bit PNG (16-bit reduced as the detectors reduce it,
   so the view is what was detected). With `max`, a JPEG thumbnail (quality
   80) whose longest side is the next of 160, 320, 640, 1280.
-- `undistorted_image { run, path, camera, roi? }` — a frame rendered into a
+- `undistorted_image { run, path, camera: <index>, roi? }` — a frame rendered into a
   camera's undistorted pixel frame of the run's export (a PNG).
 - `report { run }` — the run's `report.html`, served under its own
   `Content-Security-Policy: sandbox allow-scripts …`: its scripts run in an
@@ -589,7 +589,8 @@ What the Inspect, Detect and Compare screens read. Every displacement is
 
 - **Maps of a run's camera** (`api/commands/maps.rs`, `maps.rs`):
   `distortion_map`, `residual_map` and `projection_sigma_map` take
-  `{ run, camera, columns? }` and share one grid (`MapGrid`: the camera's
+  `{ run, camera: <index>, columns? }` (the camera's index in the export)
+  and share one grid (`MapGrid`: the camera's
   image size, its region of interest for a tiled camera, cut into
   `stride × stride` blocks; `columns` defaults to 64, at most 1024). Each
   answers JSON with `MapPlane`s: a `BlobRef` to a `VAM1` plane and its
@@ -621,7 +622,7 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   rotation in degrees, and the σ of the right perturbation `[rx … tz]` the
   covariance is over, which is not the σ of those components) and
   `planes` (each camera's laser plane: normal and distance with their σ);
-  `pose_values.rs`. `residual_records { run, camera, view? }` answers the records as
+  `pose_values.rs`. `residual_records { run, camera: <index>, view? }` answers the records as
   columns (`index` into `per_feature_residuals.target`, `view`, `feature`,
   `target_xyz_m`, `observed_px`, `projected_px`, `residual_px`);
   `residual_stats { run }` the library's `ReprojectionStats` (count, mean,
@@ -637,9 +638,11 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   `CompareRunsOptions` (`grid_columns` capped at 1024 like the maps); each
   run's export, and the images it names, are judged before the library
   reads them. Labels and stars come from `list_runs`.
-  `projection_difference_map { dir, reference, other, camera, columns?,
-  compensation? }` names the camera by id (the comparison matches cameras
-  by id) and answers, on the reference camera's map grid, one plane of
+  `projection_difference_map { dir, reference, other, camera: <id>,
+  columns?, compensation? }` names the camera by its **id**, unlike the
+  per-run maps and the detection commands, which take its index: the
+  comparison matches cameras by id, and two runs need not list them in one
+  order. It answers, on the reference camera's map grid, one plane of
   `dx`, `dy`, `magnitude` (px, `other − reference` at the same ray) and
   `fitted` (unit `flag`: 1 in the region either run's features cover, the
   rotation's fit region, 0 outside it) with the library's
@@ -654,16 +657,21 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   `stereo-sn0042`.
 - **Detections** (`api/commands/detection.rs`, `detections.rs`), each over
   a project `dir`; an image is named as `project_views` lists it (relative
-  to the data folder). `detection_overview { dir, run? }` reads the
+  to the data folder), and a camera by its **index** in the manifest's
+  `cameras` (a number; `detect_all`'s progress events report the index
+  too). `detection_overview { dir, run? }` reads the
   project's detection cache for every view and camera (features, the
   detector's outcome, or `not_detected`; the expected count of a complete
   board; why the latest calibrated run, or `run`, left an image out),
   through the library's `cached_detection`. It decodes nothing, but reads
-  every image to find its cache entry.
-  `detection_detail { dir, camera, image }` is the library's
+  every image to find its cache entry. A calibration caches the detail of
+  an image it found no board in, so such a cell has its `not_found` (or
+  `ambiguous`, `filtered`) outcome; `outcome: null` with no features is a
+  cache written before that.
+  `detection_detail { dir, camera: <index>, image }` is the library's
   `DetectionDetail` from the cache, detected and cached when missing (in
   the camera's region-of-interest pixels; exclude a feature by its
-  `world_xyz`). `detect_preview { dir, camera, image, detector }` detects
+  `world_xyz`). `detect_preview { dir, camera: <index>, image, detector }` detects
   one image with edited detector settings and writes nothing. The
   `detect_all { dir, redetect? }` job fills the cache (several images at a
   time), reports `{ done, total, camera, image }` and ends with the
