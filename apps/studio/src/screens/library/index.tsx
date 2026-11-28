@@ -8,7 +8,7 @@ import {
 } from "@vitavision/ui";
 import { FileInput, FolderOpen, FolderPlus, RefreshCw } from "lucide-react";
 import { useCallback, useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useProjectDialog } from "../../project/dialogs";
 import { openProject } from "../../project/projectActions";
 import { useLibraryScan } from "../../project/useLibraryScan";
@@ -17,6 +17,7 @@ import { useReadOnly } from "../../session/jobs";
 import { userRoots, useSession } from "../../session/session";
 import { AddRootButton } from "../../shell/AddRootButton";
 import { placePath } from "../../shell/screens";
+import { deviceParamsOf } from "../device/deviceModel";
 import {
   containerOf,
   countLine,
@@ -109,6 +110,10 @@ export function LibraryScreen() {
   };
 
   const title = tableTitle(groups, container);
+  const deviceParams = deviceParamsOf(groups, container);
+  const deviceHref = deviceParams
+    ? `${placePath({ screen: "device", tab: null, project: openDir, run: null })}${openDir ? "&" : "?"}${deviceParams.toString()}`
+    : null;
   const filtering = isFiltering(view.filter);
   const loading = scan.data === undefined && scan.error === null;
   const empty = scan.data !== undefined && allRows.length === 0;
@@ -279,8 +284,15 @@ export function LibraryScreen() {
                     <h2 className="text-base font-semibold tracking-tight text-fg">
                       {title.label}
                     </h2>
-                    <span className="font-mono text-xs text-fg-muted">
-                      {countLine(tableRows)}
+                    <span className="flex items-center gap-3">
+                      {deviceHref && (
+                        <Button asChild size="sm" variant="secondary">
+                          <Link to={deviceHref}>Device history</Link>
+                        </Button>
+                      )}
+                      <span className="font-mono text-xs text-fg-muted">
+                        {countLine(tableRows)}
+                      </span>
                     </span>
                   </header>
                   {tableRows.length === 0 ? (
@@ -341,7 +353,7 @@ function tableTitle(groups: LibraryGroups, container: string | null): { label: s
   return { label: "Projects" };
 }
 
-function Failures({
+export function Failures({
   failures,
   roots,
 }: {

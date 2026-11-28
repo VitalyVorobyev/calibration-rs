@@ -140,8 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   statistics table adds the median and the 95th percentile. A problem with
   the dataset is placed on the field the library names for it.
 
-- Calibration Studio's back end serves devices and seeds (its Device screen
-  is to follow): a device's calibration history across every project under
+- Calibration Studio's back end serves devices and seeds: a device's calibration history across every project under
   the library folders (or each device of a type), with each run's verdict,
   per-camera RMS, star, the seed it started from and which run stands for
   the device; each camera parameter, rig mount, hand-eye and laser plane
@@ -152,6 +151,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error when it does not fit the project. A project's seed path is checked
   like every other path the project names: one outside the library folders
   is refused.
+
+- Calibration Studio's Device screen: the history of one physical device
+  across every project that names it (each run's verdict, per-camera RMS,
+  star, when, the seed it started from with what it applied and ignored, the
+  representative run named, runs that cannot be read listed with their
+  reason), every parameter over those runs as small charts with a ±1σ band,
+  a gap where a run lacks the value, ticks for the representative, starred
+  and on-a-bound runs, a run-order or recorded-time axis, groups and a camera
+  selector, a run hovered in a chart or the list marked in all of them, and
+  the library's spread (median, robust σ, min, max) beside each, or the
+  reason there is none; a device type's units side by side with a line per
+  unit; and the seed for the next calibration: choose a run, several runs or
+  the type's units, preview its values and their spread, write it to a JSON
+  or TOML file (asking before replacing one), and set or clear it as the
+  open project's seed, with the library's message when it does not fit. The
+  Library opens a device or a type with **Device history**. The address
+  keeps a screen's own parameters when the project or run it names changes.
 
 - Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
   returns a `DetectionDetail` with the features `detect` returns (bit for

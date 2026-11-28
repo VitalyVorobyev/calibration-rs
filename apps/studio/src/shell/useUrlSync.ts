@@ -32,8 +32,21 @@ export function useUrlSync(): void {
   /** The project whose newest run was opened by default. */
   const defaulted = useRef<string | null>(null);
 
+  /** Write the project and run to the address, keeping any other
+   * parameter a screen keeps there (the Library's search, the Device
+   * screen's device and tab). */
   const replace = (next: { project: string | null; run: string | null }) => {
-    void navigate(placePath({ ...place, ...next }), { replace: true });
+    const params = new URLSearchParams(search);
+    const written = new URLSearchParams(
+      placePath({ ...place, ...next }).split("?")[1] ?? "",
+    );
+    for (const key of ["project", "run"]) {
+      const value = written.get(key);
+      if (value === null) params.delete(key);
+      else params.set(key, value);
+    }
+    const query = params.toString();
+    void navigate({ pathname, search: query ? `?${query}` : "" }, { replace: true });
   };
 
   // Address → project.

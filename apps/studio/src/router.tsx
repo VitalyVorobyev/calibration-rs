@@ -3,6 +3,7 @@ import { RouteErrorFallback, ScreenErrorFallback } from "./components/ErrorBound
 import { CalibrateScreen } from "./screens/calibrate";
 import { DatasetScreen } from "./screens/dataset";
 import { DetectScreen } from "./screens/detect";
+import { DeviceScreen } from "./screens/device";
 import { InspectScreen } from "./screens/inspect";
 import { LibraryScreen } from "./screens/library";
 import { Redirect, Unbuilt } from "./screens/Redirect";
@@ -40,6 +41,7 @@ export const router = createHashRouter([
       { path: "dataset", element: <DatasetScreen />, ...screen },
       { path: "detect", element: <DetectScreen />, ...screen },
       { path: "calibrate", element: <CalibrateScreen />, ...screen },
+      { path: "device", element: <DeviceScreen />, ...screen },
       {
         path: "inspect",
         children: [
