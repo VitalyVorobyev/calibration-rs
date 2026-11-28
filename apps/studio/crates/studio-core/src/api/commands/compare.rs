@@ -1,7 +1,7 @@
 //! Runs side by side (`compare_runs`, the library's `compare_recorded_runs`)
 //! and, for one camera of two of them, where their calibrations project the
 //! same rays (`projection_difference_map`, the library's
-//! `projection_difference` on the maps' grid, as a `VAM1` plane).
+//! `run_projection_difference` on the maps' grid, as a `VAM1` plane).
 //!
 //! The comparison is the library's reply as it is: what each run says of
 //! itself, each difference with its materiality and, where the data relation
@@ -11,15 +11,16 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use vision_calibration::analysis::{
-    CompareRunsOptions, Compensation, FitRegion, ProjectionDifferenceOptions,
-    ProjectionUnavailable, RunComparison, TargetFeatureResidual, projection_difference,
+    CompareRunsOptions, ComparedRun, Compensation, ProjectionUnavailable, RunComparison,
+    run_projection_difference,
 };
-use vision_calibration::common::CalibratedCameras;
 use vision_calibration::project::{Project, RunInfo, compare_recorded_runs};
 
-use super::map_support::{check_camera, grid_of, memoized, run_and_size};
+use super::map_support::{dataset_sizes, grid_of, memoized, size_of};
 use crate::api::{Ctx, ErrorKind, StudioError};
-use crate::maps::{MAX_COLUMNS, MapGrid, MapPlane, displacement_channels, put_plane};
+use crate::maps::{
+    DEFAULT_COLUMNS, MAX_COLUMNS, MapGrid, MapPlane, displacement_channels, put_plane,
+};
 use crate::runs::{RunRef, open_project};
 use crate::scope::UserPath;
 
@@ -150,25 +151,31 @@ pub enum ProjectionDifferenceMap {
     },
 }
 
-/// The index of camera `id` in run `run`'s record, and the image size the
-/// record states for it.
-fn camera_of(
-    project: &Project,
-    run: &str,
-    id: &str,
-) -> Result<(usize, Option<[u32; 2]>), StudioError> {
+/// One camera of a run as the run's record names it.
+struct RecordedCamera {
+    /// The ids of the run's cameras, in its camera order.
+    ids: Vec<String>,
+    /// The camera's index among them.
+    index: usize,
+    /// The image size the record states for it.
+    image_size: Option<[u32; 2]>,
+}
+
+/// Camera `id` of run `run`, as its record names it.
+fn camera_of(project: &Project, run: &str, id: &str) -> Result<RecordedCamera, StudioError> {
     let info = project.run(run)?;
     let summary = info
         .summary()
         .ok_or_else(|| StudioError::invalid(format!("run {run}: its record names no cameras")))?;
-    summary
-        .cameras
-        .iter()
-        .position(|c| c.id == id)
-        .map(|i| (i, summary.cameras[i].image_size))
-        .ok_or_else(|| {
-            StudioError::invalid(format!("run {run} has no camera {id}")).on_field("camera")
-        })
+    let ids: Vec<String> = summary.cameras.iter().map(|c| c.id.clone()).collect();
+    let index = ids.iter().position(|c| c == id).ok_or_else(|| {
+        StudioError::invalid(format!("run {run} has no camera {id}")).on_field("camera")
+    })?;
+    Ok(RecordedCamera {
+        ids,
+        index,
+        image_size: summary.cameras[index].image_size,
+    })
 }
 
 pub fn projection_difference_map(
@@ -176,13 +183,24 @@ pub fn projection_difference_map(
     args: ProjectionDifferenceMapArgs,
 ) -> Result<ProjectionDifferenceMap, StudioError> {
     let project = open_project(ctx, &args.dir)?;
-    let (i, size_a) = camera_of(&project, &args.reference, &args.camera)?;
-    let (j, size_b) = camera_of(&project, &args.other, &args.camera)?;
+    let RecordedCamera {
+        ids: ids_a,
+        index: i,
+        image_size: size_a,
+    } = camera_of(&project, &args.reference, &args.camera)?;
+    let RecordedCamera {
+        ids: ids_b,
+        index: j,
+        image_size: size_b,
+    } = camera_of(&project, &args.other, &args.camera)?;
     let run = |id: &str| RunRef {
         dir: args.dir.clone(),
         id: id.to_owned(),
     };
-    let (reference, size) = run_and_size(ctx, &run(&args.reference), i)?;
+    let reference = ctx.runs.get(ctx, &run(&args.reference))?;
+    let other = ctx.runs.get(ctx, &run(&args.other))?;
+    let sizes = dataset_sizes(ctx, &args.dir)?;
+    let size = size_of(&sizes, i)?;
     // The grid is the camera's other maps' (the dataset's images as they
     // are); `compare_runs` reads the size each record states.
     for (id, recorded) in [(&args.reference, size_a), (&args.other, size_b)] {
@@ -195,9 +213,8 @@ pub fn projection_difference_map(
             )));
         }
     }
-    let other = ctx.runs.get(ctx, &run(&args.other))?;
-    check_camera(other.cameras()?, j)?;
-    let grid = grid_of(size, args.columns)?;
+    let columns = args.columns.unwrap_or(DEFAULT_COLUMNS);
+    let grid = grid_of(size, Some(columns))?;
     let key = serde_json::json!({
         "cameras": [i, j], "image_size": size, "stride": grid.stride(),
         "compensation": args.compensation,
@@ -212,23 +229,24 @@ pub fn projection_difference_map(
             ProjectionDifferenceMap::Unavailable { .. } => Vec::new(),
         },
         |id| {
-            let (a, b) = (reference.cameras()?, other.cameras()?);
-            // The fit region `compare_runs` fits on: the blocks either
-            // run's features of the camera cover.
-            let covered = observed(a, i).chain(observed(b, j)).collect();
-            let options =
-                ProjectionDifferenceOptions::new(args.compensation, FitRegion::Covered(covered));
-            let difference = match projection_difference(
-                &a.camera_params()[i],
-                &b.camera_params()[j],
-                &grid,
-                &options,
-            ) {
+            let a = ComparedRun::new(
+                args.reference.clone(),
+                reference.cameras()?,
+                ids_a,
+                sizes.clone(),
+            );
+            let b = ComparedRun::new(args.other.clone(), other.cameras()?, ids_b, sizes);
+            let mut options = CompareRunsOptions::new();
+            options.compensation = args.compensation;
+            options.grid_columns = columns;
+            let difference = match run_projection_difference(&a, &b, &args.camera, &options)
+                .map_err(|e| StudioError::invalid(e.to_string()))?
+            {
                 Ok(d) => d,
-                Err(e) => {
+                Err(reason) => {
                     return Ok(ProjectionDifferenceMap::Unavailable {
                         camera: args.camera.clone(),
-                        reason: unavailable(&e),
+                        reason,
                     });
                 }
             };
@@ -248,11 +266,11 @@ pub fn projection_difference_map(
                 .map(|(n, v)| (*n, "px", v.as_slice()))
                 .collect();
             planes.push(("fitted", "flag", &fitted));
-            let plane = put_plane(&ctx.blobs, id("plane"), &grid, &planes)
+            let plane = put_plane(&ctx.blobs, id("plane"), &difference.grid, &planes)
                 .map_err(StudioError::internal)?;
             Ok(ProjectionDifferenceMap::Compared {
                 camera: args.camera.clone(),
-                grid: MapGrid::of(&grid),
+                grid: MapGrid::of(&difference.grid),
                 plane,
                 compensation: args.compensation,
                 rotation_deg: difference.rotation_angle().to_degrees(),
@@ -265,26 +283,4 @@ pub fn projection_difference_map(
             })
         },
     )
-}
-
-/// The observed pixels of camera `camera`'s features.
-fn observed(cameras: &dyn CalibratedCameras, camera: usize) -> impl Iterator<Item = [f64; 2]> + '_ {
-    cameras
-        .diagnostics()
-        .per_feature_residuals
-        .target
-        .iter()
-        .filter(move |r: &&TargetFeatureResidual| r.camera == camera)
-        .map(|r| r.observed_px)
-}
-
-/// The library's reason for a projection difference it could not make, as
-/// `compare_runs` states it.
-fn unavailable(error: &vision_calibration::core::Error) -> ProjectionUnavailable {
-    use vision_calibration::core::Error;
-    match error {
-        Error::InsufficientData { .. } => ProjectionUnavailable::TooFewNodes,
-        Error::InvalidInput { .. } => ProjectionUnavailable::NotCentral,
-        _ => ProjectionUnavailable::Singular,
-    }
 }

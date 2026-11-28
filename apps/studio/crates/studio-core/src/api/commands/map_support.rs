@@ -14,6 +14,7 @@ use crate::api::{Ctx, ErrorKind, StudioError};
 use crate::blobs::{BlobRef, BlobStore};
 use crate::maps::DEFAULT_COLUMNS;
 use crate::runs::{CachedRun, RunRef, open_project};
+use crate::scope::UserPath;
 
 /// `camera` checked against the run's cameras.
 pub(super) fn check_camera(
@@ -40,16 +41,30 @@ pub(super) fn run_and_size(
 ) -> Result<(Arc<CachedRun>, [u32; 2]), StudioError> {
     let cached = ctx.runs.get(ctx, run)?;
     check_camera(cached.cameras()?, camera)?;
-    let project = open_project(ctx, &run.dir)?;
+    let size = size_of(&dataset_sizes(ctx, &run.dir)?, camera)?;
+    Ok((cached, size))
+}
+
+/// Each camera's image size in the project's dataset as it is now (its
+/// region of interest for a tiled camera), read from the images' headers
+/// after every path the project names is judged.
+pub(super) fn dataset_sizes(ctx: &Ctx, dir: &UserPath) -> Result<Vec<[u32; 2]>, StudioError> {
+    let project = open_project(ctx, dir)?;
     ctx.scope.check_project(&project)?;
-    let sizes = camera_image_sizes(&project.dataset()?, &project.data_root()?)?;
-    let size = sizes.get(camera).copied().ok_or_else(|| {
+    Ok(camera_image_sizes(
+        &project.dataset()?,
+        &project.data_root()?,
+    )?)
+}
+
+/// Camera `camera`'s size among the dataset's `sizes`.
+pub(super) fn size_of(sizes: &[[u32; 2]], camera: usize) -> Result<[u32; 2], StudioError> {
+    sizes.get(camera).copied().ok_or_else(|| {
         StudioError::invalid(format!(
             "the project's dataset has {} camera(s); there is no camera {camera}",
             sizes.len()
         ))
-    })?;
-    Ok((cached, size))
+    })
 }
 
 /// The maps' grid over `size` of `columns` (default 64) columns.

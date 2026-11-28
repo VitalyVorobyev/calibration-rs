@@ -792,6 +792,7 @@ fn inputs_are_checked() {
         ));
     };
     let options = CompareRunsOptions::new();
+    check(&[], &options);
     check(
         &[ComparedRun::new("a", &a, one.clone(), vec![SIZE])],
         &options,
@@ -888,6 +889,102 @@ fn the_result_is_deterministic_and_round_trips() {
         serde_json::from_str::<CompareRunsOptions>("{}").expect("defaults"),
         CompareRunsOptions::default()
     );
+}
+
+/// The fields of `run_projection_difference`'s difference, as
+/// `compare_runs` summarizes it.
+fn summary(
+    difference: Result<ProjectionDifference, ProjectionUnavailable>,
+    compensation: Compensation,
+) -> ProjectionComparison {
+    match difference {
+        Ok(d) => ProjectionComparison::Compared {
+            compensation,
+            rotation_deg: d.rotation_angle().to_degrees(),
+            fit_nodes: d.fit_nodes,
+            valid_nodes: d.valid_nodes,
+            rms_fit_px: d.rms_fit_px,
+            max_fit_px: d.max_fit_px,
+            rms_valid_px: d.rms_valid_px,
+            max_valid_px: d.max_valid_px,
+        },
+        Err(reason) => ProjectionComparison::Unavailable { reason },
+    }
+}
+
+#[test]
+fn a_cameras_projection_difference_is_the_comparisons() {
+    let a = rig(["left", "right"], "left", right_se3_left(), 1e-6);
+    let mut b = rig(["right", "left"], "left", right_se3_left(), 1e-6);
+    // The right camera (first in `b`) recalibrated with another lens.
+    b.cameras[0] = camera(805.0, -0.12);
+    let runs = [
+        ComparedRun::new("a", &a, ids(&["left", "right"]), vec![SIZE; 2]),
+        ComparedRun::new("b", &b, ids(&["right", "left"]), vec![SIZE; 2]),
+    ];
+    for (compensation, columns) in [(Compensation::Rotation, 64), (Compensation::None, 20)] {
+        let mut options = CompareRunsOptions::new();
+        options.compensation = compensation;
+        options.grid_columns = columns;
+        let comparison = compare_runs(&runs, &options).expect("comparison");
+        for camera in &comparison.differences[0].cameras {
+            let d = run_projection_difference(&runs[0], &runs[1], &camera.id, &options)
+                .expect("inputs");
+            if let Ok(d) = &d {
+                assert_eq!(d.grid.columns(), columns as usize);
+                assert_eq!(d.fitted.len(), d.grid.columns() * d.grid.rows());
+            }
+            assert_eq!(summary(d, compensation), camera.projection, "{}", camera.id);
+        }
+        let ProjectionComparison::Compared { max_valid_px, .. } =
+            comparison.differences[0].cameras[1].projection
+        else {
+            panic!("compared");
+        };
+        assert!(max_valid_px > 1.0);
+    }
+
+    // Without features no block is covered: the comparison's reason.
+    let mut bare = planar(camera(800.0, -0.1), None, None);
+    bare.diagnostics.per_feature_residuals = PerFeatureResiduals::default();
+    let one = ids(&["cam"]);
+    let pair = [
+        ComparedRun::new("a", &bare, one.clone(), vec![SIZE]),
+        ComparedRun::new("b", &bare, one.clone(), vec![SIZE]),
+    ];
+    let options = CompareRunsOptions::new();
+    assert_eq!(
+        run_projection_difference(&pair[0], &pair[1], "cam", &options).expect("inputs"),
+        Err(ProjectionUnavailable::TooFewNodes)
+    );
+    assert_eq!(
+        compare_runs(&pair, &options)
+            .expect("comparison")
+            .differences[0]
+            .cameras[0]
+            .projection,
+        ProjectionComparison::Unavailable {
+            reason: ProjectionUnavailable::TooFewNodes
+        }
+    );
+
+    // A camera a run lacks, another image size, another workflow, ids not
+    // one per camera, no grid columns.
+    let invalid = |reference: &ComparedRun<'_>, other: &ComparedRun<'_>, camera: &str, options| {
+        assert!(matches!(
+            run_projection_difference(reference, other, camera, options),
+            Err(Error::InvalidInput { .. })
+        ));
+    };
+    invalid(&runs[0], &runs[1], "middle", &options);
+    invalid(&runs[0], &pair[0], "left", &options);
+    let small = ComparedRun::new("s", &bare, one.clone(), vec![[640, 480]]);
+    invalid(&pair[0], &small, "cam", &options);
+    let unnamed = ComparedRun::new("u", &bare, Vec::new(), vec![SIZE]);
+    invalid(&pair[0], &unnamed, "cam", &options);
+    let mut no_columns = CompareRunsOptions::new();
+    no_columns.grid_columns = 0;
+    invalid(&pair[0], &pair[1], "cam", &no_columns);
 }
 
 #[test]

@@ -234,6 +234,15 @@ class ProjectRunTest(unittest.TestCase):
             with self.assertRaises(ProjectError) as caught:
                 project.compare_runs([full["id"], "run-404"])
             self.assertEqual(caught.exception.kind, "run_not_found")
+            # No run and one run are the comparison's error, not a crash.
+            for fewer_runs in ([], [full["id"]]):
+                with self.assertRaises(ProjectError) as caught:
+                    project.compare_runs(fewer_runs)
+                self.assertEqual(caught.exception.kind, "compare")
+            for fewer_infos in ([], [full]):
+                with self.assertRaises(ProjectError) as caught:
+                    compare_recorded_runs(fewer_infos)
+                self.assertEqual(caught.exception.kind, "compare")
 
     def test_a_stale_exclusion_is_an_error_and_an_exclusion_leaves_the_image_out(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

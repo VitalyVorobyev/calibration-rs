@@ -123,6 +123,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overlapping (`RelationRefusal`). The nested test does not apply to
   observations left out because of their residuals. Python:
   `vision_calibration.compare_runs`.
+- `analysis::run_projection_difference` returns one camera's projection
+  difference between two runs with its planes (a `ProjectionDifference`:
+  the `dx`/`dy` displacement and the fitted nodes over the reference's
+  image), computed the way `compare_runs` computes the camera's
+  `projection` summary: with the same options each summary number is a
+  field of the result, and a difference that cannot be made is the same
+  `ProjectionUnavailable` reason. Python:
+  `vision_calibration.run_projection_difference`.
 - `ParameterCovariance::variance_factor`: the a-posteriori variance factor
   of a covariance from one residual family with an estimated noise level
   and no prior (`covariance = view_scatter · c · (JᵀJ)⁻¹`), so two solves of
@@ -852,6 +860,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says why it found nothing (not found with the detector's reason,
   ambiguous, filtered) without detecting again, as the image's detail
   does. Found features are unchanged.
+- `project::compare_recorded_runs` and `Project::compare_runs` given no run
+  return the comparison's error for fewer than two runs
+  (`ProjectError::Compare`) instead of panicking; one run gives the same
+  error before any export is read. Python `Project.compare_runs([])` and
+  `project.compare_recorded_runs([])` raise `ProjectError` (kind
+  `compare`).
 - Calibration Studio no longer logs a `removeChild` error when the 3D scene is
   left for another screen, and the active camera's label there stays on one
   line.

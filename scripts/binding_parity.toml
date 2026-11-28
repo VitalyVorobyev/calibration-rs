@@ -77,6 +77,7 @@
 "analysis::compare_runs" = "compare_runs"
 "analysis::ComparedRun" = "compare_runs"
 "analysis::CompareRunsOptions" = "compare_runs"
+"analysis::run_projection_difference" = "run_projection_difference"
 "analysis::DataRelation" = "types.DataRelation"
 "analysis::RunSide" = "types.RunSide"
 "analysis::RunComparison" = "types.RunComparison"

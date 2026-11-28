@@ -11,7 +11,7 @@ use super::{CalibratedRun, Exclusions, Project, ProjectError, RunInfo, RunSource
 use crate::Error;
 use crate::analysis::{
     CompareRunsOptions, ComparedRun, ConfigChange, DataOverlap, DataRelation, ExclusionChanges,
-    RunComparison, RunSide, compare_runs,
+    RunComparison, RunSide, check_run_count, compare_runs,
 };
 use crate::common::{CalibratedCameras, calibrated_cameras};
 
@@ -69,14 +69,16 @@ impl Project {
 ///
 /// # Errors
 ///
-/// [`ProjectError::Compare`] when a run's summary names no cameras, a
-/// camera's image size is unknown, or the comparison's own checks fail;
+/// [`ProjectError::Compare`] for fewer than two runs, when a run's summary
+/// names no cameras, a camera's image size is unknown, or the comparison's
+/// own checks fail;
 /// [`ProjectError::Io`] and [`ProjectError::Parse`] when an export cannot
 /// be read.
 pub fn compare_recorded_runs(
     runs: &[RunInfo],
     options: &CompareRunsOptions,
 ) -> Result<RunComparison, ProjectError> {
+    check_run_count(runs.len()).map_err(ProjectError::Compare)?;
     let mut loaded = runs.iter().map(load).collect::<Result<Vec<_>, _>>()?;
     for (run, name) in loaded.iter_mut().zip(run_names(runs)) {
         run.id = name;
