@@ -41,13 +41,13 @@ describe("the rail", () => {
     ).toBe("page");
   });
 
-  it("disables a screen that is not built, and one that needs a project, and says why", async () => {
+  it("disables a screen that needs a project, and says why", async () => {
     backend();
     renderShell("/library");
     await screen.findByText("library body");
     const compare = screen.getByRole("link", { name: "Compare" });
     expect(compare.getAttribute("aria-disabled")).toBe("true");
-    expect(compare.getAttribute("title")).toMatch(/coming in a later release/i);
+    expect(compare.getAttribute("title")).toBe("Open a project first");
     const inspect = screen.getByRole("link", { name: "Inspect" });
     expect(inspect.getAttribute("aria-disabled")).toBe("true");
     expect(inspect.getAttribute("title")).toBe("Open a project first");
@@ -62,10 +62,9 @@ describe("the rail", () => {
     expect(
       screen.getByRole("link", { name: "Calibrate" }).getAttribute("aria-disabled"),
     ).toBe(null);
-    // Not built yet, project or not.
     expect(
       screen.getByRole("link", { name: "Compare" }).getAttribute("aria-disabled"),
-    ).toBe("true");
+    ).toBe(null);
   });
 
   it("keeps the project and run in the address of each link", async () => {

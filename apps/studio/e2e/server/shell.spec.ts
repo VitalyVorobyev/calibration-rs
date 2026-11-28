@@ -8,7 +8,7 @@ import { command, libraryRoot, openLoggedIn, trackErrors } from "./support";
 
 const enc = encodeURIComponent;
 
-test("the rail leads to the screens, and a screen that is not built is disabled", async ({
+test("the rail leads to the screens, and a screen that needs a project is disabled without one", async ({
   page,
 }) => {
   const errors = trackErrors(page);
@@ -23,7 +23,7 @@ test("the rail leads to the screens, and a screen that is not built is disabled"
     "Compare",
     "Device",
   ]);
-  // No project: the screens that read one wait for it; the rest are not built.
+  // No project: the screens that read one wait for it.
   for (const name of ["Dataset", "Detect", "Calibrate", "Inspect", "Compare"]) {
     await expect(rail.getByRole("link", { name })).toHaveAttribute(
       "aria-disabled",
@@ -34,9 +34,9 @@ test("the rail leads to the screens, and a screen that is not built is disabled"
     "aria-current",
     "page",
   );
-  // An address of an unbuilt screen (Compare) says so instead of breaking.
+  // An address of a screen that needs a project says so instead of breaking.
   await page.goto("/#/compare");
-  await expect(page.getByText("Coming in a later release.")).toBeVisible();
+  await expect(page.getByText(/Compare works on a project/)).toBeVisible();
   expect(errors).toEqual([]);
 });
 

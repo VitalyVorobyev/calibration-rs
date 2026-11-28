@@ -79,7 +79,16 @@ export interface MapViewerProps {
   isoLines?: boolean | undefined;
   /** Fade the nodes whose `channel` is below `minimum` (a significance
    * test); the switch is there when this is, and some node has a test. */
-  mask?: { channel: string; minimum: number } | null | undefined;
+  mask?:
+    | {
+        channel: string;
+        minimum: number;
+        /** What the switch and the key call the faded nodes, when they are not
+         * the ones of a significance test (nodes outside a fit). */
+        words?: { switch: string; title: string; key: string };
+      }
+    | null
+    | undefined;
   /** A limit on the quantity's scale, marked on the legend with its name. */
   threshold?: { value: number; label: string } | undefined;
   /** The image under the map (`url`), or why there is none (`reason`);
@@ -240,9 +249,12 @@ export function MapViewer({
                     checked: masking,
                     onChange: setMaskOn,
                     disabled: !maskUsable,
-                    title: maskUsable
-                      ? "Fade where the value is not distinguishable from zero"
-                      : "Too few views for a significance test: nothing to fade",
+                    title: mask.words
+                      ? mask.words.title
+                      : maskUsable
+                        ? "Fade where the value is not distinguishable from zero"
+                        : "Too few views for a significance test: nothing to fade",
+                    ...(mask.words ? { label: mask.words.switch } : {}),
                   },
                 }
               : {}),
@@ -371,7 +383,7 @@ export function MapViewer({
             clipped={legendClipped(highClip, lowClip)}
             marker={legendMarkers(threshold, cursorValue, unit)}
           />
-          <LegendKey faded={masking} />
+          <LegendKey faded={masking} fadedText={mask?.words?.key} />
           <MapReadout reading={reading} channels={channels} readout={readout} />
         </aside>
       </div>

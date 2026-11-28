@@ -46,7 +46,7 @@ one the page says no back end answers.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: the rail of
   seven screens, the context bar, the run list, the job tray, the status
   line, Settings, the keys; see "The shell"), `screens/` (one folder per
-  screen: Library, Dataset, Detect, Calibrate, Inspect, Device; the ones not built yet are a
+  screen: Library, Dataset, Detect, Calibrate, Inspect, Compare, Device; one not built yet is a
   "coming" page), `session/` (the stores every screen shares: the session
   with the back end, the selection, the jobs and the connection, the query
   cache, the pure rules of a job row), `project/` (the open project, `projectStore.ts`; its unsaved edits,
@@ -83,9 +83,9 @@ one the page says no back end answers.
 `shell/Shell.tsx` is `@vitavision/workbench`'s `AppShell`. The **rail**
 (`ScreenRail`) holds the seven screens in workflow order (Library, Dataset,
 Detect, Calibrate, Inspect, Compare, Device), `⌘1`…`⌘7`; `shell/screens.ts`
-is the one table of them. A screen that is not built, or needs a project
-that is not open, is disabled and says why on hover; its address still opens
-a "coming in a later release" page. The **context bar** (`ContextBar`) holds
+is the one table of them. A screen that needs a project that is not open
+(or, while one is unbuilt, is not built) is disabled and says why on hover;
+its address still opens a page that says so. The **context bar** (`ContextBar`) holds
 `Breadcrumb` (the project's device and name; the project is the menu that
 opens, creates and reopens projects), `RunSelector` (the current run, newest
 first, with pills from `runPills.ts`: the state of its files, its verdict in
@@ -184,7 +184,7 @@ the run list is the shell's (`shell/RunList.tsx`).
   `staleSince` does not call a run stale for settings of its own: the
   library's digest differs by them, and the changes say it. The lowest-RMS
   mark is only a mark; the star is the person's acceptance. Ticks feed
-  `session/compareSet.ts`, which the Compare screen will read.
+  `session/compareSet.ts`, which the Compare screen reads (and reorders).
 - **Seed row**: "not available yet" in the editor; the back end serves the
   project's seed (`set_project_seed`, see "Devices and seeds").
 
@@ -244,6 +244,44 @@ while a project's run is opening) over queries of the typed client.
   Playwright spec `e2e/server/inspect.spec.ts` makes a run of `planar-demo`
   through Calibrate and walks the tabs, then opens the committed rig run.
   The stage's own drawing needs a layout engine, so it is seen only there.
+
+## Compare
+
+`screens/compare/` is the screen over `compare_runs` and
+`projection_difference_map` (the back end is under "Comparisons"). The set is
+`session/compareSet.ts` (ticks in the run list, the first is the reference;
+`setIds`, `move`, `remove`); the address is `#/compare[?tab=fit|maps]&runs=a,b,c`
+plus the shell's `project` and `run`. An address that names runs sets the
+store; the store writes `runs` and `tab` back (a flag keeps the first pass
+from clearing the address it has just read), and an address with no `runs`
+leaves the set alone, so the rail and **Compare N ▸** keep the ticks.
+
+- `compareModel.ts`: pure rules over the reply. `cameraBlocks` lays each
+  camera's parameters across the runs after the reference (a cell is `null`
+  where a run lacks the parameter, never a zero), `matters` (a test rejects at
+  `ALPHA`, or with no test a change of `MATERIAL_SIGMA` reference σ: a
+  materiality, not a test), `testTally`, `pooledRms`, and `verdictFacts`: the
+  sentences the data supports. It never says "best", names the lowest RMS only
+  among runs that do not fail, and says so when the RMS does not compare
+  (other observations or camera models). A run's verdict is the one recorded
+  with it where there is one (`runVerdict`); the reply's own verdict is
+  computed with the project's `quality` thresholds, which the screen passes in
+  `options.thresholds`, and for an imported run can differ from the record.
+- `compareWords.ts`: the relation, refusal, no-test, covariance and
+  projection-unavailable words. `NO_TEST` is a `Record` over the generated
+  `NoTest`, so a new reason fails `tsc` until it has words.
+- `ParametersTab`, `PoseBlocks`, `FitTab`, `MapTab`, `RelationPanel`, `RunSet`:
+  tables are `@vitavision/ui` `Table`s with grouped columns; a column set is
+  built by a module-level function (a cell's JSX in a component body is
+  unstable under the lint rules). `TestCell` is the one place a test is
+  written: a statistic only for a test that was made.
+- The map is the shared `MapViewer` through `MapPanel` (`useProjectionDifference`
+  reads the plane once by URL). `fitted` is the `mask` channel with its own
+  `words` (faded nodes are outside the region the features cover, not
+  insignificant). A difference whose largest value is below `IDENTICAL_PX`
+  is not drawn: its colour scale and iso-lines would draw rounding error. The
+  summary table asks `compare_runs` again under the other alignment, so its
+  numbers are those of the map.
 
 ## Device
 
