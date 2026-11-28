@@ -343,12 +343,13 @@ def scan_library(
 ) -> dict[str, Any]:
     """The projects under the folders ``roots``.
 
-    Returns the ``LibraryScan`` payload (``projects``, ``failures``) with
-    ``devices``: each device's runs across its projects, grouped by the
-    project file's ``[device]`` ``product`` and ``id``. Symbolic links and
-    folders starting with ``.`` are not followed, a project's inside is not
-    searched, and a folder or project that cannot be read is listed under
-    ``failures``. ``~`` in a root is expanded.
+    Returns the ``LibraryScan`` payload (``projects``, ``failures``,
+    ``skipped``) with ``devices``: each device's runs across its projects,
+    grouped by the project file's ``[device]`` ``product`` and ``id``.
+    Symbolic links and folders starting with ``.`` are not followed, a
+    folder or project that cannot be read is listed under ``failures``, and
+    a project inside another project's folder is not read but listed under
+    ``skipped`` with the project it is inside. ``~`` in a root is expanded.
     """
     paths = [os.path.expanduser(os.fspath(root)) for root in roots]
     return cast("dict[str, Any]", _native.project_scan_library(paths, max_depth))

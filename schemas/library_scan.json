@@ -2927,10 +2927,10 @@
       "type": "object"
     },
     "ScanFailure": {
-      "description": "A folder or project a scan could not read. A scan never fails on one.",
+      "description": "A folder or project a scan could not read, or a project file it did not\nread ([`LibraryScan::skipped`]). A scan never fails on one.",
       "properties": {
         "message": {
-          "description": "Why it could not be read.",
+          "description": "Why it could not be read, or was not.",
           "type": "string"
         },
         "path": {
@@ -3717,6 +3717,14 @@
       "description": "The projects, sorted by folder.",
       "items": {
         "$ref": "#/$defs/ProjectEntry"
+      },
+      "type": "array"
+    },
+    "skipped": {
+      "default": [],
+      "description": "The project files the scan found and did not read, sorted by path:\na project inside another project's folder (projects do not nest),\neach with the reason (`inside the project <folder>`).",
+      "items": {
+        "$ref": "#/$defs/ScanFailure"
       },
       "type": "array"
     }

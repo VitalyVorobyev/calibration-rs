@@ -66,7 +66,7 @@ use vision_calibration::analysis::{
 use vision_calibration::common::{CalibratedCameras, calibrated_cameras};
 use vision_calibration::control::{Progress, RunControl};
 use vision_calibration::core::Uncertainty;
-use vision_calibration::dataset::{DatasetSpec, ProblemKind, samples, sniff_folder};
+use vision_calibration::dataset::{DatasetSpec, ManifestError, ProblemKind, samples, sniff_folder};
 use vision_calibration::dataset_runner::{
     CalibrateDatasetError, CalibrationConfig, ConfigPatch, Detection, calibrate_dataset,
     calibrate_dataset_with_seed, camera_image_sizes,
@@ -227,11 +227,13 @@ enum ProjectCommand {
         /// The project folder, made when missing.
         folder: PathBuf,
         /// The folder of images to draft a manifest from [default: the
-        /// project folder]. A folder that already holds `dataset.toml` or
-        /// `dataset.json` is refused: pass that file with `--manifest`.
+        /// project folder]. A folder that already holds a manifest
+        /// `dataset.toml` or `dataset.json` is refused: pass that file with
+        /// `--manifest`.
         #[arg(long, conflicts_with = "manifest")]
         data: Option<PathBuf>,
-        /// A manifest file for the project to reference.
+        /// A manifest file for the project to reference: a valid one, or a
+        /// draft that still lists `_unresolved`.
         #[arg(long)]
         manifest: Option<PathBuf>,
         /// Copy the manifest into the project file instead of referencing
@@ -619,7 +621,7 @@ fn init(folder: &Path, output: Option<&str>, force: bool) -> Result<()> {
     if path.exists() && !force {
         bail!("{} exists; pass --force to replace it", path.display());
     }
-    std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+    write_all(&[(path.clone(), text)])?;
     say!("wrote {}", path.display());
     print_unresolved(&spec.unresolved, &mut std::io::stdout());
     Ok(())
@@ -768,10 +770,7 @@ fn calibrate(
         run.total_views
     );
     if let Some(seed) = seed {
-        match &seed.seed.description {
-            Some(description) => say!("started from {} ({description})", seed.source),
-            None => say!("started from {}", seed.source),
-        }
+        say!("started from {}", seed.source);
     }
     for rejected in &run.rejected {
         say!(
@@ -788,7 +787,6 @@ fn calibrate(
     let report = assess(export, &run.image_sizes, &QualityThresholds::default())?;
     print_verdict(&report);
 
-    std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     // Every file is built before any is written, and written all or none: a
     // run that cannot write its report leaves no half-written result.
     let export_path = out.join("calibration.json");
@@ -824,28 +822,60 @@ fn calibrate(
     })
 }
 
-/// Each camera's size and intrinsics, with σ when the export has the
-/// covariance; `ids` names the cameras.
+/// Each camera's size and parameters, with σ when the export has the
+/// covariance; `ids` names the cameras. Of several cameras, each heading
+/// also gives the views the camera saw features in.
+///
+/// The intrinsics are in pixels, the distortion coefficients unitless and a
+/// Scheimpflug sensor's tilt in degrees (the export holds radians).
 fn print_cameras(export: &dyn CalibratedCameras, image_sizes: &[[u32; 2]], ids: &[String]) {
     let cameras = export.camera_params();
     let uncertainty = export.parameter_uncertainty();
+    let views = camera_views(export);
     for (i, (camera, [width, height])) in cameras.iter().zip(image_sizes).enumerate() {
         let id = ids.get(i).map_or("", String::as_str);
-        say!("camera {i} ({id}), {width} × {height} px:");
-        let k = &camera.intrinsics;
-        for (label, value) in [("fx", k.fx), ("fy", k.fy), ("cx", k.cx), ("cy", k.cy)] {
-            // A rig's covariance labels carry the camera's index.
-            let key = if cameras.len() > 1 {
+        if cameras.len() > 1 {
+            let n = views.get(i).copied().unwrap_or(0);
+            say!(
+                "camera {i} ({id}), {width} × {height} px, {n} view{}:",
+                if n == 1 { "" } else { "s" }
+            );
+        } else {
+            say!("camera {i} ({id}), {width} × {height} px:");
+        }
+        // A rig's covariance labels carry the camera's index.
+        let sigma = |label: &str| match uncertainty {
+            Uncertainty::Available(cov) => Some(cov.std_dev(&if cameras.len() > 1 {
                 format!("cam{i}.{label}")
             } else {
                 label.to_string()
+            })),
+            Uncertainty::Unavailable { .. } => None,
+        };
+        let line =
+            |label: &str, value: String, sigma: Option<Option<String>>, unit: &str| match sigma {
+                Some(Some(sigma)) => say!("  {label} = {value} ± {sigma}{unit}"),
+                Some(None) => say!("  {label} = {value}{unit} (held fixed)"),
+                None => say!("  {label} = {value}{unit}"),
             };
-            match uncertainty {
-                Uncertainty::Available(cov) => match cov.std_dev(&key) {
-                    Some(sigma) => say!("  {label} = {value:.3} ± {sigma:.3} px"),
-                    None => say!("  {label} = {value:.3} px (held fixed)"),
-                },
-                Uncertainty::Unavailable { .. } => say!("  {label} = {value:.3} px"),
+        let k = &camera.intrinsics;
+        for (label, value) in [("fx", k.fx), ("fy", k.fy), ("cx", k.cx), ("cy", k.cy)] {
+            let s = sigma(label).map(|s| s.map(|s| format!("{s:.3}")));
+            line(label, format!("{value:.3}"), s, " px");
+        }
+        let distortion = camera.distortion.kind();
+        for (label, value) in distortion
+            .param_names()
+            .iter()
+            .zip(camera.distortion.values())
+        {
+            let s = sigma(label).map(|s| s.map(|s| format!("{s:.6}")));
+            line(label, format!("{value:.6}"), s, "");
+        }
+        if let Some(sensor) = camera.sensor.kind() {
+            for (label, value) in sensor.param_names().iter().zip(camera.sensor.values()) {
+                let s = sigma(label).map(|s| s.map(|s| format!("{:.4}", s.to_degrees())));
+                line(label, format!("{:.4}", value.to_degrees()), s, "°");
             }
         }
     }
@@ -855,6 +885,18 @@ fn print_cameras(export: &dyn CalibratedCameras, image_sizes: &[[u32; 2]], ids: 
             format_uncertainty_unavailable(reason)
         );
     }
+}
+
+/// The views each camera saw features in, from the export's residuals.
+fn camera_views(export: &dyn CalibratedCameras) -> Vec<usize> {
+    let mut views: Vec<std::collections::BTreeSet<usize>> =
+        vec![Default::default(); export.camera_params().len()];
+    for r in &export.diagnostics().per_feature_residuals.target {
+        if let Some(set) = views.get_mut(r.camera) {
+            set.insert(r.view);
+        }
+    }
+    views.iter().map(std::collections::BTreeSet::len).collect()
 }
 
 /// The verdict and every check that did not pass.
@@ -1071,8 +1113,9 @@ fn project_init(
     seed: Option<SeedSource>,
 ) -> Result<()> {
     let folder_abs = absolute(folder)?;
-    // A seed's path is written relative to the project when it lies inside
-    // it; whether it makes a seed is checked by `vcal check` and every run.
+    // A seed's path is written relative to the project (absolute only on
+    // another drive); whether it makes a seed is checked by `vcal check` and
+    // every run.
     let seed = seed
         .map(|source| -> Result<SeedSource> {
             let restate = |path: &Path| -> Result<PathBuf> {
@@ -1094,29 +1137,42 @@ fn project_init(
     let dataset = match manifest {
         Some(manifest) => {
             let manifest_abs = absolute(manifest)?;
+            if !manifest_abs.is_file() {
+                bail!("{} is not a manifest file", manifest.display());
+            }
+            let spec = manifest_for_project(&manifest_abs)?;
+            unresolved.clone_from(&spec.unresolved);
             if embed {
-                let spec = DatasetSpec::from_path(&manifest_abs)?;
                 let root = manifest_abs
                     .parent()
                     .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
                 DatasetSource::inline(within(&folder_abs, &root), spec)
             } else {
-                if !manifest_abs.is_file() {
-                    bail!("{} is not a manifest file", manifest.display());
-                }
                 DatasetSource::file(within(&folder_abs, &manifest_abs))
             }
         }
         None => {
             let data = data.unwrap_or(folder);
             for existing in [MANIFEST_FILE, "dataset.json"] {
-                if data.join(existing).is_file() {
-                    bail!(
-                        "{} holds {existing}: pass it with --manifest {} (add --embed to copy it \
-                         into the project)",
+                let path = data.join(existing);
+                if !path.is_file() {
+                    continue;
+                }
+                // Only a manifest is one the project could fork; another
+                // tool's file of that name is said, and left alone.
+                match DatasetSpec::from_path(&path) {
+                    Ok(_) => bail!(
+                        "{} holds the manifest {existing}: pass it with --manifest {} (add \
+                         --embed to copy it into the project)",
                         data.display(),
-                        data.join(existing).display()
-                    );
+                        path.display()
+                    ),
+                    Err(ManifestError::Parse { message, .. }) => eprintln!(
+                        "note: {} is not a dataset manifest ({message}); drafting one from \
+                         the file names",
+                        path.display()
+                    ),
+                    Err(err) => return Err(err.into()),
                 }
             }
             let spec = sniff_folder(data)
@@ -1133,6 +1189,21 @@ fn project_init(
     say!("wrote {}", project.file().display());
     print_unresolved(&unresolved, &mut std::io::stdout());
     Ok(())
+}
+
+/// The manifest at `path` for a project to reference or embed, parsed and,
+/// unless it is a draft that still lists `_unresolved` fields, validated:
+/// what is wrong is an error before any project file is written. A draft
+/// is accepted, as a drafted project is; `vcal check` refuses it until it
+/// is filled in.
+fn manifest_for_project(path: &Path) -> Result<DatasetSpec> {
+    // The error names the manifest.
+    let spec = DatasetSpec::from_path(path)?;
+    if spec.unresolved.is_empty() {
+        vision_calibration::dataset::validate(&spec)
+            .with_context(|| format!("invalid manifest {}", path.display()))?;
+    }
+    Ok(spec)
 }
 
 /// `vcal project compare`.
@@ -1247,13 +1318,10 @@ fn source_line(source: &SeedSource) -> String {
     }
 }
 
-/// The seed a run started from, with its description.
+/// The seed a run started from, by its source: one line, whatever the
+/// seed's description says.
 fn seed_line(seed: &RunSeed) -> String {
-    let source = source_line(&seed.source);
-    match &seed.value.description {
-        Some(description) => format!("the seed of {source} ({description})"),
-        None => format!("the seed of {source}"),
-    }
+    format!("the seed of {}", source_line(&seed.source))
 }
 
 /// A run's star and label.
@@ -1270,6 +1338,13 @@ fn notes_line(notes: &RunNotes) -> String {
 fn project_scan(scan: &LibraryScan, json: bool) -> Result<()> {
     for failure in &scan.failures {
         eprintln!("warning: {}: {}", failure.path.display(), failure.message);
+    }
+    for skipped in &scan.skipped {
+        eprintln!(
+            "note: skipped {}: {}",
+            skipped.path.display(),
+            skipped.message
+        );
     }
     let devices = scan.devices();
     if json {
@@ -1300,6 +1375,15 @@ fn project_scan(scan: &LibraryScan, json: bool) -> Result<()> {
         say!("{heading}:");
         for entry in &history.runs {
             say!("  {}  {}", entry.project.display(), run_line(&entry.run));
+        }
+        // A project of the device without runs is in no history entry.
+        for project in scan.projects.iter().filter(|p| {
+            p.runs.is_empty()
+                && p.device
+                    .as_ref()
+                    .is_some_and(|d| d.product == device.product && d.id == device.id)
+        }) {
+            say!("  {}  no runs", project.dir.display());
         }
     }
     let loose: Vec<_> = scan
@@ -1335,12 +1419,34 @@ fn absolute(path: &Path) -> Result<PathBuf> {
 }
 
 /// `target` as the project file writes it: relative to the project folder
-/// when it lies inside it (`.` for the folder itself), absolute otherwise.
+/// (`.` for the folder itself, `../data` for a sibling), so the project
+/// moves with what it names; absolute when no relative path leads
+/// there (another drive) or the two share nothing but the root. Both paths are absolute with `.` and `..` folded,
+/// and the project resolves the relative path lexically, as it was made.
 fn within(folder: &Path, target: &Path) -> PathBuf {
-    match target.strip_prefix(folder) {
-        Ok(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
-        Ok(rel) => PathBuf::from(rel.to_string_lossy().replace('\\', "/")),
-        Err(_) => target.to_path_buf(),
+    use std::path::Component;
+    let rooted = |c: &Component<'_>| matches!(c, Component::Prefix(_) | Component::RootDir);
+    let from: Vec<Component<'_>> = folder.components().collect();
+    let to: Vec<Component<'_>> = target.components().collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let roots = |path: &[Component<'_>]| path.iter().filter(|c| rooted(c)).count();
+    // A relative path needs the same prefix and root, and a folder in
+    // common below it: one that climbs to the root is no more movable than
+    // the absolute path, and harder to read.
+    let shared_roots = roots(&from[..common]);
+    if shared_roots < roots(&from).max(roots(&to)) || common == shared_roots {
+        return target.to_path_buf();
+    }
+    let mut parts: Vec<String> = vec!["..".to_string(); from.len() - common];
+    parts.extend(
+        to[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    if parts.is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(parts.join("/"))
     }
 }
 
@@ -1393,12 +1499,21 @@ fn json_text(value: &impl Serialize) -> Result<String> {
     Ok(serde_json::to_string_pretty(value)? + "\n")
 }
 
-/// Writes every file or none: each goes to a temporary sibling first, and
-/// the files take their names only once all of them are written, in the
-/// order given (put the likeliest to fail first). A failure removes the
-/// temporary files, so the directory is as it was unless a later rename
-/// fails after an earlier one succeeded.
+/// Writes every file or none, making the folders they go in: each goes to
+/// a temporary sibling first, and the files take their names only once all
+/// of them are written, in the order given (put the likeliest to fail
+/// first). A failure removes the temporary files, so the directory is as it
+/// was (but for a folder made) unless a later rename fails after an earlier
+/// one succeeded.
 fn write_all(files: &[(PathBuf, String)]) -> Result<()> {
+    // Every `-o` writes through here: a missing folder is made, before any
+    // file is.
+    for (path, _) in files {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+    }
     let staged = |path: &Path| {
         let mut name = path.as_os_str().to_owned();
         name.push(".partial");
@@ -1641,14 +1756,41 @@ mod tests {
     }
 
     #[test]
-    fn within_is_relative_inside_the_folder_and_absolute_outside() {
-        let folder = Path::new("/work/project");
-        assert_eq!(within(folder, folder), Path::new("."));
+    fn within_is_relative_wherever_a_relative_path_leads() {
+        let folder = absolute(Path::new("/work/project")).unwrap();
+        let at = |p: &str| absolute(Path::new(p)).unwrap();
+        assert_eq!(within(&folder, &folder), Path::new("."));
         assert_eq!(
-            within(folder, Path::new("/work/project/a/b.toml")),
+            within(&folder, &at("/work/project/a/b.toml")),
             Path::new("a/b.toml")
         );
-        assert_eq!(within(folder, Path::new("/data/x")), Path::new("/data/x"));
+        assert_eq!(
+            within(&folder, &at("/work/data/dataset.toml")),
+            Path::new("../data/dataset.toml")
+        );
+        // Nothing in common but the root: the absolute path.
+        assert_eq!(within(&folder, &at("/data/x")), at("/data/x"));
+        assert_eq!(within(&folder, &at("/work")), Path::new(".."));
+        // The relative path leads back to the target.
+        for target in ["/work/data/dataset.toml", "/data/x", "/work/project/a"] {
+            let target = at(target);
+            let back = absolute(&folder.join(within(&folder, &target))).unwrap();
+            assert_eq!(back, target);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn within_is_absolute_on_another_drive() {
+        let folder = Path::new(r"C:\work\project");
+        assert_eq!(
+            within(folder, Path::new(r"D:\data\x")),
+            Path::new(r"D:\data\x")
+        );
+        assert_eq!(
+            within(folder, Path::new(r"C:\work\data")),
+            Path::new("../data")
+        );
     }
 
     #[test]

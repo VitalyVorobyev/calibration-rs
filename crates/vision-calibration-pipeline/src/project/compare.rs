@@ -3,6 +3,7 @@
 //! content of the images each run used.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use vision_calibration_core::FrameKind;
 
@@ -37,7 +38,10 @@ impl Project {
 
 /// Recorded runs side by side against the first, the reference
 /// ([`compare_runs`](crate::analysis::compare_runs)), each named by its id;
-/// the runs may belong to different projects.
+/// the runs may belong to different projects. Where runs of different
+/// folders share an id, each of them is named `<project folder>/<id>`
+/// instead (`unit-2/run-001`), or by its run folder's path when the project
+/// folders' names are the same too, so every name tells its run apart.
 ///
 /// Each run's camera ids and image sizes come from its record (the image
 /// sizes from its images when the record has none), its configuration from
@@ -75,7 +79,10 @@ pub fn compare_recorded_runs(
     options: &CompareRunsOptions,
 ) -> Result<RunComparison, ProjectError> {
     check_run_count(runs.len()).map_err(ProjectError::Compare)?;
-    let loaded = runs.iter().map(load).collect::<Result<Vec<_>, _>>()?;
+    let mut loaded = runs.iter().map(load).collect::<Result<Vec<_>, _>>()?;
+    for (run, name) in loaded.iter_mut().zip(run_names(runs)) {
+        run.id = name;
+    }
     let reference = &loaded[0];
     let mut overlaps = Vec::new();
     let mut exclusions = Vec::new();
@@ -123,8 +130,42 @@ pub fn compare_recorded_runs(
     Ok(comparison)
 }
 
+/// Each run's name in the comparison: its id, unless another run of a
+/// different folder has the same id; then `<project folder>/<id>`, or the
+/// run folder's whole path when two of those are the same too.
+fn run_names(runs: &[RunInfo]) -> Vec<String> {
+    let collides = |run: &RunInfo| runs.iter().any(|o| o.id == run.id && o.dir != run.dir);
+    let project = |run: &RunInfo| {
+        let folder = run
+            .dir
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        format!("{folder}/{}", run.id)
+    };
+    runs.iter()
+        .map(|run| {
+            if !collides(run) {
+                return run.id.clone();
+            }
+            let name = project(run);
+            let ambiguous = runs
+                .iter()
+                .any(|o| o.dir != run.dir && collides(o) && project(o) == name);
+            if ambiguous {
+                run.dir.to_string_lossy().replace('\\', "/")
+            } else {
+                name
+            }
+        })
+        .collect()
+}
+
 /// A run as the comparison reads it.
 struct Loaded {
+    /// Its name in the comparison ([`run_names`]).
     id: String,
     export: Box<dyn CalibratedCameras>,
     camera_ids: Vec<String>,

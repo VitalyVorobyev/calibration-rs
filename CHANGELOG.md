@@ -824,6 +824,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `vcal project init --manifest <file>` refuses a file that is not a valid
+  manifest (another tool's `dataset.json`, a manifest that does not
+  validate) with the manifest's error, before it writes anything; a draft
+  that still lists `_unresolved` is referenced as before. Without
+  `--manifest`, only a `dataset.toml` or `dataset.json` that is a manifest
+  stops the draft; another file of that name is named on standard error and
+  left alone.
+- `vcal project init` writes the manifest, data folder and seed it names
+  relative to the project folder (`../captures/dataset.toml` for a
+  sibling), absolute only on another drive or when the two share nothing
+  but the filesystem root, so a project moves with its data.
+- `-o` makes the folder it writes into: `vcal seed from-runs` and
+  `vcal seed from-spec` no longer fail after all their work on a missing
+  folder, and `vcal init -o` makes its folder too.
+- `vcal project scan` lists a device's project that has no runs yet
+  (`no runs`) instead of leaving it out of the text listing.
+- A library scan (`scan_library`, `vcal project scan`, the app's Library)
+  names each project file inside another project's folder, which it does
+  not read, in the new `LibraryScan::skipped` list with the project it is
+  inside, instead of passing over it in silence; `vcal project scan`
+  prints them on standard error.
+- Comparing runs of two projects with the same id (`vcal project compare
+  a run-001 b/runs/run-001`, `compare_recorded_runs`) names each with its
+  project's folder (`b/run-001 vs a/run-001`), or its run folder when the
+  project folders' names are the same too; runs of one project keep their
+  ids.
+- `vcal run` prints each camera's distortion coefficients and, for a tilted
+  (Scheimpflug) sensor, `tilt_x` and `tilt_y` in degrees, with their σ; for
+  a rig, each camera's heading gives the views it saw the target in. The
+  `started from` line names the seed's source on one line, without the
+  seed's or device spec's description.
+- A calibration caches the detector's outcome for each image it detects no
+  target in, so `cached_detection` (and the app's detection overview)
+  says why it found nothing (not found with the detector's reason,
+  ambiguous, filtered) without detecting again, as the image's detail
+  does. Found features are unchanged.
 - `project::compare_recorded_runs` and `Project::compare_runs` given no run
   return the comparison's error for fewer than two runs
   (`ProjectError::Compare`) instead of panicking; one run gives the same

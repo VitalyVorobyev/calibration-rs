@@ -100,7 +100,7 @@ fn the_detail_of_a_run_image_matches_the_features_the_run_cached() {
     assert_eq!(run.usable_views, 2);
     assert!(
         detail_files(cache_dir.path()).is_empty(),
-        "a run writes no detail"
+        "a run writes no detail of an image with features"
     );
 
     for name in ["a.png", "b.png"] {
@@ -254,6 +254,62 @@ fn cached_detection_reads_the_key_a_run_writes() {
     // Outside the manifest is the same error as for the detail.
     let err = cached_detection(&spec, data.path(), 1, Path::new("a.png"), &cache).unwrap_err();
     assert!(matches!(err, RunError::ImageNotInDataset { .. }), "{err}");
+}
+
+/// An image a run detects no board in keeps the detector's outcome in the
+/// cache: `cached_detection` says why without detecting, and the detail is
+/// the one stored.
+#[test]
+fn a_run_keeps_the_outcome_of_an_image_without_a_board() {
+    let data = tempfile::tempdir().unwrap();
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache = FsDetectionCache::new(cache_dir.path());
+    let mut spec = dataset(data.path(), None);
+    image::GrayImage::from_pixel(320, 240, image::Luma([200]))
+        .save(data.path().join("blank.png"))
+        .unwrap();
+    spec.cameras[0].images =
+        serde_json::from_value(json!({ "kind": "list", "paths": ["a.png", "b.png", "blank.png"] }))
+            .unwrap();
+    let run = build_planar_input(
+        &spec,
+        data.path(),
+        Detection::Cached(&cache),
+        &RunControl::default(),
+    )
+    .unwrap();
+    assert_eq!(run.usable_views, 2);
+    assert_eq!(detail_files(cache_dir.path()).len(), 1);
+
+    let blank = cached_detection(&spec, data.path(), 0, Path::new("blank.png"), &cache)
+        .unwrap()
+        .expect("the run cached the blank image");
+    assert_eq!(blank.feature_count, 0);
+    let Some(DetectionOutcome::NotFound { .. }) = &blank.detail_outcome else {
+        panic!("not found, with the detector's reason: {blank:?}");
+    };
+    // The images with a board keep no detail.
+    let board = cached_detection(&spec, data.path(), 0, Path::new("a.png"), &cache)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (board.feature_count, board.detail_outcome),
+        (48, None),
+        "a board's detail is stored only when asked for"
+    );
+
+    // The detail of the blank image is read from the cache: no new file.
+    let detail = detection_detail(
+        &spec,
+        data.path(),
+        0,
+        Path::new("blank.png"),
+        Detection::Cached(&cache),
+    )
+    .unwrap();
+    assert!(detail.features.is_empty());
+    assert_eq!(Some(detail.outcome), blank.detail_outcome);
+    assert_eq!(detail_files(cache_dir.path()).len(), 1);
 }
 
 #[test]

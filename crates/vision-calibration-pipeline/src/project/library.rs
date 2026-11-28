@@ -50,6 +50,11 @@ pub struct LibraryScan {
     pub projects: Vec<ProjectEntry>,
     /// The folders and projects that could not be read, sorted by path.
     pub failures: Vec<ScanFailure>,
+    /// The project files the scan found and did not read, sorted by path:
+    /// a project inside another project's folder (projects do not nest),
+    /// each with the reason (`inside the project <folder>`).
+    #[serde(default)]
+    pub skipped: Vec<ScanFailure>,
 }
 
 /// One project a scan found.
@@ -70,14 +75,15 @@ pub struct ProjectEntry {
     pub runs: Vec<RunInfo>,
 }
 
-/// A folder or project a scan could not read. A scan never fails on one.
+/// A folder or project a scan could not read, or a project file it did not
+/// read ([`LibraryScan::skipped`]). A scan never fails on one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct ScanFailure {
     /// The folder.
     pub path: PathBuf,
-    /// Why it could not be read.
+    /// Why it could not be read, or was not.
     pub message: String,
 }
 
@@ -173,15 +179,17 @@ fn timestamp(run: &RunInfo) -> Option<u64> {
 /// Each root is walked without following symbolic links and without
 /// entering folders whose name starts with `.`, at most
 /// `options.max_depth` folders deep. A folder holding a project file is a
-/// project: the scan reads it with its runs and does not look inside it
-/// (projects do not nest). A project or folder that cannot be read is a
-/// [`ScanFailure`], never an error of the scan.
+/// project: the scan reads it with its runs, and reads no project inside
+/// it (projects do not nest); a project file further down its folder is
+/// listed in [`LibraryScan::skipped`] with the project it is inside. A
+/// project or folder that cannot be read is a [`ScanFailure`], never an
+/// error of the scan.
 pub fn scan_library(roots: &[PathBuf], options: &LibraryScanOptions) -> LibraryScan {
     let mut scan = LibraryScan::default();
     for root in roots {
         let root = vision_calibration_core::lexical_absolute(root);
         if root.is_dir() {
-            walk(&root, 0, options.max_depth, &mut scan);
+            walk(&root, 0, options.max_depth, None, &mut scan);
         } else {
             scan.failures.push(ScanFailure {
                 path: root,
@@ -193,25 +201,44 @@ pub fn scan_library(roots: &[PathBuf], options: &LibraryScanOptions) -> LibraryS
     scan.projects.dedup_by(|a, b| a.dir == b.dir);
     scan.failures.sort_by(|a, b| a.path.cmp(&b.path));
     scan.failures.dedup_by(|a, b| a.path == b.path);
+    scan.skipped.sort_by(|a, b| a.path.cmp(&b.path));
+    scan.skipped.dedup_by(|a, b| a.path == b.path);
     scan
 }
 
-fn walk(dir: &Path, depth: usize, max_depth: usize, scan: &mut LibraryScan) {
-    if dir.join(PROJECT_FILE).is_file() || dir.join(PROJECT_FILE_JSON).is_file() {
-        match entry(dir) {
-            Ok(entry) => scan.projects.push(entry),
-            Err(err) => scan.failures.push(ScanFailure {
+/// Walk `dir`, `depth` folders below its root; `inside` is the project
+/// folder `dir` lies in, whose nested project files are skipped.
+fn walk(dir: &Path, depth: usize, max_depth: usize, inside: Option<&Path>, scan: &mut LibraryScan) {
+    let is_project = dir.join(PROJECT_FILE).is_file() || dir.join(PROJECT_FILE_JSON).is_file();
+    let mut inside = inside;
+    if is_project {
+        match inside {
+            Some(owner) => scan.skipped.push(ScanFailure {
                 path: dir.to_path_buf(),
-                message: err.to_string(),
+                message: format!(
+                    "inside the project {}: projects do not nest",
+                    owner.display()
+                ),
             }),
+            None => {
+                match entry(dir) {
+                    Ok(entry) => scan.projects.push(entry),
+                    Err(err) => scan.failures.push(ScanFailure {
+                        path: dir.to_path_buf(),
+                        message: err.to_string(),
+                    }),
+                }
+                inside = Some(dir);
+            }
         }
-        return;
     }
     if depth >= max_depth {
         return;
     }
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
+        // Inside a project the walk only looks for nested project files.
+        Err(_) if inside.is_some() => return,
         Err(err) => {
             scan.failures.push(ScanFailure {
                 path: dir.to_path_buf(),
@@ -229,7 +256,7 @@ fn walk(dir: &Path, depth: usize, max_depth: usize, scan: &mut LibraryScan) {
         .collect();
     folders.sort();
     for folder in folders {
-        walk(&folder, depth + 1, max_depth, scan);
+        walk(&folder, depth + 1, max_depth, inside, scan);
     }
 }
 
@@ -277,8 +304,9 @@ mod tests {
         unrecorded_run(&root.join("site-b/2026-02"), "run-002");
         project(&root.join("site-b/other"), Some(("camera", "SN-1")));
         project(&root.join("loose"), None);
-        // A project inside a project is not looked for; neither are
-        // hidden folders, nor folders past the depth limit.
+        // A project inside a project is not read but listed as skipped;
+        // hidden folders and folders past the depth limit are not looked
+        // into.
         project(&root.join("loose/inner"), Some(("scanner", "SN-9")));
         project(&root.join(".hidden/p"), Some(("scanner", "SN-8")));
         project(&root.join("a/b/c/deep"), Some(("scanner", "SN-7")));
@@ -295,6 +323,15 @@ mod tests {
         assert_eq!(failures.len(), 2, "{failures:?}");
         assert!(failures[0].ends_with("broken"));
         assert!(failures[1].ends_with("missing"));
+        let [skipped] = &scan.skipped[..] else {
+            panic!("one nested project: {:?}", scan.skipped);
+        };
+        assert!(skipped.path.ends_with("loose/inner"), "{skipped:?}");
+        assert!(
+            skipped.message.starts_with("inside the project ") && skipped.message.contains("loose"),
+            "{}",
+            skipped.message
+        );
         // The referenced manifest does not exist: no topology, still listed.
         assert_eq!(scan.projects[1].topology, None);
 

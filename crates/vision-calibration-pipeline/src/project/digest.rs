@@ -8,7 +8,9 @@ use std::sync::Mutex;
 use serde::Serialize;
 use vision_calibration_core::lexical_absolute;
 use vision_calibration_dataset::DatasetSpec;
-use vision_calibration_detect::{CacheError, CacheKey, CachedFeatures, DetectionCache};
+use vision_calibration_detect::{
+    CacheError, CacheKey, CachedFeatures, DetectionCache, DetectionDetail,
+};
 
 use super::fs::{canonical_json, digest_of, read, sha256};
 use super::{Exclusions, InputDigest, ProjectDigest, ProjectError};
@@ -70,6 +72,15 @@ impl DetectionCache for RecordingCache<'_> {
     fn put(&self, key: &CacheKey, value: &CachedFeatures) -> Result<(), CacheError> {
         self.record(key);
         self.inner.put(key, value)
+    }
+
+    // The detail goes under a key `get` or `put` already recorded.
+    fn get_detail(&self, key: &CacheKey) -> Result<Option<DetectionDetail>, CacheError> {
+        self.inner.get_detail(key)
+    }
+
+    fn put_detail(&self, key: &CacheKey, detail: &DetectionDetail) -> Result<(), CacheError> {
+        self.inner.put_detail(key, detail)
     }
 
     fn note_image(&self, image: &Path, key: &CacheKey) {

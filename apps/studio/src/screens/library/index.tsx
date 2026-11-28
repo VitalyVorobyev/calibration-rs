@@ -329,6 +329,15 @@ export function LibraryScreen() {
                   {scan.data && scan.data.failures.length > 0 && (
                     <Failures failures={scan.data.failures} roots={roots} />
                   )}
+                  {scan.data && (scan.data.skipped ?? []).length > 0 && (
+                    <Failures
+                      failures={scan.data.skipped ?? []}
+                      roots={roots}
+                      heading={(n) =>
+                        `${n} ${n === 1 ? "project" : "projects"} inside another project, not read`
+                      }
+                    />
+                  )}
                   <QuickStart samples={info.samples} collapsed />
                 </section>
               </div>
@@ -353,17 +362,20 @@ function tableTitle(groups: LibraryGroups, container: string | null): { label: s
   return { label: "Projects" };
 }
 
+/** Paths the scan could not read, or did not (`heading` says which). */
 export function Failures({
   failures,
   roots,
+  heading = (n) => `${n} ${n === 1 ? "folder" : "folders"} could not be read`,
 }: {
   failures: { path: string; message: string }[];
   roots: readonly string[];
+  heading?: (count: number) => string;
 }) {
   return (
     <details className="group rounded-control border border-warn/30 bg-warn/8 px-3 py-2 text-sm">
       <summary className="cursor-pointer text-fg outline-none focus-visible:outline-2 focus-visible:outline-signal">
-        {failures.length} {failures.length === 1 ? "folder" : "folders"} could not be read
+        {heading(failures.length)}
       </summary>
       <ul className="mt-2 flex flex-col gap-1.5">
         {failures.map((f) => (

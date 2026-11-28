@@ -165,6 +165,39 @@ fn a_calibration_s_cache_and_left_out_images_show_in_the_overview() {
     assert_eq!(message["field"], "exclude.images[0]");
 }
 
+/// An image a calibration found no board in shows as not found, with the
+/// detector's reason, from what the run cached: never as a detection with
+/// no outcome.
+#[test]
+fn a_calibration_s_empty_detection_shows_why() {
+    let demo = Demo::new();
+    let api = &demo.api;
+    image::GrayImage::from_pixel(320, 240, image::Luma([128]))
+        .save(demo.project.join("images/view6.png"))
+        .unwrap();
+    let job = api
+        .invoke("calibrate", json!({ "dir": demo.dir() }))
+        .unwrap();
+    let state = finish(api, &job["id"]);
+    assert_eq!(state["kind"], "done", "{state}");
+    let overview = api
+        .invoke("detection_overview", json!({ "dir": demo.dir() }))
+        .unwrap();
+    let blank = &cell(&overview, 6);
+    assert_eq!(blank["image"], "images/view6.png");
+    assert_eq!(blank["state"]["kind"], "detected", "{blank}");
+    assert_eq!(blank["state"]["features"], 0);
+    assert_eq!(blank["state"]["outcome"]["status"], "not_found", "{blank}");
+    // The detail says the same, read from the cache.
+    let detail = api
+        .invoke(
+            "detection_detail",
+            json!({ "dir": demo.dir(), "camera": 0, "image": "images/view6.png" }),
+        )
+        .unwrap();
+    assert_eq!(detail["outcome"], blank["state"]["outcome"]);
+}
+
 #[test]
 fn a_detail_is_cached_and_a_preview_writes_nothing() {
     let demo = Demo::new();

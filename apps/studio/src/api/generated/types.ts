@@ -5269,11 +5269,12 @@ export interface RunSeedUse {
   source: SeedSource;
 }
 /**
- * A folder or project a scan could not read. A scan never fails on one.
+ * A folder or project a scan could not read, or a project file it did not
+ * read ([`LibraryScan::skipped`]). A scan never fails on one.
  */
 export interface ScanFailure {
   /**
-   * Why it could not be read.
+   * Why it could not be read, or was not.
    */
   message: string;
   /**
@@ -6460,6 +6461,12 @@ export interface LibraryScan {
    * The projects, sorted by folder.
    */
   projects: ProjectEntry[];
+  /**
+   * The project files the scan found and did not read, sorted by path:
+   * a project inside another project's folder (projects do not nest),
+   * each with the reason (`inside the project <folder>`).
+   */
+  skipped?: ScanFailure[];
 }
 /**
  * One project a scan found.

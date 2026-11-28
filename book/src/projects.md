@@ -280,7 +280,10 @@ The projects under a set of folders are a library. `vcal project scan`
 (`scan_library`) walks the folders, reads each project and groups the runs
 of every device by `[device]`'s `product` and `id`, oldest first (runs of
 the app's earlier format, which have no time, first). There is no index to
-fall out of date: the folders are the library.
+fall out of date: the folders are the library. Projects do not nest: a
+project file inside another project's folder is not read, and the scan
+lists it under `skipped` with the project it is inside, beside the folders
+it could not read (`failures`).
 
 `DeviceHistory::representative_run` (Python
 `project.representative_run(device)`) picks the run that stands for a

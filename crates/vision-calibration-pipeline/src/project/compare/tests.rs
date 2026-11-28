@@ -12,7 +12,7 @@ use super::*;
 use crate::analysis::{DifferenceTest, NoTest, ParameterComparison};
 use crate::dataset_runner::ConfigPatch;
 use crate::project::run::tests::{calibrate, calibrated, options, planar_project, write_image};
-use crate::project::{DETECTIONS_DIR, ImageExclusion, RunNotes};
+use crate::project::{DETECTIONS_DIR, DatasetSource, ImageExclusion, ProjectSpec, RunNotes};
 
 fn compare(project: &Project, ids: &[&str]) -> RunComparison {
     project
@@ -152,8 +152,40 @@ fn disjoint_captures_are_independent_and_imports_unknown() {
         .import_export(b.export_path(), RunNotes::new())
         .unwrap();
 
-    let comparison = compare_recorded_runs(&[a.clone(), b, imported], &CompareRunsOptions::new())
+    let comparison = compare_recorded_runs(
+        &[a.clone(), b.clone(), imported.clone()],
+        &CompareRunsOptions::new(),
+    )
+    .expect("comparison");
+    // Both projects have a `run-001`: each is named with its project.
+    let names: Vec<&str> = comparison.runs.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["first/run-001", "second/run-001", "run-002"]);
+    // Within one project the ids are the names.
+    let own = first
+        .compare_runs(&[&a.id, &imported.id], &CompareRunsOptions::new())
+        .unwrap();
+    let names: Vec<&str> = own.runs.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["run-001", "run-002"]);
+    // Two project folders of the same name: the run folders' paths.
+    let homonym = Project::create(
+        tmp.path().join("other/first"),
+        ProjectSpec::new(DatasetSource::inline(
+            "../../second/data",
+            second.dataset().unwrap(),
+        )),
+    )
+    .unwrap();
+    let c = homonym
+        .import_export(b.export_path(), RunNotes::new())
+        .unwrap();
+    let three = compare_recorded_runs(&[a.clone(), b, c.clone()], &CompareRunsOptions::new())
         .expect("comparison");
+    let names: Vec<&str> = three.runs.iter().map(|r| r.name.as_str()).collect();
+    let path = |run: &RunInfo| run.dir.to_string_lossy().replace('\\', "/");
+    assert_eq!(
+        names,
+        [path(&a).as_str(), "second/run-001", path(&c).as_str()]
+    );
     let [independent, unknown] = &comparison.differences[..] else {
         panic!("two differences");
     };
