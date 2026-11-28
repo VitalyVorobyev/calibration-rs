@@ -109,6 +109,14 @@ In JSON the field is `{"status": "available", "labels": [...], "covariance":
   across views than the residual noise predicts, when significantly more;
   the covariance is already scaled by it
   ([Parameter Uncertainty](uncertainty.md)).
+- **`variance_factor`**: for a covariance from one residual family with an
+  estimated noise level and no prior, the factor `c` of
+  `covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+  (whitened) residuals: `σ̂²` under least squares,
+  `E[ψ²] · m/(m − n) / E[ψ′]²` under a robust loss (`m` residuals, `n`
+  estimated parameters). It puts two solves of nested data on one noise level
+  ([Comparing Calibrations](comparing_calibrations.md)); absent for a
+  covariance of several residual families, priors or several solves.
 - **`second_order`**: how far the error of the shared parameters is
   predicted to depart from the covariance once its second-order term is
   counted. The covariance is the error's first-order term, linear in the

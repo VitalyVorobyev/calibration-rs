@@ -101,6 +101,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is read and the laser folders listed; no image is read. Python:
   `Project.views()` returns them as `robot_poses` and `laser_frames`, with
   the error in place of a listing that cannot be made.
+- `analysis::compare_runs` puts calibrations of one rig side by side against
+  the first, the reference, and returns evidence, not a score
+  (`RunComparison`): each run's quality verdict, covariance status and
+  per-camera fit (`RunEvidence`), and for each later run, cameras matched by
+  id, every camera parameter with its σ in both runs, `delta` and
+  `delta_over_reference_sigma` (materiality, not a test), the projection
+  difference over the image fitted on the covered region, the rig poses
+  relative to the reference's rig camera (so they do not depend on which
+  camera each run held fixed), the hand-eye, the laser planes, the camera
+  models and configuration settings that differ (`RunDifference`). Each run
+  states its relation to the reference (`ComparedRun::with_relation`,
+  `DataRelation`), and a test is reported only where the relation makes one
+  valid: independent captures (`σ_Δ² = σ_ref² + σ_other²`, a 6-dof χ² for a
+  pose, and a joint χ² of each camera's parameters) and nested observations
+  under one configuration (the Hausman form on the smaller run's noise
+  level, from each export's variance factor); otherwise `not_available`
+  with the reason (`NoTest`). A stated relation the exports contradict
+  (independent runs sharing features, a nested run that is not a subset or
+  has another configuration) is refused and the pair compared as
+  overlapping (`RelationRefusal`). The nested test does not apply to
+  observations left out because of their residuals. Python:
+  `vision_calibration.compare_runs`.
+- `ParameterCovariance::variance_factor`: the a-posteriori variance factor
+  of a covariance from one residual family with an estimated noise level
+  and no prior (`covariance = view_scatter · c · (JᵀJ)⁻¹`), so two solves of
+  nested data can be put on one noise level. An optional export field,
+  absent for covariances of several families, priors or several solves;
+  the covariance's numbers are unchanged. Python
+  `ParameterCovariance.variance_factor`.
+- `Project::compare_runs` and `project::compare_recorded_runs` compare a
+  project's runs (or runs of several projects) with the data relation read
+  from their records: independent captures when they used no image of the
+  same content; identical, the same data, nested (one run's features a
+  strict subset under one estimator: one configuration, dataset and seed)
+  or overlapping otherwise, at the level of each feature's image content
+  and detected pixel; unknown for an imported or earlier run. Runs started
+  from different seeds list the seed among their configuration changes
+  (`seed.source`, `seed.values`). Each difference also carries the images and
+  features the runs share (`DataOverlap`) and the exclusions only one of
+  them made (`ExclusionChanges`). `vcal project compare <project> <run>...`
+  prints the comparison as a table (`--json` for the `RunComparison`);
+  Python `Project.compare_runs` and `project.compare_recorded_runs`.
+- A calibrated run's `run.json` records each image it used with the hash of
+  its content (`CalibratedRun::images`, `UsedImage`). An optional field: the
+  record version and every digest are unchanged.
+- `common::CalibratedCameras::kind`, the workflow that produced an export.
+- `analysis::Compensation` serializes (`"rotation"`, `"none"`); `ReprojectionStats` compares with `==`.
 
 - `analysis::projection_difference` compares two calibrations of one camera,
   of the same model or of different ones, through where they put the same

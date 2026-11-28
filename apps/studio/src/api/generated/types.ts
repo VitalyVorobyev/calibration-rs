@@ -1706,6 +1706,7 @@ export interface StudioApiTypes {
   Unit?: Unit;
   UnpairedLaserFrameRef?: UnpairedLaserFrameRef;
   UnrecordedRun?: UnrecordedRun;
+  UsedImage?: UsedImage;
   UserPath?: UserPath;
   Verdict?: Verdict;
   ViewCovariance?: ViewCovariance;
@@ -1832,6 +1833,13 @@ export interface CalibratedRun {
    */
   duration_ms: number;
   /**
+   * Each image the calibration used, one per frame of the export's image
+   * manifest and in its order, with the hash of its content: what tells
+   * whether two runs share observations. Empty in a run written before
+   * it was recorded.
+   */
+  images?: UsedImage[];
+  /**
    * What the run was given.
    */
   inputs: RunInputs;
@@ -1904,6 +1912,26 @@ export interface InputDigest {
    * one; where they were read from is not part of it.
    */
   seed?: string | null;
+}
+/**
+ * An image a calibrated run used.
+ */
+export interface UsedImage {
+  /**
+   * The camera's id in the manifest.
+   */
+  camera: string;
+  /**
+   * The 64-bit FNV-1a hash of the image file's bytes, 16 hex digits: the
+   * image part of its detection cache key. It identifies content, not a
+   * file; it is no security hash.
+   */
+  content: string;
+  /**
+   * The image, relative to the data root (absolute when outside it),
+   * `/`-separated.
+   */
+  image: string;
 }
 /**
  * What a calibrated run was given, resolved.
@@ -5379,6 +5407,20 @@ export interface ParameterCovariance {
    * from one solve.
    */
   second_order?: SecondOrderError | null;
+  /**
+   * The a-posteriori variance factor `c` of a covariance from one
+   * residual family with an estimated noise level and no prior:
+   * `covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+   * residuals (whitened by their stated covariances, when they have
+   * them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
+   * per degree of freedom (px², or dimensionless for whitened residuals);
+   * under a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`
+   * (`m` residuals, `n` estimated parameters). It puts two
+   * solves of nested data on one noise level. `None` when the covariance
+   * combines residual families, stated priors or another calibration's
+   * share, or was derived from several solves.
+   */
+  variance_factor?: number | null;
   /**
    * How many times the variance of the shared parameters across views
    * exceeds what the residual noise predicts, measured by leaving out one

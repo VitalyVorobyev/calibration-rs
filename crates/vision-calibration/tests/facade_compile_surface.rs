@@ -420,6 +420,66 @@ fn projection_difference_surface_compiles() {
 }
 
 #[test]
+fn compare_runs_surface_compiles() {
+    use analysis::{
+        CameraDifference, CameraEvidence, CompareRunsOptions, ComparedRun, ConfigChange,
+        CovarianceStatus, DataRelation, DifferenceTest, JointTest, NoTest, ParameterComparison,
+        ParameterDifference, PlaneDifference, PoseDifference, ProjectionComparison, RunComparison,
+        RunDifference, RunEvidence, RunSide,
+    };
+
+    type Compare = fn(
+        &[ComparedRun<'_>],
+        &CompareRunsOptions,
+    ) -> Result<RunComparison, vision_calibration::Error>;
+    let _compare: Compare = analysis::compare_runs;
+    type Recorded = fn(
+        &[vision_calibration::project::RunInfo],
+        &CompareRunsOptions,
+    ) -> Result<RunComparison, vision_calibration::project::ProjectError>;
+    let _recorded: Recorded = vision_calibration::project::compare_recorded_runs;
+    let _: Option<(
+        analysis::DataOverlap,
+        analysis::ExclusionChanges,
+        vision_calibration::project::UsedImage,
+    )> = None;
+    let options = CompareRunsOptions::new();
+    assert_eq!(options.grid_columns, 64);
+    assert_eq!(options.compensation, analysis::Compensation::Rotation);
+    let export: Option<planar_intrinsics::PlanarIntrinsicsExport> = None;
+    if let Some(export) = &export {
+        let run = ComparedRun::new("run-001", export, vec!["cam".into()], vec![[1280, 960]])
+            .with_relation(DataRelation::Nested {
+                smaller: RunSide::Other,
+            });
+        let _: &str = &run.name;
+    }
+    let result: Option<RunComparison> = None;
+    if let Some(result) = result {
+        let evidence: &RunEvidence = &result.runs[0];
+        let _: (&CovarianceStatus, &[CameraEvidence]) = (&evidence.covariance, &evidence.cameras);
+        let difference: &RunDifference = &result.differences[0];
+        let _: (&[CameraDifference], &[PoseDifference], &[PlaneDifference]) = (
+            &difference.cameras,
+            &difference.rig,
+            &difference.laser_planes,
+        );
+        let _: Option<&Vec<ConfigChange>> = difference.config_changes.as_ref();
+        if let ParameterComparison::SameModel { parameters, joint } =
+            &difference.cameras[0].parameters
+        {
+            let _: &JointTest = joint;
+            let p: &ParameterDifference = &parameters[0];
+            if let DifferenceTest::NotAvailable { reason } = &p.test {
+                let _: NoTest = *reason;
+            }
+        }
+        let _: &ProjectionComparison = &difference.cameras[0].projection;
+        let _: &JointTest = &difference.rig[0].test;
+    }
+}
+
+#[test]
 fn focus_surface_compiles() {
     use analysis::{
         DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,

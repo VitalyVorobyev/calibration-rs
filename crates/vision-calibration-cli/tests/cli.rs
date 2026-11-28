@@ -1192,6 +1192,27 @@ fn project_runs_import_note_and_scan() {
         0
     );
     let imported = dir.join("runs/run-002");
+    // The calibrated run against the imported one, by id and by folder.
+    assert_eq!(
+        vcal(&["project", "compare", path(&dir), "run-001", "run-002"]),
+        0
+    );
+    assert_eq!(
+        vcal(&[
+            "project",
+            "compare",
+            path(&dir),
+            "run-001",
+            path(&imported),
+            "--json"
+        ]),
+        0
+    );
+    assert_eq!(vcal(&["project", "compare", path(&dir), "run-001"]), 2);
+    assert_eq!(
+        vcal(&["project", "compare", path(&dir), "run-001", "run-404"]),
+        1
+    );
     assert_eq!(
         read_json(&imported.join("run.json"))["source"]["kind"],
         "imported"

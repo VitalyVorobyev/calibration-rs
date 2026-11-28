@@ -72,6 +72,12 @@ pub struct CalibratedRun {
     /// before its features were screened is listed in `left_out` instead.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unmatched_exclusions: Vec<FeatureExclusion>,
+    /// Each image the calibration used, one per frame of the export's image
+    /// manifest and in its order, with the hash of its content: what tells
+    /// whether two runs share observations. Empty in a run written before
+    /// it was recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<UsedImage>,
     /// Whether every image was detected again rather than read from the
     /// detection cache.
     pub redetected: bool,
@@ -172,6 +178,22 @@ pub struct LeftOutImage {
     pub image: PathBuf,
     /// Why it was left out.
     pub reason: RejectReason,
+}
+
+/// An image a calibrated run used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct UsedImage {
+    /// The camera's id in the manifest.
+    pub camera: String,
+    /// The image, relative to the data root (absolute when outside it),
+    /// `/`-separated.
+    pub image: PathBuf,
+    /// The 64-bit FNV-1a hash of the image file's bytes, 16 hex digits: the
+    /// image part of its detection cache key. It identifies content, not a
+    /// file; it is no security hash.
+    pub content: String,
 }
 
 /// What a run produced, in brief: enough to list runs without reading

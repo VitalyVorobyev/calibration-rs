@@ -1122,6 +1122,8 @@ fn add_consider_share(
         .map(|&(block, index)| Coordinate { block, index })
         .collect();
     let (coordinates, share) = covariance::consider_share(&ir, params, &raw, &consider, sigma)?;
+    // The share is not a multiple of the solve's own information.
+    estimate.variance_factor = None;
     let at: HashMap<Coordinate, usize> = estimate
         .coordinates
         .iter()

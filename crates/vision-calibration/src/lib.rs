@@ -618,7 +618,11 @@ pub mod dataset_runner {
 /// runs it ([`calibrate`](project::Project::calibrate)) into `runs/run-NNN/`
 /// with an immutable [`RunRecord`](project::RunRecord);
 /// [`scan_library`](project::scan_library) finds the projects under a set of
-/// folders and groups their runs by device. Re-exported from the pipeline
+/// folders and groups their runs by device;
+/// [`Project::compare_runs`](project::Project::compare_runs) and
+/// [`compare_recorded_runs`](project::compare_recorded_runs) compare runs
+/// with the data relation their records establish (each run's
+/// [`UsedImage`](project::UsedImage)s). Re-exported from the pipeline
 /// crate's `project` module.
 pub mod project {
     pub use vision_calibration_pipeline::project::{
@@ -628,8 +632,8 @@ pub mod project {
         PROJECT_FILE_JSON, PROJECT_VERSION, Project, ProjectDigest, ProjectEntry, ProjectError,
         ProjectRunOptions, ProjectSpec, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
         RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSeed, RunSource,
-        RunState, RunSummary, ScanFailure, SeedSource, UnrecordedRun, ViewExclusion, ViewRef,
-        scan_library,
+        RunState, RunSummary, ScanFailure, SeedSource, UnrecordedRun, UsedImage, ViewExclusion,
+        ViewRef, compare_recorded_runs, scan_library,
     };
 }
 
@@ -863,6 +867,32 @@ pub mod synthetic {
 ///   ([`Compensation`](analysis::Compensation),
 ///   [`FitRegion`](analysis::FitRegion)), returning a
 ///   [`ProjectionDifference`](analysis::ProjectionDifference).
+/// - Calibrations of one rig side by side:
+///   [`compare_runs`](analysis::compare_runs) over
+///   [`ComparedRun`](analysis::ComparedRun)s with
+///   [`CompareRunsOptions`](analysis::CompareRunsOptions) (each run's
+///   [`DataRelation`](analysis::DataRelation) to the reference, a
+///   [`RunSide`](analysis::RunSide)), returning a
+///   [`RunComparison`](analysis::RunComparison): each run's
+///   [`RunEvidence`](analysis::RunEvidence)
+///   ([`CovarianceStatus`](analysis::CovarianceStatus),
+///   [`CameraEvidence`](analysis::CameraEvidence)) and each
+///   [`RunDifference`](analysis::RunDifference)
+///   ([`ConfigChange`](analysis::ConfigChange),
+///   [`CameraDifference`](analysis::CameraDifference),
+///   [`ParameterComparison`](analysis::ParameterComparison),
+///   [`ParameterDifference`](analysis::ParameterDifference),
+///   [`ProjectionComparison`](analysis::ProjectionComparison),
+///   [`PoseDifference`](analysis::PoseDifference),
+///   [`PlaneDifference`](analysis::PlaneDifference),
+///   [`DataOverlap`](analysis::DataOverlap),
+///   [`RelationRefusal`](analysis::RelationRefusal),
+///   [`RefusalReason`](analysis::RefusalReason),
+///   [`ProjectionUnavailable`](analysis::ProjectionUnavailable),
+///   [`ExclusionChanges`](analysis::ExclusionChanges)) with its
+///   [`DifferenceTest`](analysis::DifferenceTest) or
+///   [`JointTest`](analysis::JointTest), or why there is none
+///   ([`NoTest`](analysis::NoTest)).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
@@ -873,15 +903,19 @@ pub mod synthetic {
 ///   [`FeatureResidualHistogram`](analysis::FeatureResidualHistogram).
 pub mod analysis {
     pub use vision_calibration_pipeline::analysis::{
-        Bandwidth, BandwidthSelection, CandidateGrid, CheckKind, CheckStatus,
-        CrossValidationOptions, DepthOfField, FocusDiagnostic, FocusFit, FocusImageLine,
-        FocusJackknife, FocusJackknifeCovariance, FocusOptions, FocusViewStats, FoldScore,
-        HeldOutScore, Measurement, ModelComparison, ModelOutcome, ModelScore,
-        PredictedRigUncertainty, PredictedUncertainty, QualityCheck, QualityReport,
-        QualityThresholds, RankedCandidate, RankedRobotPose, ReportOptions, ResidualMap,
-        ResidualMapOptions, Unit, Verdict, assess, candidate_poses, compare_camera_models,
-        fit_focus, html_report, predict_with_robot_poses, predict_with_views, rank_candidates,
-        rank_robot_poses, residual_map,
+        Bandwidth, BandwidthSelection, CameraDifference, CameraEvidence, CandidateGrid, CheckKind,
+        CheckStatus, CompareRunsOptions, ComparedRun, ConfigChange, CovarianceStatus,
+        CrossValidationOptions, DataOverlap, DataRelation, DepthOfField, DifferenceTest,
+        ExclusionChanges, FocusDiagnostic, FocusFit, FocusImageLine, FocusJackknife,
+        FocusJackknifeCovariance, FocusOptions, FocusViewStats, FoldScore, HeldOutScore, JointTest,
+        Measurement, ModelComparison, ModelOutcome, ModelScore, NoTest, ParameterComparison,
+        ParameterDifference, PlaneDifference, PoseDifference, PredictedRigUncertainty,
+        PredictedUncertainty, ProjectionComparison, ProjectionUnavailable, QualityCheck,
+        QualityReport, QualityThresholds, RankedCandidate, RankedRobotPose, RefusalReason,
+        RelationRefusal, ReportOptions, ResidualMap, ResidualMapOptions, RunComparison,
+        RunDifference, RunEvidence, RunSide, Unit, Verdict, assess, candidate_poses,
+        compare_camera_models, compare_runs, fit_focus, html_report, predict_with_robot_poses,
+        predict_with_views, rank_candidates, rank_robot_poses, residual_map,
     };
 
     pub use vision_calibration_core::{

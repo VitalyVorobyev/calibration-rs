@@ -729,6 +729,7 @@ fn extract_laser_pixels(
     let bytes = std::fs::read(image_path)?;
     let detector_name = format!("laser:{}", extractor.name());
     let key = CacheKey::from_inputs(&bytes, &detector_name, key_config);
+    detection.note_image(image_path, &key);
 
     let cached: Option<CachedFeatures> = detection.lookup(&key)?;
     if let Some(entry) = cached {
@@ -1593,6 +1594,71 @@ mod tests {
             (t - nalgebra::Vector3::new(-0.2, 0.0, 1.0)).norm() < 1e-12,
             "got {t:?}"
         );
+    }
+
+    /// A cache that passes every call through and keeps each image file a
+    /// read names ([`DetectionCache::note_image`]), as a project's does.
+    struct Noting<'a> {
+        inner: &'a FsDetectionCache,
+        noted: std::sync::Mutex<std::collections::BTreeSet<PathBuf>>,
+    }
+
+    impl DetectionCache for Noting<'_> {
+        fn get(
+            &self,
+            key: &CacheKey,
+        ) -> Result<Option<CachedFeatures>, vision_calibration_detect::CacheError> {
+            self.inner.get(key)
+        }
+
+        fn put(
+            &self,
+            key: &CacheKey,
+            value: &CachedFeatures,
+        ) -> Result<(), vision_calibration_detect::CacheError> {
+            self.inner.put(key, value)
+        }
+
+        fn note_image(&self, image: &Path, _key: &CacheKey) {
+            self.noted
+                .lock()
+                .unwrap()
+                .insert(vision_calibration_core::lexical_absolute(image));
+        }
+    }
+
+    /// Every frame of a rig laserline run's image manifest, target and
+    /// laser, is an image the run's detection read through the cache, so a
+    /// project records the content of each (and compares such runs by it).
+    #[test]
+    fn a_rig_laserline_run_notes_every_frame_of_its_manifest() {
+        use super::super::calibrate::RunFrames;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = FsDetectionCache::new(tmp.path().join("cache"));
+        seed_rig_views(tmp.path(), &cache, 3);
+        let spec = rig_laserline_spec(tmp.path(), 3);
+        let noting = Noting {
+            inner: &cache,
+            noted: Default::default(),
+        };
+        let result = build_rig_laserline_device_input(
+            &spec,
+            tmp.path(),
+            Detection::Cached(&noting),
+            &FakeLaser::new(30),
+            &RunControl::default(),
+        )
+        .unwrap();
+        let manifest = result.image_manifest(&spec, tmp.path());
+        assert_eq!(manifest.target_frames().count(), 6);
+        assert_eq!(manifest.laser_frames().count(), 6);
+        let noted = noting.noted.lock().unwrap();
+        let root = tmp.path().join(&manifest.root);
+        for frame in &manifest.frames {
+            let path = vision_calibration_core::lexical_absolute(&root.join(&frame.path));
+            assert!(noted.contains(&path), "{} was not noted", path.display());
+        }
     }
 
     #[test]

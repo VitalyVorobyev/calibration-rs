@@ -192,6 +192,7 @@ pub(crate) fn labelled(
         .collect();
     covariance.fixed = fixed_labels(ir, labels);
     covariance.view_scatter = estimate.view_scatter;
+    covariance.variance_factor = estimate.variance_factor;
     covariance.second_order = estimate.second_order.as_ref().and_then(|second| {
         // `δ' = M δ`, so a function `aᵀ δ` is `(M⁻ᵀ a)ᵀ δ'`.
         let coefficients = match &inverses {
@@ -686,6 +687,7 @@ mod tests {
             num_residuals: 100,
             dof: 100 - n,
             view_scatter: None,
+            variance_factor: None,
             second_order: None,
         }))
     }

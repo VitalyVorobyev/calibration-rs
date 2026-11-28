@@ -116,6 +116,19 @@ pub struct ParameterCovariance {
     /// below six views.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view_scatter: Option<f64>,
+    /// The a-posteriori variance factor `c` of a covariance from one
+    /// residual family with an estimated noise level and no prior:
+    /// `covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+    /// residuals (whitened by their stated covariances, when they have
+    /// them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
+    /// per degree of freedom (px², or dimensionless for whitened residuals);
+    /// under a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`
+    /// (`m` residuals, `n` estimated parameters). It puts two
+    /// solves of nested data on one noise level. `None` when the covariance
+    /// combines residual families, stated priors or another calibration's
+    /// share, or was derived from several solves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variance_factor: Option<f64>,
     /// How far the error of the shared parameters is predicted to depart
     /// from `covariance` once its second-order term is counted. `None` when
     /// the result has no shared parameters or more than 64 (the prediction
@@ -200,7 +213,8 @@ impl ParameterCovariance {
     /// The covariance `covariance` of the shared parameters `labels`, with
     /// the residual noise `noise`, `num_residuals` scalar residuals and `dof`
     /// degrees of freedom. No per-view blocks, no fixed parameters, no view
-    /// scatter and no second-order prediction; set those fields to add them.
+    /// scatter, no variance factor and no second-order prediction; set those
+    /// fields to add them.
     pub fn new(
         labels: Vec<String>,
         covariance: Vec<Vec<f64>>,
@@ -217,6 +231,7 @@ impl ParameterCovariance {
             num_residuals,
             dof,
             view_scatter: None,
+            variance_factor: None,
             second_order: None,
         }
     }
@@ -380,6 +395,7 @@ mod tests {
             num_residuals: 400,
             dof: 380,
             view_scatter: Some(3.5),
+            variance_factor: None,
             second_order: Some(SecondOrderError {
                 max_scatter_ratio: 2.1,
                 nees_ratio: 1.3,

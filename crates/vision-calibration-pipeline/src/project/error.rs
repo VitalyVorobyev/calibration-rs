@@ -138,6 +138,9 @@ pub enum ProjectError {
         /// Why it cannot be.
         message: String,
     },
+    /// Runs could not be compared.
+    #[error("comparing runs: {0}")]
+    Compare(crate::Error),
 }
 
 impl ProjectError {
@@ -170,7 +173,8 @@ impl ProjectError {
             | Self::Parse { .. }
             | Self::RunNotFound { .. }
             | Self::ImportMismatch { .. }
-            | Self::Cancelled => None,
+            | Self::Cancelled
+            | Self::Compare(_) => None,
         }
     }
 
@@ -297,6 +301,10 @@ mod tests {
                     message: "x".into(),
                 },
                 Some("seed"),
+            ),
+            (
+                ProjectError::Compare(crate::Error::invalid_input("x")),
+                None,
             ),
         ];
         for (error, expected) in table {

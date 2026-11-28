@@ -51,6 +51,13 @@ class CalibratedRun(_CalibratedRunRequired, total=False):
     detection kept.
     """
 
+    images: list[UsedImage]
+    """Each image the calibration used, one per frame of the export's image
+    manifest and in its order, with the hash of its content: what tells
+    whether two runs share observations. Empty in a run written before
+    it was recorded.
+    """
+
     unmatched_exclusions: list[FeatureExclusion]
     """Feature exclusions whose points matched no feature of the detection
     they were applied to, with those points only. An image left out
@@ -155,6 +162,57 @@ class CameraConfig(_CameraConfigRequired, total=False):
     because tangential and higher-order terms trade off against the tilt.
     An unknown name is a configuration error.
     """
+
+
+class CameraDifference(TypedDict):
+    """One camera both runs have."""
+
+    id: str
+    """The camera's id."""
+
+    parameters: ParameterComparison
+    """Its parameters side by side, when both runs use one camera model."""
+
+    projection: ProjectionComparison
+    """Where the two calibrations project the same rays."""
+
+
+class CameraEvidence(TypedDict):
+    """One camera's fit in one run. The residual statistics are in-sample:
+    they compare like with like only between runs of the same observations
+    (`DataRelation::Identical`, `DataRelation::SameData`); a run that
+    left out its worst features always has a lower residual.
+    """
+
+    features: int
+    """Its features in the calibration."""
+
+    id: str
+    """The camera's id."""
+
+    image_size: tuple[int, int] | list[int]
+    """Its image size `[width, height]`, pixels."""
+
+    max_projection_sigma_px: float | None
+    """The largest major-axis projection σ over a grid across the image,
+    pixels; `None` without a covariance of the camera's parameters.
+    """
+
+    model: CameraModelSpec | None
+    """Its model; `None` for a general sensor homography, which no model
+    spec describes.
+    """
+
+    reprojection: ReprojectionStats | None
+    """The statistics of its reprojection error lengths (mean, RMS, median,
+    95th percentile, largest), pixels; `None` without projected features.
+    """
+
+    unprojected: int
+    """Features the calibrated camera could not project."""
+
+    views: int
+    """The views it observed features in."""
 
 
 class CameraFix(TypedDict, total=False):
@@ -497,6 +555,52 @@ class CombinationTerm(TypedDict):
     """
 
 
+class CompareRunsOptions(TypedDict, total=False):
+    """The options of `compare_runs`."""
+
+    compensation: Compensation
+    """How the projection difference aligns the two camera frames; default
+    `Compensation::Rotation`.
+    """
+
+    grid_columns: int
+    """Grid columns of the projection difference, at least 1; default 64.
+    The rows follow from the image's aspect.
+    """
+
+    thresholds: QualityThresholds
+    """The thresholds each run's quality verdict is judged by."""
+
+
+Compensation: TypeAlias = Literal["none", "rotation"]
+"""How the second camera's frame is aligned with the first's before their
+projections are compared.
+
+- ``"none"``: Compare the rays as the two calibrations place them, without
+  re-orienting either camera: for a camera frame used as calibrated,
+  such as one run's intrinsics combined with another run's extrinsics.
+- ``"rotation"``: Fit the rotation of the second camera's frame that brings its
+  projections closest to the first's (the default). The orientation of
+  a camera frame is not separately observable from what uses the
+  camera, so the difference left is the part no re-orientation removes.
+"""
+
+
+class ConfigChange(TypedDict):
+    """One setting where two configurations differ."""
+
+    other: str | None
+    """The other run's value as JSON text; `None` where it has none."""
+
+    path: str
+    """The setting, as a path into the configuration's JSON
+    (`config.optimize.reprojection_loss`, `config.camera.fix[2]`).
+    """
+
+    reference: str | None
+    """The reference's value as JSON text; `None` where it has none."""
+
+
 ConfigPatch: TypeAlias = dict[str, Any]
 """Changes to a workflow's default configuration: what the patch names
 replaces the default, what it leaves out keeps it.
@@ -681,6 +785,39 @@ class CorrespondenceView(_CorrespondenceViewRequired, total=False):
     """
 
 
+class CovarianceStatus_Available(TypedDict):
+    """It has one."""
+
+    shared_parameters: int
+    """The number of shared (not per-view) parameters it covers."""
+
+    status: Literal["available"]
+    variance_factor: float | None
+    """Its a-posteriori variance factor, when it comes from one
+    residual family with an estimated noise level; what a nested
+    test needs.
+    """
+
+    view_scatter: float | None
+    """The factor the covariance was scaled by because the views
+    scatter more than the residual noise predicts; `None` when it
+    was not scaled.
+    """
+
+
+class CovarianceStatus_Unavailable(TypedDict):
+    """It has none, for the reason given."""
+
+    reason: UncertaintyUnavailable
+    """Why."""
+
+    status: Literal["unavailable"]
+
+
+CovarianceStatus: TypeAlias = CovarianceStatus_Available | CovarianceStatus_Unavailable
+"""Whether a run has a covariance of its estimates."""
+
+
 class CrossValidationOptions(TypedDict, total=False):
     """How `compare_camera_models` splits the views into folds.
 
@@ -703,6 +840,89 @@ class CrossValidationOptions(TypedDict, total=False):
     0. Another seed gives another partition; a ranking that changes with
     the seed is not a reliable one.
     """
+
+
+class DataOverlap(TypedDict):
+    """What two runs' observations share. A feature is one target point (or
+    laser pixel) of one camera in one image, identified by the image's
+    content and its observed pixel: two runs share it only when they read
+    the same image and their detections agree.
+    """
+
+    other_only_features: int
+    """Features only the other run used."""
+
+    other_only_images: int
+    """Images only the other run used."""
+
+    reference_only_features: int
+    """Features only the reference used."""
+
+    reference_only_images: int
+    """Images only the reference used."""
+
+    shared_features: int
+    """Features both runs used."""
+
+    shared_images: int
+    """Images both runs used."""
+
+
+class DataRelation_Identical(TypedDict):
+    """The same observations and the same configuration."""
+
+    kind: Literal["identical"]
+
+
+class DataRelation_Independent(TypedDict):
+    """No observation in common: independent captures of the device."""
+
+    kind: Literal["independent"]
+
+
+class DataRelation_Nested(TypedDict):
+    """One run's observations are a strict subset of the other's, and the
+    configurations are equal: the runs differ by what was left out.
+    """
+
+    kind: Literal["nested"]
+    smaller: RunSide
+    """The run with fewer observations."""
+
+
+class DataRelation_Overlapping(TypedDict):
+    """Shared and differing observations, or nested observations under
+    different configurations.
+    """
+
+    kind: Literal["overlapping"]
+
+
+class DataRelation_SameData(TypedDict):
+    """The same observations under another configuration (camera model,
+    loss, solver).
+    """
+
+    kind: Literal["same_data"]
+
+
+class DataRelation_Unknown(TypedDict):
+    """Not established: no test."""
+
+    kind: Literal["unknown"]
+
+
+DataRelation: TypeAlias = (
+    DataRelation_Unknown
+    | DataRelation_Independent
+    | DataRelation_Identical
+    | DataRelation_SameData
+    | DataRelation_Nested
+    | DataRelation_Overlapping
+)
+"""How the observations of a run relate to the reference run's: what
+decides which test of a difference is valid.
+"""
 
 
 class _DatasetSpecRequired(TypedDict):
@@ -1061,6 +1281,61 @@ class DeviceSeed(_DeviceSeedRequired, total=False):
     """
 
 
+class DifferenceTest_Independent(TypedDict):
+    """Independent captures: `σ_Δ = √(σ_ref² + σ_other²)`, `z = Δ / σ_Δ`.
+    Under the hypothesis that both runs estimate the same value, `z` is
+    standard normal.
+    """
+
+    kind: Literal["independent"]
+    p_value: float
+    """The two-sided p-value of `z`."""
+
+    sigma: float
+    """`σ_Δ`."""
+
+    z: float
+    """`Δ / σ_Δ`."""
+
+
+class DifferenceTest_Nested(TypedDict):
+    """Nested observations under one configuration (the Hausman form):
+    `σ_Δ² = c · k · (a_smaller − a_larger)`, `a` each run's variance per
+    unit noise (its stated variance over its view-scatter factor and
+    variance factor), `c` and `k` the smaller run's variance factor and
+    view-scatter factor: both on one noise level, the smaller run's, which
+    holds whether or not the left-out observations fit. `z = Δ / σ_Δ` is standard normal when the left-out
+    observations fit the model as the others do and were not chosen by
+    their residuals.
+    """
+
+    kind: Literal["nested"]
+    p_value: float
+    """The two-sided p-value of `z`."""
+
+    sigma: float
+    """`σ_Δ`."""
+
+    z: float
+    """`Δ / σ_Δ`."""
+
+
+class DifferenceTest_NotAvailable(TypedDict):
+    """No valid test."""
+
+    kind: Literal["not_available"]
+    reason: NoTest
+    """Why."""
+
+
+DifferenceTest: TypeAlias = (
+    DifferenceTest_Independent
+    | DifferenceTest_Nested
+    | DifferenceTest_NotAvailable
+)
+"""The test of a scalar difference `Δ = other − reference`."""
+
+
 DistortionKind: TypeAlias = Literal[
     "none",
     "brown_conrady5",
@@ -1256,6 +1531,16 @@ class EllipseDetail(TypedDict):
 
     semi_axes_px: tuple[float, float] | list[float]
     """The semi-axes `[a, b]`, `a ≥ b`, px."""
+
+
+class ExclusionChanges(TypedDict):
+    """The exclusions that differ between two project runs, notes left out."""
+
+    other_only: Exclusions
+    """What only the other run left out."""
+
+    reference_only: Exclusions
+    """What only the reference left out."""
 
 
 class Exclusions(TypedDict, total=False):
@@ -2466,6 +2751,55 @@ class JointOptimizeConfig(_JointOptimizeConfigRequired, total=False):
     """
 
 
+class JointTest_Independent(TypedDict):
+    """Independent captures: `Σ_Δ = Σ_ref + Σ_other`."""
+
+    chi2: float
+    """`χ²`."""
+
+    dof: int
+    """Its degrees of freedom."""
+
+    kind: Literal["independent"]
+    p_value: float
+    """The upper-tail p-value of `χ²`."""
+
+
+class JointTest_Nested(TypedDict):
+    """Nested observations under one configuration (the Hausman form, on
+    one noise level as `DifferenceTest::Nested`), through a generalized
+    inverse over the directions whose variance grows without the
+    left-out data, `dof` their number. Offered for poses; a camera's
+    parameters have no nested joint test (`NoTest::NestedJoint`).
+    """
+
+    chi2: float
+    """`χ²`."""
+
+    dof: int
+    """Its degrees of freedom."""
+
+    kind: Literal["nested"]
+    p_value: float
+    """The upper-tail p-value of `χ²`."""
+
+
+class JointTest_NotAvailable(TypedDict):
+    """No valid test."""
+
+    kind: Literal["not_available"]
+    reason: NoTest
+    """Why."""
+
+
+JointTest: TypeAlias = JointTest_Independent | JointTest_Nested | JointTest_NotAvailable
+"""The test of several quantities at once (a pose's tangent, a camera's
+parameters), their difference `δ` against the covariance of the
+difference: `χ² = δᵀ Σ_Δ⁻¹ δ`, `Σ_Δ` as each `DifferenceTest` forms
+a variance.
+"""
+
+
 class LaserExtractionSpec(TypedDict, total=False):
     """Laser-line extraction parameters. Consumed by the
     runner's injected `LaserPixelExtractor`; hashed (canonical JSON)
@@ -2892,6 +3226,94 @@ NoMeta: TypeAlias = None
 """Empty metadata marker for views that do not need extra metadata."""
 
 
+NoTest: TypeAlias = Literal[
+    "unknown_relation",
+    "identical",
+    "shared_data",
+    "no_covariance",
+    "not_estimated",
+    "mixed_residuals",
+    "no_variance_factor",
+    "nested_variance_not_positive",
+    "nested_joint",
+    "gauge_differs",
+    "singular_covariance",
+]
+"""Why a difference has no test.
+
+- ``"unknown_relation"``: The data relation is not known.
+- ``"identical"``: The runs have the same observations and configuration.
+- ``"shared_data"``: The runs share observations (`DataRelation::SameData`,
+  `DataRelation::Overlapping`): their errors are correlated by an
+  amount neither export states.
+- ``"no_covariance"``: A run has no covariance.
+- ``"not_estimated"``: A run held the quantity fixed, so states no σ of it.
+- ``"mixed_residuals"``: Nested runs whose covariance combines residual families (laser and
+  reprojection), robot-pose priors or per-camera noise levels: the
+  nested form's premise, one noise level for every residual, fails,
+  and no test of such runs has been validated.
+- ``"no_variance_factor"``: Nested runs of which one export states no variance factor (written
+  before it was recorded, or its covariance was derived from several
+  solves): their noise levels cannot be put on one scale.
+- ``"nested_variance_not_positive"``: Nested runs whose variance of the difference is not positive (the
+  smaller run's information is not the smaller). For truly nested
+  observations this is an artifact of evaluating each run's
+  information at its own estimate: at one common point the smaller
+  run's variance is never below the larger's. It occurs when few
+  observations were left out, where the two informations differ less
+  than the change of the point moves them.
+- ``"nested_joint"``: The joint test of a camera's parameters between nested runs, which
+  is not offered: it rejects well above its level when the left-out
+  data are a small share (measured: 7.7 % with 1 of 8 views left out,
+  15.7 % with 6 of about 2000 features, at the 5 % level). Each
+  parameter's own nested test remains.
+- ``"gauge_differs"``: The runs' rigs have different reference cameras, so the other run's
+  covariance is not of the compared pose.
+- ``"singular_covariance"``: The covariance of the difference is singular.
+"""
+
+
+class ParameterComparison_DifferentModels(TypedDict):
+    """The models differ, so a parameter of one is not a parameter of the
+    other; the projection difference compares them.
+    """
+
+    kind: Literal["different_models"]
+
+
+class ParameterComparison_SameModel(TypedDict):
+    """Both runs use one model."""
+
+    joint: JointTest
+    """One test of every parameter both runs estimated, over their full
+    covariance: a `χ²` of as many degrees of freedom, for independent
+    captures. Read it before the per-parameter tests: of eight
+    parameters tested at 5 % each, one rejects by chance in about a
+    quarter of comparisons. Not offered for nested runs
+    (`NoTest::NestedJoint`).
+    """
+
+    kind: Literal["same_model"]
+    parameters: list[ParameterDifference]
+    """Each parameter, in the solver's order, with its own test."""
+
+
+class ParameterComparison_Unparameterized(TypedDict):
+    """A camera whose parameters the solver does not name: a general sensor
+    homography.
+    """
+
+    kind: Literal["unparameterized"]
+
+
+ParameterComparison: TypeAlias = (
+    ParameterComparison_SameModel
+    | ParameterComparison_DifferentModels
+    | ParameterComparison_Unparameterized
+)
+"""A camera's parameters in two runs."""
+
+
 class _ParameterCovarianceRequired(TypedDict):
     """The keys of `ParameterCovariance` that every payload has."""
 
@@ -2930,6 +3352,20 @@ class ParameterCovariance(_ParameterCovarianceRequired, total=False):
     from one solve.
     """
 
+    variance_factor: float | None
+    """The a-posteriori variance factor `c` of a covariance from one
+    residual family with an estimated noise level and no prior:
+    `covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+    residuals (whitened by their stated covariances, when they have
+    them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
+    per degree of freedom (px², or dimensionless for whitened residuals);
+    under a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`
+    (`m` residuals, `n` estimated parameters). It puts two
+    solves of nested data on one noise level. `None` when the covariance
+    combines residual families, stated priors or another calibration's
+    share, or was derived from several solves.
+    """
+
     view_scatter: float | None
     """How many times the variance of the shared parameters across views
     exceeds what the residual noise predicts, measured by leaving out one
@@ -2945,6 +3381,42 @@ class ParameterCovariance(_ParameterCovarianceRequired, total=False):
 
     views: list[ViewCovariance]
     """Per-view parameters, one block per view that has free ones."""
+
+
+class ParameterDifference(TypedDict):
+    """One parameter in two runs."""
+
+    delta: float
+    """`other − reference`."""
+
+    delta_over_reference_sigma: float | None
+    """`delta / reference_sigma`, signed: whether the change matters at
+    the precision the reference claims. Not a test: two runs of the same
+    observations can differ by many σ of either without disagreeing, and
+    by a fraction of one while disagreeing.
+    """
+
+    label: str
+    """The parameter, as the covariance labels it without its camera
+    prefix (`fx`, `k1`, `tilt_x`).
+    """
+
+    other: float
+    """Its value in the other run."""
+
+    other_sigma: float | None
+    """The other run's stated σ, likewise."""
+
+    reference: float
+    """Its value in the reference."""
+
+    reference_sigma: float | None
+    """The reference's stated σ; `None` when it did not estimate the
+    parameter or has no covariance.
+    """
+
+    test: DifferenceTest
+    """The test of the difference, when the data relation supports one."""
 
 
 class PerFeatureResiduals(TypedDict, total=False):
@@ -3106,6 +3578,35 @@ class PlanarView(TypedDict):
 
     obs: CorrespondenceView
     """2D-3D correspondences observed in this view."""
+
+
+class PlaneDifference(TypedDict):
+    """A camera's laser plane in two runs, in the camera's frame."""
+
+    camera: str
+    """The camera's id."""
+
+    distance_delta_m: float
+    """`other − reference`, metres."""
+
+    distance_other_m: float
+    """The other run's distance, its plane's sign matched to the
+    reference's normal, metres.
+    """
+
+    distance_over_reference_sigma: float | None
+    """`distance_delta_m` over the reference's σ of `d`. Not a test."""
+
+    distance_reference_m: float
+    """The reference's distance `d` of `n · p + d = 0`, metres."""
+
+    distance_test: DifferenceTest
+    """The test of the distance difference, when the data relation
+    supports one.
+    """
+
+    normal_angle_deg: float
+    """The angle between the two normals, degrees."""
 
 
 class PlaneOptimizeConfig(TypedDict):
@@ -3309,6 +3810,43 @@ class PoseConvention(TypedDict):
 
     translation_units: TranslationUnits
     """Translation units in the file."""
+
+
+class PoseDifference(TypedDict):
+    """A pose in two runs."""
+
+    delta_over_reference_sigma: float | None
+    """The tangent's length in the reference's covariance,
+    `√(τᵀ Σ_ref⁻¹ τ)`: the change in units of the reference's stated
+    uncertainty. Not a test.
+    """
+
+    label: str
+    """The pose, its frames named by camera id: `<camera>_se3_<reference>`
+    for a camera's pose relative to the reference run's reference
+    camera; `gripper_se3_<reference>` or `<reference>_se3_base` for the
+    hand-eye.
+    """
+
+    rotation_deg: float
+    """The angle of the rotation between the two, degrees."""
+
+    tangent: tuple[float, float, float, float, float, float] | list[float]
+    """`Log(P_ref⁻¹ · P_other)` as `[ωx, ωy, ωz, vx, vy, vz]` (radians,
+    metres): the difference in the covariance's right-perturbation
+    tangent, in the pose's source frame.
+    """
+
+    test: JointTest
+    """The test of the difference, when the data relation supports one."""
+
+    translation_m: tuple[float, float, float] | list[float]
+    """The translations' difference, `other − reference`, in the pose's
+    target frame, metres.
+    """
+
+    translation_norm_m: float
+    """Its length, metres."""
 
 
 class PosePairing_ByIndex(TypedDict):
@@ -3589,6 +4127,58 @@ class ProjectSpec(_ProjectSpecRequired, total=False):
     """
 
 
+class ProjectionComparison_Compared(TypedDict):
+    """The projection difference, `other − reference` at the reference's
+    rays, after the compensation; fitted on the grid blocks either run's
+    features cover.
+    """
+
+    compensation: Compensation
+    """How the other camera's frame was aligned."""
+
+    fit_nodes: int
+    """Grid nodes the rotation was fitted on and the `*_fit_px`
+    statistics are taken over: the covered region.
+    """
+
+    max_fit_px: float
+    """The largest difference over the fitted nodes, pixels."""
+
+    max_valid_px: float
+    """The largest difference over every valid node, pixels."""
+
+    rms_fit_px: float
+    """The root mean square difference over the fitted nodes, pixels."""
+
+    rms_valid_px: float
+    """The root mean square over every valid node, pixels: outside the
+    covered region, an extrapolation of both models.
+    """
+
+    rotation_deg: float
+    """The angle of the compensating rotation, degrees."""
+
+    status: Literal["compared"]
+    valid_nodes: int
+    """Grid nodes where both cameras have a value."""
+
+
+class ProjectionComparison_Unavailable(TypedDict):
+    """Not computed, for the reason given."""
+
+    reason: ProjectionUnavailable
+    """Why."""
+
+    status: Literal["unavailable"]
+
+
+ProjectionComparison: TypeAlias = (
+    ProjectionComparison_Compared
+    | ProjectionComparison_Unavailable
+)
+"""Where two calibrations of a camera project the same rays."""
+
+
 ProjectionKind: TypeAlias = Literal["pinhole", "equidistant"]
 """Which projection model a camera uses.
 
@@ -3614,6 +4204,22 @@ class ProjectionParams_Pinhole(TypedDict):
 
 ProjectionParams: TypeAlias = ProjectionParams_Pinhole | ProjectionParams_Equidistant
 """Serializable projection model parameters."""
+
+
+ProjectionUnavailable: TypeAlias = Literal[
+    "invalid_image",
+    "too_few_nodes",
+    "singular",
+    "not_central",
+]
+"""Why a projection difference was not computed.
+
+- ``"invalid_image"``: The image or grid is empty.
+- ``"too_few_nodes"``: Fewer than three nodes of the covered region have a value.
+- ``"singular"``: A sensor homography does not invert, or the rotation fit is
+  singular.
+- ``"not_central"``: A camera's projection is not central.
+"""
 
 
 class ProjectionUncertainty(TypedDict):
@@ -3886,6 +4492,21 @@ class RankedRobotPose(TypedDict):
     """
 
 
+RefusalReason: TypeAlias = Literal[
+    "shared_features",
+    "not_a_subset",
+    "configurations_differ",
+]
+"""Why a stated relation does not hold.
+
+- ``"shared_features"``: Stated independent, the runs share bit-identical features (the same
+  target point at the same observed pixel): they read the same images.
+- ``"not_a_subset"``: Stated nested, the smaller run has a feature the larger lacks, or
+  the two have the same features.
+- ``"configurations_differ"``: Stated nested, the two configurations differ.
+"""
+
+
 RejectReason: TypeAlias = Literal[
     "too_few_features",
     "partial_chessboard",
@@ -3964,6 +4585,18 @@ class RejectedPoint(_RejectedPointRequired, total=False):
 
     world_xyz: tuple[float, float, float] | list[float] | None
     """The target point it would have had, metres, when it had a label."""
+
+
+class RelationRefusal(TypedDict):
+    """A stated relation the runs contradict, and why: the difference is then
+    treated as `DataRelation::Overlapping`.
+    """
+
+    reason: RefusalReason
+    """Why it does not hold."""
+
+    stated: DataRelation
+    """The relation as stated."""
 
 
 class _ReprojectionStatsRequired(TypedDict):
@@ -5141,6 +5774,109 @@ RotationFormat: TypeAlias = Literal[
 """
 
 
+class RunComparison(TypedDict):
+    """Runs side by side against the first, the reference: what
+    `compare_runs` returns.
+    """
+
+    differences: list[RunDifference]
+    """Each run after the first against the reference, in run order."""
+
+    runs: list[RunEvidence]
+    """What each run says of itself, in the given order; the first is the
+    reference.
+    """
+
+
+class _RunDifferenceRequired(TypedDict):
+    """The keys of `RunDifference` that every payload has."""
+
+    cameras: list[CameraDifference]
+    """Each camera both runs have, in the reference's camera order."""
+
+    config_changes: list[ConfigChange] | None
+    """Where the two configurations differ; `None` when either run's
+    configuration was not given.
+    """
+
+    handeye: PoseDifference | None
+    """The hand-eye, expressed for the reference run's reference camera;
+    `None` unless both runs calibrated one in the same mode.
+    """
+
+    laser_planes: list[PlaneDifference]
+    """Each camera's laser plane, for the cameras both runs have one for."""
+
+    model_changes: list[str]
+    """The cameras, by id, whose camera models differ between the runs."""
+
+    relation: DataRelation
+    """How its observations relate to the reference's: the stated relation,
+    or `DataRelation::Overlapping` when the runs contradict it.
+    """
+
+    rig: list[PoseDifference]
+    """Each camera's pose relative to the reference run's reference camera,
+    for the cameras both runs have (a rig).
+    """
+
+    run: int
+    """The run's position in the comparison (1 for the first run after the
+    reference).
+    """
+
+    unmatched_cameras: list[str]
+    """The cameras of the run the reference does not have, and the
+    reference's cameras it does not have, by id.
+    """
+
+
+class RunDifference(_RunDifferenceRequired, total=False):
+    """One run against the reference."""
+
+    data: DataOverlap | None
+    """What the two runs' observations share, by image content and
+    feature: the evidence of the relation. `None` unless both runs
+    recorded the content of the images they used (project runs).
+    """
+
+    exclusion_changes: ExclusionChanges | None
+    """The exclusions one run made and the other did not. `None` unless
+    both are runs a project calibrated.
+    """
+
+    relation_refused: RelationRefusal | None
+    """The stated relation the runs contradict, and why; `None` when the
+    stated relation was used.
+    """
+
+
+class RunEvidence(TypedDict):
+    """One run's own evidence: its quality verdict, its covariance and the fit
+    of each camera.
+    """
+
+    cameras: list[CameraEvidence]
+    """Each camera, in the run's camera order."""
+
+    covariance: CovarianceStatus
+    """Whether it has a covariance."""
+
+    kind: ProblemKind
+    """The workflow that produced it."""
+
+    name: str
+    """The run's name."""
+
+    reference_camera: str | None
+    """The camera whose frame is the rig frame (its pose in the rig is the
+    identity), by id; for one camera, that camera.
+    """
+
+    verdict: Verdict
+    """Its quality verdict, judged by the options' thresholds."""
+
+
 class RunInfo(TypedDict):
     """One run of a project, as a listing shows it."""
 
@@ -5262,6 +5998,14 @@ class RunSeed(_RunSeedRequired, total=False):
     """
 
 
+RunSide: TypeAlias = Literal["reference", "other"]
+"""One of the two runs of a difference.
+
+- ``"reference"``: The reference run, the first of the comparison.
+- ``"other"``: The run compared with it.
+"""
+
+
 class _RunSource_CalibratedRequired(TypedDict):
     """The keys of `RunSource_Calibrated` that every payload has."""
 
@@ -5292,6 +6036,13 @@ class _RunSource_CalibratedRequired(TypedDict):
 
 class RunSource_Calibrated(_RunSource_CalibratedRequired, total=False):
     """The project calibrated it."""
+
+    images: list[UsedImage]
+    """Each image the calibration used, one per frame of the export's image
+    manifest and in its order, with the hash of its content: what tells
+    whether two runs share observations. Empty in a run written before
+    it was recorded.
+    """
 
     unmatched_exclusions: list[FeatureExclusion]
     """Feature exclusions whose points matched no feature of the detection
@@ -6341,6 +7092,20 @@ class Uncertainty_Available(_Uncertainty_AvailableRequired, total=False):
     from one solve.
     """
 
+    variance_factor: float | None
+    """The a-posteriori variance factor `c` of a covariance from one
+    residual family with an estimated noise level and no prior:
+    `covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
+    residuals (whitened by their stated covariances, when they have
+    them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
+    per degree of freedom (px², or dimensionless for whitened residuals);
+    under a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`
+    (`m` residuals, `n` estimated parameters). It puts two
+    solves of nested data on one noise level. `None` when the covariance
+    combines residual families, stated priors or another calibration's
+    share, or was derived from several solves.
+    """
+
     view_scatter: float | None
     """How many times the variance of the shared parameters across views
     exceeds what the residual noise predicts, measured by leaving out one
@@ -6454,6 +7219,24 @@ class UnrecordedRun(TypedDict, total=False):
     """Views that entered the calibration, from its `diagnostics.json`."""
 
 
+class UsedImage(TypedDict):
+    """An image a calibrated run used."""
+
+    camera: str
+    """The camera's id in the manifest."""
+
+    content: str
+    """The 64-bit FNV-1a hash of the image file's bytes, 16 hex digits: the
+    image part of its detection cache key. It identifies content, not a
+    file; it is no security hash.
+    """
+
+    image: str
+    """The image, relative to the data root (absolute when outside it),
+    `/`-separated.
+    """
+
+
 Verdict: TypeAlias = Literal["pass", "warn", "fail"]
 """The judgment of a result, or of one check.
 
@@ -6524,6 +7307,8 @@ __all__ = [
     "CalibrationConfig_RigLaserlineDevice",
     "CalibrationConfig_SingleCamHandeye",
     "CameraConfig",
+    "CameraDifference",
+    "CameraEvidence",
     "CameraFix",
     "CameraModelSpec",
     "CameraOverride",
@@ -6538,13 +7323,27 @@ __all__ = [
     "ChessCornersDetectorSpec",
     "ChessboardDetail",
     "CombinationTerm",
+    "CompareRunsOptions",
+    "Compensation",
+    "ConfigChange",
     "ConfigPatch",
     "CornerCovarianceSpec",
     "CornerDetail",
     "CornerQuality",
     "CornerStrategySpec",
     "CorrespondenceView",
+    "CovarianceStatus",
+    "CovarianceStatus_Available",
+    "CovarianceStatus_Unavailable",
     "CrossValidationOptions",
+    "DataOverlap",
+    "DataRelation",
+    "DataRelation_Identical",
+    "DataRelation_Independent",
+    "DataRelation_Nested",
+    "DataRelation_Overlapping",
+    "DataRelation_SameData",
+    "DataRelation_Unknown",
     "DatasetManifest",
     "DatasetSource",
     "DatasetSpec",
@@ -6559,6 +7358,10 @@ __all__ = [
     "DeviceIdentity",
     "DeviceOptimizeConfig",
     "DeviceSeed",
+    "DifferenceTest",
+    "DifferenceTest_Independent",
+    "DifferenceTest_Nested",
+    "DifferenceTest_NotAvailable",
     "DistortionKind",
     "DistortionParams",
     "DistortionParams_BrownConrady5",
@@ -6569,6 +7372,7 @@ __all__ = [
     "DistortionParams_ThinPrism",
     "EdgeBitDetail",
     "EllipseDetail",
+    "ExclusionChanges",
     "Exclusions",
     "ExportDiagnostics",
     "Feature",
@@ -6614,6 +7418,10 @@ __all__ = [
     "IntrinsicsOptimizeConfig",
     "Iso3",
     "JointOptimizeConfig",
+    "JointTest",
+    "JointTest_Independent",
+    "JointTest_Nested",
+    "JointTest_NotAvailable",
     "LaserExtractionSpec",
     "LaserFeatureResidual",
     "LaserLineTrace",
@@ -6636,7 +7444,13 @@ __all__ = [
     "ModelOutcome_Scored",
     "ModelScore",
     "NoMeta",
+    "NoTest",
+    "ParameterComparison",
+    "ParameterComparison_DifferentModels",
+    "ParameterComparison_SameModel",
+    "ParameterComparison_Unparameterized",
     "ParameterCovariance",
+    "ParameterDifference",
     "PerFeatureResiduals",
     "PixelRect",
     "PlanarIntrinsicsConfig",
@@ -6644,6 +7458,7 @@ __all__ = [
     "PlanarIntrinsicsInput",
     "PlanarOptimizeConfig",
     "PlanarView",
+    "PlaneDifference",
     "PlaneOptimizeConfig",
     "PointBlur",
     "PointCovariance",
@@ -6654,6 +7469,7 @@ __all__ = [
     "PointRejection_Unlabelled",
     "PoseColumnMap",
     "PoseConvention",
+    "PoseDifference",
     "PosePairing",
     "PosePairing_ByIndex",
     "PosePairing_SharedFilenameToken",
@@ -6667,10 +7483,14 @@ __all__ = [
     "Progress_Step",
     "ProjectEntry",
     "ProjectSpec",
+    "ProjectionComparison",
+    "ProjectionComparison_Compared",
+    "ProjectionComparison_Unavailable",
     "ProjectionKind",
     "ProjectionParams",
     "ProjectionParams_Equidistant",
     "ProjectionParams_Pinhole",
+    "ProjectionUnavailable",
     "ProjectionUncertainty",
     "PuzzleboardDecode",
     "PuzzleboardDetail",
@@ -6679,9 +7499,11 @@ __all__ = [
     "QualityThresholds",
     "RankedCandidate",
     "RankedRobotPose",
+    "RefusalReason",
     "RejectReason",
     "RejectedMarker",
     "RejectedPoint",
+    "RelationRefusal",
     "ReprojectionStats",
     "ResidualKind",
     "ResidualKind_Custom",
@@ -6731,11 +7553,15 @@ __all__ = [
     "RobustLoss_Huber",
     "RobustLoss_None",
     "RotationFormat",
+    "RunComparison",
+    "RunDifference",
+    "RunEvidence",
     "RunInfo",
     "RunInputs",
     "RunNotes",
     "RunRecord",
     "RunSeed",
+    "RunSide",
     "RunSource",
     "RunSource_Calibrated",
     "RunSource_Imported",
@@ -6801,6 +7627,7 @@ __all__ = [
     "Uncertainty_Unavailable",
     "Unit",
     "UnrecordedRun",
+    "UsedImage",
     "Verdict",
     "ViewCovariance",
     "ViewExclusion",

@@ -11,6 +11,28 @@
       "seed": "sha256:7855f5319f6ef046c7713930d0b44130486fef511af21fdaeed57413228f0a42"
     },
     "duration_ms": 60,
+    "images": [
+      {
+        "camera": "cam0",
+        "content": "cb5de4ef0b068bfd",
+        "image": "view00.png"
+      },
+      {
+        "camera": "cam0",
+        "content": "e69120bf23ee8a2f",
+        "image": "view02.png"
+      },
+      {
+        "camera": "cam0",
+        "content": "324a3121ee0f116e",
+        "image": "view04.png"
+      },
+      {
+        "camera": "cam0",
+        "content": "bdcbcfc14e1005d5",
+        "image": "view05.png"
+      }
+    ],
     "inputs": {
       "config": {
         "config": {

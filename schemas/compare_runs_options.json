@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "Compensation": {
+      "description": "How the second camera's frame is aligned with the first's before their\nprojections are compared.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Compare the rays as the two calibrations place them, without\nre-orienting either camera: for a camera frame used as calibrated,\nsuch as one run's intrinsics combined with another run's extrinsics.",
+          "type": "string"
+        },
+        {
+          "const": "rotation",
+          "description": "Fit the rotation of the second camera's frame that brings its\nprojections closest to the first's (the default). The orientation of\na camera frame is not separately observable from what uses the\ncamera, so the difference left is the part no re-orientation removes.",
+          "type": "string"
+        }
+      ]
+    },
+    "QualityThresholds": {
+      "additionalProperties": false,
+      "description": "Thresholds of the quality checks.\n\nEvery default is a limit a well-planned calibration of a perspective\ncamera clears, and that a calibration with a known planning flaw (views\nbunched in one part of the image, near-identical board poses) does not.\nThe expected feature noise has no default: it depends on the detector,\nthe target and the optics.",
+      "properties": {
+        "coverage_fail_below": {
+          "default": 0.3,
+          "description": "Share of the image's coverage cells, in `[0, 1]` and at most\n`coverage_warn_below`, below which the coverage check fails. Default\n`0.3`: the views reached little more than one quadrant of the image,\nso the rest of it, corners included, is extrapolated.",
+          "format": "double",
+          "type": "number"
+        },
+        "coverage_warn_below": {
+          "default": 0.5,
+          "description": "Share of the image's coverage cells, in `[0, 1]`, below which the\ncoverage check warns. Default `0.5`: features in fewer than half of\nthe cells leave the distortion to be extrapolated over the rest.",
+          "format": "double",
+          "type": "number"
+        },
+        "expected_feature_noise_px": {
+          "default": null,
+          "description": "Expected noise of one feature coordinate, σ₀, in pixels per axis\n(> 0). `None` (the default) leaves the variance-factor check not\napplicable: there is no universal value, since it depends on the\ndetector, the target and the image quality. State it to test whether\nthe residuals are consistent with it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_parameter_correlation": {
+          "default": 0.99,
+          "description": "Largest acceptable absolute correlation of two parameters of one\ncamera, in `(0, 1]`; a pair above it is named and the check warns.\nDefault `0.99`: at that level the data determines the pair's sum or\ndifference, not the two parameters, so each one's value is mostly the\ntrade-off's choice. The two focal lengths `fx` and `fy` are left out:\nthe board's distance scales both, so they correlate almost fully in\nevery planar calibration, while their ratio is well determined.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_projection_sigma_px": {
+          "default": 1.0,
+          "description": "Largest acceptable projection σ anywhere in the image, in pixels\n(> 0); above it the check warns. Default `1.0`: where the views\ncovered the image, σ stays a fraction of a pixel; it exceeds a pixel\nwhere the distortion is extrapolated, typically in corners the board\nnever reached. The map is conservative for uses that re-estimate the\ncamera's pose, so the check warns rather than fails.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_second_order_scatter": {
+          "default": 1.2,
+          "description": "Largest acceptable predicted scatter of the worst combination of the\nshared parameters over its stated σ, once the error's second-order\nterm is counted (≥ 1); above it the covariance-linearity check warns,\nnaming the combination. Default `1.2`: on synthetic stereo rigs and\nsingle cameras whose error the covariance describes the prediction\nstayed at or below 1.06, and every stereo capture predicted above 1.3\nscattered 1.4–3 times its σ along that combination.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_sigma_inflation": {
+          "default": 7.0,
+          "description": "Largest acceptable σ inflation `1/√(1 − R²)` of one camera parameter,\nR its multiple correlation with the camera's other parameters (≥ 1);\nabove it the conditioning check warns, naming the parameter and the\npartners it trades off against. The other focal length is left out\nof a focal length's regressors, and the other radial coefficients out\nof a radial coefficient's. Default `7.0`: a pair at the correlation\nlimit 0.99 inflates both by 7.09; well-determined sensor tilts\nmeasured 1.2–5, tilts the data cannot separate from the principal\npoint or the tangential terms 14–2900.",
+          "format": "double",
+          "type": "number"
+        },
+        "max_view_residual": {
+          "default": 3.0,
+          "description": "Largest acceptable mean normalized residual of one view, in units of\nthe noise level σ̂ (> 0); a view above it is named and the check warns.\nDefault `3.0`: the mean of `|r| / σ̂` over Gaussian inliers is about\n1.25, so a view at 3 has residuals well over twice the typical ones,\nas from a misdetection, motion blur or a wrong robot pose.",
+          "format": "double",
+          "type": "number"
+        },
+        "variance_test_alpha": {
+          "default": 0.01,
+          "description": "Significance level α of the two-sided χ² variance-factor test, in\n`(0, 1)`. Default `0.01`: a result consistent with σ₀ fails the test\nonce in a hundred calibrations.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The options of [`compare_runs`].",
+  "properties": {
+    "compensation": {
+      "$ref": "#/$defs/Compensation",
+      "default": "rotation",
+      "description": "How the projection difference aligns the two camera frames; default\n[`Compensation::Rotation`]."
+    },
+    "grid_columns": {
+      "default": 64,
+      "description": "Grid columns of the projection difference, at least 1; default 64.\nThe rows follow from the image's aspect.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "thresholds": {
+      "$ref": "#/$defs/QualityThresholds",
+      "default": {
+        "coverage_fail_below": 0.3,
+        "coverage_warn_below": 0.5,
+        "expected_feature_noise_px": null,
+        "max_parameter_correlation": 0.99,
+        "max_projection_sigma_px": 1.0,
+        "max_second_order_scatter": 1.2,
+        "max_sigma_inflation": 7.0,
+        "max_view_residual": 3.0,
+        "variance_test_alpha": 0.01
+      },
+      "description": "The thresholds each run's quality verdict is judged by."
+    }
+  },
+  "title": "CompareRunsOptions",
+  "type": "object"
+}

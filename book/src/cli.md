@@ -22,6 +22,7 @@ The Rust crate and the Python package install the same program.
 | `vcal project runs <project>` | lists a project's runs |
 | `vcal project import <project> <export>` | adds an export calibrated elsewhere as a run |
 | `vcal project note <project> <run>` | labels, annotates or stars a run |
+| `vcal project compare <project> <run> <run>...` | runs side by side against the first |
 | `vcal project scan <folder>...` | lists the projects under folders, each device's runs together |
 | `vcal seed from-runs <run>...` | writes the seed of a calibrated run, or of a device type from several units' runs |
 | `vcal seed from-spec <spec.json>` | writes the datasheet seed of a device spec |
@@ -248,6 +249,37 @@ or a `vcal run -o` folder whose workflow and camera count are the
 project's; `scan` lists the projects under the folders, each device's runs
 together (`--json`, `--max-depth`), naming on standard error the folders it
 could not read and exiting 0 once the walk is done.
+
+`compare` takes two or more runs, by id or, for a run of another project,
+by its folder, the first the reference:
+
+```text
+$ vcal project compare kuka run-001 run-002
+run-001 (reference): single_cam_handeye, verdict pass, covariance (scaled ×2.78 by the view scatter)
+  cam0: 30 views, 14280 features, rms 0.152 px, median 0.125, p95 0.266, projection σ ≤ 0.555 px
+run-002: single_cam_handeye, verdict pass, covariance (scaled ×2.95 by the view scatter)
+  cam0: 28 views, 13328 features, rms 0.153 px, median 0.126, p95 0.265, projection σ ≤ 0.605 px
+
+run-002 vs run-001: nested (run-002 has the subset); residuals not comparable (other observations)
+  data: 28 shared images (2 only in run-001, 0 only in run-002); 13328 shared features (952 / 0)
+  excluded only in run-002: 0 views, 2 images, 0 feature sets
+  configuration: the same
+  camera cam0
+    parameter                 run-001                run-002            Δ   Δ/σ_ref  test
+    fx           2058.455812 ±4.90e-1   2058.471129 ±5.37e-1    +0.015317     +0.03  none (mixed_residuals)
+    ...
+    k2              0.143408 ±1.48e-3      0.144637 ±1.61e-3    +0.001229     +0.83  none (mixed_residuals)
+    ...
+    all parameters: none (mixed_residuals)
+    projection difference: 0.0045 px RMS over 1890 covered nodes (max 0.0365; 0.079 over the image), rotation 0.0019°
+  gripper_se3_cam0: rotation 0.0061°, translation 0.042 mm, 0.26 σ_ref, none (mixed_residuals)
+```
+
+The hand-eye's robot-pose corrections enter its covariance as priors, so
+this pair has no nested test (`mixed_residuals`): the change is read as
+materiality. The columns are explained in
+[Comparing Calibrations](comparing_calibrations.md); `--json` prints the
+`RunComparison`.
 
 ## Sample datasets
 

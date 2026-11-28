@@ -551,10 +551,75 @@ Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
   `quality.json` (`vcal run -o`; the app computes the same report for its
   own runs). Gate: a fixture with a warn and a fail check renders both,
   each linking to its camera.
-- [ ] VIEW-COMPARE - Two runs side by side in the report viewer: per-camera
-  parameters with their σ and the difference in σ units, residual
-  statistics, and the per-view matrix of differences. `calib-viewer` takes
-  two runs. Gate: two fixture runs whose difference is known.
+- [ ] VIEW-COMPARE - Two runs side by side in the report viewer, from
+  `analysis::compare_runs` / `Project::compare_runs` (the library part,
+  ADR 0035): per-camera parameters with σ, `Δ/σ_ref` labelled as
+  materiality and the test where one is valid, the in-sample residual
+  statistics only where `fit_comparable`, the projection-difference plane
+  (`projection_difference` on the viewer's grid). `calib-viewer` takes two
+  runs. Gate: two fixture runs whose difference is known.
+- [ ] COMPARE-VIEWS - Per-view RMS of the views two runs both used, matched
+  by image content (`CalibratedRun::images`), as a `RunDifference` field;
+  per-view poses stay uncompared (they describe a capture).
+- [ ] COMPARE-SMALL-EXCLUSIONS - The nested test when the left-out data
+  are a small share of the information (1 of 25 views, 6 of ~2000
+  features). On one noise level the per-parameter rejection rate stays
+  within 5–8 %, but some `z` have heavy tails (std 1.15–1.34 measured, pinned
+  by `nested_small_exclusions_have_heavier_tails`). **Cause measured**
+  (independent check): each run's information is evaluated at its own
+  estimate, and the difference of two nearly equal informations is
+  dominated by that mismatch. Evaluating both at one common point removes
+  the excess: 1 of 25 views, `k2` z std 1.090 → 1.012, ten `|z| > 4` →
+  none, 7 missing → 0; 6 features, `k2` 1.245 → 0.992, 74 missing → 0.
+  It also explains `NestedVarianceNotPositive` for truly nested data (at one
+  point `A_s⁻¹ ⪰ A_l⁻¹` by construction). Polishing the solves changes
+  nothing; a relative-growth cut was measured and rejected (it removes the
+  1 %-outlier exclusions the test exists for, and biases what remains).
+  **The fix:** `V_Δ = c_s · k_s · [(M_l − M_d)⁻¹ − M_l⁻¹]`, with
+  `M_l = (Σ_l / (k_l c_l))⁻¹` from the larger run's export and `M_d` the
+  information of the left-out observations at `θ̂_l`, each view's pose
+  profiled out (`vision_calibration_optim::view_information`). It needs the
+  observations (available to `Project::compare_runs` through the records
+  and the detection cache, not to `analysis::compare_runs` from exports
+  alone), the same whitening for runs with stated per-feature covariances,
+  and a rig analogue (the rig poses profiled per view). Gate: the
+  1-of-25-views and 6-features cells under the strict `gate_null`, which
+  then replace the characterization test.
+- [ ] COMPARE-NESTED-JOINT - A joint test of a camera's parameters between
+  nested runs. Through a generalized inverse it rejects 7.7 % (1 of 8 views
+  left out) to 15.7 % (6 features) at 5 %, so it is not offered
+  (`NoTest::NestedJoint`); each parameter's nested test and the poses'
+  nested `χ²` remain. The common evaluation point of
+  COMPARE-SMALL-EXCLUSIONS does not rescue it for whole-view drops
+  (measured in the independent check: 1 of 25 views 8.7 %, mean χ²/dof
+  1.46; 1 of 8 views 16.9 %), so `NestedJoint` stays after that fix; the
+  cause is open (hypothesis: the generalized inverse keeps weakly growing
+  directions of `A_s⁻¹ − A_l⁻¹` whose small variance the linearization does
+  not hold to, which inflate `χ²` beyond the per-parameter margins; decided
+  by the joint `χ²` and its eigen-directions' z at the common point, with
+  a cut on each direction's relative growth).
+- [ ] COMPARE-MIXED-RESIDUALS - The nested test for covariances of several
+  residual families or with priors (hand-eye with robot-pose priors, laser
+  and reprojection, the per-camera rig laser covariances whose view scatter
+  is merged as a maximum over cameras): the sandwich `H⁻¹ G H⁻¹` is not a
+  multiple of one information matrix, so the Hausman premise fails. Today
+  `NoTest::MixedResiduals`. Needs each family's variance factor (or the
+  information per family) in the export and its own Monte-Carlo gate.
+- [ ] COMPARE-SCREENING - Exclusions chosen from the residuals (the worst
+  1–5 % of features, the worst views). A nested test of such a pair rejects
+  25–43 % under a correct model (measured in review), so `compare_runs`
+  states that the nested test does not apply to them. A screening step that
+  chooses outliers with a test of its own (a studentized-residual rule with
+  a family-wise level) is the tool for that question.
+- [ ] COMPARE-GAUGE - A pose test between rig runs that held different
+  cameras fixed: propagate the other run's covariance through its rig
+  camera's mount (the cross-covariance is in its export). Today
+  `NoTest::GaugeDiffers`. Gate: the rig χ² Monte-Carlo with the second run's
+  reference camera switched.
+- [ ] COMPARE-PROJECTION-SIGMA - The σ of a rotation-compensated projection
+  difference, `(I − P_R) J Σ Jᵀ (I − P_R)ᵀ` per node, with its own
+  Monte-Carlo gate (independent captures). A run's projection σ is not its
+  scale (ADR 0034).
 - [ ] VIEW-FEEDBACK - Notes attached to a camera, a view or a feature in
   the report viewer, saved as `feedback.json` in the run folder (a typed,
   versioned shape with a JSON Schema) for an agent to read. `calib-viewer`

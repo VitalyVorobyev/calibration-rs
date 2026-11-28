@@ -30,17 +30,19 @@ run starts from; a run's record keeps the seed it used (``RunSeed``)::
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
 from . import _vision_calibration as _native
 from .dataset_runner import LaserPixelExtractor
+from .models import QualityThresholds
 from .types import (
     ConfigPatch,
     DatasetSpec,
     ProgressCallback,
     ProjectSpec,
+    RunComparison,
     RunInfo,
     RunNotes,
     SeedSource,
@@ -61,6 +63,7 @@ __all__ = [
     "RUN_RECORD_FILE",
     "RUN_RECORD_VERSION",
     "representative_run",
+    "compare_recorded_runs",
     "scan_library",
 ]
 
@@ -93,13 +96,13 @@ ProjectError = _native.ProjectError
 ``"not_a_project"``, ``"ambiguous_project"``, ``"project_exists"``,
 ``"unsupported_version"``, ``"changed_on_disk"``, ``"io"``, ``"parse"``,
 ``"invalid"``, ``"manifest"``, ``"config"``, ``"exclusion"``,
-``"run_not_found"``, ``"import_mismatch"``, ``"seed_unresolved"`` or
+``"run_not_found"``, ``"import_mismatch"``, ``"seed_unresolved"``,
 ``"calibrate"`` (a seed that does not fit the dataset is a ``"calibrate"``
-error). ``field`` is the field it is about, as a dotted path, or ``None``: a
-field of the project file for the project's own errors (``"device.id"``,
-``"config"``, ``"exclude.images[0]"``, ``"seed"``), a manifest field for the
-dataset's (``"target"``, ``"cameras[cam0].images"``). A subclass of
-:class:`RuntimeError`."""
+error) or ``"compare"``. ``field`` is the field it is about, as a dotted path,
+or ``None``: a field of the project file for the project's own errors
+(``"device.id"``, ``"config"``, ``"exclude.images[0]"``, ``"seed"``), a
+manifest field for the dataset's (``"target"``, ``"cameras[cam0].images"``). A
+subclass of :class:`RuntimeError`."""
 
 
 def _tool() -> str:
@@ -228,6 +231,25 @@ class Project:
         """The run ``run_id``."""
         return cast(RunInfo, self._native.run(run_id))
 
+    def compare_runs(
+        self,
+        run_ids: Sequence[str],
+        *,
+        compensation: str = "rotation",
+        grid_columns: int = 64,
+        thresholds: QualityThresholds | None = None,
+    ) -> RunComparison:
+        """The runs ``run_ids`` side by side against the first, as
+        :func:`vision_calibration.compare_runs` compares them; each run's data
+        relation to the first is read from the records (the content of the
+        images each run used), and each difference carries the ``data``
+        overlap and the ``exclusion_changes`` behind it.
+        """
+        options: dict[str, Any] = {"compensation": compensation, "grid_columns": grid_columns}
+        if thresholds is not None:
+            options["thresholds"] = thresholds.to_payload()
+        return cast(RunComparison, self._native.compare_runs(list(run_ids), options))
+
     def calibrate(
         self,
         *,
@@ -330,3 +352,22 @@ def scan_library(
     """
     paths = [os.path.expanduser(os.fspath(root)) for root in roots]
     return cast("dict[str, Any]", _native.project_scan_library(paths, max_depth))
+
+
+def compare_recorded_runs(
+    runs: Sequence[RunInfo],
+    *,
+    compensation: str = "rotation",
+    grid_columns: int = 64,
+    thresholds: QualityThresholds | None = None,
+) -> RunComparison:
+    """Recorded runs side by side against the first, as
+    :meth:`Project.compare_runs` compares them, the runs of any projects
+    (``RunInfo`` payloads from :meth:`Project.runs` or
+    :func:`scan_library`): two calibrations of one device from separate
+    captures are compared as independent.
+    """
+    options: dict[str, Any] = {"compensation": compensation, "grid_columns": grid_columns}
+    if thresholds is not None:
+        options["thresholds"] = thresholds.to_payload()
+    return cast(RunComparison, _native.project_compare_recorded_runs(list(runs), options))

@@ -5,10 +5,10 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{ImageManifest, lexical_absolute};
+use vision_calibration_core::lexical_absolute;
 use vision_calibration_dataset::ProblemKind;
 
-use super::run::{read_run, sizes_of};
+use super::run::{read_run, recorded_sizes};
 use super::{EXPORT_FILE, ProjectError, RunSource, RunState};
 use crate::common::calibrated_cameras;
 use crate::device_seed::{DeviceSeed, DeviceSpec};
@@ -141,26 +141,13 @@ impl DeviceSeed {
             )));
         }
         let ids: Vec<String> = cameras.iter().map(|c| c.id.clone()).collect();
-        let recorded: Option<Vec<[u32; 2]>> = cameras.iter().map(|c| c.image_size).collect();
-        let image_sizes = match recorded {
-            Some(sizes) => sizes,
-            None => {
-                let sizes = export
-                    .diagnostics()
-                    .image_manifest
-                    .as_ref()
-                    .map(|images: &ImageManifest| sizes_of(images, &dir, count))
-                    .unwrap_or_default();
-                if sizes.len() != count {
-                    return Err(unresolved(
-                        "its record does not state the cameras' image sizes and its images \
-                         cannot be read"
-                            .into(),
-                    ));
-                }
-                sizes
-            }
-        };
+        let image_sizes = recorded_sizes(cameras, export.as_ref(), &dir).ok_or_else(|| {
+            unresolved(
+                "its record does not state the cameras' image sizes and its images cannot be \
+                 read"
+                    .into(),
+            )
+        })?;
         let mut seed = Self::from_calibration(export.as_ref(), &ids, &image_sizes)
             .map_err(|e| unresolved(e.to_string()))?;
         let how = match &record.source {

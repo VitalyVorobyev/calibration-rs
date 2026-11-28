@@ -33,7 +33,12 @@ from .models import (
     RigUpstreamCalibration,
     SingleCamHandeyeExport,
 )
-from ._generated_types import FocusDiagnostic, ModelComparison, RobustLoss
+from ._generated_types import (
+    FocusDiagnostic,
+    ModelComparison,
+    RobustLoss,
+    RunComparison,
+)
 from .maps import DistortionMap, ProjectionDifference, ResidualMap
 from .types import ProgressCallback
 
@@ -788,3 +793,82 @@ def projection_difference(
         points,
     )
     return ProjectionDifference.from_payload(cast(Mapping[str, Any], payload))
+
+
+def compare_runs(
+    runs: Sequence[Mapping[str, Any]],
+    compensation: str = "rotation",
+    grid_columns: int = 64,
+    thresholds: QualityThresholds | None = None,
+) -> RunComparison:
+    """Calibrations of one rig side by side against the first, the reference.
+
+    For each later run and each camera both have (matched by id): the
+    parameters with their stated σ, ``delta = other − reference`` and
+    ``delta_over_reference_sigma`` (materiality: how large the change is at
+    the precision the reference claims, not a test), one joint test of all
+    parameters, the projection difference over the image, the rig poses
+    relative to the reference's reference camera, the hand-eye and the laser
+    planes. A statistical test is reported only where the run's stated
+    relation to the reference makes one valid: independent captures
+    (``σ_Δ² = σ_ref² + σ_other²``) and nested observations under one
+    configuration (the Hausman form on one noise level); otherwise
+    ``{"kind": "not_available", "reason": ...}``. A nested test is not valid
+    for observations left out because of their residuals. A stated relation
+    the exports contradict is refused (``relation_refused``).
+
+    Parameters
+    ----------
+    runs:
+        At least two runs of one workflow, each a mapping with ``name``,
+        ``export`` (a calibration result, or its export as a dict),
+        ``camera_ids`` (one per camera, in camera order), ``image_sizes``
+        (``(width, height)`` per camera), and optionally ``config`` (the
+        configuration the run was calibrated with, its workflow's or a
+        dataset-runner payload; with both runs', a difference lists the
+        configuration changes) and ``relation`` (how the run's observations
+        relate to the first run's, e.g. ``{"kind": "independent"}`` or
+        ``{"kind": "nested", "smaller": "other"}``; absent for unknown, which
+        never yields a test, and on the first run).
+    compensation:
+        ``"rotation"`` or ``"none"``: how the projection difference aligns
+        the two camera frames.
+    grid_columns:
+        Grid columns of the projection difference.
+    thresholds:
+        The limits each run's quality verdict is judged by; ``None`` for the
+        defaults.
+
+    Raises
+    ------
+    ValueError
+        If fewer than two runs are given, they are of different workflows,
+        the ids or sizes are not one per camera, a run shares no camera id
+        with the reference, a shared camera's image sizes differ, or the first
+        run states a relation.
+    """
+    payload_runs = []
+    for run in runs:
+        export = run["export"]
+        export = export if isinstance(export, Mapping) else export.export
+        if not export:
+            raise ValueError(f"run {run['name']!r} carries no export")
+        config = _dataclass_payload(run.get("config"))
+        if config is not None and "topology" not in config:
+            # A workflow's own configuration: tag it with the export's workflow.
+            config = {"topology": export["kind"], "config": config}
+        relation = run.get("relation")
+        payload_runs.append(
+            {
+                "name": str(run["name"]),
+                "export": dict(export),
+                "camera_ids": [str(i) for i in run["camera_ids"]],
+                "image_sizes": [[int(w), int(h)] for w, h in run["image_sizes"]],
+                "config": config,
+                "relation": None if relation is None else dict(relation),
+            }
+        )
+    options: dict[str, Any] = {"compensation": compensation, "grid_columns": grid_columns}
+    if thresholds is not None:
+        options["thresholds"] = thresholds.to_payload()
+    return cast(RunComparison, _native.compare_runs(payload_runs, options))

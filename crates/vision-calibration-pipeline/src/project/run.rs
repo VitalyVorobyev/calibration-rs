@@ -23,7 +23,7 @@ use super::{
     CalibratedRun, CameraSummary, DatasetSource, EXPORT_FILE, FeatureExclusion, LeftOutImage,
     Project, ProjectError, QUALITY_FILE, REPORT_FILE, RUN_NOTES_FILE, RUN_RECORD_FILE,
     RUN_RECORD_VERSION, RUNS_DIR, RunInfo, RunInputs, RunNotes, RunRecord, RunSeed, RunSource,
-    RunState, RunSummary, SeedSource, UnrecordedRun,
+    RunState, RunSummary, SeedSource, UnrecordedRun, UsedImage,
 };
 use crate::analysis::{QualityThresholds, ReportOptions, assess, html_report};
 use crate::common::{CalibratedCameras, calibrated_cameras};
@@ -190,18 +190,19 @@ impl Project {
         if control.is_cancelled() {
             return Err(ProjectError::Cancelled);
         }
-        if let Some(images) = run.export.diagnostics_mut().image_manifest.as_mut() {
-            *images = images.rebased(&prepared.data_root, &self.run_dir_model(), self.dir());
-        }
-        let quality = assess(&run.export, &run.image_sizes, &prepared.quality)
-            .map_err(|e| ProjectError::Calibrate(CalibrateDatasetError::Calibration(e)))?;
-
         let ids: Vec<String> = prepared
             .dataset
             .cameras
             .iter()
             .map(|c| c.id.clone())
             .collect();
+        let images = used_images(&run.export, &prepared.data_root, &ids, &cache.images());
+        if let Some(images) = run.export.diagnostics_mut().image_manifest.as_mut() {
+            *images = images.rebased(&prepared.data_root, &self.run_dir_model(), self.dir());
+        }
+        let quality = assess(&run.export, &run.image_sizes, &prepared.quality)
+            .map_err(|e| ProjectError::Calibrate(CalibrateDatasetError::Calibration(e)))?;
+
         let summary = RunSummary {
             kind: run.export.kind(),
             verdict: Some(quality.verdict),
@@ -257,6 +258,7 @@ impl Project {
                 total_views: run.total_views,
                 left_out,
                 unmatched_exclusions,
+                images,
                 redetected: options.redetect,
                 duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             })),
@@ -681,6 +683,34 @@ fn unrecorded_run(dir: &Path) -> UnrecordedRun {
     }
 }
 
+/// Each frame of the export's image manifest (its root still the data root)
+/// with the content hash its detection read; empty unless every frame has
+/// one.
+fn used_images(
+    export: &dyn CalibratedCameras,
+    data_root: &Path,
+    ids: &[String],
+    read: &std::collections::BTreeMap<PathBuf, u64>,
+) -> Vec<UsedImage> {
+    let Some(manifest) = export.diagnostics().image_manifest.as_ref() else {
+        return Vec::new();
+    };
+    let root = data_root.join(&manifest.root);
+    manifest
+        .frames
+        .iter()
+        .map(|frame| {
+            let hash = read.get(&lexical_absolute(&root.join(&frame.path)))?;
+            Some(UsedImage {
+                camera: camera_id(ids, frame.camera),
+                image: slash_path(&frame.path),
+                content: format!("{hash:016x}"),
+            })
+        })
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default()
+}
+
 /// Each camera's summary from the export's residuals.
 fn camera_summaries(
     export: &dyn CalibratedCameras,
@@ -731,6 +761,27 @@ pub(crate) fn sizes_of(images: &ImageManifest, source_dir: &Path, cameras: usize
     sizes.unwrap_or_default()
 }
 
+/// A recorded run's camera image sizes: the ones its summary records, else
+/// read from the headers of the images its export names (a record written
+/// before the summary held them); `None` when neither gives every camera.
+pub(crate) fn recorded_sizes(
+    cameras: &[CameraSummary],
+    export: &dyn CalibratedCameras,
+    dir: &Path,
+) -> Option<Vec<[u32; 2]>> {
+    let count = cameras.len();
+    if let Some(sizes) = cameras.iter().map(|c| c.image_size).collect() {
+        return Some(sizes);
+    }
+    let sizes = export
+        .diagnostics()
+        .image_manifest
+        .as_ref()
+        .map(|images| sizes_of(images, dir, count))
+        .unwrap_or_default();
+    (sizes.len() == count).then_some(sizes)
+}
+
 /// A path with `/` separators, as the project's files write them.
 fn slash_path(path: &Path) -> PathBuf {
     PathBuf::from(path.to_string_lossy().replace('\\', "/"))
@@ -753,4 +804,4 @@ fn unix_now() -> u64 {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

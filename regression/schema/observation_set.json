@@ -559,6 +559,14 @@
           ],
           "description": "How far the error of the shared parameters is predicted to depart\nfrom `covariance` once its second-order term is counted. `None` when\nthe result has no shared parameters or more than 64 (the prediction\ncosts `s (s + 1)` residual evaluations for `s` of them), its data is\nnoise-free, or the covariance was derived from others rather than\nfrom one solve."
         },
+        "variance_factor": {
+          "description": "The a-posteriori variance factor `c` of a covariance from one\nresidual family with an estimated noise level and no prior:\n`covariance = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the\nresiduals (whitened by their stated covariances, when they have\nthem). Under least squares `c` is `σ̂²`, the residuals' sum of squares\nper degree of freedom (px², or dimensionless for whitened residuals);\nunder a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`\n(`m` residuals, `n` estimated parameters). It puts two\nsolves of nested data on one noise level. `None` when the covariance\ncombines residual families, stated priors or another calibration's\nshare, or was derived from several solves.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "view_scatter": {
           "description": "How many times the variance of the shared parameters across views\nexceeds what the residual noise predicts, measured by leaving out one\nview at a time. The residual noise model takes every corner's error\nas independent; errors shared by a view's corners (a lens model or\ntarget that does not fit exactly, a detector bias) are not in it, and\non real images make the estimate vary between view sets several\ntimes more than predicted. `covariance` and `views` are already\nscaled by it. `None` when the views scatter no more than the noise\npredicts (within the scatter's own sampling noise, at 97.5 %), and\nbelow six views.",
           "format": "double",

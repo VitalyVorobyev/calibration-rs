@@ -96,6 +96,7 @@ from .models import (
 )
 from ._generated_types import FocusDiagnostic as _FocusDiagnostic
 from ._generated_types import ModelComparison as _ModelComparison
+from ._generated_types import RunComparison as _RunComparison
 from ._generated_types import RobustLoss as _RobustLoss
 from .types import ProgressCallback as _ProgressCallback
 from . import common as common
@@ -294,6 +295,14 @@ def compare_camera_models(
     seed: int = 0,
     progress: _ProgressCallback | None = None,
 ) -> _ModelComparison: ...
+
+
+def compare_runs(
+    runs: Sequence[Mapping[str, Any]],
+    compensation: str = "rotation",
+    grid_columns: int = 64,
+    thresholds: QualityThresholds | None = None,
+) -> _RunComparison: ...
 
 
 def fit_focus(

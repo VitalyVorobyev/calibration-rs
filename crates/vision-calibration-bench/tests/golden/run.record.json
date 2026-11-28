@@ -10,6 +10,28 @@
       "quality": "sha256:1e426ba79481778a0c14f6fc4a607d403ebfe193464f3a97be83bf976d997938"
     },
     "duration_ms": 16,
+    "images": [
+      {
+        "camera": "cam0",
+        "content": "cb5de4ef0b068bfd",
+        "image": "view00.png"
+      },
+      {
+        "camera": "cam0",
+        "content": "e69120bf23ee8a2f",
+        "image": "view02.png"
+      },
+      {
+        "camera": "cam0",
+        "content": "324a3121ee0f116e",
+        "image": "view04.png"
+      },
+      {
+        "camera": "cam0",
+        "content": "bdcbcfc14e1005d5",
+        "image": "view05.png"
+      }
+    ],
     "inputs": {
       "config": {
         "config": {

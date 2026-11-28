@@ -231,6 +231,15 @@ pub trait DetectionCache: Send + Sync {
         let _ = (key, detail);
         Ok(())
     }
+
+    /// Told, before the lookup, which image file a run's detection reads
+    /// under `key`: a cache that records what a run used (a calibration
+    /// project's) keeps the image's content per path. Workspace-internal;
+    /// the default ignores it.
+    #[doc(hidden)]
+    fn note_image(&self, image: &Path, key: &CacheKey) {
+        let _ = (image, key);
+    }
 }
 
 /// Filesystem-backed cache writing one JSON file per entry under

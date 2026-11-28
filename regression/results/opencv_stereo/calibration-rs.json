@@ -890,6 +890,7 @@
         "nees_ratio": 1.0010558630639494
       },
       "status": "available",
+      "variance_factor": 0.028775654549875608,
       "view_scatter": 4.5788785713860385,
       "views": [
         {

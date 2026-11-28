@@ -18,7 +18,7 @@ use vision_calibration_detect::{
 /// each image a distinct blank PNG whose detection `cache` holds. Image 3's
 /// detection holds three corners, so a run leaves it out. Returns the
 /// manifest.
-fn planar_dataset(data: &Path, cache: &dyn DetectionCache) -> serde_json::Value {
+pub(crate) fn planar_dataset(data: &Path, cache: &dyn DetectionCache) -> serde_json::Value {
     use vision_calibration_core::synthetic::{planar, poses};
     use vision_calibration_core::{BrownConrady5, FxFyCxCy, make_pinhole_camera};
 
@@ -61,14 +61,14 @@ fn planar_dataset(data: &Path, cache: &dyn DetectionCache) -> serde_json::Value 
 }
 
 /// A blank 640 × 480 PNG at `data/rel`, told apart by one pixel.
-fn write_image(data: &Path, rel: &str, marker: u32) {
+pub(crate) fn write_image(data: &Path, rel: &str, marker: u32) {
     let mut image = image::GrayImage::new(640, 480);
     image.put_pixel(marker % 640, marker / 640, image::Luma([255]));
     image.save(data.join(rel)).unwrap();
 }
 
 /// Put `features` in `cache` as the detection of the image `data/rel`.
-fn store(data: &Path, rel: &str, cache: &dyn DetectionCache, features: Vec<Feature>) {
+pub(crate) fn store(data: &Path, rel: &str, cache: &dyn DetectionCache, features: Vec<Feature>) {
     let bytes = std::fs::read(data.join(rel)).unwrap();
     let config = DetectorConfig::Chessboard(ChessboardConfig::new(6, 8, 0.03));
     let key = CacheKey::for_detection(&bytes, &config, None);
@@ -77,7 +77,7 @@ fn store(data: &Path, rel: &str, cache: &dyn DetectionCache, features: Vec<Featu
 
 /// A project in `dir` whose dataset, written in the project file, lies in
 /// `dir/data`; its cache holds every detection.
-fn planar_project(dir: &Path) -> Project {
+pub(crate) fn planar_project(dir: &Path) -> Project {
     let cache = FsDetectionCache::new(dir.join(DETECTIONS_DIR));
     let manifest = planar_dataset(&dir.join("data"), &cache);
     let spec = ProjectSpec::new(DatasetSource::inline(
@@ -87,11 +87,11 @@ fn planar_project(dir: &Path) -> Project {
     Project::create(dir, spec).unwrap()
 }
 
-fn options() -> ProjectRunOptions {
+pub(crate) fn options() -> ProjectRunOptions {
     ProjectRunOptions::new("test")
 }
 
-fn calibrate(project: &Project) -> RunInfo {
+pub(crate) fn calibrate(project: &Project) -> RunInfo {
     project
         .calibrate(&options(), None, &RunControl::default())
         .unwrap()
@@ -101,7 +101,7 @@ fn record(info: &RunInfo) -> &RunRecord {
     info.record().expect("a calibrated run has its record")
 }
 
-fn calibrated(info: &RunInfo) -> &CalibratedRun {
+pub(crate) fn calibrated(info: &RunInfo) -> &CalibratedRun {
     match &record(info).source {
         RunSource::Calibrated(run) => run,
         other => panic!("expected a calibrated run, got {other:?}"),

@@ -28,6 +28,9 @@ use crate::single_cam_handeye::SingleCamHandeyeExport;
 /// [`CalibrationExport`](crate::dataset_runner::CalibrationExport); the trait
 /// is sealed, so it cannot be implemented outside this crate.
 pub trait CalibratedCameras: super::sealed::Sealed + Send + Sync {
+    /// The workflow that produced the export.
+    fn kind(&self) -> ProblemKind;
+
     /// Each camera's model, in camera order.
     fn camera_params(&self) -> Vec<CameraParams>;
 
@@ -210,6 +213,10 @@ pub fn calibrated_cameras(json: &str) -> Result<Box<dyn CalibratedCameras>, Erro
 impl super::sealed::Sealed for PlanarIntrinsicsExport {}
 
 impl CalibratedCameras for PlanarIntrinsicsExport {
+    fn kind(&self) -> ProblemKind {
+        ProblemKind::PlanarIntrinsics
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         vec![self.camera.clone()]
     }
@@ -230,6 +237,10 @@ impl CalibratedCameras for PlanarIntrinsicsExport {
 impl super::sealed::Sealed for SingleCamHandeyeExport {}
 
 impl CalibratedCameras for SingleCamHandeyeExport {
+    fn kind(&self) -> ProblemKind {
+        ProblemKind::SingleCamHandeye
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         vec![self.camera.clone()]
     }
@@ -254,6 +265,10 @@ impl CalibratedCameras for SingleCamHandeyeExport {
 impl super::sealed::Sealed for LaserlineDeviceExport {}
 
 impl CalibratedCameras for LaserlineDeviceExport {
+    fn kind(&self) -> ProblemKind {
+        ProblemKind::LaserlineDevice
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         vec![self.camera.clone()]
     }
@@ -278,6 +293,10 @@ impl CalibratedCameras for LaserlineDeviceExport {
 impl super::sealed::Sealed for RigExtrinsicsExport {}
 
 impl CalibratedCameras for RigExtrinsicsExport {
+    fn kind(&self) -> ProblemKind {
+        ProblemKind::RigExtrinsics
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras.clone()
     }
@@ -298,6 +317,10 @@ impl CalibratedCameras for RigExtrinsicsExport {
 impl super::sealed::Sealed for RigHandeyeExport {}
 
 impl CalibratedCameras for RigHandeyeExport {
+    fn kind(&self) -> ProblemKind {
+        ProblemKind::RigHandeye
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras.clone()
     }
@@ -322,6 +345,10 @@ impl CalibratedCameras for RigHandeyeExport {
 impl super::sealed::Sealed for RigLaserlineDeviceExport {}
 
 impl CalibratedCameras for RigLaserlineDeviceExport {
+    fn kind(&self) -> ProblemKind {
+        ProblemKind::RigLaserlineDevice
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras.clone()
     }
@@ -346,6 +373,10 @@ impl CalibratedCameras for RigLaserlineDeviceExport {
 impl super::sealed::Sealed for RigHandeyeLaserlineExport {}
 
 impl CalibratedCameras for RigHandeyeLaserlineExport {
+    fn kind(&self) -> ProblemKind {
+        ProblemKind::RigHandeyeLaserline
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras.clone()
     }

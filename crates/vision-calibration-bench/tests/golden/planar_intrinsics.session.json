@@ -271,6 +271,7 @@
             "nees_ratio": 1.0000116441563165
           },
           "status": "available",
+          "variance_factor": 0.010003950602527832,
           "views": [
             {
               "covariance": [
@@ -770,6 +771,7 @@
         "nees_ratio": 1.0000116441563165
       },
       "status": "available",
+      "variance_factor": 0.010003950602527832,
       "views": [
         {
           "covariance": [

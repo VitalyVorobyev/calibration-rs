@@ -18,6 +18,9 @@ struct CameraPipeline;
 #[doc = include_str!("../../../book/src/capture.md")]
 struct Capture;
 
+#[doc = include_str!("../../../book/src/comparing_calibrations.md")]
+struct ComparingCalibrations;
+
 #[doc = include_str!("../../../book/src/compose_pipeline.md")]
 struct ComposePipeline;
 

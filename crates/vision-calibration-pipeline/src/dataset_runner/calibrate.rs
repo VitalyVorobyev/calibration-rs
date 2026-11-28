@@ -190,6 +190,10 @@ impl crate::common::sealed::Sealed for CalibrationExport {}
 /// Every problem's export reports its cameras, so [`assess`](crate::analysis::assess)
 /// and the other analyses take a `CalibrationExport` directly.
 impl CalibratedCameras for CalibrationExport {
+    fn kind(&self) -> ProblemKind {
+        CalibrationExport::kind(self)
+    }
+
     fn camera_params(&self) -> Vec<CameraParams> {
         self.cameras().camera_params()
     }
@@ -622,7 +626,7 @@ pub(crate) fn calibrate_dataset_with(
 /// kept `(view, camera)` slot, in the input's view order, and one laser
 /// frame per slot with laser pixels. The root is `.`, the dataset folder
 /// `base_dir`; each path is relative to it ([`data_relative_path`]).
-trait RunFrames {
+pub(super) trait RunFrames {
     fn image_manifest(&self, spec: &DatasetSpec, base_dir: &Path) -> ImageManifest;
 }
 

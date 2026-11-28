@@ -353,6 +353,7 @@ mod tests {
             num_residuals: 10,
             dof: 5,
             view_scatter: None,
+            variance_factor: None,
             second_order: None,
         })
     }
@@ -490,6 +491,7 @@ mod tests {
             num_residuals: 10,
             dof: 5,
             view_scatter: None,
+            variance_factor: None,
             second_order: None,
         };
         CalibratedRig::new(
