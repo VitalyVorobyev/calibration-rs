@@ -107,7 +107,8 @@ fn default_sigma_tolerance() -> f64 {
 
 /// Why a Levenberg–Marquardt solve stopped.
 ///
-/// Every reason but [`MaxIters`](Self::MaxIters) is a stopping rule
+/// Every reason but [`MaxIters`](Self::MaxIters) and
+/// [`StalledStep`](Self::StalledStep) is convergence
 /// ([`is_converged`](Self::is_converged)): the loop could not improve the
 /// solution further, and only then is its covariance computed. A cancelled
 /// solve, or one whose cost is not finite, returns an error instead of a
@@ -148,18 +149,18 @@ pub enum SolveTermination {
     /// An accepted step moved the solution by less than a thousandth of its
     /// standard deviation while the step to the minimum was still longer
     /// than a hundredth: progress has stalled, along a long curved valley
-    /// of a weakly determined parameter or against a bound. The solution
-    /// is near the minimum only as far as that progress shows; its
-    /// covariance is computed, and a weak parameter shows in it.
+    /// of a weakly determined parameter, or because the damping held the
+    /// step short. Not convergence: the solution has no covariance, as for
+    /// [`MaxIters`](Self::MaxIters).
     StalledStep,
 }
 
 impl SolveTermination {
-    /// Whether a stopping rule ended the solve, rather than its iteration
-    /// budget: every reason but [`MaxIters`](Self::MaxIters). The
-    /// covariance of a solution is computed only then.
+    /// Whether the solve reached its minimum: every reason but
+    /// [`MaxIters`](Self::MaxIters) and [`StalledStep`](Self::StalledStep).
+    /// The covariance of a solution is computed only then.
     pub fn is_converged(self) -> bool {
-        !matches!(self, Self::MaxIters)
+        !matches!(self, Self::MaxIters | Self::StalledStep)
     }
 }
 
@@ -207,6 +208,12 @@ pub(crate) struct BackendSolution {
     pub noise: Vec<covariance::FamilyNoise>,
     /// Covariance of the free parameters at the solution.
     pub uncertainty: covariance::ParamUncertainty,
+    /// For a solve stopped by its iteration budget, the first-order
+    /// covariance at its last iterate: not an uncertainty (the iterate is
+    /// not a minimum) but what the normal equations there say about which
+    /// parameters the data separates. `None` otherwise, or when it cannot be
+    /// formed.
+    pub last_iterate: Option<Box<covariance::CovarianceEstimate>>,
 }
 
 /// Backend interface implemented by solver adapters.
@@ -288,6 +295,7 @@ fn solve_on<E: SolveEngine>(
             uncertainty: covariance::ParamUncertainty::Unavailable(
                 covariance::UnavailableReason::NotComputed,
             ),
+            last_iterate: None,
             params,
             solve_report: SolveReport {
                 final_cost: 0.5 * cost,
@@ -318,15 +326,27 @@ fn solve_on<E: SolveEngine>(
         )));
     }
     let second_order = cov_mode == CovarianceMode::Full;
+    let converged = termination.is_converged();
+    let noise = covariance::noise(ir, raw.as_ref());
+    let (uncertainty, last_iterate) = if converged {
+        let uncertainty = covariance::estimate(ir, &params, raw, true, second_order);
+        (uncertainty, None)
+    } else {
+        // The same estimate at the last iterate, kept apart: a diagnostic of
+        // conditioning for a solve that did not reach its minimum.
+        let at_last = match covariance::estimate(ir, &params, raw, true, false) {
+            covariance::ParamUncertainty::Available(estimate) => Some(estimate),
+            covariance::ParamUncertainty::Unavailable(_) => None,
+        };
+        (
+            covariance::ParamUncertainty::Unavailable(covariance::UnavailableReason::NotConverged),
+            at_last,
+        )
+    };
     Ok(BackendSolution {
-        noise: covariance::noise(ir, raw.as_ref()),
-        uncertainty: covariance::estimate(
-            ir,
-            &params,
-            raw,
-            termination.is_converged(),
-            second_order,
-        ),
+        noise,
+        uncertainty,
+        last_iterate,
         params,
         solve_report: SolveReport {
             final_cost: 0.5 * cost,

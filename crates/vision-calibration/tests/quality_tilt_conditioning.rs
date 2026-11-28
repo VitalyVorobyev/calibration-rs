@@ -197,7 +197,21 @@ fn dataset(cell: &Cell) -> PlanarDataset {
 /// point at the image centre and the tilt 0.5° off, with `free`'s
 /// distortion terms estimated.
 fn calibrate(cell: &Cell, free: Free, backend: SolverBackend) -> PlanarIntrinsicsExport {
+    calibrate_within(cell, free, backend, None)
+}
+
+/// [`calibrate`] with the solver's iteration budget `max_iters`, or the
+/// default.
+fn calibrate_within(
+    cell: &Cell,
+    free: Free,
+    backend: SolverBackend,
+    max_iters: Option<usize>,
+) -> PlanarIntrinsicsExport {
     let mut config = PlanarIntrinsicsConfig::default();
+    if let Some(max_iters) = max_iters {
+        config.solver.max_iters = max_iters;
+    }
     config.camera.model.sensor = SensorKind::Scheimpflug;
     match free {
         Free::Default => {}
@@ -485,6 +499,75 @@ fn sweep_reports_the_tilt_inflation() {
     }
 }
 
+/// A weakly determined tilt (-0.02 % distortion at the image corner, where
+/// a solve stalls after some 150-190 iterations) stopped on a 120-iteration
+/// budget:
+/// the result has no covariance and fails the convergence check, but the
+/// conditioning at its last iterate still names the tilt and the principal
+/// point, and the convergence check points at it.
+#[test]
+fn a_weak_tilt_stopped_on_its_budget_is_still_diagnosed() {
+    let cell = Cell {
+        corner_distortion: -0.0002,
+        ..Cell::BASELINE
+    };
+    for backend in BACKENDS {
+        let export = calibrate_within(&cell, cell.free, backend, Some(120));
+        assert!(
+            matches!(
+                &export.uncertainty,
+                Uncertainty::Unavailable {
+                    reason: UncertaintyUnavailable::NotConverged
+                }
+            ),
+            "{backend:?}: {:?}",
+            export.uncertainty
+        );
+        let report = assess(&export, &[IMAGE], &QualityThresholds::default()).expect("assess");
+        let convergence = report
+            .checks
+            .iter()
+            .find(|c| c.kind == CheckKind::Convergence)
+            .expect("a convergence check");
+        assert_eq!(convergence.status, CheckStatus::Fail);
+        assert!(
+            convergence.message.contains("last iterate"),
+            "{}",
+            convergence.message
+        );
+        let check = conditioning(&export);
+        assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
+        assert!(
+            check.message.starts_with("at the last iterate"),
+            "{}",
+            check.message
+        );
+        for name in ["tilt_x", "cx", "cy"] {
+            assert!(
+                check.subjects.contains(&name.to_string()),
+                "{backend:?} {name}: {:?}",
+                check.subjects
+            );
+        }
+        // Run on to the end of the valley (a stall after 140-190 iterations):
+        // a stall is not convergence either, and the diagnosis is the same.
+        let stalled = calibrate_within(&cell, cell.free, backend, Some(400));
+        assert!(
+            matches!(
+                &stalled.uncertainty,
+                Uncertainty::Unavailable {
+                    reason: UncertaintyUnavailable::NotConverged
+                }
+            ),
+            "{backend:?}: {:?}",
+            stalled.uncertainty
+        );
+        let check = conditioning(&stalled);
+        assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
+        assert!(check.subjects.contains(&"tilt_x".to_string()));
+    }
+}
+
 #[test]
 fn zero_distortion_leaves_scheimpflug_tilt_unobservable() {
     let mut rejected = PlanarIntrinsicsConfig::default();
@@ -495,7 +578,7 @@ fn zero_distortion_leaves_scheimpflug_tilt_unobservable() {
         .set_config(rejected)
         .expect_err("distortion-free Scheimpflug must be refused");
     assert!(
-        err.to_string().contains("needs a distortion model"),
+        err.to_string().contains("without lens distortion"),
         "unexpected error: {err}"
     );
 
@@ -503,21 +586,14 @@ fn zero_distortion_leaves_scheimpflug_tilt_unobservable() {
         corner_distortion: 0.0,
         ..Cell::BASELINE
     };
-    // Without distortion nothing observes the tilt: it trades against the
-    // principal point along a long, curved valley whose floor ends on the
-    // principal point's bound. The solve crawls along it and does not reach
-    // its minimum within the budget, so the result states no covariance
-    // (and claims no determined tilt); it once stopped early in the valley
-    // and reported one, with the tilt's σ inflated sevenfold.
+    // With no true distortion (the camera's k1 free, so the configuration
+    // is accepted) nothing observes the tilt: it trades against the
+    // principal point along a long, curved valley. The solve stops on its
+    // budget (or, given more, stalls with the principal point on its bound),
+    // so the result has no covariance and claims no determined tilt; the
+    // conditioning at its last iterate names the tilt.
     for backend in BACKENDS {
         let export = calibrate(&cell, cell.free, backend);
-        let check = conditioning(&export);
-        assert_eq!(
-            check.status,
-            CheckStatus::NotApplicable,
-            "{}",
-            check.message
-        );
         assert!(
             matches!(
                 &export.uncertainty,
@@ -527,6 +603,13 @@ fn zero_distortion_leaves_scheimpflug_tilt_unobservable() {
             ),
             "{backend:?}: {:?}",
             export.uncertainty
+        );
+        let check = conditioning(&export);
+        assert_eq!(check.status, CheckStatus::Warn, "{}", check.message);
+        assert!(
+            check.subjects.contains(&"tilt_x".to_string()),
+            "{backend:?}: {:?}",
+            check.subjects
         );
     }
 }

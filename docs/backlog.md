@@ -208,6 +208,18 @@ Each model follows AGENTS.md §10 (a camera model).
 
 ## Calibration problems (Phase 2)
 
+- [ ] CAL-HANDEYE-REWEIGHT-STOP - The robot-prior variance-component
+  iteration (`robot_poses::solve_weighted`) stops when no weight changes by
+  more than 1 % between solves, but it converges linearly: on `kuka_1` the
+  weight changes run 0.89, 0.56, 0.27, 0.13, 0.072, 0.044, 0.028, 0.019,
+  0.012, 0.0080 (ratio about 0.65), so it stops one pass before its cap of
+  ten reweights, about 0.072σ (in `base_se3_target`) from its fixed point
+  (`notes/lm-stopping.md`). Stop on the extrapolated remainder
+  (`change·q/(1 − q)` with the observed ratio `q`) below a stated fraction
+  of the estimate's own spread instead of on the last change, and measure
+  the cost in solves on `kuka_1`, `ds8` and `synth_handeye` on both
+  backends; results move, so measured first.
+
 - [ ] CAL-TARGET-OFFSETS - A non-ideal target: per-point in-plane offsets of
   the board geometry, opt-in. Evidence (`notes/display-target-residual.md`):
   on a displayed PuzzleBoard, offsets of 34 µm RMS shared by six cameras

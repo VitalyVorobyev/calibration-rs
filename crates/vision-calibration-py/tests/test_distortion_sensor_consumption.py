@@ -107,6 +107,38 @@ class ScheimpflugDistortionModelConsumptionTest(unittest.TestCase):
         self.assertIsInstance(result.camera.sensor, vc.ScheimpflugSensor)
 
 
+class ScheimpflugTiltNeedsDistortionTest(unittest.TestCase):
+    def test_a_free_tilt_without_distortion_is_a_value_error(self) -> None:
+        # No distortion model: refused with the configuration.
+        cfg = vc.PlanarIntrinsicsConfig(
+            camera=vc.CameraConfig(
+                model=vc.CameraModelSpec(distortion="none", sensor="scheimpflug")
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "without lens distortion"):
+            vc.planar_intrinsics.run_calibration(planar_calibration_dataset(), cfg)
+        # Every distortion term held at zero: refused before the solve.
+        held = vc.PlanarIntrinsicsConfig(
+            camera=vc.CameraConfig(
+                model=vc.CameraModelSpec(sensor="scheimpflug"),
+                fix=vc.CameraFix(distortion=["k1", "k2", "k3", "p1", "p2"]),
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "hold the tilt"):
+            vc.planar_intrinsics.run_calibration(planar_calibration_dataset(), held)
+        # A rig override alike.
+        rig = vc.RigExtrinsicsConfig(
+            camera_overrides=[
+                vc.CameraOverride(
+                    1, model=vc.CameraModelSpec(distortion="none", sensor="scheimpflug")
+                )
+            ]
+        )
+        session = vc.RigExtrinsicsSession()
+        with self.assertRaisesRegex(ValueError, "without lens distortion"):
+            session.set_config(rig)
+
+
 class RigCameraOverrideConsumptionTest(unittest.TestCase):
     def test_rig_extrinsics_rejects_out_of_range_override(self) -> None:
         cfg = vc.RigExtrinsicsConfig(

@@ -88,7 +88,8 @@ pub(crate) const MIN_VIEW_POINTS: usize = 4;
 
 /// Default non-linear iteration cap of a planar solve, sized for a tilted
 /// sensor's tilt valley. The solver stops at convergence, so the cap only
-/// bounds runs that do not converge.
+/// bounds runs that do not converge (a weakly determined tilt ends on a
+/// stall within 140–250 iterations, not converged either way).
 const DEFAULT_MAX_ITERS: usize = 120;
 
 /// Configuration for planar intrinsics calibration.
@@ -104,8 +105,11 @@ const DEFAULT_MAX_ITERS: usize = 120;
 pub struct PlanarIntrinsicsConfig {
     /// The camera model and its fixed parameters.
     ///
-    /// Any distortion kind with an identity sensor; a Scheimpflug sensor
-    /// needs a distortion model. A tilted sensor's solve without a tilt seed
+    /// Any distortion kind with an identity sensor. A Scheimpflug sensor's
+    /// free tilt needs a lens distortion to determine it: a distortion
+    /// model with a free term, or one held at known non-zero values;
+    /// otherwise the configuration (or, for distortion held at zero, the
+    /// optimize step before it solves) is an error. A tilted sensor's solve without a tilt seed
     /// runs a multi-start tilt sweep (see `step_optimize`).
     #[serde(default)]
     pub camera: CameraConfig,
@@ -289,7 +293,10 @@ impl ProblemType for PlanarIntrinsicsProblem {
             per_cam_reproj_errors: vec![output.mean_reproj_error],
             // Callers that have the images fill `image_manifest`; the
             // pipeline never has image paths.
-            diagnostics: ExportDiagnostics::new(per_feature_residuals),
+            diagnostics: ExportDiagnostics {
+                last_iterate_covariance: output.last_iterate_covariance.clone(),
+                ..ExportDiagnostics::new(per_feature_residuals)
+            },
             uncertainty: output.uncertainty.clone(),
         })
     }

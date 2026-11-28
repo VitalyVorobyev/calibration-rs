@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Why a Levenberg–Marquardt solve stopped.\n\nEvery reason but [`MaxIters`](Self::MaxIters) is a stopping rule\n([`is_converged`](Self::is_converged)): the loop could not improve the\nsolution further, and only then is its covariance computed. A cancelled\nsolve, or one whose cost is not finite, returns an error instead of a\nsolution. The cost the thresholds are compared with is the robust\nobjective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's\n[`final_cost`](SolveReport::final_cost).",
+  "description": "Why a Levenberg–Marquardt solve stopped.\n\nEvery reason but [`MaxIters`](Self::MaxIters) and\n[`StalledStep`](Self::StalledStep) is convergence\n([`is_converged`](Self::is_converged)): the loop could not improve the\nsolution further, and only then is its covariance computed. A cancelled\nsolve, or one whose cost is not finite, returns an error instead of a\nsolution. The cost the thresholds are compared with is the robust\nobjective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's\n[`final_cost`](SolveReport::final_cost).",
   "oneOf": [
     {
       "const": "relative_step",
@@ -44,7 +44,7 @@
     },
     {
       "const": "stalled_step",
-      "description": "An accepted step moved the solution by less than a thousandth of its\nstandard deviation while the step to the minimum was still longer\nthan a hundredth: progress has stalled, along a long curved valley\nof a weakly determined parameter or against a bound. The solution\nis near the minimum only as far as that progress shows; its\ncovariance is computed, and a weak parameter shows in it.",
+      "description": "An accepted step moved the solution by less than a thousandth of its\nstandard deviation while the step to the minimum was still longer\nthan a hundredth: progress has stalled, along a long curved valley\nof a weakly determined parameter, or because the damping held the\nstep short. Not convergence: the solution has no covariance, as for\n[`MaxIters`](Self::MaxIters).",
       "type": "string"
     }
   ],

@@ -333,7 +333,7 @@
           "sensor": "identity"
         }
       },
-      "description": "The camera model and its fixed parameters.\n\nAny distortion kind with an identity sensor; a Scheimpflug sensor\nneeds a distortion model. A tilted sensor's solve without a tilt seed\nruns a multi-start tilt sweep (see `step_optimize`)."
+      "description": "The camera model and its fixed parameters.\n\nAny distortion kind with an identity sensor. A Scheimpflug sensor's\nfree tilt needs a lens distortion to determine it: a distortion\nmodel with a free term, or one held at known non-zero values;\notherwise the configuration (or, for distortion held at zero, the\noptimize step before it solves) is an error. A tilted sensor's solve without a tilt seed\nruns a multi-start tilt sweep (see `step_optimize`)."
     },
     "intrinsics_init": {
       "$ref": "#/$defs/IntrinsicsInitConfig",

@@ -401,8 +401,14 @@ fn rig_extrinsics_solves_every_distortion_kind_and_sensor() {
                 min_error: Some(1e-16),
                 ..Default::default()
             };
-            let result = optimize_rig_extrinsics(dataset, initial, opts, backend_opts)
-                .unwrap_or_else(|e| panic!("{kind:?}/{sensor:?}: {e}"));
+            let result = optimize_rig_extrinsics(dataset, initial, opts, backend_opts);
+            if kind == DistortionKind::None && matches!(sensor, SensorParams::Scheimpflug { .. }) {
+                // A free tilt with no distortion is not determined: refused.
+                let err = result.expect_err("a free tilt without distortion");
+                assert!(err.to_string().contains("without lens distortion"), "{err}");
+                continue;
+            }
+            let result = result.unwrap_or_else(|e| panic!("{kind:?}/{sensor:?}: {e}"));
             assert!(
                 result.mean_reproj_error < 1e-6,
                 "{kind:?}/{sensor:?}: reprojection {} px",

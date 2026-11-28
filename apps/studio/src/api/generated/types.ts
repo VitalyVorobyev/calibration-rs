@@ -1180,6 +1180,42 @@ export type JobState =
  */
 export type FrameKind = "target" | "laser";
 /**
+ * The estimated noise level of one kind of residual.
+ */
+export type ResidualNoise = {
+  /**
+   * The camera, for a result that estimates each camera's noise apart
+   * (the rig laserline, which solves each camera's plane on its own);
+   * `None` for one level shared by every camera.
+   */
+  camera?: number | null;
+  /**
+   * Number of scalar residuals of this kind.
+   */
+  count: number;
+  /**
+   * The kind of residual.
+   */
+  kind: ResidualKind;
+} & ResidualNoise1;
+/**
+ * A kind of residual, which sets its unit.
+ */
+export type ResidualKind =
+  | "reprojection"
+  | "laser_plane"
+  | "laser_line"
+  | {
+      custom: string;
+    };
+export type ResidualNoise1 =
+  | {
+      sigma: number;
+    }
+  | {
+      sigma0: number;
+    };
+/**
  * What a seed is made from.
  */
 export type SeedFrom =
@@ -1247,42 +1283,6 @@ export type Uncertainty =
        */
       reason: UncertaintyUnavailable;
       status: "unavailable";
-    };
-/**
- * The estimated noise level of one kind of residual.
- */
-export type ResidualNoise = {
-  /**
-   * The camera, for a result that estimates each camera's noise apart
-   * (the rig laserline, which solves each camera's plane on its own);
-   * `None` for one level shared by every camera.
-   */
-  camera?: number | null;
-  /**
-   * Number of scalar residuals of this kind.
-   */
-  count: number;
-  /**
-   * The kind of residual.
-   */
-  kind: ResidualKind;
-} & ResidualNoise1;
-/**
- * A kind of residual, which sets its unit.
- */
-export type ResidualKind =
-  | "reprojection"
-  | "laser_plane"
-  | "laser_line"
-  | {
-      custom: string;
-    };
-export type ResidualNoise1 =
-  | {
-      sigma: number;
-    }
-  | {
-      sigma0: number;
     };
 /**
  * What a listing shows.
@@ -1951,8 +1951,11 @@ export interface PlanarIntrinsicsConfig {
   /**
    * The camera model and its fixed parameters.
    *
-   * Any distortion kind with an identity sensor; a Scheimpflug sensor
-   * needs a distortion model. A tilted sensor's solve without a tilt seed
+   * Any distortion kind with an identity sensor. A Scheimpflug sensor's
+   * free tilt needs a lens distortion to determine it: a distortion
+   * model with a free term, or one held at known non-zero values;
+   * otherwise the configuration (or, for distortion held at zero, the
+   * optimize step before it solves) is an error. A tilted sensor's solve without a tilt seed
    * runs a multi-start tilt sweep (see `step_optimize`).
    */
   camera?: CameraConfig;
@@ -5242,6 +5245,15 @@ export interface ExportDiagnostics {
    */
   image_manifest?: ImageManifest | null;
   /**
+   * When the final solve stopped on its iteration budget (the result's
+   * uncertainty then unavailable, not converged): the first-order
+   * covariance at its last iterate. Not an uncertainty, as that iterate
+   * is not a minimum: it tells which parameters the data separates
+   * there, and the quality report's parameter-conditioning check reads
+   * it. `None` otherwise, and in workflows that do not record it.
+   */
+  last_iterate_covariance?: ParameterCovariance | null;
+  /**
    * The reprojection (and, for a laser workflow, laser) residual of every
    * feature, with per-camera histograms.
    */
@@ -5327,6 +5339,118 @@ export interface PixelRect {
    * Top edge in pixels.
    */
   y: number;
+}
+/**
+ * The covariance of a result's estimated parameters.
+ */
+export interface ParameterCovariance {
+  /**
+   * Covariance of the shared parameters: one row per label, symmetric.
+   */
+  covariance: number[][];
+  /**
+   * Residuals minus estimated parameters.
+   */
+  dof: number;
+  /**
+   * Labels of the parameters held fixed. The covariance is conditional on
+   * them.
+   */
+  fixed?: string[];
+  /**
+   * Labels of the shared parameters, in the order of `covariance`.
+   */
+  labels: string[];
+  /**
+   * The noise level of each kind of residual, estimated from the
+   * residuals at the solution.
+   */
+  noise: ResidualNoise[];
+  /**
+   * Number of scalar residuals, priors included.
+   */
+  num_residuals: number;
+  /**
+   * How far the error of the shared parameters is predicted to depart
+   * from `covariance` once its second-order term is counted. `None` when
+   * the result has no shared parameters or more than 64 (the prediction
+   * costs `s (s + 1)` residual evaluations for `s` of them), its data is
+   * noise-free, or the covariance was derived from others rather than
+   * from one solve.
+   */
+  second_order?: SecondOrderError | null;
+  /**
+   * How many times the variance of the shared parameters across views
+   * exceeds what the residual noise predicts, measured by leaving out one
+   * view at a time. The residual noise model takes every corner's error
+   * as independent; errors shared by a view's corners (a lens model or
+   * target that does not fit exactly, a detector bias) are not in it, and
+   * on real images make the estimate vary between view sets several
+   * times more than predicted. `covariance` and `views` are already
+   * scaled by it. `None` when the views scatter no more than the noise
+   * predicts (within the scatter's own sampling noise, at 97.5 %), and
+   * below six views.
+   */
+  view_scatter?: number | null;
+  /**
+   * Per-view parameters, one block per view that has free ones.
+   */
+  views?: ViewCovariance[];
+}
+/**
+ * The error of a result's shared parameters at second order, against
+ * their covariance.
+ *
+ * The covariance is the first-order error: linear in the noise. Where the
+ * views pin a combination of parameters down only through large errors of
+ * others that cancel in it (centred, mildly tilted views leave a camera's
+ * rotation and its principal point to trade off this way), the error's
+ * second-order term, quadratic in the noise, can exceed the first along
+ * that combination while every parameter's own σ still holds. A consumer
+ * that takes the whole covariance as a Gaussian (a prior, a test of two
+ * calibrations against each other) then trusts the combination too much.
+ *
+ * The prediction comes from the residuals' curvature along simulated
+ * first-order errors, at the result's own noise level; it grows with the
+ * noise's variance.
+ */
+export interface SecondOrderError {
+  /**
+   * The worst combination, `Σ wᵢ pᵢ / σᵢ` over the shared parameters
+   * `pᵢ`: its largest terms, by decreasing magnitude of the weight `wᵢ`
+   * (the largest +1, the others down to a quarter of it, at most six).
+   */
+  combination: CombinationTerm[];
+  /**
+   * The predicted scatter of the worst combination of the shared
+   * parameters, over the σ the covariance states for it: 1 when the
+   * first order describes the error, 3 when the error there is three
+   * times its stated σ.
+   */
+  max_scatter_ratio: number;
+  /**
+   * The predicted mean normalized estimation error squared of the shared
+   * parameters (`eᵀ Σ⁻¹ e`), per parameter: 1 when the first order
+   * describes the error.
+   */
+  nees_ratio: number;
+}
+/**
+ * The covariance of one view's own parameters.
+ */
+export interface ViewCovariance {
+  /**
+   * Their covariance: one row per label, symmetric.
+   */
+  covariance: number[][];
+  /**
+   * Labels of the view's parameters, e.g. `cam_se3_target.rx`.
+   */
+  labels: string[];
+  /**
+   * View index, as in the result's per-view lists.
+   */
+  view: number;
 }
 /**
  * Container bundled into every `*Export` carrying the per-feature drill-down
@@ -5741,118 +5865,6 @@ export interface LaserlineStats {
    * Per-view mean reprojection error (pixels).
    */
   per_view_reproj_errors: number[];
-}
-/**
- * The covariance of a result's estimated parameters.
- */
-export interface ParameterCovariance {
-  /**
-   * Covariance of the shared parameters: one row per label, symmetric.
-   */
-  covariance: number[][];
-  /**
-   * Residuals minus estimated parameters.
-   */
-  dof: number;
-  /**
-   * Labels of the parameters held fixed. The covariance is conditional on
-   * them.
-   */
-  fixed?: string[];
-  /**
-   * Labels of the shared parameters, in the order of `covariance`.
-   */
-  labels: string[];
-  /**
-   * The noise level of each kind of residual, estimated from the
-   * residuals at the solution.
-   */
-  noise: ResidualNoise[];
-  /**
-   * Number of scalar residuals, priors included.
-   */
-  num_residuals: number;
-  /**
-   * How far the error of the shared parameters is predicted to depart
-   * from `covariance` once its second-order term is counted. `None` when
-   * the result has no shared parameters or more than 64 (the prediction
-   * costs `s (s + 1)` residual evaluations for `s` of them), its data is
-   * noise-free, or the covariance was derived from others rather than
-   * from one solve.
-   */
-  second_order?: SecondOrderError | null;
-  /**
-   * How many times the variance of the shared parameters across views
-   * exceeds what the residual noise predicts, measured by leaving out one
-   * view at a time. The residual noise model takes every corner's error
-   * as independent; errors shared by a view's corners (a lens model or
-   * target that does not fit exactly, a detector bias) are not in it, and
-   * on real images make the estimate vary between view sets several
-   * times more than predicted. `covariance` and `views` are already
-   * scaled by it. `None` when the views scatter no more than the noise
-   * predicts (within the scatter's own sampling noise, at 97.5 %), and
-   * below six views.
-   */
-  view_scatter?: number | null;
-  /**
-   * Per-view parameters, one block per view that has free ones.
-   */
-  views?: ViewCovariance[];
-}
-/**
- * The error of a result's shared parameters at second order, against
- * their covariance.
- *
- * The covariance is the first-order error: linear in the noise. Where the
- * views pin a combination of parameters down only through large errors of
- * others that cancel in it (centred, mildly tilted views leave a camera's
- * rotation and its principal point to trade off this way), the error's
- * second-order term, quadratic in the noise, can exceed the first along
- * that combination while every parameter's own σ still holds. A consumer
- * that takes the whole covariance as a Gaussian (a prior, a test of two
- * calibrations against each other) then trusts the combination too much.
- *
- * The prediction comes from the residuals' curvature along simulated
- * first-order errors, at the result's own noise level; it grows with the
- * noise's variance.
- */
-export interface SecondOrderError {
-  /**
-   * The worst combination, `Σ wᵢ pᵢ / σᵢ` over the shared parameters
-   * `pᵢ`: its largest terms, by decreasing magnitude of the weight `wᵢ`
-   * (the largest +1, the others down to a quarter of it, at most six).
-   */
-  combination: CombinationTerm[];
-  /**
-   * The predicted scatter of the worst combination of the shared
-   * parameters, over the σ the covariance states for it: 1 when the
-   * first order describes the error, 3 when the error there is three
-   * times its stated σ.
-   */
-  max_scatter_ratio: number;
-  /**
-   * The predicted mean normalized estimation error squared of the shared
-   * parameters (`eᵀ Σ⁻¹ e`), per parameter: 1 when the first order
-   * describes the error.
-   */
-  nees_ratio: number;
-}
-/**
- * The covariance of one view's own parameters.
- */
-export interface ViewCovariance {
-  /**
-   * Their covariance: one row per label, symmetric.
-   */
-  covariance: number[][];
-  /**
-   * Labels of the view's parameters, e.g. `cam_se3_target.rx`.
-   */
-  labels: string[];
-  /**
-   * View index, as in the result's per-view lists.
-   */
-  view: number;
 }
 /**
  * What a scan found: the projects, and what it could not read.

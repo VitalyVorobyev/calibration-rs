@@ -1315,6 +1315,15 @@ class ExportDiagnostics(_ExportDiagnosticsRequired, total=False):
     images were recorded (the dataset runner and the desktop app fill it).
     """
 
+    last_iterate_covariance: ParameterCovariance | None
+    """When the final solve stopped on its iteration budget (the result's
+    uncertainty then unavailable, not converged): the first-order
+    covariance at its last iterate. Not an uncertainty, as that iterate
+    is not a minimum: it tells which parameters the data separates
+    there, and the quality report's parameter-conditioning check reads
+    it. `None` otherwise, and in workflows that do not record it.
+    """
+
 
 class _FeatureRequired(TypedDict):
     """The keys of `Feature` that every payload has."""
@@ -3013,8 +3022,11 @@ class PlanarIntrinsicsConfig(_PlanarIntrinsicsConfigRequired, total=False):
     camera: CameraConfig
     """The camera model and its fixed parameters.
 
-    Any distortion kind with an identity sensor; a Scheimpflug sensor
-    needs a distortion model. A tilted sensor's solve without a tilt seed
+    Any distortion kind with an identity sensor. A Scheimpflug sensor's
+    free tilt needs a lens distortion to determine it: a distortion
+    model with a free term, or one held at known non-zero values;
+    otherwise the configuration (or, for distortion held at zero, the
+    optimize step before it solves) is an error. A tilted sensor's solve without a tilt seed
     runs a multi-start tilt sweep (see `step_optimize`).
     """
 
@@ -5860,7 +5872,8 @@ SolveTermination: TypeAlias = Literal[
 ]
 """Why a Levenberg–Marquardt solve stopped.
 
-Every reason but `MaxIters` is a stopping rule
+Every reason but `MaxIters` and
+`StalledStep` is convergence
 (`is_converged`): the loop could not improve the
 solution further, and only then is its covariance computed. A cancelled
 solve, or one whose cost is not finite, returns an error instead of a
@@ -5889,9 +5902,9 @@ objective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's
 - ``"stalled_step"``: An accepted step moved the solution by less than a thousandth of its
   standard deviation while the step to the minimum was still longer
   than a hundredth: progress has stalled, along a long curved valley
-  of a weakly determined parameter or against a bound. The solution
-  is near the minimum only as far as that progress shows; its
-  covariance is computed, and a weak parameter shows in it.
+  of a weakly determined parameter, or because the damping held the
+  step short. Not convergence: the solution has no covariance, as for
+  `MaxIters`.
 """
 
 

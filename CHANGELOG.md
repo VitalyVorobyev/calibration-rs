@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- An export's `diagnostics.last_iterate_covariance` holds, when the final
+  solve stopped on its iteration budget or stalled, the first-order
+  covariance at its last iterate: not an uncertainty (the result's
+  `uncertainty` stays unavailable, not converged) but a diagnostic of which
+  parameters the data separates there. The quality report's
+  parameter-conditioning check reads it and says so, and the convergence
+  check, still failing, points at it. Recorded by planar intrinsics; empty
+  in the other workflows. The Rust planar estimate carries it as
+  `PlanarIntrinsicsEstimate::last_iterate_covariance`.
+
 - A project can start every run from a seed: the project file's optional
   `[seed]` (`project::SeedSource`) names a calibrated run (`run`), a
   device spec (`device_spec`) or a seed file (`file`), relative to the
@@ -489,10 +499,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (ratio 1.03–1.15, was 0.69–0.82). A coordinate held on its bound is held
   out of the measure, so such a solve still converges. A solve that makes
   no headway, a step moving it less than 0.001σ short of the minimum, stops
-  as `SolveTermination::StalledStep` (`"stalled_step"`). Where a parameter
-  is undetermined (a Scheimpflug tilt without lens distortion) a solve can
-  now run to its iteration budget and report its covariance unavailable,
-  where it used to stop early in the valley and report one.
+  as `SolveTermination::StalledStep` (`"stalled_step"`), which is not
+  convergence: the result has no covariance, as at the iteration budget.
+  Where a parameter is weakly determined or undetermined (a Scheimpflug
+  tilt under distortion below about −0.05 % at the image corner) a solve
+  now ends on its budget or a stall and reports its covariance unavailable,
+  where it used to stop early in the valley and report one; the quality
+  report still names the parameters that trade (see the export's
+  `diagnostics.last_iterate_covariance`).
+
+- **A Scheimpflug tilt is no longer fitted without lens distortion.** A
+  camera configuration that frees the sensor tilt with no distortion model
+  is an error in every workflow (`CameraConfig::validate`, a rig's
+  `camera_overrides` alike), and so is a free tilt with every distortion
+  term held at zero, refused before the solve: without distortion a tilted
+  camera is exactly a pinhole with a shifted principal point and rotated
+  poses, from any views, so the tilt is not determined. Free a radial term
+  (`k1`), or hold the tilt (`fix.sensor = ["tilt_x", "tilt_y"]`).
+  Distortion held at known non-zero values still determines a free tilt
+  and is accepted. In Python the error is a `ValueError`, as is now every
+  input error the solver raises (it was a `RuntimeError`).
 
 - The HTML report's "mean error by image region" figure (errors binned at
   the observed pixel) is replaced by two figures from one residual map: the

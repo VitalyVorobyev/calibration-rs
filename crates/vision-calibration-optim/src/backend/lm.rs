@@ -42,9 +42,12 @@
 //! A solve can also make no headway: an accepted step that moves the
 //! solution by less than a tenth of the tolerance (lowers `Σρ` by at most
 //! `(0.001)² σ̂²`) while `d` is still larger ends it
-//! ([`SolveTermination::StalledStep`]). Converging linearly with ratio `q`
-//! such a solve is within `0.1 q/(1 − q)` of the tolerance; a long curved
-//! valley of a weakly determined parameter can leave it further off.
+//! ([`SolveTermination::StalledStep`]), not converged. Such a step says
+//! nothing of the distance left: a long curved valley of a weakly
+//! determined parameter (where the local model keeps placing the minimum
+//! out of reach) stalls so, and so does a step the damping held short far
+//! from the minimum, so a stall has no covariance; the solve's last iterate
+//! still yields one as a diagnostic.
 //!
 //! A coordinate on a bound that the step would push through is held while
 //! the step is solved: the minimum measured is the one the bounds allow.
@@ -72,10 +75,9 @@ const LM_RELATIVE_STEP_TOLERANCE: f64 = 1e-8;
 pub(crate) const DEFAULT_SIGMA_TOLERANCE: f64 = 0.01;
 /// A step that moves the solution by less than this fraction of
 /// `sigma_tolerance` (in σ) while the step to the minimum is longer is a
-/// stall ([`SolveTermination::StalledStep`]): progress along a long curved
-/// valley, or against a bound, too slow to reach the minimum. Converging
-/// linearly with ratio `q`, such a solve is within `0.1·q/(1 − q)` of the
-/// tolerance, inside it for `q ≤ 0.9`.
+/// stall ([`SolveTermination::StalledStep`], not convergence): progress too
+/// slow to reach the minimum within any budget, along a long curved valley
+/// or under heavy damping.
 const STALL_FRACTION: f64 = 0.1;
 /// The damping of the step [`SolveTermination::SigmaStep`] measures: it
 /// leaves undamped every direction the covariance resolves (whose rank
@@ -225,6 +227,9 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         }
         num_iters = outer_iter + 1;
         let last_cost = current_cost;
+        // Whether this iteration measured the distance to the minimum and
+        // found it beyond the tolerance: a stall is judged only then.
+        let mut measured_far = false;
         let (residuals, jac) = engine.linearize(&x);
         if !residuals
             .col(0)
@@ -261,7 +266,7 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
                 sigma_tolerance,
             );
             match finish {
-                Finish::Far => {}
+                Finish::Far => measured_far = true,
                 Finish::AtMinimum => {
                     report(control, num_iters, max_iters, current_cost);
                     termination = SolveTermination::SigmaStep;
@@ -349,8 +354,11 @@ pub(crate) fn levenberg_marquardt<E: LinearizationEngine>(
         let abs_decrease = (last_cost - current_cost).abs();
         last_decrease = Some(last_cost - current_cost);
         // A step that moved the solution by under a tenth of the tolerance
-        // in σ, where the step to the minimum is still longer than it.
-        let stalled = sigma_tolerance > 0.0
+        // in σ, where the step to the minimum measured at this iteration is
+        // longer than it. Unmeasured (the last step moved the solution more
+        // than a σ), a small step is left to the next iteration's measure:
+        // a step clamped on a bound is one, and the measure holds the bound.
+        let stalled = measured_far
             && residual_variance(current_cost, residuals.nrows(), engine.free_dim()).is_some_and(
                 |variance| {
                     let stall = STALL_FRACTION * sigma_tolerance;
@@ -490,12 +498,17 @@ fn gauss_newton_finish<E: LinearizationEngine>(
     // Along the step the objective has curvature `a`, the model `b`, and
     // the gain ratio is `2 − a/b`: the step covered `a/b` of a distance
     // `d / √(a/b)` and leaves `|1 − a/b|` of it.
+    //
+    // A gain of 2 or more means `a ≤ 0` along the step: not a quadratic
+    // bowl, which at a distance within the tolerance of the minimum only
+    // rounding makes (a predicted decrease of a few ulps of the cost). The
+    // step was within the tolerance, so it leaves nothing to measure.
     let gain = (cost - new_cost) / predicted;
     let distance = (predicted / variance).sqrt();
     let remaining = if gain < 2.0 {
         (gain - 1.0).abs() * distance / (2.0 - gain).sqrt()
     } else {
-        f64::INFINITY
+        0.0
     };
     Finish::Moved {
         state,
@@ -680,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_budget_is_not_convergence() {
+    fn only_the_budget_and_a_stall_are_not_convergence() {
         use SolveTermination::*;
         for t in [
             RelativeStep,
@@ -690,11 +703,11 @@ mod tests {
             NoAcceptedStep,
             AllParametersFixed,
             SigmaStep,
-            StalledStep,
         ] {
             assert!(t.is_converged(), "{t:?}");
         }
         assert!(!MaxIters.is_converged());
+        assert!(!StalledStep.is_converged());
     }
 
     #[test]
@@ -922,8 +935,143 @@ mod tests {
         let solution =
             levenberg_marquardt(&engine, DVector::from_element(1, 4.0), &defaults(500)).unwrap();
         assert_eq!(solution.termination, SolveTermination::StalledStep);
+        assert!(!solution.termination.is_converged());
         let off = engine.sigmas(solution.state[0]);
         assert!(off <= 0.01, "{off} σ off");
+    }
+
+    /// Least squares over two nearly collinear columns,
+    /// `rᵢ = x₀ uᵢ + x₁ (uᵢ + ε vᵢ) − yᵢ`: a strong direction and a weak one
+    /// (eigenvalue about `ε²` of the scaled normal matrix).
+    struct Collinear {
+        u: Vec<f64>,
+        v: Vec<f64>,
+        y: Vec<f64>,
+        eps: f64,
+    }
+
+    impl Collinear {
+        fn new(eps: f64) -> Self {
+            let m = 200;
+            let u: Vec<f64> = (0..m).map(|i| (0.37 * i as f64).cos() + 1.5).collect();
+            let v: Vec<f64> = (0..m).map(|i| (0.91 * i as f64).sin()).collect();
+            let y = (0..m)
+                .map(|i| u[i] + 2.0 * (u[i] + eps * v[i]) + 0.1 * (1.7 * i as f64).sin())
+                .collect();
+            Self { u, v, y, eps }
+        }
+        fn columns(&self) -> nalgebra::DMatrix<f64> {
+            let m = self.u.len();
+            nalgebra::DMatrix::from_fn(m, 2, |i, j| {
+                if j == 0 {
+                    self.u[i]
+                } else {
+                    self.u[i] + self.eps * self.v[i]
+                }
+            })
+        }
+        /// The minimum, the residual variance there, and the normal matrix.
+        fn minimum(&self) -> (DVector<f64>, f64, nalgebra::DMatrix<f64>) {
+            let a = self.columns();
+            let h = a.transpose() * &a;
+            let y = DVector::from_vec(self.y.clone());
+            let x = h.clone().cholesky().unwrap().solve(&(a.transpose() * &y));
+            let variance = (&a * &x - y).norm_squared() / (self.y.len() - 2) as f64;
+            (x, variance, h)
+        }
+        /// The distance of `x` from the minimum, in standard deviations
+        /// (Mahalanobis).
+        fn sigmas(&self, x: &DVector<f64>) -> f64 {
+            let (xs, variance, h) = self.minimum();
+            let e = x - xs;
+            ((e.transpose() * h * e)[(0, 0)] / variance).sqrt()
+        }
+    }
+
+    impl LinearizationEngine for Collinear {
+        type State = DVector<f64>;
+
+        fn free_dim(&self) -> usize {
+            2
+        }
+        fn cost(&self, x: &DVector<f64>) -> f64 {
+            (self.columns() * x - DVector::from_vec(self.y.clone())).norm_squared()
+        }
+        fn linearize(&self, x: &DVector<f64>) -> (faer::Mat<f64>, SparseColMat<usize, f64>) {
+            let a = self.columns();
+            let r = &a * x - DVector::from_vec(self.y.clone());
+            let m = self.u.len();
+            let entries: Vec<_> = (0..m)
+                .flat_map(|i| [Triplet::new(i, 0, a[(i, 0)]), Triplet::new(i, 1, a[(i, 1)])])
+                .collect();
+            let j = SparseColMat::try_new_from_triplets(m, 2, &entries).expect("an m×2 Jacobian");
+            (faer::Mat::from_fn(m, 1, |i, _| r[i]), j)
+        }
+        fn retract(&self, x: &DVector<f64>, dx: &DVector<f64>) -> DVector<f64> {
+            x + dx
+        }
+        fn norm(&self, x: &DVector<f64>) -> f64 {
+            x.norm()
+        }
+    }
+
+    #[test]
+    fn a_step_the_damping_held_short_is_not_convergence() {
+        // At the strong direction's minimum, a σ off along the weak one
+        // (eigenvalue ~1e-10 of the scaled matrix, against the starting
+        // damping of 1e-4): the first steps cover a millionth of the way and
+        // lower the cost by about 1e-6 σ̂², a stall. A stall reports no
+        // convergence; the solve goes on to its minimum or says it did not.
+        let engine = Collinear::new(1e-5);
+        let (xs, variance, h) = engine.minimum();
+        let eig = h.symmetric_eigen();
+        let weak = eig.eigenvalues.imin();
+        let w = eig.eigenvectors.column(weak).into_owned();
+        let start = &xs + w * (variance / eig.eigenvalues[weak]).sqrt();
+        assert!((engine.sigmas(&start) - 1.0).abs() < 1e-6);
+        let solution = levenberg_marquardt(&engine, start, &defaults(100)).unwrap();
+        let off = engine.sigmas(&solution.state);
+        assert!(
+            !solution.termination.is_converged() || off <= 0.01,
+            "{:?} after {} iterations, {off:.3} σ off",
+            solution.termination,
+            solution.num_iters
+        );
+    }
+
+    #[test]
+    fn a_rounding_gain_at_the_minimum_ends_the_solve() {
+        // Started at the minimum: the Gauss-Newton step predicts a decrease
+        // of a few ulps, and the cost (offset by a constant anywhere off the
+        // exact minimum) falls by far more, a gain ratio far above 2. The
+        // solve stops on its first iteration (the remaining-distance estimate
+        // once read infinite there and iterated on).
+        struct Offset(Mean);
+        impl LinearizationEngine for Offset {
+            type State = DVector<f64>;
+            fn free_dim(&self) -> usize {
+                1
+            }
+            fn cost(&self, x: &DVector<f64>) -> f64 {
+                let at = self.0.minimum();
+                self.0.cost(x) - if (x[0] - at).abs() < 1e-10 { 1e-9 } else { 0.0 }
+            }
+            fn linearize(&self, x: &DVector<f64>) -> (faer::Mat<f64>, SparseColMat<usize, f64>) {
+                self.0.linearize(x)
+            }
+            fn retract(&self, x: &DVector<f64>, dx: &DVector<f64>) -> DVector<f64> {
+                x + dx
+            }
+            fn norm(&self, x: &DVector<f64>) -> f64 {
+                x.norm()
+            }
+        }
+        let engine = Offset(Mean::new(1.0));
+        // A nanometre off: a predicted decrease of ~1e-16, positive.
+        let start = DVector::from_element(1, engine.0.minimum() + 1e-9);
+        let solution = levenberg_marquardt(&engine, start, &defaults(100)).unwrap();
+        assert_eq!(solution.termination, SolveTermination::SigmaStep);
+        assert_eq!(solution.num_iters, 1);
     }
 
     #[test]

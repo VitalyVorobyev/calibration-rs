@@ -465,6 +465,38 @@ fn public_api_converges_with_deterministic_noise() {
     }
 }
 
+/// A free tilt with every distortion term held at zero is not determined
+/// (without distortion a tilt is a rotation of the poses and a shift of the
+/// principal point): refused before the solve, naming both ways out. Held
+/// tilt, the same camera calibrates.
+#[test]
+fn a_free_tilt_with_the_distortion_held_at_zero_is_refused() {
+    let dataset = make_dataset(ScheimpflugParams {
+        tilt_x: 0.01,
+        tilt_y: -0.008,
+    });
+    let all_distortion = || {
+        ["k1", "k2", "k3", "p1", "p2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+    };
+    let mut config = tilted_config();
+    config.camera.fix.distortion = Some(all_distortion());
+    let err = run_pipeline(&dataset, config).expect_err("an undetermined tilt");
+    let message = format!("{err:#}");
+    assert!(message.contains("without lens distortion"), "{message}");
+    assert!(
+        message.contains("`k1`") && message.contains("tilt_x"),
+        "{message}"
+    );
+
+    let mut held = tilted_config();
+    held.camera.fix.distortion = Some(all_distortion());
+    held.camera.fix.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);
+    run_pipeline(&dataset, held).expect("a held tilt calibrates");
+}
+
 #[test]
 fn public_api_rejects_too_few_views() {
     let mut views = make_dataset(ScheimpflugParams::default()).views;

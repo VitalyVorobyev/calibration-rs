@@ -27,6 +27,14 @@ found: fixing the tilt at zero *with `p1, p2` held* costs a median 2× and
 up to 31× the noise floor downstream where the tilt is undetermined,
 because the tilt's decentring is then left in the residual.
 
+A camera with no distortion to determine the tilt at all (no distortion
+model, or every term held at zero) is refused before any solving, in every
+workflow (`notes/lm-stopping.md`): this procedure would always end
+`FixedUndetermined` there, and a free tilt in such a model is a gauge. The
+refusal names the procedure's two ways out, freeing a radial term or
+holding the tilt; distortion held at known non-zero values determines the
+tilt and is accepted.
+
 ## Decision
 
 ### The procedure
