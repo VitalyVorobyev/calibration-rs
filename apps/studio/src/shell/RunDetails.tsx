@@ -12,6 +12,7 @@ import {
   type RunRow,
 } from "../project/runRows";
 import { useReadOnly } from "../session/jobs";
+import { describeSource } from "../screens/device/seedModel";
 
 /** The chosen run in full: its label and notes (saved when the field is
  * left), the settings it changed from the project's, how they differ from
@@ -135,6 +136,32 @@ export function RunDetails({ run, row }: { run: RunInfo; row: RunRow }) {
             <dd className="text-right font-mono text-fg">
               {calibrated.left_out.length} image
               {calibrated.left_out.length === 1 ? "" : "s"}
+            </dd>
+            <dt className="text-fg-muted">Seed</dt>
+            <dd
+              className="min-w-0 text-right text-fg"
+              title={
+                calibrated.inputs?.seed
+                  ? `${describeSource(calibrated.inputs.seed.source)}\nTook: ${calibrated.inputs.seed.applied.join(", ") || "nothing"}${calibrated.inputs.seed.ignored?.length ? `\nNot used: ${calibrated.inputs.seed.ignored.join(", ")}` : ""}`
+                  : undefined
+              }
+            >
+              {calibrated.inputs?.seed ? (
+                <>
+                  <span className="block truncate font-mono">
+                    {describeSource(calibrated.inputs.seed.source)}
+                  </span>
+                  <span className="text-fg-muted">
+                    took {calibrated.inputs.seed.applied.length} value
+                    {calibrated.inputs.seed.applied.length === 1 ? "" : "s"}
+                    {calibrated.inputs.seed.ignored?.length
+                      ? `, ${calibrated.inputs.seed.ignored.length} not used`
+                      : ""}
+                  </span>
+                </>
+              ) : (
+                "none"
+              )}
             </dd>
             {calibrated.redetected && (
               <>

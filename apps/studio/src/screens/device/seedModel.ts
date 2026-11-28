@@ -203,6 +203,24 @@ export function runSeedSource(from: SeedFrom): SeedSource | null {
     : null;
 }
 
+/** The run a `[seed]` names, when it is an absolute `<project>/runs/<id>`
+ * path (what the app writes); `null` for any other source or a relative
+ * path, whose project the app cannot tell. */
+export function sourceRunRef(
+  source: SeedSource | null | undefined,
+): { dir: string; id: string } | null {
+  if (!source || !("run" in source)) return null;
+  const m = /^((?:[A-Za-z]:)?[\\/].*?)[\\/]runs[\\/]([^\\/]+)[\\/]?$/.exec(source.run);
+  return m ? { dir: m[1]!, id: m[2]! } : null;
+}
+
+/** What kind of source a `[seed]` is, in words. */
+export function sourceKind(source: SeedSource): string {
+  if ("run" in source) return "a calibrated run";
+  if ("device_spec" in source) return "a device specification";
+  return "a seed file";
+}
+
 /** The seed of a project as a line. */
 export function describeSource(source: SeedSource | null | undefined): string {
   if (!source) return "none";

@@ -31,9 +31,20 @@ test("edits a parameter, runs, finds the run with its change, reruns from it, st
   await openLoggedIn(page);
   await openCalibrate(page, dir);
 
-  // The editor at rest: no changes, the seed row says it is not there yet.
+  // The editor at rest: no changes, and no seed.
   await expect(page.getByText("No changes")).toBeVisible();
-  await expect(page.getByText(/not available yet/)).toBeVisible();
+  await expect(page.getByText(/each camera starts from its own images/)).toBeVisible();
+
+  // `fix_poses` is a text of view numbers, not JSON; typing writes the list.
+  const poses = page.getByRole("textbox", { name: /fix poses/i });
+  await expect(poses).toHaveValue("");
+  await poses.fill("0, 2-3");
+  await expect(page.getByRole("list", { name: "Changed fields" })).toContainText(
+    "fix poses",
+  );
+  await poses.fill("");
+  await poses.blur();
+  await expect(page.getByText("No changes")).toBeVisible();
 
   // One parameter changed: marked, counted, and listed against the project's.
   await setMaxIters(page, 30);

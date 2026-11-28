@@ -1,5 +1,5 @@
 import { DensityProvider, Empty, Select, ToggleChip, Tooltip } from "@vitavision/ui";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PoseStepper } from "../../components/PoseStepper";
 import { ToolbarGroup, ViewerToolbar } from "../../components/ViewerToolbar";
 import { adaptSceneExport } from "../../lib/sceneExport";
@@ -19,6 +19,10 @@ import { Scene } from "./Scene";
  * reference camera (default cam 0). Click a frustum to pick a camera;
  * click a board to pick a pose. */
 export function Viewer3DWorkspace() {
+  // The element the active camera's label is drawn into: one this view owns,
+  // so the label's DOM leaves it with the view, not from a canvas element
+  // that is already gone when the scene unmounts.
+  const labelPortal = useRef<HTMLDivElement>(null);
   const data = useStore((s) => s.data);
   const kind = useStore((s) => s.kind);
   const frames = useStore((s) => s.frames);
@@ -139,13 +143,17 @@ export function Viewer3DWorkspace() {
       </ViewerToolbar>
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_18rem] gap-3 overflow-hidden">
-        <div className="relative overflow-hidden rounded-control border border-line">
+        <div
+          ref={labelPortal}
+          className="relative overflow-hidden rounded-control border border-line"
+        >
           <Scene
             data={sceneData}
             showAllPoses={showAllPoses}
             showLaserPlanes={hasLaserPlanes && showLaserPlanes}
             cameraDimensions={cameraDimensions}
             fallbackImage={{ width: 1024, height: 768 }}
+            labelPortal={labelPortal}
           />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between border-t border-line bg-raised/80 px-3 py-1.5 font-mono text-[10px] text-fg-muted backdrop-blur-sm">
             <span>

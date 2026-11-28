@@ -427,3 +427,40 @@ describe("Seed", () => {
     ).toBe(true);
   });
 });
+
+describe("The breadcrumb's device lists", () => {
+  const open = async () => {
+    device();
+    const { router } = renderDevice("/device?product=Stereo-X1&device=SN-0042");
+    act(() => useProject.setState({ project: withDevice(projectView("/data/bench")) }));
+    await screen.findByRole("table", { name: "Runs of the device" });
+    return router;
+  };
+
+  it("opens another device of the type on the Device screen", async () => {
+    const router = await open();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Device: choose another/ }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "SN-0057" }));
+    await waitFor(() => expect(router.state.location.search).toContain("device=SN-0057"));
+    const params = new URLSearchParams(router.state.location.search);
+    expect(router.state.location.pathname).toBe("/device");
+    expect(params.get("product")).toBe("Stereo-X1");
+    expect(params.get("project")).toBe("/data/bench");
+    expect(params.get("scope")).toBeNull();
+  });
+
+  it("opens a device type as every unit of it", async () => {
+    const router = await open();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Device type: choose another/ }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^Stereo-X1/ }));
+    await waitFor(() =>
+      expect(new URLSearchParams(router.state.location.search).get("scope")).toBe("type"),
+    );
+    expect(router.state.location.pathname).toBe("/device");
+    expect(new URLSearchParams(router.state.location.search).get("device")).toBeNull();
+  });
+});

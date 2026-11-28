@@ -2,7 +2,7 @@ import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { GIZMO_LAYER } from "@vitavision/three";
 import { FrameAxes, useSceneColors } from "@vitavision/three-react";
-import { useMemo } from "react";
+import { useMemo, type RefObject } from "react";
 import { Vector3 } from "three";
 import { cameraPositionInRig, iso3FromWire } from "../../lib/se3";
 import { useStore } from "../../store";
@@ -27,6 +27,8 @@ interface SceneProps {
   cameraDimensions: Map<number, { width: number; height: number }>;
   /** Last-resort fallback when a camera index has no manifest entry. */
   fallbackImage: { width: number; height: number };
+  /** Where the active camera's DOM label goes (see `CameraFrustum`). */
+  labelPortal: RefObject<HTMLElement | null>;
 }
 
 const FAR_DEPTH_M = 0.05; // 5 cm — long enough to read on the puzzle
@@ -50,6 +52,7 @@ export function Scene({
   showLaserPlanes,
   cameraDimensions,
   fallbackImage,
+  labelPortal,
 }: SceneProps) {
   // Tokens via `@vitavision/three-react`; index.css aliases its token
   // names onto this app's palette.
@@ -149,6 +152,7 @@ export function Scene({
               active={id === cameraA}
               onSelect={() => setCamera(id, "A")}
               label={`cam ${id}`}
+              labelPortal={labelPortal}
             />
           );
         })}
