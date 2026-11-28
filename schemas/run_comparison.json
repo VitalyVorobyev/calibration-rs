@@ -404,7 +404,7 @@
           "type": "object"
         },
         {
-          "description": "Nested observations under one configuration (the Hausman form):\n`σ_Δ² = c · k_larger · (a_smaller − a_larger)`, `a` each run's\nvariance per unit noise (its stated variance over its view-scatter\nfactor and variance factor), `c` the smaller run's variance factor\nand `k_larger` the larger run's view-scatter factor: both on one\nnoise level. `z = Δ / σ_Δ` is standard normal when the left-out\nobservations fit the model as the others do and were not chosen by\ntheir residuals.",
+          "description": "Nested observations under one configuration (the Hausman form):\n`σ_Δ² = c · k · (a_smaller − a_larger)`, `a` each run's variance per\nunit noise (its stated variance over its view-scatter factor and\nvariance factor), `c` and `k` the smaller run's variance factor and\nview-scatter factor: both on one noise level, the smaller run's, which\nholds whether or not the left-out observations fit. `z = Δ / σ_Δ` is standard normal when the left-out\nobservations fit the model as the others do and were not chosen by\ntheir residuals.",
           "properties": {
             "kind": {
               "const": "nested",
@@ -728,7 +728,7 @@
         },
         {
           "const": "nested_variance_not_positive",
-          "description": "Nested runs whose variance of the difference is not positive (the\nsmaller run's information is not the smaller).",
+          "description": "Nested runs whose variance of the difference is not positive (the\nsmaller run's information is not the smaller). For truly nested\nobservations this is an artifact of evaluating each run's\ninformation at its own estimate: at one common point the smaller\nrun's variance is never below the larger's. It occurs when few\nobservations were left out, where the two informations differ less\nthan the change of the point moves them.",
           "type": "string"
         },
         {

@@ -81,9 +81,10 @@ impl<'p> Scale<'p> {
     }
 
     /// The nested difference on one noise level, as the smaller run's
-    /// variance factor `c_s` times the larger run's view-scatter factor
-    /// `k_l` (the scale of `Σ_Δ`), and the per-unit-noise variances
-    /// `A_s⁻¹` and `A_l⁻¹` (`A⁻¹ = Σ / (k c)`).
+    /// variance factor `c_s` times its view-scatter factor `k_s` (the scale
+    /// of `Σ_Δ`: both are read from the data that is consistent under the
+    /// null and under the alternative alike), and the per-unit-noise
+    /// variances `A_s⁻¹` and `A_l⁻¹` (`A⁻¹ = Σ / (k c)`).
     fn nested_parts(
         &self,
         reference: &DMatrix<f64>,
@@ -95,7 +96,7 @@ impl<'p> Scale<'p> {
             RunSide::Other => (other, reference),
         };
         Some((
-            s.variance_factor * l.view_scatter,
+            s.variance_factor * s.view_scatter,
             sigma_s / (s.view_scatter * s.variance_factor),
             sigma_l / (l.view_scatter * l.variance_factor),
         ))

@@ -154,8 +154,8 @@ pub(crate) struct CovarianceEstimate {
     pub view_scatter: Option<f64>,
     /// `c` of `matrix = view_scatter · c · (JᵀJ)⁻¹`, `J` the Jacobian of the
     /// (whitened) residuals, when every residual is of one family and no
-    /// prior enters: `σ̂²` under least squares, the sandwich's `s / κ²` under
-    /// a robust loss. `None` otherwise.
+    /// prior enters: `σ̂²` under least squares, the sandwich's `s / κ²`
+    /// (`E[ψ²] · m/(m − n) / E[ψ′]²`) under a robust loss. `None` otherwise.
     pub variance_factor: Option<f64>,
     /// The error's predicted departure from `matrix` at second order (see
     /// [`second_order`]); `None` without shared coordinates or with too many,

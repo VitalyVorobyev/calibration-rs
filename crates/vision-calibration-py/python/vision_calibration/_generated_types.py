@@ -1300,11 +1300,11 @@ class DifferenceTest_Independent(TypedDict):
 
 class DifferenceTest_Nested(TypedDict):
     """Nested observations under one configuration (the Hausman form):
-    `σ_Δ² = c · k_larger · (a_smaller − a_larger)`, `a` each run's
-    variance per unit noise (its stated variance over its view-scatter
-    factor and variance factor), `c` the smaller run's variance factor
-    and `k_larger` the larger run's view-scatter factor: both on one
-    noise level. `z = Δ / σ_Δ` is standard normal when the left-out
+    `σ_Δ² = c · k · (a_smaller − a_larger)`, `a` each run's variance per
+    unit noise (its stated variance over its view-scatter factor and
+    variance factor), `c` and `k` the smaller run's variance factor and
+    view-scatter factor: both on one noise level, the smaller run's, which
+    holds whether or not the left-out observations fit. `z = Δ / σ_Δ` is standard normal when the left-out
     observations fit the model as the others do and were not chosen by
     their residuals.
     """
@@ -3247,7 +3247,12 @@ NoTest: TypeAlias = Literal[
   before it was recorded, or its covariance was derived from several
   solves): their noise levels cannot be put on one scale.
 - ``"nested_variance_not_positive"``: Nested runs whose variance of the difference is not positive (the
-  smaller run's information is not the smaller).
+  smaller run's information is not the smaller). For truly nested
+  observations this is an artifact of evaluating each run's
+  information at its own estimate: at one common point the smaller
+  run's variance is never below the larger's. It occurs when few
+  observations were left out, where the two informations differ less
+  than the change of the point moves them.
 - ``"nested_joint"``: The joint test of a camera's parameters between nested runs, which
   is not offered: it rejects well above its level when the left-out
   data are a small share (measured: 7.7 % with 1 of 8 views left out,
@@ -3345,7 +3350,8 @@ class ParameterCovariance(_ParameterCovarianceRequired, total=False):
     residuals (whitened by their stated covariances, when they have
     them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
     per degree of freedom (px², or dimensionless for whitened residuals);
-    under a robust loss, the sandwich's `E[ψ²] / E[ψ′]²`. It puts two
+    under a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`
+    (`m` residuals, `n` estimated parameters). It puts two
     solves of nested data on one noise level. `None` when the covariance
     combines residual families, stated priors or another calibration's
     share, or was derived from several solves.
@@ -7066,7 +7072,8 @@ class Uncertainty_Available(_Uncertainty_AvailableRequired, total=False):
     residuals (whitened by their stated covariances, when they have
     them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
     per degree of freedom (px², or dimensionless for whitened residuals);
-    under a robust loss, the sandwich's `E[ψ²] / E[ψ′]²`. It puts two
+    under a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`
+    (`m` residuals, `n` estimated parameters). It puts two
     solves of nested data on one noise level. `None` when the covariance
     combines residual families, stated priors or another calibration's
     share, or was derived from several solves.

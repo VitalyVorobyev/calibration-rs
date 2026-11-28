@@ -47,12 +47,18 @@ reprojection RMS, because each view's pose absorbs part of the field.
     Each export states its variance factor `c` (`ParameterCovariance::
     variance_factor`, `Σ = k · c · (JᵀJ)⁻¹`, `k` the view-scatter factor),
     so each run's information `A⁻¹ = Σ / (k c)` is recovered and
-    `σ_Δ² = c_smaller · k_larger · (A_s⁻¹ − A_l⁻¹)` (Hausman 1978: under the
-    null the efficient estimate is uncorrelated with its difference from the
-    inefficient one). The smaller run's `c` is consistent under both
-    hypotheses and keeps the power when the larger run holds the outliers.
-    A variance that does not grow is `NestedVarianceNotPositive`, never
-    clamped. A pose's nested `χ²` goes through a generalized inverse over
+    `σ_Δ² = c_s · k_s · (A_s⁻¹ − A_l⁻¹)` (Hausman 1978: under the null the
+    efficient estimate is uncorrelated with its difference from the
+    inefficient one). The smaller run's `c` and `k` are consistent under
+    both hypotheses and keep the power when the larger run holds the
+    outliers: the larger run's view-scatter factor measures the scatter
+    those outliers cause (an independent check set `k_l` in 69 of 1000
+    outlier trials, `k_s` in 20, and `k_s` rejected 53–56 % against 52–56 %
+    for `k_l`); under the null `k` is rarely set, and with `k_s` the null
+    cells moved closer to nominal (6 of 20 views out: z std 0.96–1.00 with
+    `k_s`, 0.89–0.99 with `k_l`). A variance that does not grow is
+    `NestedVarianceNotPositive`, never clamped; for truly nested data it is
+    an artifact of evaluating each information at its own estimate (below). A pose's nested `χ²` goes through a generalized inverse over
     the directions whose variance grows. A camera's parameters get no nested
     joint test (`NestedJoint`, measured below). Not offered for a covariance
     of several residual families, robot-pose priors or per-camera noise
@@ -135,25 +141,28 @@ of 1; the joint `χ²` likewise.
 
 | Cell (trials) | Rejection at 5 % | z std | Joint χ² (8 dof) / pose χ² (6 dof) |
 |---|---|---|---|
-| Independent, 20 views (400) | 2.0–5.5 % | 0.93–1.00 | 5.75 %, mean χ²/dof 1.01 |
-| Nested, 6 of 20 views out (1000) | 3.5–6.0 % | 0.89–0.99 | not offered (`NestedJoint`) |
-| Nested, 20 % of features out (1000) | 3.9–6.0 % | 0.98–1.04 | not offered |
-| Nested, 1 of 8 views out (1000) | 4.4–6.1 % | 0.98–1.04 | not offered |
-| Nested, Huber 0.5 px, 6 of 20 views (1000) | 4.6–5.2 % | 0.98–1.00 | not offered |
-| Nested, Huber 0.5 px, 20 % of features (1000) | 4.6–6.1 % | 0.98–1.04 | not offered |
+| Independent, 20 views (400) | 3.5–5.25 % | 0.96–1.02 | 5.75 %, mean χ²/dof 1.01 |
+| Nested, 6 of 20 views out (1000) | 3.8–5.2 % | 0.96–1.00 | not offered (`NestedJoint`) |
+| Nested, 20 % of features out (1000) | 3.9–6.0 % | 0.97–1.04 | not offered |
+| Nested, 1 of 8 views out (1000) | 4.6–5.5 % | 0.99–1.02 | not offered |
+| Nested, Huber 0.5 px, 6 of 20 views (1000) | 4.5–5.7 % | 0.98–1.00 | not offered |
+| Nested, Huber 0.5 px, 20 % of features (1000) | 4.5–6.1 % | 0.98–1.04 | not offered |
 | Rig `right_se3_left`, independent (400) | — | — | 4.0 %, mean χ²/dof 0.94 |
-| Rig `right_se3_left`, 2 of 8 views out (1000) | — | — | 4.5 %, mean χ²/dof 0.95 |
+| Rig `right_se3_left`, 2 of 8 views out (1000) | — | — | 5.0 %, mean χ²/dof 0.97 |
 
 Missing tests under the null: at most 0.8 % per parameter (`k2`
 `NestedVarianceNotPositive`, 1 of 8 views out). A sweep at 200 trials per
 cell over 8 / 20 / 60 views, 0.05 / 0.3 px, a Kannala-Brandt fisheye and a
 Scheimpflug sensor, independent and 30 % of the views out, passes the same
-gate (rates 1.5–9.5 %, z std 0.85–1.14, inside each cell's bounds).
+gate (rates 1.5–9.5 %, z std 0.85–1.13, inside each cell's bounds).
 
 The alternative: 1 % of the larger run's features moved 8 px, left out by
-the smaller run. Some parameter rejects in 98.8 % of 400 comparisons
+the smaller run. Some parameter rejects in 98.75 % of 400 comparisons
 (pooled mean `z²` ≈ 2200); 82 % of the per-parameter tests are available,
-the rest `NestedVarianceNotPositive` (the left-out share is small).
+the rest `NestedVarianceNotPositive` (the left-out share is small). Under a
+robust loss that absorbs the left-out outliers the test does not reject,
+by design: the larger fit already ignores them (measured in the
+independent check: 4–6 %).
 
 **Before the common noise level** (the review's measurement, 400 trials,
 1024 × 768, 10 × 7 board): each run's own noise estimate entered the
@@ -172,15 +181,31 @@ views: 0.93–1.04; here, 0.94–1.09 at 200 trials) and are withdrawn.
 with a small left-out share the nested `z` of some parameters still has
 heavy tails on one noise level: 1 of 25 views out, `k2` z std 1.14 (MAD
 1.00, three `|z| > 4` in 1000); 6 of about 2000 features out, z std up to
-1.35 and `k2` 7.7 % rejections with 4.3 % not positive. Each run's
-information is evaluated at its own estimate, and two nearly equal
-informations then differ mostly by that mismatch. A tighter solver stop
-(`1e-14` decrease) changed nothing (convergence is not the cause). A cut on
+1.35 and `k2` 7.7 % rejections with 4.3 % not positive. **The cause is
+measured** (independent check): each run's information is evaluated at its
+own estimate, and two nearly equal informations then differ mostly by that
+mismatch. Evaluating both at one common point removes the excess (1 of 25
+views, `k2` z std 1.090 → 1.012, ten `|z| > 4` → none, 7 missing → 0; 6
+features, `k2` 1.245 → 0.992, 74 missing → 0), and explains
+`NestedVarianceNotPositive` for truly nested data: at one point
+`A_s⁻¹ ⪰ A_l⁻¹` by construction. A tighter solver stop (`1e-14`
+decrease) and polishing the solves changed nothing. The fix, deferred
+(backlog COMPARE-SMALL-EXCLUSIONS):
+`V_Δ = c_s · k_s · [(M_l − M_d)⁻¹ − M_l⁻¹]`, `M_l = (Σ_l / (k_l c_l))⁻¹`
+from the larger run's export and `M_d` the information of the left-out
+observations at `θ̂_l`, each view's pose profiled out
+(`vision_calibration_optim::view_information`). It needs the observations,
+which `Project::compare_runs` can reach and an export alone cannot, the
+same whitening for runs with stated per-feature covariances, and a rig
+analogue. A cut on
 the relative variance growth was measured and rejected: at 1–2 % it removes
 most small-exclusion tests and the 1 %-outlier tests the nested test exists
 for, and biases what it keeps (joint mean χ²/dof 0.92). The camera-parameter
 joint test through a generalized inverse rejects 7.7 % (1 of 8 views),
-9.1 % (1 of 25) and 15.7 % (6 features) and is not offered for nested runs.
+9.1 % (1 of 25) and 15.7 % (6 features) and is not offered for nested runs;
+the common point does not rescue it for whole-view drops (independent
+check: 1 of 25 views 8.7 %, mean χ²/dof 1.46; 1 of 8 views 16.9 %), so
+`NestedJoint` stays after that fix.
 
 ## Consequences
 
@@ -209,6 +234,8 @@ joint test through a generalized inverse rejects 7.7 % (1 of 8 views),
   difference of the two noise estimates dominates small exclusions.
 - **The larger run's variance factor**: inconsistent under the alternative
   when the larger run holds the outliers the smaller left out.
+- **The larger run's view-scatter factor**: the same argument, and it is set
+  more often by the outliers it should expose (measured above).
 - **A cut on the relative variance growth**: measured above.
 - **The relation in `CompareRunsOptions`** (one entry per later run): a
   length to check and, in a project, a state to forbid; it is the run's.

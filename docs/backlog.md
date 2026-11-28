@@ -564,19 +564,39 @@ Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
   are a small share of the information (1 of 25 views, 6 of ~2000
   features). On one noise level the per-parameter rejection rate stays
   within 5–8 %, but some `z` have heavy tails (std 1.14–1.35 measured, pinned
-  by `nested_small_exclusions_have_heavier_tails`): each run's information
-  is evaluated at its own estimate, and the difference of two nearly equal
-  informations is dominated by that mismatch. A relative-growth cut was
-  measured and rejected (it removes the 1 %-outlier exclusions the test
-  exists for, and biases what remains). Candidates: the excluded data's
-  information at the full run's estimate (needs the session, not the
-  export), or a second-order correction. Gate: the 1-of-25-views and
-  6-features cells under the strict `gate_null`.
+  by `nested_small_exclusions_have_heavier_tails`). **Cause measured**
+  (independent check): each run's information is evaluated at its own
+  estimate, and the difference of two nearly equal informations is
+  dominated by that mismatch. Evaluating both at one common point removes
+  the excess: 1 of 25 views, `k2` z std 1.090 → 1.012, ten `|z| > 4` →
+  none, 7 missing → 0; 6 features, `k2` 1.245 → 0.992, 74 missing → 0.
+  It also explains `NestedVarianceNotPositive` for truly nested data (at one
+  point `A_s⁻¹ ⪰ A_l⁻¹` by construction). Polishing the solves changes
+  nothing; a relative-growth cut was measured and rejected (it removes the
+  1 %-outlier exclusions the test exists for, and biases what remains).
+  **The fix:** `V_Δ = c_s · k_s · [(M_l − M_d)⁻¹ − M_l⁻¹]`, with
+  `M_l = (Σ_l / (k_l c_l))⁻¹` from the larger run's export and `M_d` the
+  information of the left-out observations at `θ̂_l`, each view's pose
+  profiled out (`vision_calibration_optim::view_information`). It needs the
+  observations (available to `Project::compare_runs` through the records
+  and the detection cache, not to `analysis::compare_runs` from exports
+  alone), the same whitening for runs with stated per-feature covariances,
+  and a rig analogue (the rig poses profiled per view). Gate: the
+  1-of-25-views and 6-features cells under the strict `gate_null`, which
+  then replace the characterization test.
 - [ ] COMPARE-NESTED-JOINT - A joint test of a camera's parameters between
   nested runs. Through a generalized inverse it rejects 7.7 % (1 of 8 views
   left out) to 15.7 % (6 features) at 5 %, so it is not offered
   (`NoTest::NestedJoint`); each parameter's nested test and the poses'
-  nested `χ²` remain. Depends on COMPARE-SMALL-EXCLUSIONS.
+  nested `χ²` remain. The common evaluation point of
+  COMPARE-SMALL-EXCLUSIONS does not rescue it for whole-view drops
+  (measured in the independent check: 1 of 25 views 8.7 %, mean χ²/dof
+  1.46; 1 of 8 views 16.9 %), so `NestedJoint` stays after that fix; the
+  cause is open (hypothesis: the generalized inverse keeps weakly growing
+  directions of `A_s⁻¹ − A_l⁻¹` whose small variance the linearization does
+  not hold to, which inflate `χ²` beyond the per-parameter margins; decided
+  by the joint `χ²` and its eigen-directions' z at the common point, with
+  a cut on each direction's relative growth).
 - [ ] COMPARE-MIXED-RESIDUALS - The nested test for covariances of several
   residual families or with priors (hand-eye with robot-pose priors, laser
   and reprojection, the per-camera rig laser covariances whose view scatter

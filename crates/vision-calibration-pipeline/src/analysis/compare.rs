@@ -475,11 +475,11 @@ pub enum DifferenceTest {
         p_value: f64,
     },
     /// Nested observations under one configuration (the Hausman form):
-    /// `σ_Δ² = c · k_larger · (a_smaller − a_larger)`, `a` each run's
-    /// variance per unit noise (its stated variance over its view-scatter
-    /// factor and variance factor), `c` the smaller run's variance factor
-    /// and `k_larger` the larger run's view-scatter factor: both on one
-    /// noise level. `z = Δ / σ_Δ` is standard normal when the left-out
+    /// `σ_Δ² = c · k · (a_smaller − a_larger)`, `a` each run's variance per
+    /// unit noise (its stated variance over its view-scatter factor and
+    /// variance factor), `c` and `k` the smaller run's variance factor and
+    /// view-scatter factor: both on one noise level, the smaller run's, which
+    /// holds whether or not the left-out observations fit. `z = Δ / σ_Δ` is standard normal when the left-out
     /// observations fit the model as the others do and were not chosen by
     /// their residuals.
     Nested {
@@ -525,7 +525,12 @@ pub enum NoTest {
     /// solves): their noise levels cannot be put on one scale.
     NoVarianceFactor,
     /// Nested runs whose variance of the difference is not positive (the
-    /// smaller run's information is not the smaller).
+    /// smaller run's information is not the smaller). For truly nested
+    /// observations this is an artifact of evaluating each run's
+    /// information at its own estimate: at one common point the smaller
+    /// run's variance is never below the larger's. It occurs when few
+    /// observations were left out, where the two informations differ less
+    /// than the change of the point moves them.
     NestedVarianceNotPositive,
     /// The joint test of a camera's parameters between nested runs, which
     /// is not offered: it rejects well above its level when the left-out
@@ -718,7 +723,7 @@ pub enum ProjectionUnavailable {
 /// | Relation | Variance of `Δ` |
 /// |---|---|
 /// | [`Independent`](DataRelation::Independent) | `σ_ref² + σ_other²` |
-/// | [`Nested`](DataRelation::Nested) | `c · k_larger · (a_smaller − a_larger)`, both runs on the smaller run's noise level (the Hausman form) |
+/// | [`Nested`](DataRelation::Nested) | `c · k · (a_smaller − a_larger)`, both runs on the smaller run's noise level (`c`, `k` its variance and view-scatter factors; the Hausman form) |
 /// | any other | none, with the reason |
 ///
 /// The nested form holds because, when the left-out observations fit the

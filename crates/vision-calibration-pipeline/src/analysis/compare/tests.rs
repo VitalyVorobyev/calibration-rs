@@ -257,10 +257,19 @@ fn nested_sigma_is_the_hausman_form_on_one_noise_level() {
     assert!((sigma - 0.75).abs() < 1e-12, "{sigma}");
 
     // The full run's covariance scaled by its view scatter 2 (stated
-    // σ² = 2): σ_Δ² = c_s · k_l · (1.5625 − 1) = 1.125.
+    // σ² = 2): its information is unchanged and its k does not enter, so
+    // σ_Δ² stays 0.5625.
     let (sigma, _) = sigma_of(nested(
         &full_of(2.0, Some(2.0), Some(1.0)),
         &small_of(1.5625, None, Some(1.0)),
+    ));
+    assert!((sigma - 0.75).abs() < 1e-12, "{sigma}");
+
+    // The smaller run's covariance scaled by its view scatter 2 (stated
+    // σ² = 3.125): σ_Δ² = c_s · k_s · (1.5625 − 1) = 1.125.
+    let (sigma, _) = sigma_of(nested(
+        &full_of(1.0, None, Some(1.0)),
+        &small_of(3.125, Some(2.0), Some(1.0)),
     ));
     assert!((sigma - 1.125f64.sqrt()).abs() < 1e-12, "{sigma}");
 

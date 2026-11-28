@@ -122,7 +122,8 @@ pub struct ParameterCovariance {
     /// residuals (whitened by their stated covariances, when they have
     /// them). Under least squares `c` is `σ̂²`, the residuals' sum of squares
     /// per degree of freedom (px², or dimensionless for whitened residuals);
-    /// under a robust loss, the sandwich's `E[ψ²] / E[ψ′]²`. It puts two
+    /// under a robust loss, the sandwich's `E[ψ²] · m/(m − n) / E[ψ′]²`
+    /// (`m` residuals, `n` estimated parameters). It puts two
     /// solves of nested data on one noise level. `None` when the covariance
     /// combines residual families, stated priors or another calibration's
     /// share, or was derived from several solves.

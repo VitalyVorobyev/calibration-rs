@@ -51,7 +51,7 @@ describe a capture, not the device, and are never compared.
 | Relation | What `Δ` is | Variance of `Δ` |
 |---|---|---|
 | `independent`: two captures with no observation in common | device change plus each capture's error | `σ_ref² + σ_other²` |
-| `nested`: one run's observations a strict subset of the other's, one configuration, left out without looking at the residuals | the pull of the left-out observations | `c_smaller · k_larger · (a_smaller − a_larger)` (below) |
+| `nested`: one run's observations a strict subset of the other's, one configuration, left out without looking at the residuals | the pull of the left-out observations | `c_smaller · k_smaller · (a_smaller − a_larger)` (below) |
 | `same_data`, `overlapping`, `identical`, `unknown` | an estimator or model effect on shared noise, or not known | none |
 
 The nested form is the specification test of
@@ -64,7 +64,10 @@ the difference of the two estimates would otherwise dominate a small
 exclusion. Each export states its variance factor `c` (`σ̂²` under least
 squares) beside its view-scatter factor `k`, so each run's variance per unit
 noise `a = σ² / (k c)` is known, and the variance of `Δ` is taken on the
-smaller run's noise level. A large `z` says the left-out observations
+smaller run's noise level, its `c` and `k`: they are read from the
+observations both runs share, which fit the model whether or not the
+left-out ones do, so outliers in the larger run cannot inflate the scale
+that should expose them. A large `z` says the left-out observations
 pulled the estimate further than leaving out that much data does by chance;
 a small one says leaving them out cost precision and changed nothing else.
 
@@ -77,6 +80,9 @@ residuals** (the worst features or views of a fit): the remaining fit then
 agrees with the full one less than chance predicts, and a correct model is
 rejected far more often than the level says. There is no test for such an
 exclusion, and the comparison cannot tell how an exclusion was chosen.
+Under a robust loss that absorbs the left-out outliers, the larger run's
+fit already ignores them, so the nested test does not reject: by design, it
+asks whether the two fits differ, not whether the data had outliers.
 
 It is also not offered when a run's covariance combines several residual
 families or priors (laser and reprojection residuals, robot-pose priors,
@@ -97,22 +103,27 @@ rig frame's poses.
 
 **Measured.** On synthetic captures under the null (both runs of one
 device, the model right), at the 5 % level each parameter's rejection rate
-was 2.0–6.1 % (Monte-Carlo error ±0.7 % at 1000 trials) and its z standard
-deviation 0.89–1.04 for independent captures, 6 of 20 views, 20 % of the
+was 3.5–6.1 % (Monte-Carlo error ±0.7 % at 1000 trials) and its z standard
+deviation 0.96–1.04 for independent captures, 6 of 20 views, 20 % of the
 features and 1 of 8 views left out, under plain least squares and a Huber
 loss; the joint χ² of independent captures rejected 5.75 %. The 6-dof χ² of
-a two-camera rig's relative pose rejected 4.0 % (independent) and 4.5 % (2
+a two-camera rig's relative pose rejected 4.0 % (independent) and 5.0 % (2
 of 8 views left out). A sweep over 8, 20 and 60 views, two noise levels, a
 Kannala-Brandt fisheye and a Scheimpflug sensor stayed within the same
 bounds. A run whose larger half holds 1 % gross outliers is told apart from
-the run without them in 98.8 % of comparisons.
+the run without them in 98.75 % of comparisons; under a robust loss that
+absorbs those outliers the test rejects 4–6 %, as designed.
 
 When the left-out data are a **small share** of the information (1 of 25
 views, a handful of features), the nested z of some parameters has heavier
 tails than a standard normal (standard deviation up to 1.35 in a synthetic
 test, a rejection rate up to 7.7 % at 5 %): each run's information is
 evaluated at its own estimate, and two nearly equal informations then differ
-mostly by that mismatch. Read a small exclusion's p-value with that margin.
+mostly by that mismatch. Evaluating both at one point removes the excess,
+but needs the left-out observations, which an export does not hold. The
+same mismatch is why a small exclusion's variance sometimes does not grow
+(`nested_variance_not_positive`). Read a small exclusion's p-value with that
+margin.
 
 The tests are as good as the stated σ: on real images a covariance can be
 short by the error shared by a view's corners, which the view-scatter
