@@ -555,9 +555,9 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   image size, its region of interest for a tiled camera, cut into
   `stride × stride` blocks; `columns` defaults to 64, at most 1024). Each
   answers JSON with `MapPlane`s: a `BlobRef` to a `VAM1` plane and its
-  channels, each with a name, a unit (`px`, `chi`, `samples`, `views`) and
-  the `[min, max]` of its finite values (`null` when none). The distortion
-  map has three planes (`distortion`, `sensor`, `total`) of `dx`, `dy`,
+  channels, each with a name, a unit (`px`, `chi`, `samples`, `views`,
+  `flag`) and the `[min, max]` of its finite values (`null` when none). The
+  distortion map has three planes (`distortion`, `sensor`, `total`) of `dx`, `dy`,
   `magnitude`; the residual map one plane of `mean_dx`, `mean_dy`,
   `mean_magnitude`, `rms`, `std_error`, `significance`,
   `effective_samples`, `effective_views`, plus the bandwidth, how it was
@@ -589,6 +589,31 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   `residual_stats { run }` the library's `ReprojectionStats` (count, mean,
   RMS, median, p95, max) per camera, per view and per camera and view, with
   the diverged records.
+- **Comparisons** (`api/commands/compare.rs`; the maps' shared run, size,
+  grid and memo are `api/commands/map_support.rs`). `compare_runs { dir,
+  runs, options? }` is the library's `compare_recorded_runs` of the
+  project's runs, the first the reference, answered as the library's
+  `RunComparison` unchanged: a test the data relation does not support, a
+  missing covariance, a projection that could not be made are its typed
+  reasons in the reply, never errors. `options` are the library's
+  `CompareRunsOptions` (`grid_columns` capped at 1024 like the maps); each
+  run's export, and the images it names, are judged before the library
+  reads them. Labels and stars come from `list_runs`.
+  `projection_difference_map { dir, reference, other, camera, columns?,
+  compensation? }` names the camera by id (the comparison matches cameras
+  by id) and answers, on the reference camera's map grid, one plane of
+  `dx`, `dy`, `magnitude` (px, `other − reference` at the same ray) and
+  `fitted` (unit `flag`: 1 in the region either run's features cover, the
+  rotation's fit region, 0 outside it) with the library's
+  `projection_difference` numbers, or `{ status: "unavailable", reason }`
+  with the comparison's `ProjectionUnavailable`. Its fit region and reasons
+  are restated from the comparison's, so with the same columns and
+  compensation its numbers are `compare_runs`' projection summary (a test
+  pins it). Memoized like the maps, under both exports' SHA-256. Tests:
+  `api/commands/compare_tests.rs` on calibrated copies of `planar-demo` (the
+  same data under a Huber loss, a view left out, imported runs) with the
+  reply goldens, and `e2e/server/compare.spec.ts` over HTTP on
+  `stereo-sn0042`.
 - **Detections** (`api/commands/detection.rs`, `detections.rs`), each over
   a project `dir`; an image is named as `project_views` lists it (relative
   to the data folder). `detection_overview { dir, run? }` reads the

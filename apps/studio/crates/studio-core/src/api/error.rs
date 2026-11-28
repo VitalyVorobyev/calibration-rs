@@ -213,6 +213,8 @@ impl From<ProjectError> for StudioError {
             ProjectError::SeedUnresolved { path, .. } => error(ErrorKind::Seed).at(display(&path)),
             ProjectError::Calibrate(e) => e.into(),
             ProjectError::Cancelled => StudioError::cancelled(),
+            // Runs the comparison cannot put side by side.
+            ProjectError::Compare(_) => error(ErrorKind::Invalid),
             // A variant of a later library version.
             _ => error(ErrorKind::Invalid),
         }

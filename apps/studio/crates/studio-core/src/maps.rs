@@ -70,7 +70,8 @@ pub fn grid(image_size: [u32; 2], columns: u32) -> Result<ImageGrid, String> {
 pub struct PlaneChannel {
     /// What the channel holds (`dx`, `dy`, `magnitude`, `rms`, …).
     pub name: String,
-    /// Its unit: `px`, `chi` (a significance), `samples`, `views`.
+    /// Its unit: `px`, `chi` (a significance), `samples`, `views`, `flag`
+    /// (1 or 0).
     pub unit: String,
     /// `[min, max]` of its finite values; `null` when no node has one.
     pub domain: Option<[f64; 2]>,

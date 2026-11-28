@@ -5,50 +5,8 @@
 
 use serde_json::{Value, json};
 
-use super::test_support::{Demo, golden, slash};
-use crate::api::{Api, Conditions, ErrorKind};
-
-/// A plane's blob, read through the `blob` resource.
-fn blob(api: &Api, plane: &Value) -> Vec<u8> {
-    api.resource(
-        "blob",
-        json!({ "id": plane["blob"]["id"] }),
-        &Conditions::default(),
-    )
-    .unwrap()
-    .read_body()
-    .unwrap()
-}
-
-fn u32_at(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
-}
-
-fn f32_at(bytes: &[u8], index: usize) -> f32 {
-    let at = 24 + 4 * index;
-    f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
-}
-
-/// A plane's header matches the reply's grid and channel list.
-fn check_plane(api: &Api, grid: &Value, plane: &Value) -> Vec<u8> {
-    let bytes = blob(api, plane);
-    assert_eq!(&bytes[..4], b"VAM1");
-    assert_eq!(
-        u64::from(u32_at(&bytes, 4)),
-        grid["columns"].as_u64().unwrap()
-    );
-    assert_eq!(u64::from(u32_at(&bytes, 8)), grid["rows"].as_u64().unwrap());
-    assert_eq!(
-        u64::from(u32_at(&bytes, 12)),
-        grid["stride"].as_u64().unwrap()
-    );
-    let channels = plane["channels"].as_array().unwrap().len();
-    assert_eq!(u32_at(&bytes, 16) as usize, channels);
-    let nodes = (grid["columns"].as_u64().unwrap() * grid["rows"].as_u64().unwrap()) as usize;
-    assert_eq!(bytes.len(), 24 + nodes * channels * 4);
-    assert_eq!(plane["blob"]["len"].as_u64().unwrap() as usize, bytes.len());
-    bytes
-}
+use super::test_support::{Demo, blob, check_plane, f32_at, golden, slash};
+use crate::api::{Conditions, ErrorKind};
 
 #[test]
 fn the_maps_of_a_camera_share_one_grid_and_answer_their_blobs() {

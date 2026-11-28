@@ -1,12 +1,13 @@
-//! What the map and detection tests share: the committed `planar-demo`
-//! fixture project copied into a temporary root (calibrated when asked),
-//! and the golden shapes of the replies.
+//! What the map, comparison and detection tests share: the committed
+//! `planar-demo` fixture project copied into a temporary root (calibrated
+//! when asked), the golden shapes of the replies, and a map plane's blob
+//! checked against its reply.
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::api::{Api, Setup};
+use crate::api::{Api, Conditions, Setup};
 use crate::scope::RootScope;
 
 pub fn slash(path: &Path) -> String {
@@ -145,4 +146,46 @@ pub fn golden(name: &str, value: &Value) {
         actual, expected,
         "the shape of {name} changed: regenerate with STUDIO_BLESS=1 if on purpose"
     );
+}
+
+/// A plane's blob, read through the `blob` resource.
+pub fn blob(api: &Api, plane: &Value) -> Vec<u8> {
+    api.resource(
+        "blob",
+        json!({ "id": plane["blob"]["id"] }),
+        &Conditions::default(),
+    )
+    .unwrap()
+    .read_body()
+    .unwrap()
+}
+
+pub fn u32_at(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
+pub fn f32_at(bytes: &[u8], index: usize) -> f32 {
+    let at = 24 + 4 * index;
+    f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
+/// A plane's header matches the reply's grid and channel list.
+pub fn check_plane(api: &Api, grid: &Value, plane: &Value) -> Vec<u8> {
+    let bytes = blob(api, plane);
+    assert_eq!(&bytes[..4], b"VAM1");
+    assert_eq!(
+        u64::from(u32_at(&bytes, 4)),
+        grid["columns"].as_u64().unwrap()
+    );
+    assert_eq!(u64::from(u32_at(&bytes, 8)), grid["rows"].as_u64().unwrap());
+    assert_eq!(
+        u64::from(u32_at(&bytes, 12)),
+        grid["stride"].as_u64().unwrap()
+    );
+    let channels = plane["channels"].as_array().unwrap().len();
+    assert_eq!(u32_at(&bytes, 16) as usize, channels);
+    let nodes = (grid["columns"].as_u64().unwrap() * grid["rows"].as_u64().unwrap()) as usize;
+    assert_eq!(bytes.len(), 24 + nodes * channels * 4);
+    assert_eq!(plane["blob"]["len"].as_u64().unwrap() as usize, bytes.len());
+    bytes
 }

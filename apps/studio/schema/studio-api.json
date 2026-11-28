@@ -499,6 +499,28 @@
     },
     {
       "args": {
+        "$ref": "#/definitions/CompareRunsArgs"
+      },
+      "doc": "The project's runs `runs` side by side against the first, the reference:\neach run's own evidence (its verdict, its covariance, each camera's fit),\nand for each later run its data relation to the reference (read from the\nrecords: independent, identical, the same data, nested, overlapping or\nunknown), its configuration and exclusion changes, and per camera (matched\nby id) its parameters with `Δ`, `Δ / σ_ref` and the test the relation\nsupports, and the projection difference's summary; the rig poses, the\nhand-eye and the laser planes likewise. A test the relation does not\nsupport is `not_available` with the reason. `options` are the library's\n(`grid_columns` at most 1024). At least two runs; an unknown id is\n`run_not_found`, runs the library cannot compare (other workflows, no\nshared camera) are `invalid`.",
+      "kind": "plain",
+      "name": "compare_runs",
+      "reply": {
+        "$ref": "#/definitions/RunComparison"
+      }
+    },
+    {
+      "args": {
+        "$ref": "#/definitions/ProjectionDifferenceMapArgs"
+      },
+      "doc": "Where run `other`'s calibration of camera `camera` (its id: cameras are\nmatched by id, as `compare_runs` matches them) projects the rays run\n`reference`'s calibration of it sees, on the maps' grid over the\nreference's image: one plane of `dx`, `dy` and `magnitude` (px, `other −\nreference` at the same ray, after `compensation`, by default the\nrotation of the other camera's frame that brings the two closest) and\n`fitted` (1 where the node is in the region either run's features cover,\nwhich the rotation is fitted on and the `*_fit_px` statistics are taken\nover; 0 outside it, where both models extrapolate). `NaN` where either\ncamera has no value. With the same `columns` (`grid_columns`) and\n`compensation` its numbers are `compare_runs`' projection summary of the\ncamera. `unavailable`, with the library's reason, when the difference\ncannot be made (too few covered nodes with a value, a singular fit, a\ncamera that is not central). `columns` as `distortion_map`'s; a run whose\nrecord states another image size for the camera than the dataset's\nimages have now is `invalid`.",
+      "kind": "plain",
+      "name": "projection_difference_map",
+      "reply": {
+        "$ref": "#/definitions/ProjectionDifferenceMap"
+      }
+    },
+    {
+      "args": {
         "$ref": "#/definitions/DetectionOverviewArgs"
       },
       "doc": "What the project's detection cache holds of every image, view by view\nand camera by camera (the views of `project_views`): the features found\nand the detector's outcome, or that the image has no cached detection\nwith the project's detector settings. No image is decoded or detected;\neach is read to find its cache entry. `left_out` gives why run `run`\n(default: the latest calibrated run) left an image out.",
@@ -1027,6 +1049,113 @@
       },
       "required": [
         "model"
+      ],
+      "type": "object"
+    },
+    "CameraDifference": {
+      "description": "One camera both runs have.",
+      "properties": {
+        "id": {
+          "description": "The camera's id.",
+          "type": "string"
+        },
+        "parameters": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParameterComparison"
+            }
+          ],
+          "description": "Its parameters side by side, when both runs use one camera model."
+        },
+        "projection": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ProjectionComparison"
+            }
+          ],
+          "description": "Where the two calibrations project the same rays."
+        }
+      },
+      "required": [
+        "id",
+        "parameters",
+        "projection"
+      ],
+      "type": "object"
+    },
+    "CameraEvidence": {
+      "description": "One camera's fit in one run. The residual statistics are in-sample:\nthey compare like with like only between runs of the same observations\n([`DataRelation::Identical`], [`DataRelation::SameData`]); a run that\nleft out its worst features always has a lower residual.",
+      "properties": {
+        "features": {
+          "description": "Its features in the calibration.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "The camera's id.",
+          "type": "string"
+        },
+        "image_size": {
+          "description": "Its image size `[width, height]`, pixels.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "max_projection_sigma_px": {
+          "description": "The largest major-axis projection σ over a grid across the image,\npixels; `None` without a covariance of the camera's parameters.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CameraModelSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its model; `None` for a general sensor homography, which no model\nspec describes."
+        },
+        "reprojection": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReprojectionStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The statistics of its reprojection error lengths (mean, RMS, median,\n95th percentile, largest), pixels; `None` without projected features."
+        },
+        "unprojected": {
+          "description": "Features the calibrated camera could not project.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "views": {
+          "description": "The views it observed features in.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "image_size",
+        "views",
+        "features",
+        "unprojected"
       ],
       "type": "object"
     },
@@ -1737,6 +1866,138 @@
       ],
       "type": "object"
     },
+    "CompareRunsArgs": {
+      "additionalProperties": false,
+      "description": "The project's runs `runs` side by side against the first, the reference:\neach run's own evidence (its verdict, its covariance, each camera's fit),\nand for each later run its data relation to the reference (read from the\nrecords: independent, identical, the same data, nested, overlapping or\nunknown), its configuration and exclusion changes, and per camera (matched\nby id) its parameters with `Δ`, `Δ / σ_ref` and the test the relation\nsupports, and the projection difference's summary; the rig poses, the\nhand-eye and the laser planes likewise. A test the relation does not\nsupport is `not_available` with the reason. `options` are the library's\n(`grid_columns` at most 1024). At least two runs; an unknown id is\n`run_not_found`, runs the library cannot compare (other workflows, no\nshared camera) are `invalid`.",
+      "properties": {
+        "dir": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            }
+          ],
+          "description": "The project folder."
+        },
+        "options": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CompareRunsOptions"
+            }
+          ],
+          "default": {
+            "compensation": "rotation",
+            "grid_columns": 64,
+            "thresholds": {
+              "coverage_fail_below": 0.3,
+              "coverage_warn_below": 0.5,
+              "expected_feature_noise_px": null,
+              "max_parameter_correlation": 0.99,
+              "max_projection_sigma_px": 1.0,
+              "max_second_order_scatter": 1.2,
+              "max_sigma_inflation": 7.0,
+              "max_view_residual": 3.0,
+              "variance_test_alpha": 0.01
+            }
+          }
+        },
+        "runs": {
+          "description": "The run ids, the reference first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "dir",
+        "runs"
+      ],
+      "type": "object"
+    },
+    "CompareRunsOptions": {
+      "additionalProperties": false,
+      "description": "The options of [`compare_runs`].",
+      "properties": {
+        "compensation": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Compensation"
+            }
+          ],
+          "default": "rotation",
+          "description": "How the projection difference aligns the two camera frames; default\n[`Compensation::Rotation`]."
+        },
+        "grid_columns": {
+          "default": 64,
+          "description": "Grid columns of the projection difference, at least 1; default 64.\nThe rows follow from the image's aspect.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "thresholds": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/QualityThresholds"
+            }
+          ],
+          "default": {
+            "coverage_fail_below": 0.3,
+            "coverage_warn_below": 0.5,
+            "expected_feature_noise_px": null,
+            "max_parameter_correlation": 0.99,
+            "max_projection_sigma_px": 1.0,
+            "max_second_order_scatter": 1.2,
+            "max_sigma_inflation": 7.0,
+            "max_view_residual": 3.0,
+            "variance_test_alpha": 0.01
+          },
+          "description": "The thresholds each run's quality verdict is judged by."
+        }
+      },
+      "type": "object"
+    },
+    "Compensation": {
+      "description": "How the second camera's frame is aligned with the first's before their\nprojections are compared.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Compare the rays as the two calibrations place them, without\nre-orienting either camera: for a camera frame used as calibrated,\nsuch as one run's intrinsics combined with another run's extrinsics.",
+          "type": "string"
+        },
+        {
+          "const": "rotation",
+          "description": "Fit the rotation of the second camera's frame that brings its\nprojections closest to the first's (the default). The orientation of\na camera frame is not separately observable from what uses the\ncamera, so the difference left is the part no re-orientation removes.",
+          "type": "string"
+        }
+      ]
+    },
+    "ConfigChange": {
+      "description": "One setting where two configurations differ.",
+      "properties": {
+        "other": {
+          "description": "The other run's value as JSON text; `None` where it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "The setting, as a path into the configuration's JSON\n(`config.optimize.reprojection_loss`, `config.camera.fix[2]`).",
+          "type": "string"
+        },
+        "reference": {
+          "description": "The reference's value as JSON text; `None` where it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "ConfigFormArgs": {
       "additionalProperties": false,
       "description": "The config form of the workflow `topology`: the schema of its config\n(`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's\ndefault configuration.",
@@ -1923,6 +2184,69 @@
         }
       ]
     },
+    "CovarianceStatus": {
+      "description": "Whether a run has a covariance of its estimates.",
+      "oneOf": [
+        {
+          "description": "It has one.",
+          "properties": {
+            "shared_parameters": {
+              "description": "The number of shared (not per-view) parameters it covers.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "const": "available",
+              "type": "string"
+            },
+            "variance_factor": {
+              "description": "Its a-posteriori variance factor, when it comes from one\nresidual family with an estimated noise level; what a nested\ntest needs.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "view_scatter": {
+              "description": "The factor the covariance was scaled by because the views\nscatter more than the residual noise predicts; `None` when it\nwas not scaled.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "shared_parameters"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It has none, for the reason given.",
+          "properties": {
+            "reason": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/UncertaintyUnavailable"
+                }
+              ],
+              "description": "Why."
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "CreateProjectArgs": {
       "additionalProperties": false,
       "description": "Make the folder `dir` (created when missing, inside a root) a project of\n`spec`, written as `calibration-project.toml`. Every path the spec names\nmust lie inside a root; `project_exists` when the folder already holds a\nproject. It becomes the most recent project.",
@@ -1939,6 +2263,148 @@
         "spec"
       ],
       "type": "object"
+    },
+    "DataOverlap": {
+      "description": "What two runs' observations share. A feature is one target point (or\nlaser pixel) of one camera in one image, identified by the image's\ncontent and its observed pixel: two runs share it only when they read\nthe same image and their detections agree.",
+      "properties": {
+        "other_only_features": {
+          "description": "Features only the other run used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "other_only_images": {
+          "description": "Images only the other run used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reference_only_features": {
+          "description": "Features only the reference used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reference_only_images": {
+          "description": "Images only the reference used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_features": {
+          "description": "Features both runs used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_images": {
+          "description": "Images both runs used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shared_images",
+        "reference_only_images",
+        "other_only_images",
+        "shared_features",
+        "reference_only_features",
+        "other_only_features"
+      ],
+      "type": "object"
+    },
+    "DataRelation": {
+      "description": "How the observations of a run relate to the reference run's: what\ndecides which test of a difference is valid.",
+      "oneOf": [
+        {
+          "description": "Not established: no test.",
+          "properties": {
+            "kind": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No observation in common: independent captures of the device.",
+          "properties": {
+            "kind": {
+              "const": "independent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The same observations and the same configuration.",
+          "properties": {
+            "kind": {
+              "const": "identical",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The same observations under another configuration (camera model,\nloss, solver).",
+          "properties": {
+            "kind": {
+              "const": "same_data",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One run's observations are a strict subset of the other's, and the\nconfigurations are equal: the runs differ by what was left out.",
+          "properties": {
+            "kind": {
+              "const": "nested",
+              "type": "string"
+            },
+            "smaller": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/RunSide"
+                }
+              ],
+              "description": "The run with fewer observations."
+            }
+          },
+          "required": [
+            "kind",
+            "smaller"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Shared and differing observations, or nested observations under\ndifferent configurations.",
+          "properties": {
+            "kind": {
+              "const": "overlapping",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "DatasetFormArgs": {
       "additionalProperties": false,
@@ -2904,6 +3370,95 @@
         "failures"
       ],
       "type": "object"
+    },
+    "DifferenceTest": {
+      "description": "The test of a scalar difference `Δ = other − reference`.",
+      "oneOf": [
+        {
+          "description": "Independent captures: `σ_Δ = √(σ_ref² + σ_other²)`, `z = Δ / σ_Δ`.\nUnder the hypothesis that both runs estimate the same value, `z` is\nstandard normal.",
+          "properties": {
+            "kind": {
+              "const": "independent",
+              "type": "string"
+            },
+            "p_value": {
+              "description": "The two-sided p-value of `z`.",
+              "format": "double",
+              "type": "number"
+            },
+            "sigma": {
+              "description": "`σ_Δ`.",
+              "format": "double",
+              "type": "number"
+            },
+            "z": {
+              "description": "`Δ / σ_Δ`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "sigma",
+            "z",
+            "p_value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Nested observations under one configuration (the Hausman form):\n`σ_Δ² = c · k · (a_smaller − a_larger)`, `a` each run's variance per\nunit noise (its stated variance over its view-scatter factor and\nvariance factor), `c` and `k` the smaller run's variance factor and\nview-scatter factor: both on one noise level, the smaller run's, which\nholds whether or not the left-out observations fit. `z = Δ / σ_Δ` is standard normal when the left-out\nobservations fit the model as the others do and were not chosen by\ntheir residuals.",
+          "properties": {
+            "kind": {
+              "const": "nested",
+              "type": "string"
+            },
+            "p_value": {
+              "description": "The two-sided p-value of `z`.",
+              "format": "double",
+              "type": "number"
+            },
+            "sigma": {
+              "description": "`σ_Δ`.",
+              "format": "double",
+              "type": "number"
+            },
+            "z": {
+              "description": "`Δ / σ_Δ`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "sigma",
+            "z",
+            "p_value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No valid test.",
+          "properties": {
+            "kind": {
+              "const": "not_available",
+              "type": "string"
+            },
+            "reason": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NoTest"
+                }
+              ],
+              "description": "Why."
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "DirEntry": {
       "description": "One entry of a listing.",
@@ -3942,6 +4497,32 @@
           "type": "object"
         }
       ]
+    },
+    "ExclusionChanges": {
+      "description": "The exclusions that differ between two project runs, notes left out.",
+      "properties": {
+        "other_only": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Exclusions"
+            }
+          ],
+          "description": "What only the other run left out."
+        },
+        "reference_only": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Exclusions"
+            }
+          ],
+          "description": "What only the reference left out."
+        }
+      },
+      "required": [
+        "reference_only",
+        "other_only"
+      ],
+      "type": "object"
     },
     "Exclusions": {
       "additionalProperties": false,
@@ -5132,6 +5713,97 @@
       ],
       "type": "object"
     },
+    "JointTest": {
+      "description": "The test of several quantities at once (a pose's tangent, a camera's\nparameters), their difference `δ` against the covariance of the\ndifference: `χ² = δᵀ Σ_Δ⁻¹ δ`, `Σ_Δ` as each [`DifferenceTest`] forms\na variance.",
+      "oneOf": [
+        {
+          "description": "Independent captures: `Σ_Δ = Σ_ref + Σ_other`.",
+          "properties": {
+            "chi2": {
+              "description": "`χ²`.",
+              "format": "double",
+              "type": "number"
+            },
+            "dof": {
+              "description": "Its degrees of freedom.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "independent",
+              "type": "string"
+            },
+            "p_value": {
+              "description": "The upper-tail p-value of `χ²`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "chi2",
+            "dof",
+            "p_value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Nested observations under one configuration (the Hausman form, on\none noise level as [`DifferenceTest::Nested`]), through a generalized\ninverse over the directions whose variance grows without the\nleft-out data, `dof` their number. Offered for poses; a camera's\nparameters have no nested joint test ([`NoTest::NestedJoint`]).",
+          "properties": {
+            "chi2": {
+              "description": "`χ²`.",
+              "format": "double",
+              "type": "number"
+            },
+            "dof": {
+              "description": "Its degrees of freedom.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "nested",
+              "type": "string"
+            },
+            "p_value": {
+              "description": "The upper-tail p-value of `χ²`.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "chi2",
+            "dof",
+            "p_value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No valid test.",
+          "properties": {
+            "kind": {
+              "const": "not_available",
+              "type": "string"
+            },
+            "reason": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NoTest"
+                }
+              ],
+              "description": "Why."
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "LaserExtractionSpec": {
       "additionalProperties": false,
       "description": "Laser-line extraction parameters. Consumed by the\nrunner's injected `LaserPixelExtractor`; hashed (canonical JSON)\ninto the detection-cache key so edits re-extract.",
@@ -5784,6 +6456,66 @@
       ],
       "type": "object"
     },
+    "NoTest": {
+      "description": "Why a difference has no test.",
+      "oneOf": [
+        {
+          "const": "unknown_relation",
+          "description": "The data relation is not known.",
+          "type": "string"
+        },
+        {
+          "const": "identical",
+          "description": "The runs have the same observations and configuration.",
+          "type": "string"
+        },
+        {
+          "const": "shared_data",
+          "description": "The runs share observations ([`DataRelation::SameData`],\n[`DataRelation::Overlapping`]): their errors are correlated by an\namount neither export states.",
+          "type": "string"
+        },
+        {
+          "const": "no_covariance",
+          "description": "A run has no covariance.",
+          "type": "string"
+        },
+        {
+          "const": "not_estimated",
+          "description": "A run held the quantity fixed, so states no σ of it.",
+          "type": "string"
+        },
+        {
+          "const": "mixed_residuals",
+          "description": "Nested runs whose covariance combines residual families (laser and\nreprojection), robot-pose priors or per-camera noise levels: the\nnested form's premise, one noise level for every residual, fails,\nand no test of such runs has been validated.",
+          "type": "string"
+        },
+        {
+          "const": "no_variance_factor",
+          "description": "Nested runs of which one export states no variance factor (written\nbefore it was recorded, or its covariance was derived from several\nsolves): their noise levels cannot be put on one scale.",
+          "type": "string"
+        },
+        {
+          "const": "nested_variance_not_positive",
+          "description": "Nested runs whose variance of the difference is not positive (the\nsmaller run's information is not the smaller). For truly nested\nobservations this is an artifact of evaluating each run's\ninformation at its own estimate: at one common point the smaller\nrun's variance is never below the larger's. It occurs when few\nobservations were left out, where the two informations differ less\nthan the change of the point moves them.",
+          "type": "string"
+        },
+        {
+          "const": "nested_joint",
+          "description": "The joint test of a camera's parameters between nested runs, which\nis not offered: it rejects well above its level when the left-out\ndata are a small share (measured: 7.7 % with 1 of 8 views left out,\n15.7 % with 6 of about 2000 features, at the 5 % level). Each\nparameter's own nested test remains.",
+          "type": "string"
+        },
+        {
+          "const": "gauge_differs",
+          "description": "The runs' rigs have different reference cameras, so the other run's\ncovariance is not of the compared pose.",
+          "type": "string"
+        },
+        {
+          "const": "singular_covariance",
+          "description": "The covariance of the difference is singular.",
+          "type": "string"
+        }
+      ]
+    },
     "OpenProjectArgs": {
       "additionalProperties": false,
       "description": "Open the project in `dir`: its definition, the resolved dataset and\nconfiguration, the digests of its inputs and its runs. A version 1\nproject of the app's earlier format opens as it is (it is migrated when\nsaved). `not_a_project` for a folder without a project file,\n`forbidden_path` when the project names a data folder or manifest\noutside the roots. It becomes the most recent project. Opening again is\nhow a client reloads a project: the back end keeps none open.",
@@ -5796,6 +6528,67 @@
         "dir"
       ],
       "type": "object"
+    },
+    "ParameterComparison": {
+      "description": "A camera's parameters in two runs.",
+      "oneOf": [
+        {
+          "description": "Both runs use one model.",
+          "properties": {
+            "joint": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/JointTest"
+                }
+              ],
+              "description": "One test of every parameter both runs estimated, over their full\ncovariance: a `χ²` of as many degrees of freedom, for independent\ncaptures. Read it before the per-parameter tests: of eight\nparameters tested at 5 % each, one rejects by chance in about a\nquarter of comparisons. Not offered for nested runs\n([`NoTest::NestedJoint`])."
+            },
+            "kind": {
+              "const": "same_model",
+              "type": "string"
+            },
+            "parameters": {
+              "description": "Each parameter, in the solver's order, with its own test.",
+              "items": {
+                "$ref": "#/definitions/ParameterDifference"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "parameters",
+            "joint"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The models differ, so a parameter of one is not a parameter of the\nother; the projection difference compares them.",
+          "properties": {
+            "kind": {
+              "const": "different_models",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A camera whose parameters the solver does not name: a general sensor\nhomography.",
+          "properties": {
+            "kind": {
+              "const": "unparameterized",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ParameterCovariance": {
       "description": "The covariance of a result's estimated parameters.",
@@ -5885,6 +6678,70 @@
         "noise",
         "num_residuals",
         "dof"
+      ],
+      "type": "object"
+    },
+    "ParameterDifference": {
+      "description": "One parameter in two runs.",
+      "properties": {
+        "delta": {
+          "description": "`other − reference`.",
+          "format": "double",
+          "type": "number"
+        },
+        "delta_over_reference_sigma": {
+          "description": "`delta / reference_sigma`, signed: whether the change matters at\nthe precision the reference claims. Not a test: two runs of the same\nobservations can differ by many σ of either without disagreeing, and\nby a fraction of one while disagreeing.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "The parameter, as the covariance labels it without its camera\nprefix (`fx`, `k1`, `tilt_x`).",
+          "type": "string"
+        },
+        "other": {
+          "description": "Its value in the other run.",
+          "format": "double",
+          "type": "number"
+        },
+        "other_sigma": {
+          "description": "The other run's stated σ, likewise.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reference": {
+          "description": "Its value in the reference.",
+          "format": "double",
+          "type": "number"
+        },
+        "reference_sigma": {
+          "description": "The reference's stated σ; `None` when it did not estimate the\nparameter or has no covariance.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "test": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DifferenceTest"
+            }
+          ],
+          "description": "The test of the difference, when the data relation supports one."
+        }
+      },
+      "required": [
+        "label",
+        "reference",
+        "other",
+        "delta",
+        "test"
       ],
       "type": "object"
     },
@@ -6277,13 +7134,67 @@
           "type": "string"
         },
         "unit": {
-          "description": "Its unit: `px`, `chi` (a significance), `samples`, `views`.",
+          "description": "Its unit: `px`, `chi` (a significance), `samples`, `views`, `flag`\n(1 or 0).",
           "type": "string"
         }
       },
       "required": [
         "name",
         "unit"
+      ],
+      "type": "object"
+    },
+    "PlaneDifference": {
+      "description": "A camera's laser plane in two runs, in the camera's frame.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id.",
+          "type": "string"
+        },
+        "distance_delta_m": {
+          "description": "`other − reference`, metres.",
+          "format": "double",
+          "type": "number"
+        },
+        "distance_other_m": {
+          "description": "The other run's distance, its plane's sign matched to the\nreference's normal, metres.",
+          "format": "double",
+          "type": "number"
+        },
+        "distance_over_reference_sigma": {
+          "description": "`distance_delta_m` over the reference's σ of `d`. Not a test.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "distance_reference_m": {
+          "description": "The reference's distance `d` of `n · p + d = 0`, metres.",
+          "format": "double",
+          "type": "number"
+        },
+        "distance_test": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DifferenceTest"
+            }
+          ],
+          "description": "The test of the distance difference, when the data relation\nsupports one."
+        },
+        "normal_angle_deg": {
+          "description": "The angle between the two normals, degrees.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "camera",
+        "normal_angle_deg",
+        "distance_reference_m",
+        "distance_other_m",
+        "distance_delta_m",
+        "distance_test"
       ],
       "type": "object"
     },
@@ -6505,6 +7416,70 @@
         "transform",
         "rotation_format",
         "translation_units"
+      ],
+      "type": "object"
+    },
+    "PoseDifference": {
+      "description": "A pose in two runs.",
+      "properties": {
+        "delta_over_reference_sigma": {
+          "description": "The tangent's length in the reference's covariance,\n`√(τᵀ Σ_ref⁻¹ τ)`: the change in units of the reference's stated\nuncertainty. Not a test.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "The pose, its frames named by camera id: `<camera>_se3_<reference>`\nfor a camera's pose relative to the reference run's reference\ncamera; `gripper_se3_<reference>` or `<reference>_se3_base` for the\nhand-eye.",
+          "type": "string"
+        },
+        "rotation_deg": {
+          "description": "The angle of the rotation between the two, degrees.",
+          "format": "double",
+          "type": "number"
+        },
+        "tangent": {
+          "description": "`Log(P_ref⁻¹ · P_other)` as `[ωx, ωy, ωz, vx, vy, vz]` (radians,\nmetres): the difference in the covariance's right-perturbation\ntangent, in the pose's source frame.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": "array"
+        },
+        "test": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/JointTest"
+            }
+          ],
+          "description": "The test of the difference, when the data relation supports one."
+        },
+        "translation_m": {
+          "description": "The translations' difference, `other − reference`, in the pose's\ntarget frame, metres.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "translation_norm_m": {
+          "description": "Its length, metres.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "rotation_deg",
+        "translation_m",
+        "translation_norm_m",
+        "tangent",
+        "test"
       ],
       "type": "object"
     },
@@ -7108,6 +8083,252 @@
       ],
       "type": "object"
     },
+    "ProjectionComparison": {
+      "description": "Where two calibrations of a camera project the same rays.",
+      "oneOf": [
+        {
+          "description": "The projection difference, `other − reference` at the reference's\nrays, after the compensation; fitted on the grid blocks either run's\nfeatures cover.",
+          "properties": {
+            "compensation": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Compensation"
+                }
+              ],
+              "description": "How the other camera's frame was aligned."
+            },
+            "fit_nodes": {
+              "description": "Grid nodes the rotation was fitted on and the `*_fit_px`\nstatistics are taken over: the covered region.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "max_fit_px": {
+              "description": "The largest difference over the fitted nodes, pixels.",
+              "format": "double",
+              "type": "number"
+            },
+            "max_valid_px": {
+              "description": "The largest difference over every valid node, pixels.",
+              "format": "double",
+              "type": "number"
+            },
+            "rms_fit_px": {
+              "description": "The root mean square difference over the fitted nodes, pixels.",
+              "format": "double",
+              "type": "number"
+            },
+            "rms_valid_px": {
+              "description": "The root mean square over every valid node, pixels: outside the\ncovered region, an extrapolation of both models.",
+              "format": "double",
+              "type": "number"
+            },
+            "rotation_deg": {
+              "description": "The angle of the compensating rotation, degrees.",
+              "format": "double",
+              "type": "number"
+            },
+            "status": {
+              "const": "compared",
+              "type": "string"
+            },
+            "valid_nodes": {
+              "description": "Grid nodes where both cameras have a value.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "status",
+            "compensation",
+            "rotation_deg",
+            "fit_nodes",
+            "valid_nodes",
+            "rms_fit_px",
+            "max_fit_px",
+            "rms_valid_px",
+            "max_valid_px"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Not computed, for the reason given.",
+          "properties": {
+            "reason": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProjectionUnavailable"
+                }
+              ],
+              "description": "Why."
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectionDifferenceMap": {
+      "description": "Two runs' calibrations of a camera compared over its image, or why they\nare not (see `projection_difference_map`).",
+      "oneOf": [
+        {
+          "properties": {
+            "camera": {
+              "description": "The camera's id.",
+              "type": "string"
+            },
+            "compensation": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Compensation"
+                }
+              ],
+              "description": "How the other camera's frame was aligned."
+            },
+            "fit_nodes": {
+              "description": "Nodes in the fit (`fitted` is 1).",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "grid": {
+              "$ref": "#/definitions/MapGrid"
+            },
+            "max_fit_px": {
+              "description": "The largest `magnitude` over the fitted nodes, px.",
+              "format": "double",
+              "type": "number"
+            },
+            "max_valid_px": {
+              "description": "The largest `magnitude` over every node with a value, px.",
+              "format": "double",
+              "type": "number"
+            },
+            "plane": {
+              "$ref": "#/definitions/MapPlane"
+            },
+            "rms_fit_px": {
+              "description": "The root mean square of `magnitude` over the fitted nodes, px.",
+              "format": "double",
+              "type": "number"
+            },
+            "rms_valid_px": {
+              "description": "The root mean square over every node with a value, px.",
+              "format": "double",
+              "type": "number"
+            },
+            "rotation_deg": {
+              "description": "The angle of the compensating rotation, degrees.",
+              "format": "double",
+              "type": "number"
+            },
+            "status": {
+              "const": "compared",
+              "type": "string"
+            },
+            "valid_nodes": {
+              "description": "Nodes where both cameras have a value.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "status",
+            "camera",
+            "grid",
+            "plane",
+            "compensation",
+            "rotation_deg",
+            "fit_nodes",
+            "valid_nodes",
+            "rms_fit_px",
+            "max_fit_px",
+            "rms_valid_px",
+            "max_valid_px"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "camera": {
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/ProjectionUnavailable"
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "camera",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectionDifferenceMapArgs": {
+      "additionalProperties": false,
+      "description": "Where run `other`'s calibration of camera `camera` (its id: cameras are\nmatched by id, as `compare_runs` matches them) projects the rays run\n`reference`'s calibration of it sees, on the maps' grid over the\nreference's image: one plane of `dx`, `dy` and `magnitude` (px, `other −\nreference` at the same ray, after `compensation`, by default the\nrotation of the other camera's frame that brings the two closest) and\n`fitted` (1 where the node is in the region either run's features cover,\nwhich the rotation is fitted on and the `*_fit_px` statistics are taken\nover; 0 outside it, where both models extrapolate). `NaN` where either\ncamera has no value. With the same `columns` (`grid_columns`) and\n`compensation` its numbers are `compare_runs`' projection summary of the\ncamera. `unavailable`, with the library's reason, when the difference\ncannot be made (too few covered nodes with a value, a singular fit, a\ncamera that is not central). `columns` as `distortion_map`'s; a run whose\nrecord states another image size for the camera than the dataset's\nimages have now is `invalid`.",
+      "properties": {
+        "camera": {
+          "description": "The camera's id.",
+          "type": "string"
+        },
+        "columns": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "compensation": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Compensation"
+            }
+          ],
+          "default": "rotation"
+        },
+        "dir": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/UserPath"
+            }
+          ],
+          "description": "The project folder."
+        },
+        "other": {
+          "description": "The id of the run compared with it.",
+          "type": "string"
+        },
+        "reference": {
+          "description": "The reference run's id: the grid is its camera's image.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dir",
+        "reference",
+        "other",
+        "camera"
+      ],
+      "type": "object"
+    },
     "ProjectionKind": {
       "description": "Which projection model a camera uses.",
       "oneOf": [
@@ -7234,6 +8455,31 @@
         "camera"
       ],
       "type": "object"
+    },
+    "ProjectionUnavailable": {
+      "description": "Why a projection difference was not computed.",
+      "oneOf": [
+        {
+          "const": "invalid_image",
+          "description": "The image or grid is empty.",
+          "type": "string"
+        },
+        {
+          "const": "too_few_nodes",
+          "description": "Fewer than three nodes of the covered region have a value.",
+          "type": "string"
+        },
+        {
+          "const": "singular",
+          "description": "A sensor homography does not invert, or the rotation fit is\nsingular.",
+          "type": "string"
+        },
+        {
+          "const": "not_central",
+          "description": "A camera's projection is not central.",
+          "type": "string"
+        }
+      ]
     },
     "ProjectionUncertainty": {
       "description": "The projection uncertainty of one camera over its image.\n\nGrid nodes are evenly spaced from pixel `(0, 0)` to\n`(width − 1, height − 1)`, corners included, and listed row by row from\nthe top-left. Each value is the major-axis standard deviation, in pixels,\nof where the ray through the node projects.",
@@ -7591,6 +8837,26 @@
       "description": "The projects opened most recently on this back end, newest first.",
       "type": "object"
     },
+    "RefusalReason": {
+      "description": "Why a stated relation does not hold.",
+      "oneOf": [
+        {
+          "const": "shared_features",
+          "description": "Stated independent, the runs share bit-identical features (the same\ntarget point at the same observed pixel): they read the same images.",
+          "type": "string"
+        },
+        {
+          "const": "not_a_subset",
+          "description": "Stated nested, the smaller run has a feature the larger lacks, or\nthe two have the same features.",
+          "type": "string"
+        },
+        {
+          "const": "configurations_differ",
+          "description": "Stated nested, the two configurations differ.",
+          "type": "string"
+        }
+      ]
+    },
     "RejectReason": {
       "description": "Why the runner left a target detection out of the calibration input.\n\nSerialized in `snake_case` (`\"too_few_features\"`, `\"excluded\"`, ...).",
       "oneOf": [
@@ -7724,6 +8990,32 @@
       },
       "required": [
         "image_xy",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "RelationRefusal": {
+      "description": "A stated relation the runs contradict, and why: the difference is then\ntreated as [`DataRelation::Overlapping`].",
+      "properties": {
+        "reason": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RefusalReason"
+            }
+          ],
+          "description": "Why it does not hold."
+        },
+        "stated": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DataRelation"
+            }
+          ],
+          "description": "The relation as stated."
+        }
+      },
+      "required": [
+        "stated",
         "reason"
       ],
       "type": "object"
@@ -9651,6 +10943,203 @@
         }
       ]
     },
+    "RunComparison": {
+      "description": "Runs side by side against the first, the reference: what\n[`compare_runs`] returns.",
+      "properties": {
+        "differences": {
+          "description": "Each run after the first against the reference, in run order.",
+          "items": {
+            "$ref": "#/definitions/RunDifference"
+          },
+          "type": "array"
+        },
+        "runs": {
+          "description": "What each run says of itself, in the given order; the first is the\nreference.",
+          "items": {
+            "$ref": "#/definitions/RunEvidence"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs",
+        "differences"
+      ],
+      "type": "object"
+    },
+    "RunDifference": {
+      "description": "One run against the reference.",
+      "properties": {
+        "cameras": {
+          "description": "Each camera both runs have, in the reference's camera order.",
+          "items": {
+            "$ref": "#/definitions/CameraDifference"
+          },
+          "type": "array"
+        },
+        "config_changes": {
+          "description": "Where the two configurations differ; `None` when either run's\nconfiguration was not given.",
+          "items": {
+            "$ref": "#/definitions/ConfigChange"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DataOverlap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the two runs' observations share, by image content and\nfeature: the evidence of the relation. `None` unless both runs\nrecorded the content of the images they used (project runs)."
+        },
+        "exclusion_changes": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ExclusionChanges"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The exclusions one run made and the other did not. `None` unless\nboth are runs a project calibrated."
+        },
+        "handeye": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PoseDifference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The hand-eye, expressed for the reference run's reference camera;\n`None` unless both runs calibrated one in the same mode."
+        },
+        "laser_planes": {
+          "description": "Each camera's laser plane, for the cameras both runs have one for.",
+          "items": {
+            "$ref": "#/definitions/PlaneDifference"
+          },
+          "type": "array"
+        },
+        "model_changes": {
+          "description": "The cameras, by id, whose camera models differ between the runs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "relation": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DataRelation"
+            }
+          ],
+          "description": "How its observations relate to the reference's: the stated relation,\nor [`DataRelation::Overlapping`] when the runs contradict it."
+        },
+        "relation_refused": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RelationRefusal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The stated relation the runs contradict, and why; `None` when the\nstated relation was used."
+        },
+        "rig": {
+          "description": "Each camera's pose relative to the reference run's reference camera,\nfor the cameras both runs have (a rig).",
+          "items": {
+            "$ref": "#/definitions/PoseDifference"
+          },
+          "type": "array"
+        },
+        "run": {
+          "description": "The run's position in the comparison (1 for the first run after the\nreference).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unmatched_cameras": {
+          "description": "The cameras of the run the reference does not have, and the\nreference's cameras it does not have, by id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "run",
+        "relation",
+        "model_changes",
+        "cameras",
+        "rig",
+        "laser_planes",
+        "unmatched_cameras"
+      ],
+      "type": "object"
+    },
+    "RunEvidence": {
+      "description": "One run's own evidence: its quality verdict, its covariance and the fit\nof each camera.",
+      "properties": {
+        "cameras": {
+          "description": "Each camera, in the run's camera order.",
+          "items": {
+            "$ref": "#/definitions/CameraEvidence"
+          },
+          "type": "array"
+        },
+        "covariance": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CovarianceStatus"
+            }
+          ],
+          "description": "Whether it has a covariance."
+        },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ProblemKind"
+            }
+          ],
+          "description": "The workflow that produced it."
+        },
+        "name": {
+          "description": "The run's name.",
+          "type": "string"
+        },
+        "reference_camera": {
+          "description": "The camera whose frame is the rig frame (its pose in the rig is the\nidentity), by id; for one camera, that camera.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verdict": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Verdict"
+            }
+          ],
+          "description": "Its quality verdict, judged by the options' thresholds."
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "verdict",
+        "covariance",
+        "cameras"
+      ],
+      "type": "object"
+    },
     "RunExport": {
       "description": "A run's export.",
       "properties": {
@@ -10052,6 +11541,21 @@
         "ignored"
       ],
       "type": "object"
+    },
+    "RunSide": {
+      "description": "One of the two runs of a difference.",
+      "oneOf": [
+        {
+          "const": "reference",
+          "description": "The reference run, the first of the comparison.",
+          "type": "string"
+        },
+        {
+          "const": "other",
+          "description": "The run compared with it.",
+          "type": "string"
+        }
+      ]
     },
     "RunSource": {
       "description": "Where a run's export came from.",
