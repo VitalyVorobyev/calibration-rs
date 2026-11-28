@@ -84,7 +84,7 @@ near a corner, and views are lost: here only 4 of 16 survive at 40°.
 | Eight views tilted | σ(fx) px | σ(cx) px | σ max px |
 |---|---:|---:|---:|
 | all the same way | fails | | |
-| about one axis, both ways | 95.9 | 0.38 | 282 |
+| about one axis, both ways | 24.1 | 0.66 | 18.1 |
 | about both axes, both ways | 1.24 | 0.76 | 1.49 |
 
 Views tilted the same way are parallel planes and tell the camera nothing

@@ -302,6 +302,34 @@ impl NormalEquations {
         Some(llt.solve(&self.gradient))
     }
 
+    /// [`solve_damped`](Self::solve_damped) with the coordinates marked in
+    /// `held` held at zero: their rows and columns replaced by the identity
+    /// and their gradient by zero, so the step is that of the problem over
+    /// the rest.
+    pub(super) fn solve_damped_holding(&mut self, damping: f64, held: &[bool]) -> Option<Mat<f64>> {
+        self.damped.copy_from_slice(&self.hessian);
+        for &d in &self.diag {
+            self.damped[d] += damping * self.hessian[d].clamp(MIN_DIAGONAL, MAX_DIAGONAL);
+        }
+        for j in 0..self.pattern.ncols() {
+            for pos in self.pattern.col_range(j) {
+                let i = self.pattern.row_idx()[pos];
+                if held[i] || held[j] {
+                    self.damped[pos] = if i == j { 1.0 } else { 0.0 };
+                }
+            }
+        }
+        let mut gradient = self.gradient.clone();
+        for (c, &h) in held.iter().enumerate() {
+            if h {
+                gradient[(c, 0)] = 0.0;
+            }
+        }
+        let matrix = SparseColMatRef::new(self.pattern.as_ref(), &self.damped);
+        let llt = Llt::try_new_with_symbolic(self.llt.clone(), matrix, Side::Lower).ok()?;
+        Some(llt.solve(&gradient))
+    }
+
     /// `δᵀ(2·J̃ᵀ(−r) − J̃ᵀJ̃·δ)`: the decrease of the undamped local model
     /// `‖r + J̃δ‖²` along `δ`.
     pub(super) fn model_decrease(&self, step: &Mat<f64>) -> f64 {

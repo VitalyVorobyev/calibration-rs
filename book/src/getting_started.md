@@ -275,11 +275,11 @@ for check in report.checks:
 On the 20 left-camera images of the stereo set in [Stereo Rig with Real Data](stereo_real_data.md) (a 7×11 chessboard with 30 mm squares, 1024×576 pixels), both programs print the same numbers; the Python program's output is:
 
 ```text
-fx=713.85 ± 7.672  fy=724.67 ± 7.821
-cx=523.41 ± 1.688  cy=285.95 ± 1.433
+fx=713.80 ± 7.676  fy=724.62 ± 7.825
+cx=523.40 ± 1.689  cy=285.94 ± 1.433
 verdict: warn
   variance_factor not_applicable no expected feature noise was stated (expected_feature_noise_px)
-  projection_sigma warn projection σ up to 7.065 px over the 1024×576 image (centre 1.665 px, corners 7.065 px)
+  projection_sigma warn projection σ up to 7.069 px over the 1024×576 image (centre 1.666 px, corners 7.069 px)
 ```
 
 The verdict is `warn`: the views did not cover the image corners, so a ray's landing point is uncertain by up to 7 px there and the focal length by about 1 %. [Capturing Calibration Images](capture.md) says which views fix that, [Judging a Result](quality.md) explains every check, and [Reading the Covariance](uncertainty_reading.md) the σ.

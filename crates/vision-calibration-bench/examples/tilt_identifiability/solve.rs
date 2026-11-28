@@ -179,7 +179,8 @@ fn camera_fix(free: FreeSet, kind: DistortionKind) -> CameraFix {
     fix
 }
 
-/// Backend options; `tight` runs to a relative decrease of 1e-14.
+/// Backend options; `tight` runs to a relative decrease of 1e-14, with the
+/// rule in σ units off.
 pub fn backend_opts(backend: SolverBackend, max_iters: usize, tight: bool) -> BackendSolveOptions {
     let mut o = BackendSolveOptions {
         backend,
@@ -187,6 +188,7 @@ pub fn backend_opts(backend: SolverBackend, max_iters: usize, tight: bool) -> Ba
         ..BackendSolveOptions::default()
     };
     if tight {
+        o.sigma_tolerance = 0.0;
         o.min_abs_decrease = Some(0.0);
         o.min_rel_decrease = Some(1e-14);
         o.min_error = Some(0.0);

@@ -228,7 +228,7 @@ stops near the truth from either start, 1° from the posterior mean, at a
 cost 0.6 above the minimum (1798.72 vs 1798.10); in the gauge-aligned
 coordinates (`K'` and sensor-frame poses) it reaches the minimum from both
 starts in 9–16 iterations. The study's prior fits use those; the library's
-must, or the σ-unit stopping rule (SOLVER-VALLEY-STOP) (**measured**).
+must, or the σ-unit stopping rule (now the default, `lm-stopping.md`) (**measured**).
 
 **C1** (`tilt_x` bias / stated posterior σ, degrees; conflict: share of
 draws with `|τ̂ − τ₀| / √(σ̂² + σₚ²) > 3`, `τ̂, σ̂` from the same free set

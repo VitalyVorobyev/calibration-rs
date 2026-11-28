@@ -1099,6 +1099,7 @@ mod tests {
             max_iters: 100,
             verbosity: 0,
             min_abs_decrease: Some(1e-12),
+            sigma_tolerance: 0.0,
             min_rel_decrease: Some(1e-12),
             min_error: Some(1e-14),
             ..Default::default()

@@ -399,7 +399,18 @@ pub fn assess<E: CalibratedCameras + ?Sized>(
     let uncertainty = export.parameter_uncertainty();
     let target = &export.diagnostics().per_feature_residuals.target;
 
-    let mut checks = vec![observability(uncertainty), convergence(uncertainty)];
+    // A solve stopped on its budget has no covariance; its last iterate's
+    // (a diagnostic, not an uncertainty) still tells the conditioning.
+    let last_iterate = match uncertainty {
+        Uncertainty::Unavailable {
+            reason: UncertaintyUnavailable::NotConverged,
+        } => export.diagnostics().last_iterate_covariance.as_ref(),
+        _ => None,
+    };
+    let mut checks = vec![
+        observability(uncertainty),
+        convergence(uncertainty, last_iterate.is_some()),
+    ];
     checks.extend(variance_factor(uncertainty, thresholds));
     checks.push(covariance_linearity(uncertainty, thresholds));
     for (camera, (params, size)) in cameras.iter().zip(&sizes).enumerate() {
@@ -415,6 +426,7 @@ pub fn assess<E: CalibratedCameras + ?Sized>(
         checks.push(parameter_conditioning(
             params,
             uncertainty,
+            last_iterate,
             camera,
             thresholds,
         ));
@@ -573,7 +585,7 @@ fn observability(uncertainty: &Uncertainty) -> QualityCheck {
     }
 }
 
-fn convergence(uncertainty: &Uncertainty) -> QualityCheck {
+fn convergence(uncertainty: &Uncertainty, last_iterate: bool) -> QualityCheck {
     let kind = CheckKind::Convergence;
     match uncertainty {
         Uncertainty::Unavailable {
@@ -589,7 +601,14 @@ fn convergence(uncertainty: &Uncertainty) -> QualityCheck {
             kind,
             None,
             CheckStatus::Fail,
-            "the final solve stopped on its iteration budget, short of a minimum".into(),
+            if last_iterate {
+                "the final solve stopped on its iteration budget, short of a minimum; the \
+                 parameter-conditioning check, evaluated at its last iterate, names the \
+                 parameters the data does not separate"
+                    .into()
+            } else {
+                "the final solve stopped on its iteration budget, short of a minimum".into()
+            },
         ),
         _ => QualityCheck::new(
             kind,
@@ -1063,16 +1082,45 @@ fn parameter_correlation(
 /// thin-prism terms, which absorb a tilt to first order, when holding them
 /// would at least halve its σ; else the lens distortion, which alone tells a
 /// tilt from the principal point.
+///
+/// A solve stopped on its iteration budget has no covariance; with
+/// `last_iterate` (the covariance at its last iterate, which the export's
+/// diagnostics record) the check runs on that instead, as a diagnostic: its
+/// message says so, and the result's uncertainty stays unavailable.
 fn parameter_conditioning(
     params: &CameraParams,
     uncertainty: &Uncertainty,
+    last_iterate: Option<&ParameterCovariance>,
     camera: usize,
     thresholds: &QualityThresholds,
 ) -> QualityCheck {
     let kind = CheckKind::ParameterConditioning;
-    let Some(covariance) = uncertainty.covariance() else {
-        return QualityCheck::not_applicable(kind, Some(camera), no_covariance(uncertainty));
+    let (covariance, at_last_iterate) = match (uncertainty.covariance(), last_iterate) {
+        (Some(covariance), _) => (covariance, false),
+        (None, Some(covariance)) => (covariance, true),
+        (None, None) => {
+            return QualityCheck::not_applicable(kind, Some(camera), no_covariance(uncertainty));
+        }
     };
+    let mut check = conditioning_of(params, covariance, camera, thresholds);
+    if at_last_iterate {
+        check.message = format!(
+            "at the last iterate of a solve that stopped on its iteration budget (a \
+             diagnostic: the result has no covariance): {}",
+            check.message
+        );
+    }
+    check
+}
+
+/// [`parameter_conditioning`] of `covariance`.
+fn conditioning_of(
+    params: &CameraParams,
+    covariance: &ParameterCovariance,
+    camera: usize,
+    thresholds: &QualityThresholds,
+) -> QualityCheck {
+    let kind = CheckKind::ParameterConditioning;
     let indices = camera_indices(params, covariance, camera);
     if indices.is_empty() {
         return QualityCheck::not_applicable(

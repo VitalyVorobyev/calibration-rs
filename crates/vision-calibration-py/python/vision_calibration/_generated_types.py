@@ -1315,6 +1315,15 @@ class ExportDiagnostics(_ExportDiagnosticsRequired, total=False):
     images were recorded (the dataset runner and the desktop app fill it).
     """
 
+    last_iterate_covariance: ParameterCovariance | None
+    """When the final solve stopped on its iteration budget (the result's
+    uncertainty then unavailable, not converged): the first-order
+    covariance at its last iterate. Not an uncertainty, as that iterate
+    is not a minimum: it tells which parameters the data separates
+    there, and the quality report's parameter-conditioning check reads
+    it. `None` otherwise, and in workflows that do not record it.
+    """
+
 
 class _FeatureRequired(TypedDict):
     """The keys of `Feature` that every payload has."""
@@ -3013,8 +3022,11 @@ class PlanarIntrinsicsConfig(_PlanarIntrinsicsConfigRequired, total=False):
     camera: CameraConfig
     """The camera model and its fixed parameters.
 
-    Any distortion kind with an identity sensor; a Scheimpflug sensor
-    needs a distortion model. A tilted sensor's solve without a tilt seed
+    Any distortion kind with an identity sensor. A Scheimpflug sensor's
+    free tilt needs a lens distortion to determine it: a distortion
+    model with a free term, or one held at known non-zero values;
+    otherwise the configuration (or, for distortion held at zero, the
+    optimize step before it solves) is an error. A tilted sensor's solve without a tilt seed
     runs a multi-start tilt sweep (see `step_optimize`).
     """
 
@@ -5855,10 +5867,13 @@ SolveTermination: TypeAlias = Literal[
     "no_accepted_step",
     "max_iters",
     "all_parameters_fixed",
+    "sigma_step",
+    "stalled_step",
 ]
 """Why a Levenberg–Marquardt solve stopped.
 
-Every reason but `MaxIters` is a stopping rule
+Every reason but `MaxIters` and
+`StalledStep` is convergence
 (`is_converged`): the loop could not improve the
 solution further, and only then is its covariance computed. A cancelled
 solve, or one whose cost is not finite, returns an error instead of a
@@ -5869,16 +5884,27 @@ objective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's
 - ``"relative_step"``: The step became negligible next to the parameters,
   `‖dx‖ ≤ 10⁻⁸ (‖x‖ + 10⁻⁸)`: it can no longer change them.
 - ``"min_error"``: The cost fell below its floor, `min_error` (10⁻¹⁰).
-- ``"min_abs_decrease"``: An accepted step lowered the cost by less than `min_abs_decrease`
-  (10⁻⁵).
+- ``"min_abs_decrease"``: An accepted step lowered the cost by less than `min_abs_decrease`.
+  Off by default.
 - ``"min_rel_decrease"``: An accepted step lowered the cost by less than `min_rel_decrease`
-  (10⁻⁵) of the cost before it.
+  of the cost before it. Off by default.
 - ``"no_accepted_step"``: No step lowered the cost, with the damping doubled on each of 32
   tries: a minimum to working precision, or a parameter held on its
   bound (the covariance then names it).
 - ``"max_iters"``: The iteration budget, `max_iters`, ran out before a stopping rule
   was met; the solution has no covariance.
 - ``"all_parameters_fixed"``: Every parameter is fixed: no iteration ran.
+- ``"sigma_step"``: The solution is within a hundredth of its standard deviation of the
+  minimum: the Gauss–Newton step left to it, in the Mahalanobis norm
+  of the solution's covariance, is at most `0.01`, and so is the
+  change it would make to any one parameter in units of that
+  parameter's σ. The step is taken when it lowers the cost.
+- ``"stalled_step"``: An accepted step moved the solution by less than a thousandth of its
+  standard deviation while the step to the minimum was still longer
+  than a hundredth: progress has stalled, along a long curved valley
+  of a weakly determined parameter, or because the damping held the
+  step short. Not convergence: the solution has no covariance, as for
+  `MaxIters`.
 """
 
 
@@ -5891,7 +5917,8 @@ Jacobian and how they fold in a robust loss.
 
 - ``"tiny_solver"``: `tiny-solver`: forward-mode dual numbers on the stack, each residual
   block differentiated in passes of four directions; a robust loss
-  enters through the Triggs correction (second-order exact).
+  enters through the Triggs correction (second-order exact) where
+  `ρ″ > 0`, and as iterative reweighting where `ρ″ ≤ 0`, as in Ceres.
 - ``"factrs"``: `factrs`: static-size forward-mode dual numbers; a robust loss enters
   through iterative reweighting (each block scaled by `√ρ′`).
 """

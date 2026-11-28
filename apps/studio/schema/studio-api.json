@@ -3978,6 +3978,17 @@
           ],
           "description": "Where each view's source images are, for a viewer that overlays the\nresiduals on them. The calibration never reads it; `None` means no\nimages were recorded (the dataset runner and the desktop app fill it)."
         },
+        "last_iterate_covariance": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ParameterCovariance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the final solve stopped on its iteration budget (the result's\nuncertainty then unavailable, not converged): the first-order\ncovariance at its last iterate. Not an uncertainty, as that iterate\nis not a minimum: it tells which parameters the data separates\nthere, and the quality report's parameter-conditioning check reads\nit. `None` otherwise, and in workflows that do not record it."
+        },
         "per_feature_residuals": {
           "allOf": [
             {
@@ -6087,7 +6098,7 @@
               "sensor": "identity"
             }
           },
-          "description": "The camera model and its fixed parameters.\n\nAny distortion kind with an identity sensor; a Scheimpflug sensor\nneeds a distortion model. A tilted sensor's solve without a tilt seed\nruns a multi-start tilt sweep (see `step_optimize`)."
+          "description": "The camera model and its fixed parameters.\n\nAny distortion kind with an identity sensor. A Scheimpflug sensor's\nfree tilt needs a lens distortion to determine it: a distortion\nmodel with a free term, or one held at known non-zero values;\notherwise the configuration (or, for distortion held at zero, the\noptimize step before it solves) is an error. A tilted sensor's solve without a tilt seed\nruns a multi-start tilt sweep (see `step_optimize`)."
         },
         "intrinsics_init": {
           "allOf": [
@@ -11459,7 +11470,7 @@
       "oneOf": [
         {
           "const": "tiny_solver",
-          "description": "`tiny-solver`: forward-mode dual numbers on the stack, each residual\nblock differentiated in passes of four directions; a robust loss\nenters through the Triggs correction (second-order exact).",
+          "description": "`tiny-solver`: forward-mode dual numbers on the stack, each residual\nblock differentiated in passes of four directions; a robust loss\nenters through the Triggs correction (second-order exact) where\n`ρ″ > 0`, and as iterative reweighting where `ρ″ ≤ 0`, as in Ceres.",
           "type": "string"
         },
         {

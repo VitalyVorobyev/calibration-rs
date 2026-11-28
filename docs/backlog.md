@@ -208,18 +208,18 @@ Each model follows AGENTS.md §10 (a camera model).
 
 ## Calibration problems (Phase 2)
 
-- [ ] CAL-RIG-BA-STOP - The rig bundle adjustment stops on
-  `MinRelDecrease` (1e-5) before its minimum: restarted from its own
-  result it moves 0.04-0.05 sigma in a camera parameter and most of a
-  sigma in a mount, and keeps drifting on further restarts (0.039, 0.050,
-  0.053 sigma). The rig laser plane solve shows the same: restarted from
-  its own result on the joint synthetic scene, a plane's distance moves
-  1.56e-6, 0.89e-6, 0.50e-6, 0.29e-6 m (a ratio near 0.57 per restart,
-  about 3.6e-6 m in all, against 2.0e-5 m from the linear fit to the first
-  result). Stated sigmas assume the minimum was reached. Measure what
-  a tighter rule costs in iterations on the suite, and whether the mount
-  direction is a weak mode that needs scaling rather than more iterations.
-  A change of the default moves numbers: opt-in until measured.
+- [ ] CAL-HANDEYE-REWEIGHT-STOP - The robot-prior variance-component
+  iteration (`robot_poses::solve_weighted`) stops when no weight changes by
+  more than 1 % between solves, but it converges linearly: on `kuka_1` the
+  weight changes run 0.89, 0.56, 0.27, 0.13, 0.072, 0.044, 0.028, 0.019,
+  0.012, 0.0080 (ratio about 0.65), so it stops one pass before its cap of
+  ten reweights, about 0.072σ (in `base_se3_target`) from its fixed point
+  (`notes/lm-stopping.md`). Stop on the extrapolated remainder
+  (`change·q/(1 − q)` with the observed ratio `q`) below a stated fraction
+  of the estimate's own spread instead of on the last change, and measure
+  the cost in solves on `kuka_1`, `ds8` and `synth_handeye` on both
+  backends; results move, so measured first.
+
 - [ ] CAL-TARGET-OFFSETS - A non-ideal target: per-point in-plane offsets of
   the board geometry, opt-in. Evidence (`notes/display-target-residual.md`):
   on a displayed PuzzleBoard, offsets of 34 µm RMS shared by six cameras
@@ -279,7 +279,8 @@ Each model follows AGENTS.md §10 (a camera model).
   ADR 0031 (*Priors on camera parameters*); the tilt is the first user. The
   solve must reach the posterior, which the raw coordinates do not
   (`notes/tilt-determination.md`, C0): run it in the gauge-aligned
-  coordinates or with SOLVER-VALLEY-STOP. Gate: posterior σ against the
+  coordinates or under the default σ-unit stopping rule
+  (`notes/lm-stopping.md`). Gate: posterior σ against the
   analytic `√(1/(σ⁻² + σₚ⁻²))` within 5 %, the C1 table through the
   library, JSON round-trips, typed errors for a prior on a fixed parameter
   or a non-positive σ.
@@ -562,17 +563,6 @@ Design: ADR 0014; developer guide: `apps/studio/DEVELOPING.md`.
 
 ## Solver backends and performance (Phase 2)
 
-- [ ] SOLVER-VALLEY-STOP - A stopping rule in units of the estimate's σ. The
-  loop stops on a 1e-5 relative cost decrease, which in a long, flat valley
-  is reached before the minimum: on a tilted camera with weak distortion the
-  default stops up to 0.66σ short, and where the valley is short nothing
-  moves (`notes/tilt-identifiability.md`). Design: stop when the undamped
-  Gauss-Newton step's predicted decrease `½·ΔᵀJᵀJΔ` is below `ε²·σ̂²/2`,
-  `σ̂² = 2·cost/(m − n)`, i.e. the remaining step is under `ε` standard
-  deviations in the Fisher metric (`ε = 0.01`), next to the existing rules;
-  opt-in, then the default once measured. Gate: the weak-distortion
-  Monte-Carlo ratio within 10 % of 1; `calib-bench suite check` and the
-  solver benchmark's iteration counts, both backends.
 - [ ] TS-UPSTREAM - Propose the remaining tiny-solver fork branches upstream
   (0.19.0 carries the rest): a sphere manifold; the nalgebra 0.35 / faer
   0.24 bump; the sort-free symbolic structure (Jacobian pattern by counting
