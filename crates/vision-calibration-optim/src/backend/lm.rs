@@ -1028,7 +1028,10 @@ mod tests {
         let weak = eig.eigenvalues.imin();
         let w = eig.eigenvectors.column(weak).into_owned();
         let start = &xs + w * (variance / eig.eigenvalues[weak]).sqrt();
-        assert!((engine.sigmas(&start) - 1.0).abs() < 1e-6);
+        // The weak eigenvalue is 1e-11 of the strong one, so its computed
+        // value carries a relative rounding error near 1e-5, which differs
+        // between platforms.
+        assert!((engine.sigmas(&start) - 1.0).abs() < 1e-3);
         let solution = levenberg_marquardt(&engine, start, &defaults(100)).unwrap();
         let off = engine.sigmas(&solution.state);
         assert!(
