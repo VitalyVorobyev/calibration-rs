@@ -144,9 +144,9 @@ of 1; the joint `χ²` likewise.
 | Independent, 20 views (400) | 3.5–5.25 % | 0.96–1.02 | 5.75 %, mean χ²/dof 1.01 |
 | Nested, 6 of 20 views out (1000) | 3.8–5.2 % | 0.96–1.00 | not offered (`NestedJoint`) |
 | Nested, 20 % of features out (1000) | 3.9–6.0 % | 0.97–1.04 | not offered |
-| Nested, 1 of 8 views out (1000) | 4.6–5.5 % | 0.99–1.02 | not offered |
-| Nested, Huber 0.5 px, 6 of 20 views (1000) | 4.5–5.7 % | 0.98–1.00 | not offered |
-| Nested, Huber 0.5 px, 20 % of features (1000) | 4.5–6.1 % | 0.98–1.04 | not offered |
+| Nested, 1 of 8 views out (1000) | 4.7–5.5 % | 0.99–1.02 | not offered |
+| Nested, Huber 0.5 px, 6 of 20 views (1000) | 4.5–5.6 % | 0.98–1.00 | not offered |
+| Nested, Huber 0.5 px, 20 % of features (1000) | 4.6–6.2 % | 0.98–1.04 | not offered |
 | Rig `right_se3_left`, independent (400) | — | — | 4.0 %, mean χ²/dof 0.94 |
 | Rig `right_se3_left`, 2 of 8 views out (1000) | — | — | 5.0 %, mean χ²/dof 0.97 |
 
@@ -154,11 +154,11 @@ Missing tests under the null: at most 0.8 % per parameter (`k2`
 `NestedVarianceNotPositive`, 1 of 8 views out). A sweep at 200 trials per
 cell over 8 / 20 / 60 views, 0.05 / 0.3 px, a Kannala-Brandt fisheye and a
 Scheimpflug sensor, independent and 30 % of the views out, passes the same
-gate (rates 1.5–9.5 %, z std 0.85–1.13, inside each cell's bounds).
+gate (rates 2.0–9.5 %, z std 0.85–1.13, inside each cell's bounds).
 
 The alternative: 1 % of the larger run's features moved 8 px, left out by
 the smaller run. Some parameter rejects in 98.75 % of 400 comparisons
-(pooled mean `z²` ≈ 2200); 82 % of the per-parameter tests are available,
+(pooled mean `z²` ≈ 900); 82 % of the per-parameter tests are available,
 the rest `NestedVarianceNotPositive` (the left-out share is small). Under a
 robust loss that absorbs the left-out outliers the test does not reject,
 by design: the larger fit already ignores them (measured in the
@@ -179,9 +179,9 @@ views: 0.93–1.04; here, 0.94–1.09 at 200 trials) and are withdrawn.
 
 **A limitation, pinned** (`nested_small_exclusions_have_heavier_tails`):
 with a small left-out share the nested `z` of some parameters still has
-heavy tails on one noise level: 1 of 25 views out, `k2` z std 1.14 (MAD
+heavy tails on one noise level: 1 of 25 views out, `k2` z std 1.15 (MAD
 1.00, three `|z| > 4` in 1000); 6 of about 2000 features out, z std up to
-1.35 and `k2` 7.7 % rejections with 4.3 % not positive. **The cause is
+1.34 and `k2` 7.7 % rejections with 4.3 % not positive. **The cause is
 measured** (independent check): each run's information is evaluated at its
 own estimate, and two nearly equal informations then differ mostly by that
 mismatch. Evaluating both at one common point removes the excess (1 of 25

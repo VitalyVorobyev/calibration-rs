@@ -102,8 +102,10 @@ pub(crate) fn fetch_err(err: vision_calibration::dataset::samples::FetchError) -
     }
 }
 
-/// Map a calibration error: input problems, views that do not determine the
-/// intrinsics among them, are `ValueError`, the rest `RuntimeError`.
+/// Map a calibration error: input problems (the solver's own input checks
+/// among them, such as a free sensor tilt without lens distortion), views
+/// that do not determine the intrinsics among them, are `ValueError`, the
+/// rest `RuntimeError`.
 /// `context` prefixes the message.
 pub(crate) fn calib_err(context: &str, err: vision_calibration::Error) -> PyErr {
     use vision_calibration::Error;
@@ -113,6 +115,7 @@ pub(crate) fn calib_err(context: &str, err: vision_calibration::Error) -> PyErr 
         | Error::InsufficientData { .. }
         | Error::MixedBlurCovariance { .. }
         | Error::NotAvailable { .. }
+        | Error::Optim(vision_calibration::optim::Error::InvalidInput { .. })
         | Error::Linear(vision_calibration::init::Error::DegenerateViews { .. }) => {
             PyValueError::new_err(message)
         }

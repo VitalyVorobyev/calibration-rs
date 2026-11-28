@@ -70,6 +70,12 @@ plain-model data, 20 views, 4-fold held-out, two seeds:
 | field 2–4, at the projection | 0.0989 / 0.0981 | −0.4152 | −0.0960 |
 | field 2–4, at the observation | **0.0881 / 0.0893** | −4.12 | −0.044 |
 
+The pinned test of this (`a_field_at_the_observation_contracts_the_noise`,
+10 views, field degree 4) runs its fits to 400 iterations: the field at
+the projection crawls along a shallow valley and reaches its minimum in
+337, with `k1` −0.418 against −0.415 (*measured*); stopped at 100 it sat
+mid-valley at −0.474.
+
 The joint target study had the same form; its corrected rows are below.
 
 ## Held-out results

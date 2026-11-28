@@ -15,7 +15,9 @@
 //! problem has no reason to deviate.
 
 use serde::{Deserialize, Serialize};
-use vision_calibration_core::{CameraFix, CameraModelSpec, ProjectionKind, RunControl, SensorKind};
+use vision_calibration_core::{
+    CameraFix, CameraModelSpec, FixedParams, ProjectionKind, RunControl, SensorKind,
+};
 use vision_calibration_linear::handeye::HandeyeMethod;
 use vision_calibration_linear::prelude::{
     DistortionFitOptions, EquidistantInitOptions, IterativeIntrinsicsOptions,
@@ -79,41 +81,66 @@ impl CameraConfig {
         }
     }
 
-    /// Check the workflows can calibrate the model and the fix lists name
-    /// parameters of it.
+    /// Check the workflows can calibrate the model: the fix lists name
+    /// parameters of it, and a free Scheimpflug tilt comes with a
+    /// distortion to determine it.
     ///
     /// # Errors
     ///
-    /// [`crate::Error::InvalidInput`] naming the unsupported projection or
-    /// the unknown parameter.
+    /// [`crate::Error::InvalidInput`] naming the unsupported projection, the
+    /// unknown parameter or the undetermined tilt.
     pub fn validate(&self) -> Result<(), crate::Error> {
-        check_projection("camera", self.model)?;
-        self.fix
-            .resolve(self.model)
-            .map(|_| ())
-            .map_err(|e| crate::Error::invalid_input(format!("camera.fix: {e}")))
+        check_camera("camera", self.model, &self.fix)
     }
 
-    /// Check a single camera calibrated from its own planar views can be:
-    /// its fix lists name parameters of the model, and a Scheimpflug sensor
-    /// comes with a distortion model — the tilt is estimated jointly with the
-    /// radial terms, which tell it apart from a principal-point shift.
+    /// [`Self::validate`], for a single camera calibrated from its own
+    /// views.
     ///
     /// # Errors
     ///
-    /// [`crate::Error::InvalidInput`] naming the problem.
+    /// See [`Self::validate`].
     pub(crate) fn validate_single_camera(&self) -> Result<(), crate::Error> {
-        self.validate()?;
-        if self.model.sensor == SensorKind::Scheimpflug
-            && self.model.distortion == DistortionKind::None
-        {
-            return Err(crate::Error::invalid_input(
-                "a Scheimpflug sensor needs a distortion model: the tilt is estimated \
-                 jointly with the radial terms",
-            ));
-        }
-        Ok(())
+        self.validate()
     }
+}
+
+/// Check one camera's model and fix lists: the projection is one the
+/// workflows calibrate, the fix lists name parameters of the model, and a
+/// free Scheimpflug tilt has a distortion model to determine it. `field`
+/// names the configuration field in the errors.
+fn check_camera(field: &str, model: CameraModelSpec, fix: &CameraFix) -> Result<(), crate::Error> {
+    check_projection(field, model)?;
+    let fixed = fix
+        .resolve(model)
+        .map_err(|e| crate::Error::invalid_input(format!("{field}.fix: {e}")))?;
+    check_tilt_distortion(field, model, &fixed)
+}
+
+/// A free Scheimpflug tilt needs a lens distortion to be determined: without
+/// distortion a tilted camera is exactly a pinhole with a shifted principal
+/// point and rotated poses, from any view geometry, in a rig or a hand-eye
+/// as well (the rotation goes into the extrinsics or the hand-eye). A model
+/// without distortion is refused here; distortion that is all held is
+/// checked when the solve is set up, where its values are known (held at
+/// known non-zero values it does determine the tilt).
+fn check_tilt_distortion(
+    field: &str,
+    model: CameraModelSpec,
+    fixed: &FixedParams,
+) -> Result<(), crate::Error> {
+    let tilt_free = (0..model.sensor.dim()).any(|i| !fixed.sensor.contains(&i));
+    if model.sensor == SensorKind::Scheimpflug
+        && model.distortion == DistortionKind::None
+        && tilt_free
+    {
+        return Err(crate::Error::invalid_input(format!(
+            "{field}: a Scheimpflug tilt cannot be estimated without lens distortion (with \
+             none, a tilt is a rotation of the poses and a shift of the principal point); \
+             give the camera a distortion model with a free radial term (`k1`), or hold \
+             the tilt (fix the sensor's `tilt_x` and `tilt_y`)"
+        )));
+    }
+    Ok(())
 }
 
 /// One camera of a rig whose model differs from the rig's `camera`, so a
@@ -179,10 +206,7 @@ pub(crate) fn validate_rig_cameras(
                 o.camera
             )));
         }
-        check_projection(&format!("camera_overrides[{i}]"), o.model)?;
-        o.fix
-            .resolve(o.model)
-            .map_err(|e| crate::Error::invalid_input(format!("camera_overrides[{i}].fix: {e}")))?;
+        check_camera(&format!("camera_overrides[{i}]"), o.model, &o.fix)?;
     }
     Ok(())
 }
@@ -814,6 +838,27 @@ mod tests {
 
     fn camera(distortion: DistortionKind, sensor: SensorKind) -> CameraConfig {
         CameraConfig::new(CameraModelSpec::pinhole(distortion, sensor))
+    }
+
+    #[test]
+    fn a_free_tilt_without_a_distortion_model_is_refused_in_every_camera_config() {
+        let tilted_plain = camera(DistortionKind::None, SensorKind::Scheimpflug);
+        let err = tilted_plain.validate().unwrap_err().to_string();
+        assert!(err.contains("without lens distortion"), "{err}");
+        assert!(err.contains("`k1`") && err.contains("tilt_x"), "{err}");
+        // A rig override is checked alike.
+        let override_ = CameraOverride::new(1, tilted_plain.model);
+        let err = validate_rig_cameras(&CameraConfig::default(), &[override_])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("camera_overrides[0]"), "{err}");
+        // With the tilt held, a model without distortion is a pinhole.
+        let mut held = tilted_plain;
+        held.fix.sensor = Some(vec!["tilt_x".into(), "tilt_y".into()]);
+        held.validate().unwrap();
+        // One tilt component free is still a free tilt.
+        held.fix.sensor = Some(vec!["tilt_x".into()]);
+        assert!(held.validate().is_err());
     }
 
     #[test]

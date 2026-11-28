@@ -75,8 +75,8 @@ Output on the 20-view stereo chessboard rig:
 
 ```text
 3080 target records (3080 converged, 0 divergent)
-cam 0: count=1540 mean=0.2448px max=1.0262px buckets [1539, 1, 0, 0, 0]
-cam 1: count=1540 mean=0.2544px max=0.9146px buckets [1540, 0, 0, 0, 0]
+cam 0: count=1540 mean=0.2413px max=0.9491px buckets [1540, 0, 0, 0, 0]
+cam 1: count=1540 mean=0.2509px max=0.9138px buckets [1540, 0, 0, 0, 0]
 ```
 
 ### 3. Find the worst corners

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Why a Levenberg–Marquardt solve stopped.\n\nEvery reason but [`MaxIters`](Self::MaxIters) is a stopping rule\n([`is_converged`](Self::is_converged)): the loop could not improve the\nsolution further, and only then is its covariance computed. A cancelled\nsolve, or one whose cost is not finite, returns an error instead of a\nsolution. The cost the thresholds are compared with is the robust\nobjective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's\n[`final_cost`](SolveReport::final_cost).",
+  "description": "Why a Levenberg–Marquardt solve stopped.\n\nEvery reason but [`MaxIters`](Self::MaxIters) and\n[`StalledStep`](Self::StalledStep) is convergence\n([`is_converged`](Self::is_converged)): the loop could not improve the\nsolution further, and only then is its covariance computed. A cancelled\nsolve, or one whose cost is not finite, returns an error instead of a\nsolution. The cost the thresholds are compared with is the robust\nobjective `Σᵢ ρᵢ(‖rᵢ‖²)`, twice the report's\n[`final_cost`](SolveReport::final_cost).",
   "oneOf": [
     {
       "const": "relative_step",
@@ -14,12 +14,12 @@
     },
     {
       "const": "min_abs_decrease",
-      "description": "An accepted step lowered the cost by less than `min_abs_decrease`\n(10⁻⁵).",
+      "description": "An accepted step lowered the cost by less than `min_abs_decrease`.\nOff by default.",
       "type": "string"
     },
     {
       "const": "min_rel_decrease",
-      "description": "An accepted step lowered the cost by less than `min_rel_decrease`\n(10⁻⁵) of the cost before it.",
+      "description": "An accepted step lowered the cost by less than `min_rel_decrease`\nof the cost before it. Off by default.",
       "type": "string"
     },
     {
@@ -35,6 +35,16 @@
     {
       "const": "all_parameters_fixed",
       "description": "Every parameter is fixed: no iteration ran.",
+      "type": "string"
+    },
+    {
+      "const": "sigma_step",
+      "description": "The solution is within a hundredth of its standard deviation of the\nminimum: the Gauss–Newton step left to it, in the Mahalanobis norm\nof the solution's covariance, is at most `0.01`, and so is the\nchange it would make to any one parameter in units of that\nparameter's σ. The step is taken when it lowers the cost.",
+      "type": "string"
+    },
+    {
+      "const": "stalled_step",
+      "description": "An accepted step moved the solution by less than a thousandth of its\nstandard deviation while the step to the minimum was still longer\nthan a hundredth: progress has stalled, along a long curved valley\nof a weakly determined parameter, or because the damping held the\nstep short. Not convergence: the solution has no covariance, as for\n[`MaxIters`](Self::MaxIters).",
       "type": "string"
     }
   ],

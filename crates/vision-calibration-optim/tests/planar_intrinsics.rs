@@ -167,10 +167,17 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
     let outlier_stride = 12;
     let outlier_offset = 20.0;
 
-    for view_idx in 0..3 {
-        let angle = 0.1 * (view_idx as f64);
-        let axis = Vector3::new(0.0, 1.0, 0.0);
-        let rq = UnitQuaternion::from_scaled_axis(axis * angle);
+    // Six views turned about both board axes: three views turned about one
+    // axis leave the intrinsics in a flat valley, where a solve ends
+    // wherever its stopping rule happens to fire.
+    for view_idx in 0..6 {
+        let angle = 0.25 * if view_idx % 2 == 0 { 1.0 } else { -1.0 };
+        let axis = if view_idx < 3 {
+            Vector3::new(0.0, 1.0, 0.0)
+        } else {
+            Vector3::new(1.0, 0.0, 0.0)
+        };
+        let rq = UnitQuaternion::from_scaled_axis(axis * angle * (1.0 + 0.3 * view_idx as f64));
         let rot = rq.to_rotation_matrix();
         let trans = Vector3::new(0.0, 0.0, 0.5 + 0.2 * view_idx as f64);
         let pose = Iso3::from_parts(trans.into(), rot.into());
@@ -234,6 +241,13 @@ fn synthetic_planar_intrinsics_with_outliers_robust_better_than_l2() {
 
     let err_l2 = err_total(l2.params.camera.intrinsics);
     let err_robust = err_total(robust.params.camera.intrinsics);
+    // The robust solve converges; least squares, pulled by the outliers,
+    // may not within its budget.
+    assert!(
+        robust.report.termination.is_some_and(|t| t.is_converged()),
+        "{:?}",
+        robust.report
+    );
 
     assert!(
         err_robust < err_l2,

@@ -5,12 +5,18 @@ Family: the LM loop every backend runs (`vision-calibration-optim`,
 claim is marked *measured* (with the test or command that measured it) or
 *hypothesis* (with what would decide it).
 
-The loop stops on the first of: the cost below `min_error` (1e-10); an
-accepted step that lowers the robust cost `Σρ` by less than
-`min_abs_decrease` (1e-5) or by less than `min_rel_decrease` (1e-5) of it;
-a first-attempt step `‖dx‖ ≤ ε(‖x‖ + ε)`, `ε = 1e-8` (Ceres'
-`parameter_tolerance`, `RelativeStep`); no step accepted after 32 damping
-retries; the iteration budget.
+The loop stops on the first of: the Gauss–Newton step left to the minimum
+within 0.01 of the solution's standard deviation (`SigmaStep`, the
+section "Stopping on the distance to the minimum" below); a step that
+moved the solution by under 0.001σ short of that (`StalledStep`, not converged); the cost
+below
+`min_error` (1e-10); a first-attempt step `‖dx‖ ≤ ε(‖x‖ + ε)`,
+`ε = 1e-8` (Ceres' `parameter_tolerance`, `RelativeStep`); no step
+accepted after 32 damping retries; the iteration budget. The decrease
+rules `min_abs_decrease` and `min_rel_decrease` (an accepted step lowering
+`Σρ` by less than a threshold, or a fraction of it) are off by default and
+kept for tests that set them; until the change below they were the
+default, both at 1e-5.
 
 ## The relative-step scale (fixed)
 
@@ -112,3 +118,298 @@ joint cells show no sign of it; a joint laserline solve with free
 intrinsics and the plane started about 1σ off would decide it. Also seen
 on one scene and not explained: the point-to-plane residual's stated σ is
 30 to 40 % too large (RMS of error/σ 0.70 to 0.76), before and after.
+
+## Stopping on the distance to the minimum (fixed)
+
+**Defect.** The decrease rules measured the last step's gain, not the
+distance left, and on no scale of the solution's uncertainty. With `m`
+residuals, `n` free parameters and `σ̂² = Σρ/(m − n)`, a step that lowers
+`Σρ` by `ΔC` moves the solution by about `√(ΔC/σ̂²)` standard deviations
+(Mahalanobis), so `min_rel_decrease = 1e-5` lets the last step be
+`√(1e-5 (m − n))` σ long: 0.10σ at 1000 residuals, 0.30σ at 9000, 0.53σ
+at 28 000. Two things made the distance left larger than the last step:
+
+- **Damping.** The damping starts at `1e-4` of the Jacobi-scaled diagonal
+  and falls at most threefold per good step (Ceres' schedule). A solve
+  started near its minimum (a restart, or a warm-started pass of an outer
+  iteration) takes damped steps that cover a third to a half of the
+  undamped one, with a gain ratio of 1, and the rule fires on the first.
+- **A robust loss.** Where `ρ″ < 0` (Huber beyond its scale, Cauchy
+  everywhere) both engines use the reweighted curvature `ρ′JᵀJ` (Ceres'
+  clamped correction in tiny-solver, `√ρ′` scaling in factrs), larger than
+  the objective's. The step then covers only `a/b` of the way (objective
+  curvature `a`, model `b`), the gain ratio is `2 − a/b`, and the
+  convergence is linear with ratio `1 − a/b`.
+
+Evidence, *measured* (a scratch probe in the shared loop that ran every
+solve on past its stop to the minimum, `d = √((Σρ − Σρ*)/σ̂²)`; and the
+plane scene of the Python test `test_planes_fit_against_an_upstream_rig`,
+rebuilt in a bench example):
+
+- The rig laser plane solve under its held camera, the scene the backlog
+  entry reported: per iteration the damping is `1e-4 … 4e-6`, negligible
+  next to the scaled Hessian's eigenvalues, the gain ratio 1.30, 1.34,
+  1.43, 1.52, 1.55, 1.57 (laser residuals of RMS about 1.3 px under Huber
+  at 1 px), so `a/b ≈ 0.43` and the restarts' ratio 0.57 is `ρ − 1`.
+  Restarted from its own result the distance moved 1.56e-6, 0.89e-6,
+  0.50e-6, 0.29e-6, 0.16e-6 m (the reported sequence), one iteration each.
+- Over the regression suite's 102 solves per backend (204 in all), 39 of
+  tiny-solver's and 33 of factrs' stopped more than 0.01σ from their
+  minimum, 9 more than 0.1σ; the farthest 0.845σ (`kuka_1`, a pass of the
+  robot-prior variance iteration that stopped after one iteration). In the
+  six farthest the stopping step was damped to 0.33–0.72 of the undamped
+  one; in the rest the step was undamped within 10 % and the scale alone
+  let it be long.
+- `kuka_1`'s variance-component iteration (`robot_poses::solve_weighted`)
+  re-estimates the prior weights from each solve and stops when they
+  change by less than 1 %. Its passes changed the weights by 0.89, 0.56,
+  0.27, 0.13, 0.069, then 0.0024: the last pass's inner solve took one
+  damped step and stopped, so the weights it fed back barely moved, a
+  false fixed point. With the solves converged the sequence is 0.89, 0.56,
+  0.27, 0.13, 0.072, 0.044, 0.028, 0.019, 0.012, 0.0080: geometric, ratio
+  about 0.65, stopping four passes later.
+
+**Measure.** At `x` with gradient `g` and Gauss–Newton matrix `H` of `Σρ`,
+the undamped step to the minimum of the local model lowers it by
+`gᵀH⁻¹g`, and the solution's covariance is about `σ̂²H⁻¹`, so
+`d_N² = gᵀH⁻¹g/σ̂²` (the Newton decrement in units of `σ̂²`) is the
+squared Mahalanobis length of the step still to make, a bound on every
+parameter's distance in units of its σ. On the suite's iterates (426 with
+a true distance between 0.001 and 30σ) `d_N / d` has median 0.999, 5th
+percentile 0.95, range 0.86–1.015, on both backends. Under the reweighted
+curvature it understates: 0.65–0.77 on the plane scene, `√(a/b)`.
+
+**Rule.** On the first iteration, and whenever the last accepted step
+lowered `Σρ` by at most `σ̂²` (moved the solution at most one σ), the loop
+also solves the normal equations at damping `1e-12` (the covariance's
+rank tolerance). When `d_N ≤ 0.01` it takes that step if it lowers the
+cost and stops (`SigmaStep`) when what the step leaves,
+`|ρ − 1|·d_N/√(2 − ρ)` from its gain ratio `ρ`, is within 0.01 too;
+otherwise it iterates on from there. A step that does not lower the cost
+at that distance is the minimum to working precision, and the solution
+stays. Without redundancy (`m ≤ n`) or at zero cost the rule is off and
+the other rules end the solve. The measure is the step still to make, so
+damping that shortens the loop's own steps cannot end a solve early. A
+coordinate on a bound that the step would push through is held while the
+step is solved (an active set; both engines report the bounded coordinates
+on their bound, `LinearizationEngine::on_bounds`), and with one held the
+step is taken whenever it lowers the cost: the loop's own steps push such
+a coordinate into the bound and the clamp leaves the rest to crawl.
+Without that, the covariance test `coordinate_on_a_bound_is_reported` (fx
+held on a lower bound) ran to its 50-iteration budget at `d ≈ 6.7`, the
+loop gaining about 0.03 % of the cost per step (*measured*); with it, it
+stops on `SigmaStep` and reports the coordinate at its bound. No suite
+entry has a coordinate on a bound: the suite's results are the same with
+and without this part.
+
+A stall ends a solve that makes no headway: an accepted step that lowered
+`Σρ` by at most `(0.001)²σ̂²` (moved the solution under a tenth of the
+tolerance) while `d_N > 0.01` (`StalledStep`). A stall is **not
+convergence**: the result has no covariance. A step that small says
+nothing of the distance left. In a long curved valley the local model keeps
+placing the minimum out of reach (`d_N` stays near 0.4–0.5 while each
+step gains 1e-3 σ̂²); a step the damping held short far from the minimum
+stalls the same way: two nearly collinear parameters (scaled eigenvalue
+about 1e-10), started a σ off along the weak one, stall on the first
+iteration with the damping at its starting 1e-4, 1.0σ from the minimum
+(`a_step_the_damping_held_short_is_not_convergence`, *measured*), and
+reported as converged that would have been a covariance at a point a σ
+away. The stall rule fires on none of the suite's solves (their results
+are bit-identical with and without it, *measured*).
+
+**Weakly determined and undetermined valleys** (*measured*,
+`quality_tilt_conditioning`, a default planar Scheimpflug calibration, 20
+views, 0.2 px). With 0 to −0.05 % distortion at the image corner (the
+camera's `k1` free) the tilt trades with the principal point along a
+curved valley, and the solve does not reach `d_N ≤ 0.01`:
+
+| corner distortion | iterations to the stall (tiny / factrs) | σ(tilt_x) there | at the 120 budget |
+|---|---|---|---|
+| 0 | 245 (principal point on its bound) / 186 | — / 15.0° | `max_iters`, σ(tilt_x) 10.5° / 12.4° at the last iterate |
+| −0.01 % | 209 / 164 | 11.7° / 11.7° | `max_iters`, 9.7° / 10.6° |
+| −0.02 % | 185 / 144 | 9.13° / 9.13° | `max_iters`, 8.4° / 8.9° |
+| −0.05 % | 186 / 139 | 4.49° / 4.49° | `max_iters`, 4.9° / 4.6° |
+| −0.1 % | 80 / 59 (`SigmaStep`) | 2.79° / 2.79° | converged |
+
+Before, the decrease rule stopped these solves early and reported a
+covariance (σ(tilt) 4.7–8.2°, a conditioning warning naming the tilt and
+the principal point). Both backends end at the same point where they
+stall (σ alike to 4 digits), so the stall point is reproducible, but the
+rule cannot certify it, and a stall is reported as not converged. The
+diagnosis survives: a solve that stops on its budget (or stalls) records
+the first-order covariance at its last iterate in
+`diagnostics.last_iterate_covariance` (an export diagnostic, not an
+uncertainty), and the quality report's parameter-conditioning check reads
+it, saying it is evaluated at the last iterate; the convergence check
+fails and points at it. In every cell above the check warns, naming
+`fx, fy, cx, cy, tilt_x, tilt_y` (`a_weak_tilt_stopped_on_its_budget_is_still_diagnosed`).
+So the default budget stays at 120: no budget gives these cells a
+covariance (a stall is not convergence), and a larger one only spends
+time. Recorded in the planar workflow (the one where this was measured);
+other workflows leave the field empty until they record it.
+
+Without any distortion term free or present the tilt is not determined at
+all, from any views (*derived*, `tilt-identifiability.md`; *measured*,
+`tilt_without_distortion`: over three view designs and two tilts, on both
+backends, distortion held at zero leaves the information singular, while
+held at a known non-zero value or free it determines the tilt to under 1°).
+Such a configuration is now refused before solving, in every workflow
+(`CameraConfig::validate` for a model without distortion; the shared
+camera-block setup for distortion held at zero).
+
+Alternatives measured on the same 204 solves (largest `d` at the stop,
+total iterations, tiny-solver; factrs agrees within a few iterations):
+
+| Rule | Largest `d` | Solves > 0.01σ | Iterations |
+|---|---|---|---|
+| decrease rules at 1e-5 (the old default) | 0.845 | 42 | 370 |
+| relative decrease 1e-6 (Ceres' `function_tolerance` default) | 0.040 | 13 | 443 |
+| relative decrease 1e-8 | 0.0023 | 0 | 528 |
+| last step's decrease ≤ (0.01)² σ̂² | 0.0023 | 0 | 514 |
+| geometric tail of the decreases ≤ 0.01σ | 0.019 | 3 | 465 |
+| `d_N ≤ 0.01` (chosen, replayed before the final step) | 0.0099 | 0 | 514 |
+
+(Replayed on the recorded trajectories; the probe's count of 42 differs
+from the 39 of the runs below by solves within rounding of 0.01σ.)
+Tightening the relative decrease to 1e-8 or scaling the decrease by `σ̂²`
+end as close on the suite, but they measure the step taken: a step damped
+to a fraction of the undamped one, or a reweighted one, reads as nearer
+the minimum than it is, and only the scale of the suite's problems keeps
+them inside 0.01σ. On the plane scene the decrease rule at `(0.01)²σ̂²`
+ends at 0.0046σ and the Newton test without the gain-ratio correction at
+0.014σ (`√(a/b)` short); with it, inside 0.01σ.
+
+What established solvers do: Ceres stops on `function_tolerance` (1e-6:
+`|Δcost|/cost` of the iteration), `gradient_tolerance` (1e-10:
+`‖x − Π⊞(x, −g)‖∞`) and `parameter_tolerance` (1e-8: `‖Δx‖ ≤
+(‖x‖ + tol)·tol`), with the same initial trust region (1e4, so damping
+1e-4) and the same radius update, `radius /= max(1/3, 1 − (2ρ − 1)³)`
+(Ceres documentation, "Solving Non-linear Least Squares", and
+`levenberg_marquardt_strategy.cc`). MINPACK's `lmder` stops when both the
+actual and the predicted relative reductions of the sum of squares are at
+most `ftol`, when the trust region is at most `xtol·‖Dx‖`, or when the
+scaled gradient cosine is at most `gtol` (`lmder1` sets `ftol = xtol = tol`,
+`gtol = 0`). None of them measures the distance in the estimate's own σ;
+each is a relative tolerance whose meaning in σ changes with `m`.
+
+After the change, *measured* (`suite check` with a scratch switch back to
+the old rules; per solve the distance `d` at the stop and after three
+restarts from it, against a run to `d_N ≤ 1e-7`):
+
+| Entry | Solves | Iterations old → new | Largest `d` old → new | Restart drift (3) old → new |
+|---|---|---|---|---|
+| kuka_1 | 8 → 12 | 41 → 99 | 0.845 → 4.7e-5 | 0.097 → 4.7e-5 |
+| stereo_left | 1 | 6 → 8 | 0.023 → 6.1e-4 | 0.0095 → 6.1e-4 |
+| stereo_right | 1 | 6 → 8 | 0.014 → 1.7e-4 | 0.0070 → 1.7e-4 |
+| stereo_rig | 3 | 18 → 23 | 0.023 → 0.0015 | 0.0095 → 0.0015 |
+| ds8 | 11 | 50 → 83 | 0.610 → 4.7e-4 | 0.064 → 4.7e-4 |
+| opencv_stereo | 12 | 46 → 50 | 0.0074 → 2.9e-4 | 0.0048 → 2.9e-4 |
+| opencv_fisheye_left | 1 | 4 → 6 | 0.022 → 3.0e-5 | 0.0084 → 3.0e-5 |
+| opencv_fisheye_right | 1 | 5 → 6 | 0.0035 → 3.5e-5 | 0.0016 → 3.5e-5 |
+| opencv_fisheye_stereo | 23 | 62 → 73 | 0.022 → 1.2e-4 | 0.0084 → 1.2e-4 |
+| synth_planar | 1 | 4 → 5 | 0.0058 → 5.4e-5 | 0.0041 → 5.4e-5 |
+| synth_scheimpflug | 7 | 29 → 34 | 0.016 → 1.2e-4 | 0.0051 → 1.2e-4 |
+| synth_handeye | 8 | 23 → 35 | 0.036 → 7.5e-5 | 0.026 → 7.5e-5 |
+| synth_rig | 3 | 10 → 16 | 0.109 → 1.0e-4 | 0.070 → 1.0e-4 |
+| synth_laserline | 1 | 5 → 7 | 0.023 → 1.5e-4 | 0.0064 → 1.5e-4 |
+| synth_rig_handeye_laserline | 21 | 61 → 88 | 0.097 → 1.8e-4 | 0.048 → 1.8e-4 |
+| all, tiny-solver | 102 → 106 | 370 → 541 | 0.845 → 0.0015 | |
+
+(tiny-solver; factrs: 378 → 543 iterations, largest `d` 0.845 → 0.0015.)
+Every solve ends on `SigmaStep`; none reaches its budget (the most
+iterations of one solve 10, factrs 11, against a budget of 50 or 100).
+The "restart drift" column is how much three restarts lowered `d`.
+
+- The plane scene: the solves take 9 and 8 iterations (4 and 5 before);
+  restarted, the distance moves 9.2e-8, 5.3e-8, 3.0e-8 m (0.0005σ, before
+  0.0079σ for the first restart), each restart one iteration.
+- Results against the stored references, in the references' σ (both
+  backends alike to the printed digits): `kuka_1` 1.03σ
+  (`base_se3_target.rx`, through the variance iteration above), `ds8`
+  0.093σ, `synth_rig` 0.094σ, `synth_rig_handeye_laserline` 0.045σ,
+  `synth_laserline` 0.022σ, `synth_scheimpflug` 0.012σ, the rest below
+  0.01σ. The references were re-blessed. factrs now ends within 2.3e-4σ
+  of tiny-solver's references (`synth_scheimpflug`; 3.7e-5σ elsewhere);
+  before, up to 0.0085σ (`synth_scheimpflug`, `stereo_left`): the two
+  linearizations reach one minimum, and the old stop left each short of
+  it by a different amount.
+- An outside check (`suite compare`, OpenCV run to its own convergence on
+  the entries where the models are the same): the largest difference falls
+  from 0.09σ to 0.00σ on `synth_rig` and from 0.01σ to 0.00σ on
+  `stereo_left`, `synth_scheimpflug` and `opencv_fisheye_left`; on
+  `kuka_1` (a different model, robot-pose priors) from 7.32σ to 6.25σ.
+- The weak-distortion valley of `tilt-identifiability.md` (its bench
+  example, `--parts mc,solver`; "tight" there now also turns the σ rule
+  off): from the coarse seed the default ends at most 0.0020σ from the
+  tight solve (median 0.0002σ; before, 0.66σ), 23 iterations against 20
+  before and 28 tight, 16 of 16 starts reached (before 15). The
+  Monte-Carlo ratio scatter / stated σ in that cell is 1.03–1.15 with the
+  default, as with the tight solve (before 0.69–0.82), and 0.88–1.01 with
+  `p1, p2` free (before 0.76–0.89); every other cell matches the tight
+  solve to the printed digits, both backends. This closes the backlog's
+  stopping-rule-in-σ entry, which proposed this rule from that study.
+- The regression suite's planar and rig entries and the weak-tilt band
+  above are re-measured after the stall became non-converged: the suite is
+  unchanged (no stall there).
+- Tests that run a solve "to precision" through `min_rel_decrease` now
+  also set `sigma_tolerance: 0.0`, so they keep running to that precision.
+- Two tests passed only because a solve stopped early, and were rebuilt:
+  `synthetic_planar_intrinsics_with_outliers_robust_better_than_l2` had
+  three views turned about one axis, a flat valley the robust solve left
+  after 14 iterations (on `MinRelDecrease`, 241 px of intrinsics error)
+  and now crawls along to its budget (4244 px); with six views turned
+  about both axes it converges. `public_api_converges_with_deterministic_noise`
+  (Scheimpflug, no lens distortion) asserted the tilt within 0.03 rad of
+  the truth, where the tilt is undetermined without distortion (stated σ
+  0.25–0.35 rad): the old solve stopped after one iteration
+  (`MinAbsDecrease`, the absolute rule on a cost of 3) at its seed; the
+  new one walks the valley to the principal point's bound. With
+  `k1 = −0.1` the tilt is determined (σ 0.008–0.013 rad) and both rules
+  end at the same tilt to 4e-5 rad. The model study's field test
+  (`a_field_at_the_observation_contracts_the_noise`) runs its fits to 400
+  iterations: the field at the projection reaches its minimum in 337, with
+  `k1` −0.418 against the truth's −0.415 (stopped at 100 it sat
+  mid-valley at −0.474).
+- Cost: CPU time of `suite check` 45.9 → 71.0 s (tiny-solver), 43.4 →
+  74.2 s (factrs); `kuka_1` the bulk (four more solves of the variance
+  iteration, each converged). The extra factorization of the distance
+  test is not where it goes (*measured*): four more factorizations per
+  test leave the suite's CPU time within its run-to-run noise (tiny-solver
+  71.6 → 70.8 s, factrs 83.4 → 77.0 s), so skipping it when the damping is
+  small would buy nothing measurable; it is kept. The time is in the
+  added iterations and solves.
+- An independent re-run of this measurement (written separately, probing
+  73 calibration solves per backend rather than every solve of the
+  workflows) found: iterations 293 → 455 (tiny-solver) and 301 → 457
+  (factrs); wall time of `suite check` 8.7 → 12.3 s (tiny-solver) and
+  34.6 → 62.3 s (factrs); the largest distance left 0.845 → 0.0015σ and 39
+  → 0 solves over 0.01σ, as here; and three of the six synthetic entries
+  marginally further from their truth, within the noise, as expected of an
+  exact minimum on one noise draw.
+- `restart_stability` (`vision-calibration-optim/tests`): a planar
+  calibration of 40 views under Huber at half the pixel noise, both
+  backends. Under the old rules a restart moved a camera parameter
+  0.0073σ, five restarts 0.015σ, and a solve started at the truth ended
+  0.039σ away; under the new rule 6.3e-4σ, 0.0019σ and 0.0027σ.
+
+Robustness (*measured*):
+
+- Pooled `σ̂²` across families of different units: a joint laserline
+  solve with the point-to-plane residual (metres, σ about 1e-4 m) beside
+  reprojection (pixels), started with the plane a σ off, ends 1.3e-5 of
+  the plane's σ from its minimum on both backends after two iterations
+  (`mixed_unit_stop`): the pooled `d_N` understates the plane's distance,
+  but the Gauss–Newton step the test then takes is exact for a plane, so
+  no per-family whitening is needed here. *Hypothesis*: a family whose
+  parameters enter non-linearly, started further off, could still stop
+  short; the same test with a residual non-linear in its parameters would
+  decide it.
+- A gain ratio of 2 or more on the final step (a predicted decrease of a
+  few ulps at the minimum) once made the remaining-distance estimate
+  infinite and iterated on; it now counts as within the tolerance, and a
+  solve started at its minimum stops on its first iteration (two before,
+  `a_rounding_gain_at_the_minimum_ends_the_solve`).
+
+Open: `kuka_1`'s variance iteration converges linearly (ratio about 0.65)
+against a 1 % tolerance on the weights and stops one pass before its cap,
+about 0.072σ from its fixed point (backlog CAL-HANDEYE-REWEIGHT-STOP).

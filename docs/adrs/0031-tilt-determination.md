@@ -27,6 +27,14 @@ found: fixing the tilt at zero *with `p1, p2` held* costs a median 2× and
 up to 31× the noise floor downstream where the tilt is undetermined,
 because the tilt's decentring is then left in the residual.
 
+A camera with no distortion to determine the tilt at all (no distortion
+model, or every term held at zero) is refused before any solving, in every
+workflow (`notes/lm-stopping.md`): this procedure would always end
+`FixedUndetermined` there, and a free tilt in such a model is a gauge. The
+refusal names the procedure's two ways out, freeing a radial term or
+holding the tilt; distortion held at known non-zero values determines the
+tilt and is accepted.
+
 ## Decision
 
 ### The procedure
@@ -51,8 +59,9 @@ For a camera whose sensor is Scheimpflug, under `TiltPolicy::Determine`:
    `p1, p2` **free**: the tilt comes from the prior and the data, the
    decentring from the data. `source = Prior`. This solve runs in the
    gauge-aligned coordinates (`K'`, sensor-frame poses) or under the
-   σ-unit stopping rule (SOLVER-VALLEY-STOP): in the raw ones it stops a
-   σ short of the posterior mean.
+   σ-unit stopping rule (the loop's default, `notes/lm-stopping.md`):
+   under the old decrease rule, in the raw ones, it stopped a σ short of
+   the posterior mean.
 6. **Not determined, no prior** → if the data reject the plain camera
    against tilt-plus-decentring (`LR = (cost_plain − cost_both)·dof/cost_both`
    above the 99 % point of χ²₂, 9.21), the tilted fit with a warning

@@ -19,6 +19,31 @@ use vision_calibration_optim::{
     optimize_rig_laserline,
 };
 
+/// The solve's result, or `None` where the camera leaves a free tilt
+/// undetermined (a Scheimpflug sensor with no distortion): that solve is
+/// refused before it starts, naming the ways out.
+fn solved<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    kind: DistortionKind,
+    sensor: &SensorParams,
+    label: &str,
+) -> Option<T> {
+    let undetermined =
+        kind == DistortionKind::None && matches!(sensor, SensorParams::Scheimpflug { .. });
+    match result {
+        Err(e) if undetermined => {
+            assert!(
+                e.to_string().contains("without lens distortion"),
+                "{label}: {e}"
+            );
+            None
+        }
+        Ok(_) if undetermined => panic!("{label}: a free tilt without distortion was solved"),
+        Ok(result) => Some(result),
+        Err(e) => panic!("{label}: {e}"),
+    }
+}
+
 /// Distortion of each kind with small, physically plausible coefficients.
 fn distortion_of(kind: DistortionKind) -> DistortionParams {
     let values: Vec<f64> = kind
@@ -154,6 +179,7 @@ fn tight() -> BackendSolveOptions {
     BackendSolveOptions {
         max_iters: 200,
         min_abs_decrease: Some(1e-16),
+        sigma_tolerance: 0.0,
         min_rel_decrease: Some(1e-16),
         min_error: Some(1e-20),
         ..Default::default()
@@ -210,8 +236,14 @@ fn handeye_solves_every_camera_model() {
                 fix_extrinsics: vec![true],
                 ..Default::default()
             };
-            let result = optimize_handeye(dataset, initial, opts, tight())
-                .unwrap_or_else(|e| panic!("{kind:?}/{sensor:?}: {e}"));
+            let Some(result) = solved(
+                optimize_handeye(dataset, initial, opts, tight()),
+                kind,
+                &sensor,
+                &format!("{kind:?}/{sensor:?}"),
+            ) else {
+                continue;
+            };
             assert!(
                 result.mean_reproj_error < 1e-6,
                 "{kind:?}/{sensor:?}: reprojection {} px",
@@ -265,8 +297,14 @@ fn laserline_solves_every_camera_model() {
                     ..Default::default()
                 };
                 let label = format!("{kind:?}/{sensor:?}/{residual:?}");
-                let result = optimize_laserline(&dataset, &initial, &opts, &tight())
-                    .unwrap_or_else(|e| panic!("{label}: {e}"));
+                let Some(result) = solved(
+                    optimize_laserline(&dataset, &initial, &opts, &tight()),
+                    kind,
+                    &sensor,
+                    &label,
+                ) else {
+                    continue;
+                };
                 assert_eq!(result.params.camera.spec(), truth.spec(), "{label}");
                 assert!(
                     result.report.final_cost < 1e-10,
@@ -366,6 +404,7 @@ fn rig_laserline_solves_every_camera_model() {
                 uncertainty: Default::default(),
             };
             let initial: Vec<_> = scene.planes_cam.iter().map(perturbed_plane).collect();
+            // The cameras are held: a held tilt needs no distortion.
             let result = optimize_rig_laserline(
                 &dataset,
                 &upstream,
@@ -434,8 +473,14 @@ fn joint_rig_laserline_solves_every_camera_model() {
                 fix_planes: vec![false, false],
                 ..Default::default()
             };
-            let result = optimize_rig_handeye_laserline(dataset, initial, opts, tight())
-                .unwrap_or_else(|e| panic!("{kind:?}/{sensor:?}: {e}"));
+            let Some(result) = solved(
+                optimize_rig_handeye_laserline(dataset, initial, opts, tight()),
+                kind,
+                &sensor,
+                &format!("{kind:?}/{sensor:?}"),
+            ) else {
+                continue;
+            };
             assert!(
                 result.mean_reproj_error < 1e-6,
                 "{kind:?}/{sensor:?}: reprojection {} px",

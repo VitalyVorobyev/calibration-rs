@@ -174,6 +174,7 @@ fn eye_in_hand_calibration_converges() {
         max_iters: 50,
         verbosity: 0,
         min_abs_decrease: Some(1e-10),
+        sigma_tolerance: 0.0,
         min_rel_decrease: Some(1e-10),
         min_error: Some(1e-12),
         ..Default::default()

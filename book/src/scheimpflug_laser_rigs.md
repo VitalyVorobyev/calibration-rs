@@ -18,7 +18,21 @@ with `camera.model.sensor = SensorKind::Scheimpflug`: same input
 (`PlanarDataset`), two extra parameters, the sensor tilt angles
 $(\tau_x, \tau_y)$. Tilt, focal length, and distortion are strongly coupled,
 so seed a coarse prior (the nominal focal length and the nominal mount tilt)
-instead of relying on the from-scratch initialization:
+instead of relying on the from-scratch initialization.
+
+Only the lens distortion determines the tilt. Without distortion a tilted
+camera is exactly a pinhole with a shifted principal point whose poses are
+rotated, from any views; in a rig or a hand-eye the rotation goes into the
+extrinsics or the hand-eye the same way. So a free tilt with no distortion
+(`DistortionKind::None`, in `camera` or a rig's `camera_overrides`) is a
+configuration error in every workflow, and so is a free tilt with every
+distortion term held at zero, refused before the solve. Free a radial term
+(`k1`), or hold the tilt (`fix.sensor = ["tilt_x", "tilt_y"]`). Distortion
+held at known, non-zero values (a lens calibrated before) does determine
+it. Where the distortion is weak the tilt is determined only poorly: the
+solve may then need more iterations than the default budget, and the
+quality report names the tilt and the principal point as the parameters
+the data does not separate.
 
 ```rust,no_run
 use vision_calibration::common::IntrinsicsManualInit;

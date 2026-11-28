@@ -100,6 +100,23 @@ pub(crate) fn pose_labels(name: &str) -> Vec<String> {
         .collect()
 }
 
+/// The labelled first-order covariance at the last iterate of a solve that
+/// stopped on its iteration budget ([`BackendSolution::last_iterate`]): a
+/// diagnostic of which parameters the data separates there, not an
+/// uncertainty. `None` for a converged solve or one where it was not formed.
+pub(crate) fn labelled_last_iterate(
+    ir: &ProblemIR,
+    solution: &BackendSolution,
+    labels: &[BlockLabels],
+) -> Option<ParameterCovariance> {
+    let estimate = solution.last_iterate.as_ref()?;
+    let at_last = ParamUncertainty::Available(estimate.clone());
+    match labelled(ir, &at_last, &solution.noise, labels) {
+        Uncertainty::Available(covariance) => Some(covariance),
+        Uncertainty::Unavailable { .. } => None,
+    }
+}
+
 /// The labelled uncertainty of a solve of `ir`, with the noise levels of
 /// its residual families; `labels` names each IR block (by id).
 pub(crate) fn labelled(
@@ -816,6 +833,7 @@ mod tests {
             solve_report: SolveReport::new(0.0, 0),
             noise: Vec::new(),
             uncertainty: ParamUncertainty::Unavailable(UnavailableReason::NotConverged),
+            last_iterate: None,
         };
         let labels = RigLabelling {
             cameras: &[],

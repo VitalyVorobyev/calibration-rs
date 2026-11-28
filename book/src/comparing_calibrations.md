@@ -103,7 +103,7 @@ rig frame's poses.
 
 **Measured.** On synthetic captures under the null (both runs of one
 device, the model right), at the 5 % level each parameter's rejection rate
-was 3.5–6.1 % (Monte-Carlo error ±0.7 % at 1000 trials) and its z standard
+was 3.5–6.2 % (Monte-Carlo error ±0.7 % at 1000 trials) and its z standard
 deviation 0.96–1.04 for independent captures, 6 of 20 views, 20 % of the
 features and 1 of 8 views left out, under plain least squares and a Huber
 loss; the joint χ² of independent captures rejected 5.75 %. The 6-dof χ² of
@@ -116,7 +116,7 @@ absorbs those outliers the test rejects 4–6 %, as designed.
 
 When the left-out data are a **small share** of the information (1 of 25
 views, a handful of features), the nested z of some parameters has heavier
-tails than a standard normal (standard deviation up to 1.35 in a synthetic
+tails than a standard normal (standard deviation up to 1.34 in a synthetic
 test, a rejection rate up to 7.7 % at 5 %): each run's information is
 evaluated at its own estimate, and two nearly equal informations then differ
 mostly by that mismatch. Evaluating both at one point removes the excess,

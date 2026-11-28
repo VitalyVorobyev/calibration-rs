@@ -50,7 +50,7 @@ can be changed, and in JSON they reject unknown fields.
 | Check | Per | Fails when | Warns when |
 |---|---|---|---|
 | `observability` | result | the data does not determine some parameters (`rank_deficient`), or there is no redundancy | a parameter ended on a bound |
-| `convergence` | result | the final solve stopped on its iteration budget | — |
+| `convergence` | result | the final solve stopped on its iteration budget or stalled | — |
 | `variance_factor` | noise level | σ̂²/σ₀² (σ̂₀² with stated point covariances) is above its χ² range | it is below the range |
 | `projection_sigma` | camera | — | σ somewhere in the image exceeds 1 px |
 | `feature_coverage` | camera | features reached under 30 % of the image | under 50 % |
@@ -68,8 +68,16 @@ parameter labels, parameter pairs such as `fx/cx`, or views such as
   result names the parameters the views do not separate, such as a sensor
   tilt and the principal point; add views that differ in the way those
   parameters need, or fix one of them.
-- **Convergence** fails a solve that ran out of iterations: its numbers are
-  not a minimum. Raise `solver.max_iters`.
+- **Convergence** fails a solve that ran out of iterations, or stalled
+  (made no headway short of its minimum): its numbers are not a minimum,
+  and the result has no covariance. Raise `solver.max_iters` if it was
+  still moving; a solve that crawls along a long valley of a weakly
+  determined parameter does not reach the minimum at any budget. The
+  export then records the covariance at the solve's last iterate
+  (`diagnostics.last_iterate_covariance`, a diagnostic, not an
+  uncertainty), and `parameter_conditioning` reads it, saying it is
+  evaluated at the last iterate, so the parameters that trade are still
+  named (planar intrinsics records it).
 - **Variance factor.** σ̂ is the noise level the residuals imply (see
   [noise](uncertainty_reading.md#what-is-reported)); σ₀ is the noise you expect from
   the detector, `expected_feature_noise_px`. There is no universal value, so

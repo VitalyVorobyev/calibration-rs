@@ -73,13 +73,13 @@ to `~/.cache/vision-calibration`, it prints:
 $ vcal run ~/.cache/vision-calibration/opencv_left/dataset.toml
 planar_intrinsics: 13 of 13 views used
 camera 0 (left), 640 × 480 px:
-  fx = 534.108 ± 0.930 px
-  fy = 534.155 ± 0.966 px
-  cx = 341.029 ± 1.075 px
-  cy = 233.586 ± 1.144 px
+  fx = 534.284 ± 0.917 px
+  fy = 534.284 ± 0.963 px
+  cx = 341.476 ± 1.026 px
+  cy = 233.765 ± 1.132 px
 verdict: warn
   not_applicable variance_factor: no expected feature noise was stated (expected_feature_noise_px)
-  warn projection_sigma camera 0: projection σ up to 5.490 px over the 640×480 image (centre 1.146 px, corners 5.490 px)
+  warn projection_sigma camera 0: projection σ up to 5.543 px over the 640×480 image (centre 1.133 px, corners 5.543 px)
 wrote ~/.cache/vision-calibration/opencv_left/calibration.json and ~/.cache/vision-calibration/opencv_left/quality.json
 ```
 
@@ -197,10 +197,10 @@ vcal run my-camera --label "after refocus" --report
 ```text
 single_cam_handeye: 30 of 30 views used
 camera 0 (cam0), 1928 × 1208 px:
-  fx = 2058.456 ± 0.490 px
-  fy = 2058.993 ± 0.486 px
-  cx = 961.973 ± 0.391 px
-  cy = 610.085 ± 0.331 px
+  fx = 2058.401 ± 0.495 px
+  fy = 2058.940 ± 0.491 px
+  cx = 961.989 ± 0.390 px
+  cy = 610.066 ± 0.331 px
 verdict: pass
   not_applicable variance_factor: no expected feature noise was stated (expected_feature_noise_px)
 wrote my-camera/runs/run-001 (run-001)

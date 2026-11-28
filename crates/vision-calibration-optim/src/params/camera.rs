@@ -128,6 +128,43 @@ fn block_name(slot: &str, index: Option<usize>) -> String {
     }
 }
 
+/// Refuse a free Scheimpflug tilt that nothing in the model can determine.
+///
+/// Without distortion a tilted camera is exactly a pinhole whose principal
+/// point and focal lengths changed and whose poses rotated
+/// (`K·H(τ) = K'(τ)·R(τ)`), from any view geometry: only a lens distortion,
+/// centred on the lens axis, tells the tilt apart. So a free tilt needs a
+/// free distortion term, or distortion held at known, non-zero values;
+/// distortion that is absent (no distortion model) or held at zero leaves
+/// it undetermined. A rig or a hand-eye does not help: the rotation goes
+/// into the camera's extrinsics or the hand-eye like a pose's.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] naming camera `index` and the two ways out.
+fn check_tilt_is_determined(
+    index: usize,
+    camera: &CameraBlockInput<'_>,
+    spec: CameraModelSpec,
+) -> Result<(), Error> {
+    if spec.sensor != SensorKind::Scheimpflug {
+        return Ok(());
+    }
+    let held = |indices: &[usize], i: usize| indices.contains(&i);
+    let tilt_free = (0..spec.sensor.dim()).any(|i| !held(&camera.fixed.sensor, i));
+    let distortion_free = (0..spec.distortion.dim()).any(|i| !held(&camera.fixed.distortion, i));
+    let distortion_present = camera.params.distortion.values().iter().any(|&v| v != 0.0);
+    if tilt_free && !distortion_free && !distortion_present {
+        return Err(Error::invalid_input(format!(
+            "camera {index}: a Scheimpflug tilt cannot be estimated without lens distortion \
+             (with none free and none held at a known non-zero value, a tilt is a rotation of \
+             the poses and a shift of the principal point); free a radial distortion term \
+             (`k1`), or hold the tilt (fix the sensor's `tilt_x` and `tilt_y`)"
+        )));
+    }
+    Ok(())
+}
+
 /// Add the blocks of `cameras` to `ir`, slot by slot: every camera's
 /// intrinsics (`cam`), then projection (`proj`), distortion (`dist`) and
 /// sensor (`sensor`) blocks for the kinds that have parameters. Blocks are
@@ -149,6 +186,7 @@ pub(crate) fn add_camera_blocks(
         .map(|camera| camera_spec(camera.params))
         .collect::<Result<Vec<_>, _>>()?;
     for (i, (camera, spec)) in cameras.iter().zip(&specs).enumerate() {
+        check_tilt_is_determined(i, camera, *spec)?;
         if camera
             .bounds
             .and_then(CameraBounds::sensor_bounds)

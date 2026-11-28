@@ -495,6 +495,35 @@ impl LinearizationEngine for TinySolverEngine<'_> {
             .sum::<f64>()
             .sqrt()
     }
+
+    /// The bounds `ParameterBlock::update_params` clamps, on a Euclidean
+    /// block, whose columns are its free components in order (the layout
+    /// `retract` reads).
+    fn on_bounds(&self, x: &Self::State) -> Vec<(usize, bool)> {
+        let mut out = Vec::new();
+        for name in &self.varying {
+            let block = &x[name];
+            if block.variable_bounds.is_empty() || block.manifold.is_some() {
+                continue;
+            }
+            let start = self.col_idx[name];
+            let mut column = start;
+            for i in 0..block.tangent_size() {
+                if block.fixed_variables.contains(&i) {
+                    continue;
+                }
+                if let Some(&(lower, upper)) = block.variable_bounds.get(&i) {
+                    if block.params[i] <= lower {
+                        out.push((column, false));
+                    } else if block.params[i] >= upper {
+                        out.push((column, true));
+                    }
+                }
+                column += 1;
+            }
+        }
+        out
+    }
 }
 
 impl SolveEngine for TinySolverEngine<'_> {
@@ -670,6 +699,7 @@ mod tests {
             max_iters: 25,
             verbosity: 0,
             min_abs_decrease: Some(0.0),
+            sigma_tolerance: 0.0,
             min_rel_decrease: Some(0.0),
             min_error: Some(1e-24),
             ..BackendSolveOptions::default()
@@ -753,6 +783,7 @@ mod tests {
             initial.insert("x".to_owned(), DVector::from_element(1, 1.5));
             let opts = BackendSolveOptions {
                 max_iters: 200,
+                sigma_tolerance: 0.0,
                 min_abs_decrease: Some(0.0),
                 min_rel_decrease: Some(0.0),
                 min_error: Some(0.0),
