@@ -46,6 +46,38 @@ their labels name different quantities, and the projection difference is the
 comparison. Per-view poses, the target's pose and robot-pose corrections
 describe a capture, not the device, and are never compared.
 
+The comparison keeps only the projection difference's summary.
+`run_projection_difference` returns one camera's difference with its
+planes: the `dx`/`dy` displacement and the fitted nodes over the reference's
+image, computed the way `compare_runs` computes the summary. With the same
+options, each summary number is a field of the result, and when the
+difference cannot be made the result carries the same reason the comparison
+gives:
+
+```rust,no_run
+use vision_calibration::analysis::{
+    CompareRunsOptions, ComparedRun, DataRelation, run_projection_difference,
+};
+use vision_calibration::common::calibrated_cameras;
+
+fn main() -> anyhow::Result<()> {
+    let monday = calibrated_cameras(&std::fs::read_to_string("monday/calibration.json")?)?;
+    let friday = calibrated_cameras(&std::fs::read_to_string("friday/calibration.json")?)?;
+    let cam = || vec!["cam0".to_string()];
+    let reference = ComparedRun::new("monday", monday.as_ref(), cam(), vec![[1280, 960]]);
+    let other = ComparedRun::new("friday", friday.as_ref(), cam(), vec![[1280, 960]])
+        .with_relation(DataRelation::Independent);
+    match run_projection_difference(&reference, &other, "cam0", &CompareRunsOptions::new())? {
+        Ok(d) => println!(
+            "{} of {} nodes fitted, RMS {:.3} px, largest {:.3} px",
+            d.fit_nodes, d.valid_nodes, d.rms_fit_px, d.max_fit_px
+        ),
+        Err(reason) => println!("not compared: {reason:?}"),
+    }
+    Ok(())
+}
+```
+
 ## When a difference has a test
 
 | Relation | What `Δ` is | Variance of `Δ` |
@@ -198,18 +230,18 @@ fn main() -> anyhow::Result<()> {
 In Python:
 
 ```python
-comparison = vc.compare_runs(
-    [
-        {"name": "monday", "export": monday, "camera_ids": ["cam0"], "image_sizes": [(1280, 960)]},
-        {
-            "name": "friday",
-            "export": friday,
-            "camera_ids": ["cam0"],
-            "image_sizes": [(1280, 960)],
-            "relation": {"kind": "independent"},
-        },
-    ]
-)
+first = {"name": "monday", "export": monday, "camera_ids": ["cam0"], "image_sizes": [(1280, 960)]}
+second = {
+    "name": "friday",
+    "export": friday,
+    "camera_ids": ["cam0"],
+    "image_sizes": [(1280, 960)],
+    "relation": {"kind": "independent"},
+}
+comparison = vc.compare_runs([first, second])
 for p in comparison["differences"][0]["cameras"][0]["parameters"]["parameters"]:
     print(p["label"], p["delta"], p["test"])
+
+# The camera's projection difference with its planes, or the reason it has none.
+d = vc.run_projection_difference(first, second, "cam0")
 ```

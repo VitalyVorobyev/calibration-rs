@@ -813,7 +813,6 @@ fn projection_difference(
     compensation: &str,
     fit_points: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
-    use numpy::PyArrayMethods;
     use vision_calibration::analysis::{
         Compensation, FitRegion, ProjectionDifferenceOptions, projection_difference,
     };
@@ -839,8 +838,20 @@ fn projection_difference(
     let diff = py
         .detach(|| projection_difference(&a, &b, &grid, &options))
         .map_err(|err| value_err(format!("invalid input: {err}")))?;
+    projection_difference_payload(py, diff)
+}
+
+/// The payload of a `ProjectionDifference`: its grid fields, planes and
+/// statistics.
+fn projection_difference_payload(
+    py: Python<'_>,
+    diff: vision_calibration::analysis::ProjectionDifference,
+) -> PyResult<Py<PyAny>> {
+    use numpy::PyArrayMethods;
+
+    let grid = &diff.grid;
     let (rows, cols) = (grid.rows(), grid.columns());
-    let out = grid_payload(py, &grid)?;
+    let out = grid_payload(py, grid)?;
     let planes = pyo3::types::PyDict::new(py);
     planes.set_item("dx", plane(py, diff.difference.dx, rows, cols)?)?;
     planes.set_item("dy", plane(py, diff.difference.dy, rows, cols)?)?;
@@ -895,28 +906,48 @@ fn compare_runs(
     runs: &Bound<'_, pyo3::types::PyList>,
     options: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
-    use pyo3::types::PyDictMethods;
     use vision_calibration::analysis::{CompareRunsOptions, ComparedRun};
-    use vision_calibration::dataset_runner::CalibrationConfig;
 
-    struct Parsed {
-        name: String,
-        export: Box<dyn vision_calibration::common::CalibratedCameras>,
-        camera_ids: Vec<String>,
-        image_sizes: Vec<[u32; 2]>,
-        config: Option<CalibrationConfig>,
-        relation: Option<vision_calibration::analysis::DataRelation>,
-    }
     let options: CompareRunsOptions =
         parse_optional_payload(options, "options")?.unwrap_or_default();
-    let mut parsed = Vec::with_capacity(runs.len());
-    for (i, run) in runs.iter().enumerate() {
+    let parsed = runs
+        .iter()
+        .enumerate()
+        .map(|(i, run)| ParsedRun::parse(&run, &format!("runs[{i}]")))
+        .collect::<PyResult<Vec<_>>>()?;
+    let comparison = py
+        .detach(|| {
+            let compared: Vec<ComparedRun<'_>> = parsed.iter().map(ParsedRun::compared).collect();
+            vision_calibration::analysis::compare_runs(&compared, &options)
+        })
+        .map_err(analysis_err)?;
+    let output = pythonize(py, &comparison)
+        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
+    Ok(output.unbind())
+}
+
+/// A run of a comparison as Python gives it: `{"name", "export",
+/// "camera_ids", "image_sizes", "config"?, "relation"?}`.
+struct ParsedRun {
+    name: String,
+    export: Box<dyn vision_calibration::common::CalibratedCameras>,
+    camera_ids: Vec<String>,
+    image_sizes: Vec<[u32; 2]>,
+    config: Option<vision_calibration::dataset_runner::CalibrationConfig>,
+    relation: Option<vision_calibration::analysis::DataRelation>,
+}
+
+impl ParsedRun {
+    /// The run `run`, named `label` in errors.
+    fn parse(run: &Bound<'_, PyAny>, label: &str) -> PyResult<Self> {
+        use pyo3::types::PyDictMethods;
+
         let run = run
             .cast::<pyo3::types::PyDict>()
-            .map_err(|_| PyTypeError::new_err(format!("runs[{i}] is not a dict")))?;
+            .map_err(|_| PyTypeError::new_err(format!("{label} is not a dict")))?;
         let item = |key: &str| -> PyResult<Bound<'_, PyAny>> {
             run.get_item(key)?
-                .ok_or_else(|| PyTypeError::new_err(format!("runs[{i}] has no {key:?}")))
+                .ok_or_else(|| PyTypeError::new_err(format!("{label} has no {key:?}")))
         };
         let config = match run.get_item("config")? {
             Some(c) if !c.is_none() => Some(session::parse_checked(&c, "config")?),
@@ -926,42 +957,94 @@ fn compare_runs(
             Some(r) if !r.is_none() => Some(parse_payload(&r, "relation")?),
             _ => None,
         };
-        parsed.push(Parsed {
+        Ok(Self {
             name: item("name")?.extract()?,
             export: parse_cameras(&item("export")?, "export")?,
             camera_ids: parse_payload(&item("camera_ids")?, "camera_ids")?,
             image_sizes: parse_payload(&item("image_sizes")?, "image_sizes")?,
             config,
             relation,
-        });
+        })
     }
-    let comparison = py
+
+    fn compared(&self) -> vision_calibration::analysis::ComparedRun<'_> {
+        let run = vision_calibration::analysis::ComparedRun::new(
+            self.name.clone(),
+            self.export.as_ref(),
+            self.camera_ids.clone(),
+            self.image_sizes.clone(),
+        );
+        let run = match &self.config {
+            Some(c) => run.with_config(c.clone()),
+            None => run,
+        };
+        match self.relation {
+            Some(r) => run.with_relation(r),
+            None => run,
+        }
+    }
+}
+
+/// One camera's projection difference between two runs, its planes with
+/// it: what `compare_runs` summarizes in the camera's ``projection``.
+///
+/// Parameters
+/// ----------
+/// reference:
+///     The reference run, a mapping as each run of `compare_runs`.
+/// other:
+///     The run compared with it.
+/// camera:
+///     The camera's id.
+/// options:
+///     Serde payload of `CompareRunsOptions`; `None` for the defaults.
+///
+/// Returns
+/// -------
+/// dict | str
+///     The payload of `projection_difference` on the reference's image of
+///     the camera, fitted on the blocks either run's features cover; or the
+///     `ProjectionUnavailable` reason (``"too_few_nodes"``, ...) when the
+///     difference cannot be made.
+///
+/// Raises
+/// ------
+/// ValueError
+///     If the runs are of different workflows, the ids or sizes are not one
+///     per camera, a run has no camera ``camera``, its image sizes differ
+///     between the runs, or the grid has no columns.
+/// TypeError
+///     If an export or a payload has the wrong shape.
+#[pyfunction(signature = (reference, other, camera, options=None))]
+fn run_projection_difference(
+    py: Python<'_>,
+    reference: &Bound<'_, PyAny>,
+    other: &Bound<'_, PyAny>,
+    camera: &str,
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    use vision_calibration::analysis::CompareRunsOptions;
+
+    let options: CompareRunsOptions =
+        parse_optional_payload(options, "options")?.unwrap_or_default();
+    let reference = ParsedRun::parse(reference, "reference")?;
+    let other = ParsedRun::parse(other, "other")?;
+    let difference = py
         .detach(|| {
-            let compared: Vec<ComparedRun<'_>> = parsed
-                .iter()
-                .map(|p| {
-                    let run = ComparedRun::new(
-                        p.name.clone(),
-                        p.export.as_ref(),
-                        p.camera_ids.clone(),
-                        p.image_sizes.clone(),
-                    );
-                    let run = match &p.config {
-                        Some(c) => run.with_config(c.clone()),
-                        None => run,
-                    };
-                    match p.relation {
-                        Some(r) => run.with_relation(r),
-                        None => run,
-                    }
-                })
-                .collect();
-            vision_calibration::analysis::compare_runs(&compared, &options)
+            vision_calibration::analysis::run_projection_difference(
+                &reference.compared(),
+                &other.compared(),
+                camera,
+                &options,
+            )
         })
         .map_err(analysis_err)?;
-    let output = pythonize(py, &comparison)
-        .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?;
-    Ok(output.unbind())
+    match difference {
+        Ok(d) => projection_difference_payload(py, d),
+        Err(reason) => Ok(pythonize(py, &reason)
+            .map_err(|err| runtime_err(format!("failed to convert result to Python: {err}")))?
+            .unbind()),
+    }
 }
 
 /// The systematic part of one camera's reprojection residuals over its
@@ -1071,6 +1154,7 @@ fn _vision_calibration(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(residual_map, m)?)?;
     m.add_function(wrap_pyfunction!(projection_difference, m)?)?;
     m.add_function(wrap_pyfunction!(compare_runs, m)?)?;
+    m.add_function(wrap_pyfunction!(run_projection_difference, m)?)?;
     m.add_function(wrap_pyfunction!(library_version, m)?)?;
     m.add("RunError", m.py().get_type::<errors::RunError>())?;
     m.add("AskUserError", m.py().get_type::<errors::AskUserError>())?;

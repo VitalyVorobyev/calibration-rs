@@ -36,6 +36,7 @@ from .models import (
 from ._generated_types import (
     FocusDiagnostic,
     ModelComparison,
+    ProjectionUnavailable,
     RobustLoss,
     RunComparison,
 )
@@ -847,28 +848,83 @@ def compare_runs(
         with the reference, a shared camera's image sizes differ, or the first
         run states a relation.
     """
-    payload_runs = []
-    for run in runs:
-        export = run["export"]
-        export = export if isinstance(export, Mapping) else export.export
-        if not export:
-            raise ValueError(f"run {run['name']!r} carries no export")
-        config = _dataclass_payload(run.get("config"))
-        if config is not None and "topology" not in config:
-            # A workflow's own configuration: tag it with the export's workflow.
-            config = {"topology": export["kind"], "config": config}
-        relation = run.get("relation")
-        payload_runs.append(
-            {
-                "name": str(run["name"]),
-                "export": dict(export),
-                "camera_ids": [str(i) for i in run["camera_ids"]],
-                "image_sizes": [[int(w), int(h)] for w, h in run["image_sizes"]],
-                "config": config,
-                "relation": None if relation is None else dict(relation),
-            }
-        )
+    payload_runs = [_compared_run_payload(run) for run in runs]
     options: dict[str, Any] = {"compensation": compensation, "grid_columns": grid_columns}
     if thresholds is not None:
         options["thresholds"] = thresholds.to_payload()
     return cast(RunComparison, _native.compare_runs(payload_runs, options))
+
+
+def run_projection_difference(
+    reference: Mapping[str, Any],
+    other: Mapping[str, Any],
+    camera: str,
+    compensation: str = "rotation",
+    grid_columns: int = 64,
+) -> ProjectionDifference | ProjectionUnavailable:
+    """One camera's projection difference between two runs, with its planes.
+
+    The difference :func:`compare_runs` summarizes in the camera's
+    ``projection``, by the same computation: on the reference's image of the
+    camera, ``other − reference`` at the reference's rays after
+    ``compensation``, fitted on the grid blocks either run's features of the
+    camera cover. With the same ``compensation`` and ``grid_columns``, each
+    number of the comparison's summary is a field of the result
+    (``rotation_deg`` its ``rotation_angle_rad`` in degrees).
+
+    Parameters
+    ----------
+    reference:
+        The reference run, a mapping as each run of :func:`compare_runs`
+        (``name``, ``export``, ``camera_ids``, ``image_sizes``).
+    other:
+        The run compared with it.
+    camera:
+        The camera's id; cameras are matched by id.
+    compensation:
+        ``"rotation"`` or ``"none"``: how the two camera frames are aligned.
+    grid_columns:
+        Grid columns; the stride is ``ceil(width / grid_columns)``.
+
+    Returns
+    -------
+    ProjectionDifference or str
+        The :class:`~vision_calibration.maps.ProjectionDifference`, or the
+        reason it cannot be made (``"too_few_nodes"``, ``"singular"``,
+        ``"not_central"``, ``"invalid_image"``), as the comparison states it.
+
+    Raises
+    ------
+    ValueError
+        If the runs are of different workflows, the ids or sizes are not one
+        per camera, a run has no camera ``camera``, its image sizes differ
+        between the runs, or ``grid_columns`` is 0.
+    """
+    options = {"compensation": compensation, "grid_columns": grid_columns}
+    payload = _native.run_projection_difference(
+        _compared_run_payload(reference), _compared_run_payload(other), camera, options
+    )
+    if isinstance(payload, str):
+        return cast(ProjectionUnavailable, payload)
+    return ProjectionDifference.from_payload(cast(Mapping[str, Any], payload))
+
+
+def _compared_run_payload(run: Mapping[str, Any]) -> dict[str, Any]:
+    """A run of a comparison as the native functions take it."""
+    export = run["export"]
+    export = export if isinstance(export, Mapping) else export.export
+    if not export:
+        raise ValueError(f"run {run['name']!r} carries no export")
+    config = _dataclass_payload(run.get("config"))
+    if config is not None and "topology" not in config:
+        # A workflow's own configuration: tag it with the export's workflow.
+        config = {"topology": export["kind"], "config": config}
+    relation = run.get("relation")
+    return {
+        "name": str(run["name"]),
+        "export": dict(export),
+        "camera_ids": [str(i) for i in run["camera_ids"]],
+        "image_sizes": [[int(w), int(h)] for w, h in run["image_sizes"]],
+        "config": config,
+        "relation": None if relation is None else dict(relation),
+    }

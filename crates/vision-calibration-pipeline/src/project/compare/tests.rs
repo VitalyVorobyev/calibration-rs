@@ -170,6 +170,29 @@ fn disjoint_captures_are_independent_and_imports_unknown() {
     ));
 }
 
+/// No run and one run are the comparison's typed error, from either entry
+/// point, before any export is read.
+#[test]
+fn fewer_than_two_runs_are_an_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = planar_project(tmp.path());
+    let run = calibrate(&project);
+    let options = CompareRunsOptions::new();
+    let fewer = |result: Result<RunComparison, ProjectError>| {
+        assert!(
+            matches!(
+                result,
+                Err(ProjectError::Compare(Error::InvalidInput { .. }))
+            ),
+            "{result:?}"
+        );
+    };
+    fewer(compare_recorded_runs(&[], &options));
+    fewer(compare_recorded_runs(std::slice::from_ref(&run), &options));
+    fewer(project.compare_runs(&[], &options));
+    fewer(project.compare_runs(&[&run.id], &options));
+}
+
 /// A run seeded from another reaches the same optimum on the same data, but
 /// a seed can bound or hold what the solve estimates: the two are the same
 /// data under different estimators, the seed listed among the configuration

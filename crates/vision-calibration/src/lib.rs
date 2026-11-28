@@ -892,7 +892,9 @@ pub mod synthetic {
 ///   [`ExclusionChanges`](analysis::ExclusionChanges)) with its
 ///   [`DifferenceTest`](analysis::DifferenceTest) or
 ///   [`JointTest`](analysis::JointTest), or why there is none
-///   ([`NoTest`](analysis::NoTest)).
+///   ([`NoTest`](analysis::NoTest)); one camera's projection difference
+///   between two runs with its planes,
+///   [`run_projection_difference`](analysis::run_projection_difference).
 /// - The per-feature residual types of the `*Export` types'
 ///   `per_feature_residuals` field:
 ///   [`ReprojectionStats`](analysis::ReprojectionStats),
@@ -916,6 +918,7 @@ pub mod analysis {
         RunDifference, RunEvidence, RunSide, Unit, Verdict, assess, candidate_poses,
         compare_camera_models, compare_runs, fit_focus, html_report, predict_with_robot_poses,
         predict_with_views, rank_candidates, rank_robot_poses, residual_map,
+        run_projection_difference,
     };
 
     pub use vision_calibration_core::{

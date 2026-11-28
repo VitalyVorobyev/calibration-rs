@@ -102,12 +102,13 @@ use vision_calibration_linear::planar_pose::estimate_planar_pose_from_bearings;
 use vision_geometry::pnp;
 
 mod compare;
+pub(crate) use compare::check_run_count;
 pub use compare::{
     CameraDifference, CameraEvidence, CompareRunsOptions, ComparedRun, ConfigChange,
     CovarianceStatus, DataOverlap, DataRelation, DifferenceTest, ExclusionChanges, JointTest,
     NoTest, ParameterComparison, ParameterDifference, PlaneDifference, PoseDifference,
     ProjectionComparison, ProjectionUnavailable, RefusalReason, RelationRefusal, RunComparison,
-    RunDifference, RunEvidence, RunSide, compare_runs,
+    RunDifference, RunEvidence, RunSide, compare_runs, run_projection_difference,
 };
 mod cross_validation;
 pub use cross_validation::{
