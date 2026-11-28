@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { pruned, toggled, useCompareSet } from "./compareSet";
+import { moved, pruned, toggled, useCompareSet } from "./compareSet";
 
 describe("compare set rules", () => {
   it("toggles in the order of ticking", () => {
@@ -12,6 +12,20 @@ describe("compare set rules", () => {
     const ids = ["run-001", "run-002"];
     expect(pruned(ids, ["run-001", "run-002", "run-003"])).toBe(ids);
     expect(pruned(ids, ["run-002"])).toEqual(["run-002"]);
+  });
+});
+
+describe("moving a run in the set", () => {
+  const ids = ["a", "b", "c"];
+  it("moves a run earlier or later, within the set", () => {
+    expect(moved(ids, "c", -1)).toEqual(["a", "c", "b"]);
+    expect(moved(ids, "a", 1)).toEqual(["b", "a", "c"]);
+    expect(moved(ids, "c", -9)).toEqual(["c", "a", "b"]);
+  });
+  it("keeps the array when the run cannot move", () => {
+    expect(moved(ids, "a", -1)).toBe(ids);
+    expect(moved(ids, "c", 1)).toBe(ids);
+    expect(moved(ids, "z", 1)).toBe(ids);
   });
 });
 

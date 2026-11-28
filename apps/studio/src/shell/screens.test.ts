@@ -40,7 +40,8 @@ describe("the screens", () => {
     expect(isEnabled(screenById("dataset"), true)).toBe(true);
     expect(isEnabled(screenById("dataset"), false)).toBe(false);
     expect(isEnabled(screenById("detect"), true)).toBe(true);
-    expect(isEnabled(screenById("compare"), true)).toBe(false);
+    expect(isEnabled(screenById("compare"), true)).toBe(true);
+    expect(isEnabled(screenById("compare"), false)).toBe(false);
     // The Device screen reads the library, not an open project.
     expect(isEnabled(screenById("device"), false)).toBe(true);
   });

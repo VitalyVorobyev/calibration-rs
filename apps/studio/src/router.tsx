@@ -1,6 +1,7 @@
 import { createHashRouter, type RouteObject } from "react-router";
 import { RouteErrorFallback, ScreenErrorFallback } from "./components/ErrorBoundary";
 import { CalibrateScreen } from "./screens/calibrate";
+import { CompareScreen } from "./screens/compare";
 import { DatasetScreen } from "./screens/dataset";
 import { DetectScreen } from "./screens/detect";
 import { DeviceScreen } from "./screens/device";
@@ -41,6 +42,7 @@ export const router = createHashRouter([
       { path: "dataset", element: <DatasetScreen />, ...screen },
       { path: "detect", element: <DetectScreen />, ...screen },
       { path: "calibrate", element: <CalibrateScreen />, ...screen },
+      { path: "compare", element: <CompareScreen />, ...screen },
       { path: "device", element: <DeviceScreen />, ...screen },
       {
         path: "inspect",

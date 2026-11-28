@@ -787,6 +787,190 @@ export type RejectReason =
   | "ambiguous_chessboard_turn"
   | "excluded";
 /**
+ * A camera's parameters in two runs.
+ */
+export type ParameterComparison =
+  | {
+      /**
+       * One test of every parameter both runs estimated, over their full
+       * covariance: a `χ²` of as many degrees of freedom, for independent
+       * captures. Read it before the per-parameter tests: of eight
+       * parameters tested at 5 % each, one rejects by chance in about a
+       * quarter of comparisons. Not offered for nested runs
+       * ([`NoTest::NestedJoint`]).
+       */
+      joint: JointTest;
+      kind: "same_model";
+      /**
+       * Each parameter, in the solver's order, with its own test.
+       */
+      parameters: ParameterDifference[];
+    }
+  | {
+      kind: "different_models";
+    }
+  | {
+      kind: "unparameterized";
+    };
+/**
+ * The test of several quantities at once (a pose's tangent, a camera's
+ * parameters), their difference `δ` against the covariance of the
+ * difference: `χ² = δᵀ Σ_Δ⁻¹ δ`, `Σ_Δ` as each [`DifferenceTest`] forms
+ * a variance.
+ */
+export type JointTest =
+  | {
+      /**
+       * `χ²`.
+       */
+      chi2: number;
+      /**
+       * Its degrees of freedom.
+       */
+      dof: number;
+      kind: "independent";
+      /**
+       * The upper-tail p-value of `χ²`.
+       */
+      p_value: number;
+    }
+  | {
+      /**
+       * `χ²`.
+       */
+      chi2: number;
+      /**
+       * Its degrees of freedom.
+       */
+      dof: number;
+      kind: "nested";
+      /**
+       * The upper-tail p-value of `χ²`.
+       */
+      p_value: number;
+    }
+  | {
+      kind: "not_available";
+      /**
+       * Why.
+       */
+      reason: NoTest;
+    };
+/**
+ * Why a difference has no test.
+ */
+export type NoTest =
+  | "unknown_relation"
+  | "identical"
+  | "shared_data"
+  | "no_covariance"
+  | "not_estimated"
+  | "mixed_residuals"
+  | "no_variance_factor"
+  | "nested_variance_not_positive"
+  | "nested_joint"
+  | "gauge_differs"
+  | "singular_covariance";
+/**
+ * The test of a scalar difference `Δ = other − reference`.
+ */
+export type DifferenceTest =
+  | {
+      kind: "independent";
+      /**
+       * The two-sided p-value of `z`.
+       */
+      p_value: number;
+      /**
+       * `σ_Δ`.
+       */
+      sigma: number;
+      /**
+       * `Δ / σ_Δ`.
+       */
+      z: number;
+    }
+  | {
+      kind: "nested";
+      /**
+       * The two-sided p-value of `z`.
+       */
+      p_value: number;
+      /**
+       * `σ_Δ`.
+       */
+      sigma: number;
+      /**
+       * `Δ / σ_Δ`.
+       */
+      z: number;
+    }
+  | {
+      kind: "not_available";
+      /**
+       * Why.
+       */
+      reason: NoTest;
+    };
+/**
+ * Where two calibrations of a camera project the same rays.
+ */
+export type ProjectionComparison =
+  | {
+      /**
+       * How the other camera's frame was aligned.
+       */
+      compensation: Compensation;
+      /**
+       * Grid nodes the rotation was fitted on and the `*_fit_px`
+       * statistics are taken over: the covered region.
+       */
+      fit_nodes: number;
+      /**
+       * The largest difference over the fitted nodes, pixels.
+       */
+      max_fit_px: number;
+      /**
+       * The largest difference over every valid node, pixels.
+       */
+      max_valid_px: number;
+      /**
+       * The root mean square difference over the fitted nodes, pixels.
+       */
+      rms_fit_px: number;
+      /**
+       * The root mean square over every valid node, pixels: outside the
+       * covered region, an extrapolation of both models.
+       */
+      rms_valid_px: number;
+      /**
+       * The angle of the compensating rotation, degrees.
+       */
+      rotation_deg: number;
+      status: "compared";
+      /**
+       * Grid nodes where both cameras have a value.
+       */
+      valid_nodes: number;
+    }
+  | {
+      /**
+       * Why.
+       */
+      reason: ProjectionUnavailable;
+      status: "unavailable";
+    };
+/**
+ * How the second camera's frame is aligned with the first's before their
+ * projections are compared.
+ */
+export type Compensation = "none" | "rotation";
+/**
+ * Why a projection difference was not computed.
+ */
+export type ProjectionUnavailable =
+  "invalid_image" | "too_few_nodes" | "singular" | "not_central";
+/**
  * Which stage of the camera model a parameter belongs to.
  */
 export type ParameterGroup = "intrinsics" | "projection" | "distortion" | "sensor";
@@ -913,9 +1097,70 @@ export type ErrorKind =
   | "invalid"
   | "cancelled";
 /**
+ * Whether a run has a covariance of its estimates.
+ */
+export type CovarianceStatus =
+  | {
+      /**
+       * The number of shared (not per-view) parameters it covers.
+       */
+      shared_parameters: number;
+      status: "available";
+      /**
+       * Its a-posteriori variance factor, when it comes from one
+       * residual family with an estimated noise level; what a nested
+       * test needs.
+       */
+      variance_factor?: number | null;
+      /**
+       * The factor the covariance was scaled by because the views
+       * scatter more than the residual noise predicts; `None` when it
+       * was not scaled.
+       */
+      view_scatter?: number | null;
+    }
+  | {
+      /**
+       * Why.
+       */
+      reason: UncertaintyUnavailable;
+      status: "unavailable";
+    };
+/**
  * A manifest file's path, or the manifest.
  */
 export type DatasetManifest = string | DatasetSpec;
+/**
+ * How the observations of a run relate to the reference run's: what
+ * decides which test of a difference is valid.
+ */
+export type DataRelation =
+  | {
+      kind: "unknown";
+    }
+  | {
+      kind: "independent";
+    }
+  | {
+      kind: "identical";
+    }
+  | {
+      kind: "same_data";
+    }
+  | {
+      kind: "nested";
+      /**
+       * The run with fewer observations.
+       */
+      smaller: RunSide;
+    }
+  | {
+      kind: "overlapping";
+    };
+/**
+ * One of the two runs of a difference.
+ */
+export type RunSide = "reference" | "other";
 /**
  * A project's dataset manifest as it resolves.
  */
@@ -1347,6 +1592,57 @@ export type Progress =
       max_iters: number;
     };
 /**
+ * Two runs' calibrations of a camera compared over its image, or why they
+ * are not (see `projection_difference_map`).
+ */
+export type ProjectionDifferenceMap =
+  | {
+      /**
+       * The camera's id.
+       */
+      camera: string;
+      /**
+       * How the other camera's frame was aligned.
+       */
+      compensation: Compensation;
+      /**
+       * Nodes in the fit (`fitted` is 1).
+       */
+      fit_nodes: number;
+      grid: MapGrid;
+      /**
+       * The largest `magnitude` over the fitted nodes, px.
+       */
+      max_fit_px: number;
+      /**
+       * The largest `magnitude` over every node with a value, px.
+       */
+      max_valid_px: number;
+      plane: MapPlane;
+      /**
+       * The root mean square of `magnitude` over the fitted nodes, px.
+       */
+      rms_fit_px: number;
+      /**
+       * The root mean square over every node with a value, px.
+       */
+      rms_valid_px: number;
+      /**
+       * The angle of the compensating rotation, degrees.
+       */
+      rotation_deg: number;
+      status: "compared";
+      /**
+       * Nodes where both cameras have a value.
+       */
+      valid_nodes: number;
+    }
+  | {
+      camera: string;
+      reason: ProjectionUnavailable;
+      status: "unavailable";
+    };
+/**
  * A camera's projection σ on the maps' grid, or why it has none.
  */
 export type ProjectionSigmaMap =
@@ -1362,6 +1658,10 @@ export type ProjectionSigmaMap =
       status: "unavailable";
     };
 export type RecentProjectsReply = string[];
+/**
+ * Why a stated relation does not hold.
+ */
+export type RefusalReason = "shared_features" | "not_a_subset" | "configurations_differ";
 export type ResolveConfigReply = unknown;
 /**
  * Parts of a [`RobotPoseSigma`]: its rotation, its translation or both.
@@ -1418,6 +1718,8 @@ export interface StudioApiTypes {
   CalibratedRun?: CalibratedRun;
   CalibrationConfig?: CalibrationConfig;
   CameraConfig?: CameraConfig;
+  CameraDifference?: CameraDifference;
+  CameraEvidence?: CameraEvidence;
   CameraFix?: CameraFix;
   CameraModelSpec?: CameraModelSpec;
   CameraOverride?: CameraOverride;
@@ -1438,6 +1740,10 @@ export interface StudioApiTypes {
   ChessCornersDetectorSpec?: ChessCornersDetectorSpec;
   ChessboardDetail?: ChessboardDetail;
   CombinationTerm?: CombinationTerm;
+  CompareRunsArgs?: CompareRunsArgs;
+  CompareRunsOptions?: CompareRunsOptions;
+  Compensation?: Compensation;
+  ConfigChange?: ConfigChange;
   ConfigFormArgs?: ConfigFormArgs;
   ConfigPatch?: ConfigPatch;
   ConfigPatchArgs?: ConfigPatchArgs;
@@ -1446,7 +1752,10 @@ export interface StudioApiTypes {
   CornerDetail?: CornerDetail;
   CornerQuality?: CornerQuality;
   CornerStrategySpec?: CornerStrategySpec;
+  CovarianceStatus?: CovarianceStatus;
   CreateProjectArgs?: CreateProjectArgs;
+  DataOverlap?: DataOverlap;
+  DataRelation?: DataRelation;
   DatasetFormArgs?: DatasetFormArgs;
   DatasetManifest?: DatasetManifest;
   DatasetSource?: DatasetSource;
@@ -1475,6 +1784,7 @@ export interface StudioApiTypes {
   DeviceSeries?: DeviceSeries;
   DeviceSeriesArgs?: DeviceSeriesArgs;
   DeviceSeriesSet?: DeviceSeriesSet;
+  DifferenceTest?: DifferenceTest;
   DirEntry?: DirEntry;
   DirListing?: DirListing;
   DisparityArgs?: DisparityArgs;
@@ -1494,6 +1804,7 @@ export interface StudioApiTypes {
   EpipolarOverlayUndistortedArgs?: EpipolarOverlayUndistortedArgs;
   ErrorKind?: ErrorKind;
   EventBody?: EventBody;
+  ExclusionChanges?: ExclusionChanges;
   Exclusions?: Exclusions;
   ExportDiagnostics?: ExportDiagnostics;
   ExportSeedArgs?: ExportSeedArgs;
@@ -1532,6 +1843,7 @@ export interface StudioApiTypes {
   JobState?: JobState;
   JobStatusArgs?: JobStatusArgs;
   JointOptimizeConfig?: JointOptimizeConfig;
+  JointTest?: JointTest;
   LaserExtractionSpec?: LaserExtractionSpec;
   LaserFeatureResidual?: LaserFeatureResidual;
   LaserFramePairing?: LaserFramePairing;
@@ -1554,8 +1866,11 @@ export interface StudioApiTypes {
   MapPlane?: MapPlane;
   MarkerDetail?: MarkerDetail;
   Measurement?: Measurement;
+  NoTest?: NoTest;
   OpenProjectArgs?: OpenProjectArgs;
+  ParameterComparison?: ParameterComparison;
   ParameterCovariance?: ParameterCovariance;
+  ParameterDifference?: ParameterDifference;
   ParameterGroup?: ParameterGroup;
   ParameterSeries?: ParameterSeries;
   ParameterSigma?: ParameterSigma;
@@ -1565,11 +1880,13 @@ export interface StudioApiTypes {
   PlanarIntrinsicsExport?: PlanarIntrinsicsExport;
   PlanarOptimizeConfig?: PlanarOptimizeConfig;
   PlaneChannel?: PlaneChannel;
+  PlaneDifference?: PlaneDifference;
   PlaneOptimizeConfig?: PlaneOptimizeConfig;
   PlaneParameter?: PlaneParameter;
   PointRejection?: PointRejection;
   PoseColumnMap?: PoseColumnMap;
   PoseConvention?: PoseConvention;
+  PoseDifference?: PoseDifference;
   PosePairing?: PosePairing;
   PoseParameter?: PoseParameter;
   PoseRef?: PoseRef;
@@ -1581,10 +1898,14 @@ export interface StudioApiTypes {
   ProjectView?: ProjectView;
   ProjectViews?: ProjectViews;
   ProjectViewsArgs?: ProjectViewsArgs;
+  ProjectionComparison?: ProjectionComparison;
+  ProjectionDifferenceMap?: ProjectionDifferenceMap;
+  ProjectionDifferenceMapArgs?: ProjectionDifferenceMapArgs;
   ProjectionKind?: ProjectionKind;
   ProjectionParams?: ProjectionParams;
   ProjectionSigmaMap?: ProjectionSigmaMap;
   ProjectionSigmaMapArgs?: ProjectionSigmaMapArgs;
+  ProjectionUnavailable?: ProjectionUnavailable;
   ProjectionUncertainty?: ProjectionUncertainty;
   ProjectionUncertaintyArgs?: ProjectionUncertaintyArgs;
   PuzzleboardDecode?: PuzzleboardDecode;
@@ -1595,9 +1916,11 @@ export interface StudioApiTypes {
   ReadManifestArgs?: ReadManifestArgs;
   RecentProjectsArgs?: RecentProjectsArgs;
   RecentProjectsReply?: RecentProjectsReply;
+  RefusalReason?: RefusalReason;
   RejectReason?: RejectReason;
   RejectedMarker?: RejectedMarker;
   RejectedPoint?: RejectedPoint;
+  RelationRefusal?: RelationRefusal;
   RemoveRootArgs?: RemoveRootArgs;
   ReportQuery?: ReportQuery;
   ReprojectionStats?: ReprojectionStats;
@@ -1639,6 +1962,9 @@ export interface StudioApiTypes {
   RobustLoss?: RobustLoss;
   RootFolder?: RootFolder;
   RotationFormat?: RotationFormat;
+  RunComparison?: RunComparison;
+  RunDifference?: RunDifference;
+  RunEvidence?: RunEvidence;
   RunExport?: RunExport;
   RunExportArgs?: RunExportArgs;
   RunInfo?: RunInfo;
@@ -1651,6 +1977,7 @@ export interface StudioApiTypes {
   RunRef?: RunRef;
   RunSeed?: RunSeed;
   RunSeedUse?: RunSeedUse;
+  RunSide?: RunSide;
   RunSource?: RunSource;
   RunState?: RunState;
   RunSummary?: RunSummary;
@@ -3443,6 +3770,151 @@ export interface LeftOutImage {
   reason: RejectReason;
 }
 /**
+ * One camera both runs have.
+ */
+export interface CameraDifference {
+  /**
+   * The camera's id.
+   */
+  id: string;
+  /**
+   * Its parameters side by side, when both runs use one camera model.
+   */
+  parameters: ParameterComparison;
+  /**
+   * Where the two calibrations project the same rays.
+   */
+  projection: ProjectionComparison;
+}
+/**
+ * One parameter in two runs.
+ */
+export interface ParameterDifference {
+  /**
+   * `other − reference`.
+   */
+  delta: number;
+  /**
+   * `delta / reference_sigma`, signed: whether the change matters at
+   * the precision the reference claims. Not a test: two runs of the same
+   * observations can differ by many σ of either without disagreeing, and
+   * by a fraction of one while disagreeing.
+   */
+  delta_over_reference_sigma?: number | null;
+  /**
+   * The parameter, as the covariance labels it without its camera
+   * prefix (`fx`, `k1`, `tilt_x`).
+   */
+  label: string;
+  /**
+   * Its value in the other run.
+   */
+  other: number;
+  /**
+   * The other run's stated σ, likewise.
+   */
+  other_sigma?: number | null;
+  /**
+   * Its value in the reference.
+   */
+  reference: number;
+  /**
+   * The reference's stated σ; `None` when it did not estimate the
+   * parameter or has no covariance.
+   */
+  reference_sigma?: number | null;
+  /**
+   * The test of the difference, when the data relation supports one.
+   */
+  test: DifferenceTest;
+}
+/**
+ * One camera's fit in one run. The residual statistics are in-sample:
+ * they compare like with like only between runs of the same observations
+ * ([`DataRelation::Identical`], [`DataRelation::SameData`]); a run that
+ * left out its worst features always has a lower residual.
+ */
+export interface CameraEvidence {
+  /**
+   * Its features in the calibration.
+   */
+  features: number;
+  /**
+   * The camera's id.
+   */
+  id: string;
+  /**
+   * Its image size `[width, height]`, pixels.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  image_size: [number, number];
+  /**
+   * The largest major-axis projection σ over a grid across the image,
+   * pixels; `None` without a covariance of the camera's parameters.
+   */
+  max_projection_sigma_px?: number | null;
+  /**
+   * Its model; `None` for a general sensor homography, which no model
+   * spec describes.
+   */
+  model?: CameraModelSpec | null;
+  /**
+   * The statistics of its reprojection error lengths (mean, RMS, median,
+   * 95th percentile, largest), pixels; `None` without projected features.
+   */
+  reprojection?: ReprojectionStats | null;
+  /**
+   * Features the calibrated camera could not project.
+   */
+  unprojected: number;
+  /**
+   * The views it observed features in.
+   */
+  views: number;
+}
+/**
+ * Summary statistics for reprojection errors.
+ *
+ * The percentiles (`median`, `p95`) interpolate linearly between order
+ * statistics of the ascending-sorted errors, the default of numpy and
+ * pandas: the `q`-quantile of `n` errors lies at fractional rank
+ * `q * (n - 1)`, so the median of an even count is the mean of the middle
+ * two. They are present when the statistics were computed from the errors
+ * ([`from_errors`](Self::from_errors)), and absent when built from
+ * aggregates ([`from_summary`](Self::from_summary)).
+ */
+export interface ReprojectionStats {
+  /**
+   * Number of points evaluated.
+   */
+  count: number;
+  /**
+   * Maximum reprojection error in pixels.
+   */
+  max: number;
+  /**
+   * Mean reprojection error in pixels.
+   */
+  mean: number;
+  /**
+   * Median reprojection error in pixels (the 50th percentile, linearly
+   * interpolated); `None` when built from aggregates. `0.0` for no
+   * errors, as the other statistics.
+   */
+  median?: number | null;
+  /**
+   * 95th percentile of the reprojection error in pixels, linearly
+   * interpolated; `None` when built from aggregates.
+   */
+  p95?: number | null;
+  /**
+   * Root mean square error in pixels.
+   */
+  rms: number;
+}
+/**
  * One parameter of a camera.
  */
 export interface CameraParameter {
@@ -3627,46 +4099,6 @@ export interface CameraStats {
    * The views it has records in.
    */
   views: number;
-}
-/**
- * Summary statistics for reprojection errors.
- *
- * The percentiles (`median`, `p95`) interpolate linearly between order
- * statistics of the ascending-sorted errors, the default of numpy and
- * pandas: the `q`-quantile of `n` errors lies at fractional rank
- * `q * (n - 1)`, so the median of an even count is the mean of the middle
- * two. They are present when the statistics were computed from the errors
- * ([`from_errors`](Self::from_errors)), and absent when built from
- * aggregates ([`from_summary`](Self::from_summary)).
- */
-export interface ReprojectionStats {
-  /**
-   * Number of points evaluated.
-   */
-  count: number;
-  /**
-   * Maximum reprojection error in pixels.
-   */
-  max: number;
-  /**
-   * Mean reprojection error in pixels.
-   */
-  mean: number;
-  /**
-   * Median reprojection error in pixels (the 50th percentile, linearly
-   * interpolated); `None` when built from aggregates. `0.0` for no
-   * errors, as the other statistics.
-   */
-  median?: number | null;
-  /**
-   * 95th percentile of the reprojection error in pixels, linearly
-   * interpolated; `None` when built from aggregates.
-   */
-  p95?: number | null;
-  /**
-   * Root mean square error in pixels.
-   */
-  rms: number;
 }
 /**
  * One camera of a [`RunSummary`].
@@ -3909,6 +4341,68 @@ export interface CombinationTerm {
   weight: number;
 }
 /**
+ * The project's runs `runs` side by side against the first, the reference:
+ * each run's own evidence (its verdict, its covariance, each camera's fit),
+ * and for each later run its data relation to the reference (read from the
+ * records: independent, identical, the same data, nested, overlapping or
+ * unknown), its configuration and exclusion changes, and per camera (matched
+ * by id) its parameters with `Δ`, `Δ / σ_ref` and the test the relation
+ * supports, and the projection difference's summary; the rig poses, the
+ * hand-eye and the laser planes likewise. A test the relation does not
+ * support is `not_available` with the reason. `options` are the library's
+ * (`grid_columns` at most 1024). At least two runs; an unknown id is
+ * `run_not_found`, runs the library cannot compare (other workflows, no
+ * shared camera) are `invalid`.
+ */
+export interface CompareRunsArgs {
+  /**
+   * The project folder.
+   */
+  dir: UserPath;
+  options?: CompareRunsOptions;
+  /**
+   * The run ids, the reference first.
+   */
+  runs: string[];
+}
+/**
+ * The options of [`compare_runs`].
+ */
+export interface CompareRunsOptions {
+  /**
+   * How the projection difference aligns the two camera frames; default
+   * [`Compensation::Rotation`].
+   */
+  compensation?: Compensation & string;
+  /**
+   * Grid columns of the projection difference, at least 1; default 64.
+   * The rows follow from the image's aspect.
+   */
+  grid_columns?: number;
+  /**
+   * The thresholds each run's quality verdict is judged by.
+   */
+  thresholds?: QualityThresholds;
+}
+/**
+ * One setting where two configurations differ.
+ */
+export interface ConfigChange {
+  /**
+   * The other run's value as JSON text; `None` where it has none.
+   */
+  other?: string | null;
+  /**
+   * The setting, as a path into the configuration's JSON
+   * (`config.optimize.reprojection_loss`, `config.camera.fix[2]`).
+   */
+  path: string;
+  /**
+   * The reference's value as JSON text; `None` where it has none.
+   */
+  reference?: string | null;
+}
+/**
  * The config form of the workflow `topology`: the schema of its config
  * (`PlanarIntrinsicsConfig`, `RigHandeyeConfig`, …) and the library's
  * default configuration.
@@ -4075,6 +4569,38 @@ export interface DeviceIdentity {
    * alone names the device.
    */
   product?: string | null;
+}
+/**
+ * What two runs' observations share. A feature is one target point (or
+ * laser pixel) of one camera in one image, identified by the image's
+ * content and its observed pixel: two runs share it only when they read
+ * the same image and their detections agree.
+ */
+export interface DataOverlap {
+  /**
+   * Features only the other run used.
+   */
+  other_only_features: number;
+  /**
+   * Images only the other run used.
+   */
+  other_only_images: number;
+  /**
+   * Features only the reference used.
+   */
+  reference_only_features: number;
+  /**
+   * Images only the reference used.
+   */
+  reference_only_images: number;
+  /**
+   * Features both runs used.
+   */
+  shared_features: number;
+  /**
+   * Images both runs used.
+   */
+  shared_images: number;
 }
 /**
  * The dataset manifest form: the schema of `DatasetSpec` and the manifest
@@ -5136,7 +5662,8 @@ export interface PlaneChannel {
    */
   name: string;
   /**
-   * Its unit: `px`, `chi` (a significance), `samples`, `views`.
+   * Its unit: `px`, `chi` (a significance), `samples`, `views`, `flag`
+   * (1 or 0).
    */
   unit: string;
 }
@@ -5255,6 +5782,19 @@ export interface JobEvent {
    */
   id: string;
   state: JobState;
+}
+/**
+ * The exclusions that differ between two project runs, notes left out.
+ */
+export interface ExclusionChanges {
+  /**
+   * What only the other run left out.
+   */
+  other_only: Exclusions;
+  /**
+   * What only the reference left out.
+   */
+  reference_only: Exclusions;
 }
 /**
  * Evidence about how an export's result was reached: what a viewer or a
@@ -6041,6 +6581,88 @@ export interface PlanarIntrinsicsExport {
   uncertainty?: Uncertainty;
 }
 /**
+ * A camera's laser plane in two runs, in the camera's frame.
+ */
+export interface PlaneDifference {
+  /**
+   * The camera's id.
+   */
+  camera: string;
+  /**
+   * `other − reference`, metres.
+   */
+  distance_delta_m: number;
+  /**
+   * The other run's distance, its plane's sign matched to the
+   * reference's normal, metres.
+   */
+  distance_other_m: number;
+  /**
+   * `distance_delta_m` over the reference's σ of `d`. Not a test.
+   */
+  distance_over_reference_sigma?: number | null;
+  /**
+   * The reference's distance `d` of `n · p + d = 0`, metres.
+   */
+  distance_reference_m: number;
+  /**
+   * The test of the distance difference, when the data relation
+   * supports one.
+   */
+  distance_test: DifferenceTest;
+  /**
+   * The angle between the two normals, degrees.
+   */
+  normal_angle_deg: number;
+}
+/**
+ * A pose in two runs.
+ */
+export interface PoseDifference {
+  /**
+   * The tangent's length in the reference's covariance,
+   * `√(τᵀ Σ_ref⁻¹ τ)`: the change in units of the reference's stated
+   * uncertainty. Not a test.
+   */
+  delta_over_reference_sigma?: number | null;
+  /**
+   * The pose, its frames named by camera id: `<camera>_se3_<reference>`
+   * for a camera's pose relative to the reference run's reference
+   * camera; `gripper_se3_<reference>` or `<reference>_se3_base` for the
+   * hand-eye.
+   */
+  label: string;
+  /**
+   * The angle of the rotation between the two, degrees.
+   */
+  rotation_deg: number;
+  /**
+   * `Log(P_ref⁻¹ · P_other)` as `[ωx, ωy, ωz, vx, vy, vz]` (radians,
+   * metres): the difference in the covariance's right-perturbation
+   * tangent, in the pose's source frame.
+   *
+   * @minItems 6
+   * @maxItems 6
+   */
+  tangent: [number, number, number, number, number, number];
+  /**
+   * The test of the difference, when the data relation supports one.
+   */
+  test: JointTest;
+  /**
+   * The translations' difference, `other − reference`, in the pose's
+   * target frame, metres.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  translation_m: [number, number, number];
+  /**
+   * Its length, metres.
+   */
+  translation_norm_m: number;
+}
+/**
  * One pose of the manifest's robot pose file.
  */
 export interface PoseRef {
@@ -6225,6 +6847,44 @@ export interface ProjectViewsArgs {
   spec?: ProjectSpec | null;
 }
 /**
+ * Where run `other`'s calibration of camera `camera` (its id: cameras are
+ * matched by id, as `compare_runs` matches them) projects the rays run
+ * `reference`'s calibration of it sees, on the maps' grid over the
+ * reference's image: one plane of `dx`, `dy` and `magnitude` (px, `other −
+ * reference` at the same ray, after `compensation`, by default the
+ * rotation of the other camera's frame that brings the two closest) and
+ * `fitted` (1 where the node is in the region either run's features cover,
+ * which the rotation is fitted on and the `*_fit_px` statistics are taken
+ * over; 0 outside it, where both models extrapolate). `NaN` where either
+ * camera has no value. With the same `columns` (`grid_columns`) and
+ * `compensation` its numbers are `compare_runs`' projection summary of the
+ * camera. `unavailable`, with the library's reason, when the difference
+ * cannot be made (too few covered nodes with a value, a singular fit, a
+ * camera that is not central). `columns` as `distortion_map`'s; a run whose
+ * record states another image size for the camera than the dataset's
+ * images have now is `invalid`.
+ */
+export interface ProjectionDifferenceMapArgs {
+  /**
+   * The camera's id.
+   */
+  camera: string;
+  columns?: number | null;
+  compensation?: Compensation & string;
+  /**
+   * The project folder.
+   */
+  dir: UserPath;
+  /**
+   * The id of the run compared with it.
+   */
+  other: string;
+  /**
+   * The reference run's id: the grid is its camera's image.
+   */
+  reference: string;
+}
+/**
  * The projection uncertainty of camera `camera` on the maps' grid: one
  * plane, `sigma`, the major-axis σ in pixels of where the camera-frame ray
  * through each node lands, from the covariance of the camera's
@@ -6347,6 +7007,20 @@ export interface ReadManifestArgs {
  * The projects opened most recently on this back end, newest first.
  */
 export interface RecentProjectsArgs {}
+/**
+ * A stated relation the runs contradict, and why: the difference is then
+ * treated as [`DataRelation::Overlapping`].
+ */
+export interface RelationRefusal {
+  /**
+   * Why it does not hold.
+   */
+  reason: RefusalReason;
+  /**
+   * The relation as stated.
+   */
+  stated: DataRelation;
+}
 /**
  * Remove `path` from the root folders (the desktop). The samples' folder
  * is always a root.
@@ -6912,6 +7586,115 @@ export interface RootFolder {
    * The Quick Start samples' folder: always a root, never removed.
    */
   samples: boolean;
+}
+/**
+ * Runs side by side against the first, the reference: what
+ * [`compare_runs`] returns.
+ */
+export interface RunComparison {
+  /**
+   * Each run after the first against the reference, in run order.
+   */
+  differences: RunDifference[];
+  /**
+   * What each run says of itself, in the given order; the first is the
+   * reference.
+   */
+  runs: RunEvidence[];
+}
+/**
+ * One run against the reference.
+ */
+export interface RunDifference {
+  /**
+   * Each camera both runs have, in the reference's camera order.
+   */
+  cameras: CameraDifference[];
+  /**
+   * Where the two configurations differ; `None` when either run's
+   * configuration was not given.
+   */
+  config_changes?: ConfigChange[] | null;
+  /**
+   * What the two runs' observations share, by image content and
+   * feature: the evidence of the relation. `None` unless both runs
+   * recorded the content of the images they used (project runs).
+   */
+  data?: DataOverlap | null;
+  /**
+   * The exclusions one run made and the other did not. `None` unless
+   * both are runs a project calibrated.
+   */
+  exclusion_changes?: ExclusionChanges | null;
+  /**
+   * The hand-eye, expressed for the reference run's reference camera;
+   * `None` unless both runs calibrated one in the same mode.
+   */
+  handeye?: PoseDifference | null;
+  /**
+   * Each camera's laser plane, for the cameras both runs have one for.
+   */
+  laser_planes: PlaneDifference[];
+  /**
+   * The cameras, by id, whose camera models differ between the runs.
+   */
+  model_changes: string[];
+  /**
+   * How its observations relate to the reference's: the stated relation,
+   * or [`DataRelation::Overlapping`] when the runs contradict it.
+   */
+  relation: DataRelation;
+  /**
+   * The stated relation the runs contradict, and why; `None` when the
+   * stated relation was used.
+   */
+  relation_refused?: RelationRefusal | null;
+  /**
+   * Each camera's pose relative to the reference run's reference camera,
+   * for the cameras both runs have (a rig).
+   */
+  rig: PoseDifference[];
+  /**
+   * The run's position in the comparison (1 for the first run after the
+   * reference).
+   */
+  run: number;
+  /**
+   * The cameras of the run the reference does not have, and the
+   * reference's cameras it does not have, by id.
+   */
+  unmatched_cameras: string[];
+}
+/**
+ * One run's own evidence: its quality verdict, its covariance and the fit
+ * of each camera.
+ */
+export interface RunEvidence {
+  /**
+   * Each camera, in the run's camera order.
+   */
+  cameras: CameraEvidence[];
+  /**
+   * Whether it has a covariance.
+   */
+  covariance: CovarianceStatus;
+  /**
+   * The workflow that produced it.
+   */
+  kind: ProblemKind;
+  /**
+   * The run's name.
+   */
+  name: string;
+  /**
+   * The camera whose frame is the rig frame (its pose in the rig is the
+   * identity), by id; for one camera, that camera.
+   */
+  reference_camera?: string | null;
+  /**
+   * Its quality verdict, judged by the options' thresholds.
+   */
+  verdict: Verdict;
 }
 /**
  * A run's export.

@@ -15,11 +15,28 @@ export function pruned(ids: readonly string[], existing: readonly string[]): str
   return kept.length === ids.length ? (ids as string[]) : kept;
 }
 
+/** `ids` with `id` moved `by` places (negative: earlier); the same array
+ * when it cannot move. Moving to the front makes it the reference. */
+export function moved(ids: readonly string[], id: string, by: number): string[] {
+  const from = ids.indexOf(id);
+  const to = Math.min(ids.length - 1, Math.max(0, from + by));
+  if (from < 0 || to === from) return ids as string[];
+  const next = ids.filter((i) => i !== id);
+  next.splice(to, 0, id);
+  return next;
+}
+
 export interface CompareSetState {
   /** The project the ticks are of. */
   dir: string | null;
   ids: string[];
   toggle: (dir: string, id: string) => void;
+  /** Replace the set of project `dir` (an address that names it). */
+  setIds: (dir: string, ids: string[]) => void;
+  /** Move run `id` by `by` places in the set (the first is the reference). */
+  move: (id: string, by: number) => void;
+  /** Take run `id` out of the set. */
+  remove: (id: string) => void;
   /** Keep the ticks of runs `existing` of project `dir` only. */
   follow: (dir: string | null, existing: readonly string[]) => void;
   clear: () => void;
@@ -32,6 +49,12 @@ export const useCompareSet = create<CompareSetState>()((set, get) => ({
     const base = get().dir === dir ? get().ids : [];
     set({ dir, ids: toggled(base, id) });
   },
+  setIds: (dir, ids) => set({ dir, ids }),
+  move: (id, by) => {
+    const ids = moved(get().ids, id, by);
+    if (ids !== get().ids) set({ ids });
+  },
+  remove: (id) => set({ ids: get().ids.filter((i) => i !== id) }),
   follow: (dir, existing) => {
     const state = get();
     if (state.dir !== dir) {

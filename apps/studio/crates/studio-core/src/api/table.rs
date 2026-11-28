@@ -10,8 +10,8 @@ use serde::de::DeserializeOwned;
 
 use super::Ctx;
 use super::commands::{
-    detection, device, device_series, files, forms, jobs, maps, project, resources, runs, seed,
-    session, setup, viewer, views,
+    compare, detection, device, device_series, files, forms, jobs, maps, project, resources, runs,
+    seed, session, setup, viewer, views,
 };
 use super::error::{ErrorKind, StudioError};
 use super::jobs::{JobCx, JobTask, Lane};
@@ -207,6 +207,12 @@ pub fn table() -> Vec<CommandSpec> {
         plain("projection_sigma_map", maps::projection_sigma_map),
         plain("residual_records", maps::residual_records),
         plain("residual_stats", maps::residual_stats),
+        // Runs side by side, and where two runs' cameras project alike.
+        plain("compare_runs", compare::compare_runs),
+        plain(
+            "projection_difference_map",
+            compare::projection_difference_map,
+        ),
         // Detection: the project's cache, one image's detail, a preview
         // with other detector settings, and the whole dataset.
         plain("detection_overview", detection::detection_overview),

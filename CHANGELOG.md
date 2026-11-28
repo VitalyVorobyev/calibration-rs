@@ -226,6 +226,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Library opens a device or a type with **Device history**. The address
   keeps a screen's own parameters when the project or run it names changes.
 
+- Calibration Studio's back end compares runs: two or more runs of a project
+  side by side against the first, as the library's run comparison reports
+  them (each run's verdict, covariance and per-camera fit; each later run's
+  data relation to the first, its configuration and exclusion changes, each
+  parameter's change in the first run's σ and the test the relation
+  supports, or why there is none), and for one camera of two runs the
+  projection difference over the image as a map on the camera's map grid:
+  where the second run's calibration puts each ray the first one sees, in
+  pixels after the best compensating rotation, with the region the rotation
+  is fitted on marked, or why the difference cannot be made.
+
+- Calibration Studio's Compare screen: the runs ticked in the run list (or
+  added from the screen) set side by side against a reference that can be
+  changed, with how each relates to the reference in words before any number,
+  a table per camera of every parameter's value with its σ, its change, the
+  change in the reference's σ and the test where the data relation supports
+  one (with the reason in words where it does not) and the camera's joint
+  test, the rig poses, hand-eye and laser planes, each run's verdict,
+  covariance and per-camera residuals side by side, and the projection
+  difference of any run and camera as a map with its direction, the region
+  the features cover and the choice of alignment. It states what the data
+  supports and does not rank the runs; a run is starred and labelled from it,
+  and **Keep** stars one and unstars the others. The runs and the tab are in
+  the address.
+
 - Detection detail, for finding wrong detections: `detect::DetectorConfig::detect_detailed`
   returns a `DetectionDetail` with the features `detect` returns (bit for
   bit), the image's outcome (detected; not found, with the detector's

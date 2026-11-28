@@ -117,6 +117,37 @@ describe("MapViewer", () => {
     expect(screen.queryByText("not distinguishable from zero (p ≥ 0.01)")).toBeNull();
   });
 
+  it("lets a map name what it fades, where it is not a significance test", () => {
+    const fitted = plane(4, 3, 4, (c, col) => (c === 3 ? (col < 3 ? 1 : 0) : col));
+    renderViewer(
+      <MapViewer
+        {...distortion}
+        source={{
+          plane: fitted,
+          grid: GRID,
+          channels: [
+            ...DISTORTION_CHANNELS,
+            { name: "fitted", unit: "", domain: [0, 1] },
+          ],
+        }}
+        mask={{
+          channel: "fitted",
+          minimum: 0.5,
+          words: {
+            switch: "Fade extrapolated",
+            title: "Fade outside the fit",
+            key: "outside the fit",
+          },
+        }}
+      />,
+    );
+    const fade = screen.getByRole("switch", { name: "Fade extrapolated" });
+    expect(fade.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText("outside the fit")).toBeTruthy();
+    expect(screen.queryByText("not distinguishable from zero (p ≥ 0.01)")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Fade not significant" })).toBeNull();
+  });
+
   it("keeps the tab's own controls in its toolbar", () => {
     renderViewer(<MapViewer {...distortion} controls={<button>Layer</button>} />);
     const toolbar = screen.getByRole("toolbar", { name: "Map display" });

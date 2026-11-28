@@ -46,7 +46,7 @@ one the page says no back end answers.
 - Frontend (`apps/studio/src/`): `shell/` (the workbench frame: the rail of
   seven screens, the context bar, the run list, the job tray, the status
   line, Settings, the keys; see "The shell"), `screens/` (one folder per
-  screen: Library, Dataset, Detect, Calibrate, Inspect, Device; the ones not built yet are a
+  screen: Library, Dataset, Detect, Calibrate, Inspect, Compare, Device; one not built yet is a
   "coming" page), `session/` (the stores every screen shares: the session
   with the back end, the selection, the jobs and the connection, the query
   cache, the pure rules of a job row), `project/` (the open project, `projectStore.ts`; its unsaved edits,
@@ -83,9 +83,9 @@ one the page says no back end answers.
 `shell/Shell.tsx` is `@vitavision/workbench`'s `AppShell`. The **rail**
 (`ScreenRail`) holds the seven screens in workflow order (Library, Dataset,
 Detect, Calibrate, Inspect, Compare, Device), `⌘1`…`⌘7`; `shell/screens.ts`
-is the one table of them. A screen that is not built, or needs a project
-that is not open, is disabled and says why on hover; its address still opens
-a "coming in a later release" page. The **context bar** (`ContextBar`) holds
+is the one table of them. A screen that needs a project that is not open
+(or, while one is unbuilt, is not built) is disabled and says why on hover;
+its address still opens a page that says so. The **context bar** (`ContextBar`) holds
 `Breadcrumb` (the project's device and name; the project is the menu that
 opens, creates and reopens projects), `RunSelector` (the current run, newest
 first, with pills from `runPills.ts`: the state of its files, its verdict in
@@ -184,7 +184,7 @@ the run list is the shell's (`shell/RunList.tsx`).
   `staleSince` does not call a run stale for settings of its own: the
   library's digest differs by them, and the changes say it. The lowest-RMS
   mark is only a mark; the star is the person's acceptance. Ticks feed
-  `session/compareSet.ts`, which the Compare screen will read.
+  `session/compareSet.ts`, which the Compare screen reads (and reorders).
 - **Seed row**: "not available yet" in the editor; the back end serves the
   project's seed (`set_project_seed`, see "Devices and seeds").
 
@@ -244,6 +244,44 @@ while a project's run is opening) over queries of the typed client.
   Playwright spec `e2e/server/inspect.spec.ts` makes a run of `planar-demo`
   through Calibrate and walks the tabs, then opens the committed rig run.
   The stage's own drawing needs a layout engine, so it is seen only there.
+
+## Compare
+
+`screens/compare/` is the screen over `compare_runs` and
+`projection_difference_map` (the back end is under "Comparisons"). The set is
+`session/compareSet.ts` (ticks in the run list, the first is the reference;
+`setIds`, `move`, `remove`); the address is `#/compare[?tab=fit|maps]&runs=a,b,c`
+plus the shell's `project` and `run`. An address that names runs sets the
+store; the store writes `runs` and `tab` back (a flag keeps the first pass
+from clearing the address it has just read), and an address with no `runs`
+leaves the set alone, so the rail and **Compare N ▸** keep the ticks.
+
+- `compareModel.ts`: pure rules over the reply. `cameraBlocks` lays each
+  camera's parameters across the runs after the reference (a cell is `null`
+  where a run lacks the parameter, never a zero), `matters` (a test rejects at
+  `ALPHA`, or with no test a change of `MATERIAL_SIGMA` reference σ: a
+  materiality, not a test), `testTally`, `pooledRms`, and `verdictFacts`: the
+  sentences the data supports. It never says "best", names the lowest RMS only
+  among runs that do not fail, and says so when the RMS does not compare
+  (other observations or camera models). A run's verdict is the one recorded
+  with it where there is one (`runVerdict`); the reply's own verdict is
+  computed with the project's `quality` thresholds, which the screen passes in
+  `options.thresholds`, and for an imported run can differ from the record.
+- `compareWords.ts`: the relation, refusal, no-test, covariance and
+  projection-unavailable words. `NO_TEST` is a `Record` over the generated
+  `NoTest`, so a new reason fails `tsc` until it has words.
+- `ParametersTab`, `PoseBlocks`, `FitTab`, `MapTab`, `RelationPanel`, `RunSet`:
+  tables are `@vitavision/ui` `Table`s with grouped columns; a column set is
+  built by a module-level function (a cell's JSX in a component body is
+  unstable under the lint rules). `TestCell` is the one place a test is
+  written: a statistic only for a test that was made.
+- The map is the shared `MapViewer` through `MapPanel` (`useProjectionDifference`
+  reads the plane once by URL). `fitted` is the `mask` channel with its own
+  `words` (faded nodes are outside the region the features cover, not
+  insignificant). A difference whose largest value is below `IDENTICAL_PX`
+  is not drawn: its colour scale and iso-lines would draw rounding error. The
+  summary table asks `compare_runs` again under the other alignment, so its
+  numbers are those of the map.
 
 ## Device
 
@@ -555,9 +593,9 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   image size, its region of interest for a tiled camera, cut into
   `stride × stride` blocks; `columns` defaults to 64, at most 1024). Each
   answers JSON with `MapPlane`s: a `BlobRef` to a `VAM1` plane and its
-  channels, each with a name, a unit (`px`, `chi`, `samples`, `views`) and
-  the `[min, max]` of its finite values (`null` when none). The distortion
-  map has three planes (`distortion`, `sensor`, `total`) of `dx`, `dy`,
+  channels, each with a name, a unit (`px`, `chi`, `samples`, `views`,
+  `flag`) and the `[min, max]` of its finite values (`null` when none). The
+  distortion map has three planes (`distortion`, `sensor`, `total`) of `dx`, `dy`,
   `magnitude`; the residual map one plane of `mean_dx`, `mean_dy`,
   `mean_magnitude`, `rms`, `std_error`, `significance`,
   `effective_samples`, `effective_views`, plus the bandwidth, how it was
@@ -589,6 +627,31 @@ What the Inspect, Detect and Compare screens read. Every displacement is
   `residual_stats { run }` the library's `ReprojectionStats` (count, mean,
   RMS, median, p95, max) per camera, per view and per camera and view, with
   the diverged records.
+- **Comparisons** (`api/commands/compare.rs`; the maps' shared run, size,
+  grid and memo are `api/commands/map_support.rs`). `compare_runs { dir,
+  runs, options? }` is the library's `compare_recorded_runs` of the
+  project's runs, the first the reference, answered as the library's
+  `RunComparison` unchanged: a test the data relation does not support, a
+  missing covariance, a projection that could not be made are its typed
+  reasons in the reply, never errors. `options` are the library's
+  `CompareRunsOptions` (`grid_columns` capped at 1024 like the maps); each
+  run's export, and the images it names, are judged before the library
+  reads them. Labels and stars come from `list_runs`.
+  `projection_difference_map { dir, reference, other, camera, columns?,
+  compensation? }` names the camera by id (the comparison matches cameras
+  by id) and answers, on the reference camera's map grid, one plane of
+  `dx`, `dy`, `magnitude` (px, `other − reference` at the same ray) and
+  `fitted` (unit `flag`: 1 in the region either run's features cover, the
+  rotation's fit region, 0 outside it) with the library's
+  `projection_difference` numbers, or `{ status: "unavailable", reason }`
+  with the comparison's `ProjectionUnavailable`. Its fit region and reasons
+  are restated from the comparison's, so with the same columns and
+  compensation its numbers are `compare_runs`' projection summary (a test
+  pins it). Memoized like the maps, under both exports' SHA-256. Tests:
+  `api/commands/compare_tests.rs` on calibrated copies of `planar-demo` (the
+  same data under a Huber loss, a view left out, imported runs) with the
+  reply goldens, and `e2e/server/compare.spec.ts` over HTTP on
+  `stereo-sn0042`.
 - **Detections** (`api/commands/detection.rs`, `detections.rs`), each over
   a project `dir`; an image is named as `project_views` lists it (relative
   to the data folder). `detection_overview { dir, run? }` reads the

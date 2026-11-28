@@ -10,6 +10,8 @@ export interface LayerSwitch {
   /** The switch is there but cannot be turned on. */
   disabled?: boolean;
   title: string;
+  /** The switch's own words, where "Fade not significant" does not fit. */
+  label?: string;
 }
 
 /** The viewer's own toolbar groups, after the tab's: the colour map, the
@@ -96,7 +98,7 @@ export function MapControls({
       <ToolbarGroup label="Layers">
         {chip("Iso-lines", layers.iso)}
         {chip("Arrows", layers.arrows)}
-        {chip("Fade not significant", layers.mask)}
+        {chip(layers.mask?.label ?? "Fade not significant", layers.mask)}
         {chip("Image", layers.image)}
       </ToolbarGroup>
     </>

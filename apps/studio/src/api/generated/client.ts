@@ -59,6 +59,11 @@ export interface Commands {
   projection_sigma_map: { args: T.ProjectionSigmaMapArgs; reply: T.ProjectionSigmaMap };
   residual_records: { args: T.ResidualRecordsArgs; reply: T.ResidualRecords };
   residual_stats: { args: T.ResidualStatsArgs; reply: T.ResidualStats };
+  compare_runs: { args: T.CompareRunsArgs; reply: T.RunComparison };
+  projection_difference_map: {
+    args: T.ProjectionDifferenceMapArgs;
+    reply: T.ProjectionDifferenceMap;
+  };
   detection_overview: { args: T.DetectionOverviewArgs; reply: T.DetectionOverview };
   detection_detail: { args: T.DetectionDetailArgs; reply: T.DetectionDetail };
   detect_preview: { args: T.DetectPreviewArgs; reply: T.DetectionDetail };
@@ -439,6 +444,44 @@ export function createClient(t: Transport, hub: JobHub) {
      */
     residualStats: (args: T.ResidualStatsArgs): Promise<T.ResidualStats> =>
       t.invoke("residual_stats", args) as Promise<T.ResidualStats>,
+    /**
+     * The project's runs `runs` side by side against the first, the reference:
+     * each run's own evidence (its verdict, its covariance, each camera's fit),
+     * and for each later run its data relation to the reference (read from the
+     * records: independent, identical, the same data, nested, overlapping or
+     * unknown), its configuration and exclusion changes, and per camera (matched
+     * by id) its parameters with `Δ`, `Δ / σ_ref` and the test the relation
+     * supports, and the projection difference's summary; the rig poses, the
+     * hand-eye and the laser planes likewise. A test the relation does not
+     * support is `not_available` with the reason. `options` are the library's
+     * (`grid_columns` at most 1024). At least two runs; an unknown id is
+     * `run_not_found`, runs the library cannot compare (other workflows, no
+     * shared camera) are `invalid`.
+     */
+    compareRuns: (args: T.CompareRunsArgs): Promise<T.RunComparison> =>
+      t.invoke("compare_runs", args) as Promise<T.RunComparison>,
+    /**
+     * Where run `other`'s calibration of camera `camera` (its id: cameras are
+     * matched by id, as `compare_runs` matches them) projects the rays run
+     * `reference`'s calibration of it sees, on the maps' grid over the
+     * reference's image: one plane of `dx`, `dy` and `magnitude` (px, `other −
+     * reference` at the same ray, after `compensation`, by default the
+     * rotation of the other camera's frame that brings the two closest) and
+     * `fitted` (1 where the node is in the region either run's features cover,
+     * which the rotation is fitted on and the `*_fit_px` statistics are taken
+     * over; 0 outside it, where both models extrapolate). `NaN` where either
+     * camera has no value. With the same `columns` (`grid_columns`) and
+     * `compensation` its numbers are `compare_runs`' projection summary of the
+     * camera. `unavailable`, with the library's reason, when the difference
+     * cannot be made (too few covered nodes with a value, a singular fit, a
+     * camera that is not central). `columns` as `distortion_map`'s; a run whose
+     * record states another image size for the camera than the dataset's
+     * images have now is `invalid`.
+     */
+    projectionDifferenceMap: (
+      args: T.ProjectionDifferenceMapArgs,
+    ): Promise<T.ProjectionDifferenceMap> =>
+      t.invoke("projection_difference_map", args) as Promise<T.ProjectionDifferenceMap>,
     /**
      * What the project's detection cache holds of every image, view by view
      * and camera by camera (the views of `project_views`): the features found
