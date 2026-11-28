@@ -1,9 +1,10 @@
-import { Button, Callout, ConfirmDialog, Input, toast } from "@vitavision/ui";
+import { Button, Callout, ConfirmDialog, Input } from "@vitavision/ui";
 import { FolderOpen } from "lucide-react";
 import { useState } from "react";
 import { api, asStudioError } from "../../api";
 import type { SeedFrom, SeedSource } from "../../api/generated/types";
 import { useProject } from "../../project/projectStore";
+import { applyProjectSeed } from "../../project/seed";
 import { useReadOnly } from "../../session/jobs";
 import { pickFolder } from "../../shell/dialogs";
 import { describeSource, exportDest, runSeedSource } from "./seedModel";
@@ -54,17 +55,7 @@ export function SeedActions({ from }: { from: SeedFrom | null }) {
     setBusy(true);
     setSeedError(null);
     try {
-      const view = await api.setProjectSeed({
-        dir: project.dir,
-        revision: project.revision,
-        seed,
-      });
-      useProject.setState({ project: view, error: null });
-      toast({
-        title: seed ? "Seed set" : "Seed cleared",
-        description: project.name,
-        tone: "success",
-      });
+      await applyProjectSeed(project, seed);
     } catch (e) {
       setSeedError(asStudioError(e).message);
     } finally {

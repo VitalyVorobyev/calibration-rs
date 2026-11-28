@@ -204,3 +204,81 @@ test("the back end's refusal of a seed that does not fit is shown, and nothing i
   const view = await command(request, "open_project", { dir: project });
   expect((view.body as { spec: { seed?: unknown } }).spec.seed).toBeUndefined();
 });
+
+test("the breadcrumb's device lists open the Device screen, and Calibrate's seed row sets and clears the project's seed", async ({
+  page,
+  request,
+}) => {
+  const errors = trackErrors(page);
+  const root = await libraryRoot(request);
+  const project = `${root}/stereo-sn0042`;
+  await openLoggedIn(page);
+  await page.goto(`/#/calibrate?project=${enc(project)}`);
+  await expect(page.getByRole("heading", { name: "Parameters" })).toBeVisible();
+
+  // The device list goes to the Device screen on the chosen unit.
+  await page.getByRole("button", { name: /^Device: choose another/ }).click();
+  await page.getByRole("button", { name: /SN-0057/ }).click();
+  await expect(page).toHaveURL(/#\/device\?.*device=SN-0057/);
+  await expect(page.getByRole("table", { name: "Runs of the device" })).toBeVisible();
+
+  // The type list shows every unit of the type.
+  await page.getByRole("button", { name: /^Device type: choose another/ }).click();
+  await page.getByRole("button", { name: /Stereo-X1/ }).click();
+  await expect(page).toHaveURL(/scope=type/);
+  await expect(
+    page.getByRole("table", { name: "Units of the device type" }),
+  ).toBeVisible();
+
+  // Calibrate's seed row: a run whose seed does not fit is refused, said on
+  // the row, and nothing is written (the bench runs are undistorted, this
+  // project's camera model is not).
+  await page.goto(`/#/calibrate?project=${enc(project)}`);
+  const panel = page.getByRole("complementary", { name: "This run" });
+  await expect(panel).toContainText("each camera starts from its own images");
+  await panel.getByRole("combobox", { name: "Seed from a run of this project" }).click();
+  await page.getByRole("option", { name: /run-002/ }).click();
+  await expect(panel.getByText("The project cannot take this seed")).toBeVisible();
+  await expect(panel).toContainText("each camera starts from its own images");
+  const refused = await command(request, "open_project", { dir: project });
+  expect((refused.body as { spec: { seed?: unknown } }).spec.seed).toBeUndefined();
+
+  // Where the model fits, the row sets the seed, shows what it starts from,
+  // clears it, and links to the device's Seed tab.
+  const field = `${root}/stereo-sn0042-field`;
+  const opened = (await command(request, "open_project", { dir: field }))
+    .body as unknown as ProjectView;
+  const undistorted = await command(request, "save_project", {
+    dir: field,
+    revision: opened.revision,
+    spec: { ...opened.spec, config: { camera: { model: { distortion: "none" } } } },
+  });
+  expect(undistorted.status).toBe(200);
+  await page.goto(`/#/calibrate?project=${enc(field)}`);
+  const fieldPanel = page.getByRole("complementary", { name: "This run" });
+  await fieldPanel
+    .getByRole("combobox", { name: "Seed from a run of this project" })
+    .click();
+  await page.getByRole("option", { name: /run-001/ }).click();
+  await expect(fieldPanel).toContainText("From a calibrated run");
+  await expect(
+    fieldPanel.getByRole("list", { name: "What the seed starts from" }),
+  ).toContainText("cam0");
+  await fieldPanel.getByRole("button", { name: "Clear" }).click();
+  await expect(fieldPanel).toContainText("each camera starts from its own images");
+  await fieldPanel
+    .getByRole("link", { name: "Seed from the device or its type" })
+    .click();
+  await expect(page).toHaveURL(/#\/device\?.*tab=seed/);
+  // The 422 is the refusal asked for above, not an error of the page.
+  expect(errors.filter((e) => !e.includes("422 (Unprocessable"))).toEqual([]);
+
+  const now = (await command(request, "open_project", { dir: field }))
+    .body as unknown as ProjectView;
+  const restored = await command(request, "save_project", {
+    dir: field,
+    revision: now.revision,
+    spec: opened.spec,
+  });
+  expect(restored.status).toBe(200);
+});

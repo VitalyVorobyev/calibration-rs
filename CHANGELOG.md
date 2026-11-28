@@ -475,6 +475,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Calibration Studio's Calibrate screen shows the project's seed (its source
+  and what it starts from), sets one of the project's runs as the seed or
+  clears it, and links to the Device screen; a run's details say which seed
+  it started from. `fix_poses` is a field of view numbers (`0, 3, 5-7`), not
+  JSON. The top bar's device type and device lists open the Device screen,
+  and the Library table keeps its name, verdict, RMS and actions in a narrow
+  window instead of scrolling sideways.
+
 - **Results move.** A Levenberg–Marquardt solve stops when it is within a
   hundredth of a standard deviation of its minimum, on both backends: the
   Gauss–Newton step still to make, in the Mahalanobis norm of the
@@ -736,6 +744,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Calibration Studio no longer logs a `removeChild` error when the 3D scene is
+  left for another screen, and the active camera's label there stays on one
+  line.
 - A solve with held parameters no longer stops before its minimum. The
   solver's relative-step rule measured a step against every parameter of
   the problem, the held ones too, so a few free parameters under a held

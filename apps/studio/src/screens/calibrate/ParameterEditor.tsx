@@ -53,9 +53,10 @@ export function ParameterEditor({
     api.projectViews({ dir: project.dir }),
   );
   const cameras = views.data?.cameras;
+  const viewCount = views.data?.views.length ?? null;
   const renderField = useMemo(
-    () => cameraRenderer(working, base, cameras ?? []),
-    [working, base, cameras],
+    () => cameraRenderer(working, base, cameras ?? [], viewCount),
+    [working, base, cameras, viewCount],
   );
   const changes = useMemo(() => changedPaths(working, base), [working, base]);
   const runs = project.runs.filter(

@@ -120,3 +120,29 @@ test("a rig run: choose the camera, then its parameters and maps", async ({
   ).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("leaving the 3D scene for another screen logs no error", async ({
+  page,
+  request,
+}) => {
+  const errors = trackErrors(page);
+  const root = await libraryRoot(request);
+  await openLoggedIn(page);
+  await page.goto(`/#/inspect/scene?project=${enc(`${root}/stereo-sn0042`)}`);
+  await page.getByRole("button", { name: /^Run run-002/ }).click();
+  // The active camera's label is the DOM the scene adds beside its canvas.
+  await expect(page.getByText("cam 0", { exact: true }).first()).toBeVisible();
+  for (const screen of ["Calibrate", "Library"]) {
+    await page.getByRole("link", { name: screen }).first().click();
+    await expect(page.getByRole("link", { name: screen }).first()).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    if (screen === "Calibrate") {
+      await page.getByRole("link", { name: "Inspect" }).click();
+      await page.getByRole("tab", { name: "Scene" }).click();
+      await expect(page.getByText("cam 0", { exact: true }).first()).toBeVisible();
+    }
+  }
+  expect(errors).toEqual([]);
+});

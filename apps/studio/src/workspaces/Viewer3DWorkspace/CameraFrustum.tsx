@@ -2,7 +2,7 @@ import { Html } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import { invertIso3, matrixFromIso3 } from "@vitavision/three";
 import { CameraFrustum as FrustumGizmo } from "@vitavision/three-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type RefObject } from "react";
 import type { Object3D } from "three";
 import type { Iso3Wire, CameraWire } from "../../store/types";
 import { useBorderRays } from "./useBorderRays";
@@ -39,6 +39,10 @@ interface CameraFrustumProps {
   onSelect?: () => void;
   /** Compact label shown for the active camera. */
   label?: string;
+  /** The element the label's DOM is added to. drei's default is the
+   * canvas's own container, which is detached before the label's cleanup
+   * runs when the view is left: its `removeChild` then throws. */
+  labelPortal?: RefObject<HTMLElement | null>;
 }
 
 /** A calibrated camera: `@vitavision/three-react`'s `CameraFrustum` (edges
@@ -57,6 +61,7 @@ export function CameraFrustum({
   active,
   onSelect,
   label,
+  labelPortal,
 }: CameraFrustumProps) {
   const matrix = useMemo(() => matrixFromIso3(invertIso3(camSe3Rig)), [camSe3Rig]);
   const borderRays = useBorderRays(
@@ -118,9 +123,10 @@ export function CameraFrustum({
         <Html
           position={[0, -farDepth * 0.18, 0]}
           center
+          portal={labelPortal as RefObject<HTMLElement>}
           style={{ pointerEvents: "none" }}
         >
-          <span className="rounded border border-signal/70 bg-raised/90 px-1.5 py-0.5 font-mono text-[10px] text-signal shadow-sm">
+          <span className="whitespace-nowrap rounded border border-signal/70 bg-raised/90 px-1.5 py-0.5 font-mono text-[10px] text-signal shadow-sm">
             {label}
           </span>
         </Html>

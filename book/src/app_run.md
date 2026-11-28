@@ -7,7 +7,7 @@ The **Calibrate** screen (`⌘4`) sets up what to estimate, runs it and keeps th
 The editor shows the configuration the next run takes. It is generated from the JSON Schema of the workflow's configuration, served by the app's back end with the library's defaults, so it works for every problem type with no form of its own. The fields that matter most come first, in groups found by the configuration's structure:
 
 - **Camera**: the camera model (projection, distortion, sensor) and, for a rig, **per-camera overrides**, a row per camera whose model differs from the rig's;
-- **Fix and free**: which parameters are held fixed in the solve (chips for the intrinsics, the distortion terms and the sensor tilt; a list left out means the model's default, which the chips show) and the switches that free or fix an estimate;
+- **Fix and free**: which parameters are held fixed in the solve (chips for the intrinsics, the distortion terms and the sensor tilt; a list left out means the model's default, which the chips show) and the switches that free or fix an estimate, among them **fix poses**, the views whose target pose stays at its initial value, typed as view numbers counted from 0 (`0, 3, 5-7`; empty holds none);
 - **Robust loss**: the loss of each stage that has one;
 - **Solver and iterations**; **Initialization**;
 - **All other fields**, folded: the rest of the schema, so the curated view never hides a real option.
@@ -17,6 +17,8 @@ The editor shows the configuration the next run takes. It is generated from the 
 ## Running
 
 **Run** (`⌘↵`) calibrates with the editor's configuration as a one-off change over the project's: the run records it, and the project file is not touched. **Save as project default** is the separate, explicit way to write the editor's configuration into the project file. An optional label names the run; **Re-detect images** detects every image again instead of reading the project's [detection cache](detection.md#the-detection-cache).
+
+The **Seed** row of the right panel shows what the project's runs start from: nothing (each camera starts from what its own images give), or the project's seed with its cameras. Choose one of the project's runs to make it the seed, or **Clear** it; the link goes to the Device screen for a seed from the device or its type. A seed is a starting value, not a prior: the run still estimates its values from its own images, and the one thing it limits is the tilt of a tilted (Scheimpflug) sensor. A run's details say which seed it started from and how many of its values the solve took.
 
 While the solve runs, the right panel shows a stage checklist (detecting, solving, writing the run) with the images detected so far, the solver iteration and its cost, the cost curve, the elapsed time and **Cancel**, which stops the run at its next image or solver iteration and writes nothing. The same progress is in the job indicator and the job tray. A run that fails says what failed in the library's words, where it stopped and what to try; the editor keeps the settings that failed.
 

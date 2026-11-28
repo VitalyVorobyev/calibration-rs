@@ -12,6 +12,7 @@ import { useQuery } from "../../session/query";
 import { placePath } from "../../shell/screens";
 import { FailureView } from "./FailureView";
 import { RunProgress } from "./RunProgress";
+import { SeedRow } from "./SeedRow";
 import type { EditorCheck } from "./useEditorCheck";
 
 /** "This run": what pressing Run will do, from the project's own state,
@@ -94,14 +95,8 @@ export function RunPanel({
         <dt className="text-fg-muted">Exclusions</dt>
         <dd className="text-fg">{exclusions === 0 ? "None" : exclusions}</dd>
         <dt className="text-fg-muted">Seed</dt>
-        <dd
-          className="text-fg"
-          title="Seeding from a device or a previous run is not available yet."
-        >
-          None, automatic{" "}
-          <span className="text-fg-subtle">
-            · seeding from a device or a run is not available yet
-          </span>
+        <dd className="min-w-0 text-fg">
+          <SeedRow project={project} />
         </dd>
       </dl>
 

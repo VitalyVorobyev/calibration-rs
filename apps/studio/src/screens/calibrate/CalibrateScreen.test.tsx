@@ -8,6 +8,7 @@ import { TooltipProvider } from "@vitavision/ui";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setTransport, StudioError } from "../../api";
+import { PREVIEW_RUN } from "../device/__fixtures__/deviceFixtures";
 import type { ProjectView, RunInfo } from "../../api/generated/types";
 import { createMockTransport, type MockTransport } from "../../api/transport/mock";
 import { useProject } from "../../project/projectStore";
@@ -41,6 +42,8 @@ function setup(
   options: {
     calibrate?: (args: unknown) => RunInfo | Promise<RunInfo>;
     view?: ProjectView;
+    /** More commands, or ones that replace the defaults. */
+    commands?: Record<string, (args: never) => unknown>;
   } = {},
 ): Setup {
   const written: RunInfo[] = [];
@@ -71,6 +74,7 @@ function setup(
         revision: "sha256:r2",
         spec: args.spec,
       }),
+      ...options.commands,
     },
     jobs: {
       calibrate: async (args) => {
@@ -168,11 +172,109 @@ describe("the editor", () => {
     expect(run.disabled).toBe(true);
     expect(screen.getByText(/A parameter does not check/)).toBeTruthy();
   });
+});
 
-  it("shows the seed as not available yet", async () => {
+describe("the seed row", () => {
+  const RUN_DIR = `${DIR}/runs/run-002`;
+  const withRuns = (seed?: ProjectView["spec"]["seed"]): ProjectView =>
+    project({
+      runs: [calibratedRun(DIR, "run-001"), calibratedRun(DIR, "run-002")],
+      spec: {
+        version: 2,
+        dataset: { root: ".", manifest: "dataset.toml" },
+        ...(seed ? { seed } : {}),
+      },
+    });
+
+  it("says there is no seed, that a seed only starts a solve, and links to the Device screen", async () => {
     setup();
     renderScreen();
-    expect(await screen.findByText(/not available yet/)).toBeTruthy();
+    expect(
+      await screen.findByText(/each camera starts from its own images/),
+    ).toBeTruthy();
+    expect(screen.getByText(/the run still estimates everything/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+    const link = screen.getByRole("link", { name: "Seed from the device or its type" });
+    const href = link.getAttribute("href") ?? "";
+    expect(href).toContain("/device?");
+    expect(new URLSearchParams(href.split("?")[1]).get("tab")).toBe("seed");
+    expect(new URLSearchParams(href.split("?")[1]).get("project")).toBe(DIR);
+  });
+
+  it("shows the project's seed and what it starts from, and clears it", async () => {
+    const view = withRuns({ run: RUN_DIR });
+    const { mock } = setup({
+      view,
+      commands: {
+        seed_preview: () => PREVIEW_RUN,
+        set_project_seed: () => ({ ...view, spec: { ...view.spec, seed: undefined } }),
+      },
+    });
+    renderScreen();
+    expect(await screen.findByText("From a calibrated run")).toBeTruthy();
+    expect(screen.getByText("run-002 of cell-a")).toBeTruthy();
+    const cameras = await screen.findByRole("list", {
+      name: "What the seed starts from",
+    });
+    expect(cameras.textContent).toContain("cam0");
+    expect(cameras.textContent).toContain("calibrated lens");
+    expect(mock.calls.find((c) => c.command === "seed_preview")?.args).toEqual({
+      from: { kind: "run", run: { dir: DIR, id: "run-002" } },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() =>
+      expect(
+        mock.calls.find((c) => c.command === "set_project_seed")?.args,
+      ).toMatchObject({
+        dir: DIR,
+        seed: null,
+      }),
+    );
+    expect(
+      await screen.findByText(/each camera starts from its own images/),
+    ).toBeTruthy();
+  });
+
+  it("names a seed that is a file or a device specification without reading it", async () => {
+    setup({ view: withRuns({ file: "seeds/type-x.json" }) });
+    renderScreen();
+    expect(await screen.findByText("From a seed file")).toBeTruthy();
+    expect(screen.getByText("seeds/type-x.json")).toBeTruthy();
+    expect(screen.getByText("Its values are read when the run starts.")).toBeTruthy();
+  });
+
+  it("offers the project's runs and none when it has none", async () => {
+    setup({ view: withRuns() });
+    renderScreen();
+    const pick = await screen.findByRole("combobox", {
+      name: "Seed from a run of this project",
+    });
+    expect(pick.hasAttribute("disabled")).toBe(false);
+    cleanup();
+    setup();
+    renderScreen();
+    const none = await screen.findByRole("combobox", {
+      name: "Seed from a run of this project",
+    });
+    expect(none.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("shows the project's refusal of a seed", async () => {
+    const view = withRuns({ run: RUN_DIR });
+    setup({
+      view,
+      commands: {
+        seed_preview: () => PREVIEW_RUN,
+        set_project_seed: () => {
+          throw new StudioError({ kind: "seed", message: "the seed does not fit" });
+        },
+      },
+    });
+    renderScreen();
+    fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
+    expect(await screen.findByText("The project cannot take this seed")).toBeTruthy();
+    expect(screen.getByText("the seed does not fit")).toBeTruthy();
   });
 });
 

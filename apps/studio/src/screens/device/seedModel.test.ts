@@ -8,6 +8,8 @@ import {
   seedable,
   seedRequest,
   seedValues,
+  sourceKind,
+  sourceRunRef,
   type SeedChoice,
 } from "./seedModel";
 
@@ -160,5 +162,26 @@ describe("the project's seed", () => {
     expect(describeSource({ file: "seeds/x.json" })).toBe("file seeds/x.json");
     expect(describeSource({ run: "/r" })).toBe("run /r");
     expect(describeSource({ device_spec: "s.json" })).toBe("device specification s.json");
+  });
+
+  it("names the run of a run source when its path says which", () => {
+    expect(sourceRunRef({ run: "/work/cell-a/runs/run-002" })).toEqual({
+      dir: "/work/cell-a",
+      id: "run-002",
+    });
+    expect(sourceRunRef({ run: "C:\\work\\cell-a\\runs\\run-002\\" })).toEqual({
+      dir: "C:\\work\\cell-a",
+      id: "run-002",
+    });
+    // A relative path is the project's to resolve; the app does not guess.
+    expect(sourceRunRef({ run: "../unit-7/runs/run-003" })).toBeNull();
+    expect(sourceRunRef({ file: "/a/runs/run-001" })).toBeNull();
+    expect(sourceRunRef(null)).toBeNull();
+  });
+
+  it("says what kind of source it is", () => {
+    expect(sourceKind({ run: "/r" })).toBe("a calibrated run");
+    expect(sourceKind({ device_spec: "s.json" })).toBe("a device specification");
+    expect(sourceKind({ file: "x.json" })).toBe("a seed file");
   });
 });

@@ -12,11 +12,13 @@ import {
 import { MoreHorizontal, Star } from "lucide-react";
 import { useMemo } from "react";
 import { api } from "../../api";
+import { useElementWidth } from "../../hooks/useElementWidth";
 import { fixed, formatCount } from "../../lib/format";
 import { exportKindLabel } from "../../store/exportKind";
 import { useProject } from "../../project/projectStore";
 import { useReadOnly } from "../../session/jobs";
 import { dateOf, querySpans, relativeToRoots, type ProjectRow } from "./libraryModel";
+import { rowDetails, visibleColumns } from "./tableColumns";
 import { VerdictBadge } from "./VerdictMark";
 
 /** The projects of a tree node, one row each: name and place, workflow,
@@ -44,28 +46,34 @@ export function ProjectTable({
   onCalibrate: (row: ProjectRow) => void;
 }) {
   const readOnly = useReadOnly();
-  const columns = useMemo(
-    () => projectColumns({ query, roots, readOnly, onOpen, onCalibrate }),
-    [query, roots, readOnly, onOpen, onCalibrate],
-  );
+  const [ref, width] = useElementWidth<HTMLDivElement>();
+  const columns = useMemo(() => {
+    const keep = visibleColumns(width);
+    return projectColumns({ query, roots, readOnly, onOpen, onCalibrate }).filter((c) =>
+      keep.has(c.key),
+    );
+  }, [query, roots, readOnly, onOpen, onCalibrate, width]);
 
   return (
-    <Table
-      caption="Projects"
-      columns={columns}
-      rows={rows}
-      rowKey={(r) => r.entry.dir}
-      pinFirstColumn
-      defaultSort={{ key: "project", direction: "ascending" }}
-      isRowActive={(r) => r.entry.dir === activeDir}
-      onRowClick={(r, _i, e) => {
-        const double = e.type === "click" && (e as React.MouseEvent).detail >= 2;
-        const enter = e.type === "keydown" && (e as React.KeyboardEvent).key === "Enter";
-        if (double || enter) onOpen(r);
-        else onSelect(r);
-      }}
-      empty="No project here."
-    />
+    <div ref={ref}>
+      <Table
+        caption="Projects"
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.entry.dir}
+        pinFirstColumn
+        defaultSort={{ key: "project", direction: "ascending" }}
+        isRowActive={(r) => r.entry.dir === activeDir}
+        onRowClick={(r, _i, e) => {
+          const double = e.type === "click" && (e as React.MouseEvent).detail >= 2;
+          const enter =
+            e.type === "keydown" && (e as React.KeyboardEvent).key === "Enter";
+          if (double || enter) onOpen(r);
+          else onSelect(r);
+        }}
+        empty="No project here."
+      />
+    </div>
   );
 }
 
@@ -91,7 +99,7 @@ function projectColumns({
       sortable: true,
       sortValue: (r) => r.entry.name.toLowerCase(),
       cell: (r) => (
-        <span className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 flex-col" title={rowDetails(r)}>
           <HighlightedText
             text={r.entry.name}
             spans={querySpans(r.entry.name, query)}
