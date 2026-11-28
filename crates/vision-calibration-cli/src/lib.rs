@@ -1420,8 +1420,8 @@ fn absolute(path: &Path) -> Result<PathBuf> {
 
 /// `target` as the project file writes it: relative to the project folder
 /// (`.` for the folder itself, `../data` for a sibling), so the project
-/// moves with what it names; absolute only when no relative path leads
-/// there (another drive). Both paths are absolute with `.` and `..` folded,
+/// moves with what it names; absolute when no relative path leads
+/// there (another drive) or the two share nothing but the root. Both paths are absolute with `.` and `..` folded,
 /// and the project resolves the relative path lexically, as it was made.
 fn within(folder: &Path, target: &Path) -> PathBuf {
     use std::path::Component;
@@ -1430,8 +1430,11 @@ fn within(folder: &Path, target: &Path) -> PathBuf {
     let to: Vec<Component<'_>> = target.components().collect();
     let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
     let roots = |path: &[Component<'_>]| path.iter().filter(|c| rooted(c)).count();
-    // A relative path needs the same prefix and root.
-    if roots(&from[..common]) < roots(&from).max(roots(&to)) {
+    // A relative path needs the same prefix and root, and a folder in
+    // common below it: one that climbs to the root is no more movable than
+    // the absolute path, and harder to read.
+    let shared_roots = roots(&from[..common]);
+    if shared_roots < roots(&from).max(roots(&to)) || common == shared_roots {
         return target.to_path_buf();
     }
     let mut parts: Vec<String> = vec!["..".to_string(); from.len() - common];
@@ -1765,7 +1768,8 @@ mod tests {
             within(&folder, &at("/work/data/dataset.toml")),
             Path::new("../data/dataset.toml")
         );
-        assert_eq!(within(&folder, &at("/data/x")), Path::new("../../data/x"));
+        // Nothing in common but the root: the absolute path.
+        assert_eq!(within(&folder, &at("/data/x")), at("/data/x"));
         assert_eq!(within(&folder, &at("/work")), Path::new(".."));
         // The relative path leads back to the target.
         for target in ["/work/data/dataset.toml", "/data/x", "/work/project/a"] {

@@ -825,8 +825,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left alone.
 - `vcal project init` writes the manifest, data folder and seed it names
   relative to the project folder (`../captures/dataset.toml` for a
-  sibling), absolute only on another drive, so a project moves with its
-  data.
+  sibling), absolute only on another drive or when the two share nothing
+  but the filesystem root, so a project moves with its data.
 - `-o` makes the folder it writes into: `vcal seed from-runs` and
   `vcal seed from-spec` no longer fail after all their work on a missing
   folder, and `vcal init -o` makes its folder too.
